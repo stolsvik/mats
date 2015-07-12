@@ -1,0 +1,6 @@
+include 'mats-lib', 'mats-util', 'mats-test', 'mats-lib-test', 'mats-impl-jms'
+
+println "** Java Version:   "+System.getProperty("java.version")
+println "** Groovy Version: "+GroovySystem.getVersion()
+println "** Gradle Version: "+gradle.gradleVersion
+

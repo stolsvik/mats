@@ -1,0 +1,86 @@
+subprojects {
+    // The Gradle Wrapper generation task.
+    task wrapper(type: Wrapper) { gradleVersion = "2.5" }
+
+    apply plugin: 'java'
+    apply plugin: 'maven'
+    apply plugin: 'eclipse'
+
+    repositories { mavenCentral() }
+
+    group = 'com.stolsvik.mats'
+    version = '0.1-SNAPSHOT'
+
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+
+    dependencies {
+        compile 'org.slf4j:slf4j-api:1.7.+'
+
+        testCompile 'junit:junit:4.11'
+    }
+
+    project.buildDir = 'build-gradle'
+
+    task javadocJar(type: Jar) {
+        classifier = 'javadoc'
+        from javadoc
+    }
+    
+    task sourcesJar(type: Jar) {
+        classifier = 'sources'
+        from sourceSets.main.allSource
+    }
+
+    jar {
+        manifest {
+            attributes 'Implementation-Title': 'MATS',
+               'Implementation-Version': version
+        }
+    }
+
+    // ------------------------------------------------
+    // -- Boring shit, should be a plugin.
+
+    task systemInformation << {
+        println "\n** Java properties [System.getProperties()], sorted:\n"
+        System.properties.sort().each { k, v ->
+            println("$k = $v")
+        }
+        println "\n** Environment [System.getenv()], sorted:\n"
+        System.env.sort().each { k, v ->
+            println("$k = $v")
+        }
+        println ''
+        println "** Java Version:   "+System.getProperty("java.version")
+        println "** Groovy Version: "+groovy.lang.GroovySystem.getVersion()
+        println "** Gradle Version: "+gradle.gradleVersion
+    }
+
+    // Always start from scratch.
+    tasks.eclipse.dependsOn(cleanEclipse)
+    eclipse {
+        project { natures 'org.springsource.ide.eclipse.gradle.core.nature'; }
+
+        classpath {
+            defaultOutputDir = file('build-eclipse')
+
+            // Be specific about the java version
+            containers 'org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8'
+
+            file {
+                // Remove the default added classpath entry "Eclipse-default JRE"
+                whenMerged { classpath ->
+                    // Remove the one we don't want - the default one (since we add a specific, cannot have both).
+                    classpath.entries.removeAll { entry ->
+                        entry.kind == "con" && entry.path == "org.eclipse.jdt.launching.JRE_CONTAINER"
+                    }
+                    // Just dump the entries so that we can see them
+                    classpath.entries.findAll { entry ->
+                        println("Entry:"+ entry);
+                    }
+                }
+            }
+        }
+    }
+}

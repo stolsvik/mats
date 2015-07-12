@@ -1,0 +1,7 @@
+dependencies {
+    compile project(":mats-lib")
+    compile project(":mats-util")
+
+    testCompile 'org.slf4j:log4j-over-slf4j:1.7.+'
+    testCompile 'ch.qos.logback:logback-classic:1.1.+'
+}

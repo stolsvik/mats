@@ -1,0 +1,5 @@
+dependencies {
+    compile project(":mats-lib")
+    compile project(":mats-util")
+}
+
