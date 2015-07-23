@@ -1,3 +1,5 @@
+// mats-lib
+
 dependencies {
-    compile 'javax.jms:jms-api:1.1-rev-1'
+    // None so far. It is the implementations that take the hit.
 }

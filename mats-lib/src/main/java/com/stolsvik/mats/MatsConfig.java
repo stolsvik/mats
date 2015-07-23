@@ -58,7 +58,7 @@ public interface MatsConfig {
      * All three of {@link MatsFactory}, {@link MatsEndpoint} and {@link MatsStage} implements this
      * interface.
      */
-    interface StartClosable extends Closeable {
+    interface StartClosable {
         /**
          * This method is idempotent, calling it when the endpoint is already running has no effect.
          * <p>
@@ -76,7 +76,6 @@ public interface MatsConfig {
          * <p>
          * Further documentation on extensions.
          */
-        @Override
         void close();
     }
 }

@@ -1,5 +1,36 @@
-dependencies {
-    compile project(":mats-lib")
-    compile project(":mats-util")
+// mats-test
+
+configurations {
+    // http://stackoverflow.com/questions/13925724/providedcompile-without-war-plugin
+    provided
+}
+// Add the "provided" configuration to the main and test classpaths.
+sourceSets {
+    main.compileClasspath += configurations.provided
+    test.compileClasspath += configurations.provided
+    test.runtimeClasspath += configurations.provided
 }
 
+// Add the "provided" configuration to IDEA and Eclipse.
+// idea.module.scopes.PROVIDED.plus += configurations.provided
+// eclipse.classpath.plusConfigurations += [ configurations.provided ]
+eclipse.classpath.plusConfigurations += [ configurations.provided ]
+
+dependencies {
+    // TOOD: Preliminary dep on JMS MATS impl
+    compile project(':mats-impl-jms')
+
+    // TODO: Preliminary dep on ActiveMQ BROKER
+    compile 'org.apache.activemq:activemq-broker:5.11.+'
+
+    // Dep on the actual MATS library    
+    compile project(':mats-lib')
+    // Dep on the utils of MATS
+    compile project(':mats-util')
+    
+    // The JUnit library
+    provided 'junit:junit:4.+'
+    
+    // TODO: Remove Mockito - used when creating the lib.
+    compile 'org.mockito:mockito-all:1.9.5'
+}

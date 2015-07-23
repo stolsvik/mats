@@ -6,7 +6,8 @@ import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
-import com.stolsvik.mats.MatsInitiate.InitiateLambda;
+import com.stolsvik.mats.MatsInitiator.InitiateLambda;
+import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 
 /**
  * The start point for all interaction with MATS - you need to get hold of an instance of this interface to be able to
@@ -26,6 +27,10 @@ public interface MatsFactory extends StartClosable {
      * Sets up a {@link MatsEndpoint} on which you will add stages. The first stage is the one that will receive the
      * incoming (typically request) DTO, while any subsequent stage is invoked when the service that the previous stage
      * sent a request to, replies.
+     * <p>
+     * Unless the state object was sent along with request or invocation, the first stage will get a newly constructed
+     * "empty" state instance, while the subsequent stages will get the state instance in the form it was left in the
+     * previous stage.
      * 
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
@@ -49,10 +54,11 @@ public interface MatsFactory extends StartClosable {
      * Sets up a {@link MatsEndpoint} that just contains one stage, useful for simple
      * "request the full person data for this persionId" scenarios. This sole stage is supplied directly, using a
      * specialization of the processor lambda which does not have state (as there is only one stage, there is no other
-     * stage to pass state to), but which can return the reply by simply issuing
+     * stage to pass state to), but which can return the reply by simply returning it on exit from the lambda.
      * <p>
-     * Do note that this is just a convenience for a often-used scenario where for example a request will just be looked
-     * up in the backing data store, and replied directly, not needing any multi-stage processing.
+     * Do note that this is just a convenience for the often-used scenario where for example a request will just be
+     * looked up in the backing data store, and replied directly, using only one stage, not needing any multi-stage
+     * processing.
      * 
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
@@ -141,6 +147,20 @@ public interface MatsFactory extends StartClosable {
             ConfigLambda<EndpointConfig> configLambda, ProcessLambda<S, I, Void> processor);
 
     /**
+     * The way to start a MATS process: Get hold of a {@link MatsInitiator}, and fire off messages!
+     * <p>
+     * <b>Notice: You are not supposed to get one per sent message, rather either just one for the entire application,
+     * or for each component:</b> It will have an underlying backend connection attached to it, and should hence also be
+     * closed for a clean application shutdown.
+     * 
+     * @param initiatorId
+     *            a fictive "endpointId" representing the "initiating endpoint".
+     * @return a {@link MatsInitiator}, on which messages can be {@link MatsInitiator#initiate(InitiateLambda)
+     *         initiated}.
+     */
+    MatsInitiator getInitiator(String initiatorId);
+
+    /**
      * "Releases" any start-waiting endpoints, read up on {@link #close}. Unless {@link #close()} has been invoked
      * first, this method has no effect.
      */
@@ -148,27 +168,18 @@ public interface MatsFactory extends StartClosable {
     void start();
 
     /**
-     * Stops the factory, which will invoke {@link MatsEndpoint#close()} on all the endpoints that has been created by
-     * it.
+     * Stops the factory, which will invoke {@link MatsEndpoint#close()} on all the endpoints, and
+     * {@link MatsInitiator#close()} on all initiators, that has been created by it. Meant for application shutdown.
      * <p>
-     * <b>If this is invoked before any endpoint is created, the endpoints will not start even though
+     * <b>However, if this is invoked before any endpoint is created, the endpoints will not start even though
      * {@link MatsEndpoint#start()} is invoked on them, but will wait till {@link #start()} is invoked on the
      * factory.</b> This can be useful to halt endpoint startup until the entire application is finished configured, so
      * that one does not end in a situation where an endpoint receives a message and starts processing it, employing
-     * services that have not yet finished configuration.
-     * <p>
-     * Either this functionality, or the {@link FactoryConfig#setStartDelay(int)} should probably be employed.
+     * services that have not yet finished configuration. <b>Either this functionality, or the
+     * {@link FactoryConfig#setStartDelay(int)} should probably be employed for any appliction.</b>
      */
     @Override
     void close();
-
-    /**
-     * Initiates a new message (request or invocation) out to an endpoint.
-     * 
-     * @param lambda
-     *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
-     */
-    void initiate(InitiateLambda lambda);
 
     /**
      * Provides for a way to configure factory-wide elements and defaults.
@@ -179,8 +190,8 @@ public interface MatsFactory extends StartClosable {
 
         /**
          * Sets the start delay, which may be necessary if there are startup asynchronicity that may prevent the
-         * endpoints from working properly if they are started right away, e.g. some service has not yet started.
-         * Defaults to 0 ms, while 2500 ms should be enough for anyone.
+         * endpoints from working properly if they are started right away, e.g. some application service has not yet
+         * started. Defaults to 0 ms, while 2500 ms should be enough for anyone.
          * <p>
          * One should probably either use this functionality, or make sure the {@link MatsFactory} is constructed in a
          * {@link MatsFactory#close() stopped condition}, only starting it when the entire application is finished with
@@ -191,5 +202,22 @@ public interface MatsFactory extends StartClosable {
          * @return the {@link FactoryConfig} for method chaining.
          */
         FactoryConfig setStartDelay(int milliseconds);
+
+        /**
+         * @return the suggested key on which to store the {@link MatsTrace} if the underlying mechanism uses a Map,
+         *         e.g. a {@code MapMessage} of JMS. Defaults to <code>"mats:trace"</code>.
+         */
+        default String getMatsTraceKey() {
+            return "mats:trace";
+        }
+
+        /**
+         * @return the suggested prefix for the messaging system's queues and topics that MATS uses. Defaults to
+         *         <code>"mats:"</code>. 
+         */
+        default String getMatsDestinationPrefix() {
+            return "mats:";
+        }
+
     }
 }

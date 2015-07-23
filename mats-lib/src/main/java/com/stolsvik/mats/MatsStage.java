@@ -5,7 +5,8 @@ import com.stolsvik.mats.MatsConfig.StartClosable;
 /**
  * A representation of a process stage of a {@link MatsEndpoint}. Either constructed implicitly (for single-stage
  * endpoints, and terminators), or by invoking the
- * {@link MatsEndpoint#stage(Class, com.stolsvik.mats.MatsEndpoint.ProcessLambda) MatsEndpoint.stage(...)}-methods
+ * {@link MatsEndpoint#stage(Class, com.stolsvik.mats.MatsEndpoint.ProcessLambda) MatsEndpoint.stage(...)}-methods on
+ * {@link MatsFactory#staged(String, Class, Class) multi-stage} endpoints.
  * 
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */

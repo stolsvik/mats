@@ -3,11 +3,12 @@ package com.stolsvik.mats;
 import java.util.List;
 
 import com.stolsvik.mats.MatsConfig.StartClosable;
-import com.stolsvik.mats.MatsInitiate.InitiateLambda;
+import com.stolsvik.mats.MatsInitiator.InitiateLambda;
+import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 
 /**
  * Represents a MATS Endpoint.
- * 
+ *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
 public interface MatsEndpoint<S, R> extends StartClosable {
@@ -19,7 +20,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
 
     /**
      * Adds a new stage to a multi-stage endpoint.
-     * 
+     *
      * @param <I>
      *            the type of the incoming DTO. The very first stage's incoming DTO is the endpoint's incoming DTO.
      * @param processor
@@ -32,7 +33,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      * is just a convenience that lets the developer reply from the endpoint with a <code>return replyDTO</code>
      * statement - you may just as well add a standard stage, and invoke the {@link ProcessContext#reply(Object)} method
      * (and remember to start it, as that is then obviously not done automatically).
-     * 
+     *
      * @param <I>
      *            the type of the incoming DTO. The very first stage's incoming DTO is the endpoint's incoming DTO.
      * @param processor
@@ -106,7 +107,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
         /**
          * Attaches a binary payload to the next outgoing message, being it a request or a reply. Note that for
          * initiations, you do the same on the {@link MatsInitiate} instance.
-         * 
+         *
          * @param key
          *            the key on which to store the binary payload.
          * @param payload
@@ -117,7 +118,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
         /**
          * Attaches a String payload to the next outgoing message, being it a request or a reply. Note that for
          * initiations, you do the same on the {@link MatsInitiate} instance.
-         * 
+         *
          * @param key
          *            the key on which to store the String payload.
          * @param payload
@@ -130,7 +131,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
          * set to the next stage in the multi-stage endpoint. This will throw if the current process stage is a
          * terminator, single-stage endpoint or the last endpoint of a multi-stage endpoint, as there then is no next
          * stage to reply to.
-         * 
+         *
          * @param endpointId
          *            which endpoint to invoke
          * @param requestDto
@@ -147,7 +148,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
          * the last. (You should then obviously not also invoke {@link #request(String, Object)} or
          * {@link #next(Object)} unless you have explicit handling of the messy result, either in the downward stages or
          * on the endpoint that might get two replies for one request).
-         * 
+         *
          * @param replyDto
          *            the reply DTO to return to the invoker.
          */
@@ -156,20 +157,24 @@ public interface MatsEndpoint<S, R> extends StartClosable {
         /**
          * Invokes the next stage of a multi-stage endpoint directly, instead of going through a request-reply to some
          * service. The rationale for this method is that in certain situation you might not need to invoke some service
-         * after all: Basically, you can emulate a <code>if (condition) { invoke service }</code>.
-         * 
+         * after all: Basically, you can do something like <code>if (condition) { request service } else { next }</code>
+         * .
+         *
          * @param incomingDto
          *            the object for the next stage's incoming DTO, which must match what the next stage expects. When
          *            using this method to skip a request, it probably often makes sense to set it to <code>null</code>,
-         *            which the next stage then must handle specifically.
+         *            which the next stage then must handle correctly.
          */
         void next(Object incomingDto);
 
         /**
          * Initiates a new message out to an endpoint. This is effectively the same as invoking
-         * {@link MatsFactory#initiate(InitiateLambda lambda) the same method} on the {@link MatsFactory}, only with
-         * this method (within a process stage) the traceId and from-endpointId is predefined.
-         * 
+         * {@link MatsInitiator#initiate(InitiateLambda lambda) the same method} on a {@link MatsInitiator} gotten via
+         * {@link MatsFactory#getInitiator(String)}, only that this way works within the transactional context of the
+         * {@link MatsStage} which this method is invoked within. Also, the traceId and from-endpointId is predefined,
+         * but it is still recommended to set the traceId, as that will append the new string on the existing traceId,
+         * making log tracking (e.g. when debugging) better.
+         *
          * @param lambda
          *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
          */
@@ -210,8 +215,8 @@ public interface MatsEndpoint<S, R> extends StartClosable {
     }
 
     /**
-     * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} which cannot reply - used for terminator
-     * endpoints. It has state, as the initiator typically have state that it wants the terminator to get.
+     * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} which does not have reply specified - used for
+     * terminator endpoints. It has state, as the initiator typically have state that it wants the terminator to get.
      */
     @FunctionalInterface
     interface ProcessTerminatorLambda<S, I> {
