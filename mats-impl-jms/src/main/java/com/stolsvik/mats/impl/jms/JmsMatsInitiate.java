@@ -89,11 +89,23 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
 
     @Override
     public void invoke(Object requestDto) {
+        invoke(null, requestDto);
+    }
+
+    @Override
+    public void invoke(Object requestStateDto, Object requestDto) {
         try {
             FactoryConfig factoryConfig = _parentFactory.getFactoryConfig();
 
             MatsTrace trace = MatsTrace.createNew(_traceId);
-            trace.addInvokeCall(_from, _to, _matsJsonSerializer.serializeObject(requestDto), Collections.emptyList());
+            String requestStateString = requestStateDto != null
+                    ? _matsJsonSerializer.serializeObject(requestStateDto)
+                    : null;
+
+            trace.addInvokeCall(_from, _to,
+                    _matsJsonSerializer.serializeObject(requestDto),
+                    Collections.emptyList(),
+                    requestStateString);
 
             MapMessage mm = _jmsSession.createMapMessage();
             mm.setString(factoryConfig.getMatsTraceKey(), _matsJsonSerializer.serializeMatsTrace(trace));
@@ -110,12 +122,6 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
         catch (JMSException e) {
             throw new MatsBackendException("Problems talking with the JMS API", e);
         }
-    }
-
-    @Override
-    public void invoke(Object requestStateDto, Object requestDto) {
-        // TODO Auto-generated method stub
-
     }
 
     @Override

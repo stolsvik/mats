@@ -13,21 +13,19 @@ public class Test_SimplestSendReceive extends AMatsTest {
     @Before
     public void setupTerminator() {
         matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class, (context, sto, dto) -> {
-            // Assert.assertEquals(42, sto.number);
-            // Assert.assertEquals("xyz", sto.string);
             matsLatch.resolve(sto, dto);
         });
     }
 
     @Test
     public void doTest() throws JMSException, InterruptedException {
-        StateTO sto = new StateTO(42, "TheAnswer");
-        DataTO dto = new DataTO(420, "AnotherAnswer");
+        StateTO sto = new StateTO(42, "StateAnswer");
+        DataTO dto = new DataTO(420, "DataAnswer");
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.to(TERMINATOR).invoke(dto);
+            msg.from(INITIATOR).to(TERMINATOR).invoke(sto, dto);
         });
         Result<StateTO, DataTO> result = matsLatch.waitForResult();
-        // Assert.assertEquals(sto, result.getState());
+        Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(dto, result.getData());
     }
 }

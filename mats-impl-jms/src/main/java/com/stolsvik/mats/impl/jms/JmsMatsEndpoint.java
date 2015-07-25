@@ -49,10 +49,11 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
     }
 
     @Override
-    public <I> void stage(Class<I> incomingClass, ProcessLambda<S, I, R> processor) {
+    public <I> void stage(Class<I> incomingMessageClass, ProcessLambda<S, I, R> processor) {
         // Make stageId, which is the endpointId for the first, then endpointId.stage1, stage2 etc.
         String stageId = _stages.size() == 0 ? _endpointId : _endpointId + "stage" + (_stages.size() + 1);
-        JmsMatsStage<S, I, R> stage = new JmsMatsStage<>(this, stageId, _queue, incomingClass, processor);
+        JmsMatsStage<S, I, R> stage = new JmsMatsStage<>(this, stageId, _queue,
+                _stateClass, incomingMessageClass, processor);
         // :: Set this next stage's Id on the previous stage, unless we're first, in which case there is no previous.
         if (_stages.size() > 0) {
             _stages.get(_stages.size() - 1).setNextStageId(stageId);

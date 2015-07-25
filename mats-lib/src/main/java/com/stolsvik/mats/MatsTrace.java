@@ -46,6 +46,8 @@ public class MatsTrace {
 
     private final List<Call> calls = new ArrayList<>();
 
+    private final List<StackState> stackStates = new ArrayList<>();
+
     public static MatsTrace createNew(String traceId) {
         return new MatsTrace(traceId);
     }
@@ -69,20 +71,131 @@ public class MatsTrace {
         REPLY
     }
 
-    public void addRequestCall(String from, String to, String replyTo, String data, List<String> stack) {
-        calls.add(new Call(CallType.REQUEST, from, to, replyTo, data, stack));
+    /**
+     * Adds a REQUEST Call, which is an invocation of a service where one expects a Reply from this service to go to a
+     * specified endpoint, typically the next stage in a multi-stage endpoint: Envision a normal invocation of some
+     * method that returns a value.
+     *
+     * @param from
+     *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
+     *            does not need the from specifier, as this is not where any replies go to.
+     * @param to
+     *            which endpoint that should get the request.
+     * @param data
+     *            the request data, most often a JSON representing the Request Data Transfer Object that the requesting
+     *            service expects to get.
+     * @param replyStack
+     *            the stack that the request shall use to decide who to reply to by popping the first element of the
+     *            list - that is, the first element of the list is who should get the reply for this request.
+     * @param replyState
+     *            the state data for the stageId that gets the reply to this request, that is, the state for the stageId
+     *            that is at the first element of the replyStack. Most often a JSON representing the State Transfer
+     *            Object for the multi-stage endpoint.
+     * @param initialState
+     *            an optional feature, whereby the state can be set for the initial stage of the requested endpoint.
+     *            Same stuff as replyState.
+     */
+    public void addRequestCall(String from, String to, String data, List<String> replyStack, String replyState,
+            String initialState) {
+        calls.add(new Call(CallType.REQUEST, from, to, data, replyStack));
+        // Add the replyState - i.e. the state that is outgoing from the current call, destined for the reply
+        // the parameter replyStack includes the replyTo stage/endpointId as first element, subtract this.
+        stackStates.add(new StackState(replyStack.size() - 1, replyState));
+        // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
+        if (initialState != null) {
+            stackStates.add(new StackState(replyStack.size(), initialState));
+        }
     }
 
-    public void addInvokeCall(String from, String to, String data, List<String> stack) {
-        calls.add(new Call(CallType.INVOKE, from, to, null, data, stack));
+    /**
+     * Adds an INVOKE Call, meaning a "request" which do not expect a Reply: Envision an invocation of a void-method, or
+     * an invocation of some method that returns the value, but where you invoke it as a void-method (not storing the
+     * result, e.g. map.remove("test") returns the removed value, but is often invoked without storing this.).
+     *
+     * @param from
+     *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
+     *            does not need the from specifier, as this is not where any replies go to.
+     * @param to
+     *            which endpoint that should get the request.
+     * @param data
+     *            the request data, most often a JSON representing the Request Data Transfer Object that the requesting
+     *            service expects to get.
+     * @param replyStack
+     *            for an INVOKE call, this would normally be an empty list.
+     * @param initialState
+     */
+    public void addInvokeCall(String from, String to, String data, List<String> replyStack, String initialState) {
+        calls.add(new Call(CallType.INVOKE, from, to, data, replyStack));
+        // Add any state meant for the initial stage ("stage0")
+        if (initialState != null) {
+            stackStates.add(new StackState(replyStack.size(), initialState));
+        }
     }
 
-    public void addReplyCall(String from, String to, String data, List<String> stack) {
-        calls.add(new Call(CallType.REPLY, from, to, null, data, stack));
+    /**
+     * Adds a REPLY Call, which happens when a requested service is finished with its processing and have some Reply to
+     * return. It then pops the stack (takes the first element of the stack), sets this as the "to" parameter, and
+     * provides the rest of the list as the "replyStack" parameter.
+     *
+     * @param from
+     *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
+     *            does not need the from specifier, as this is not where any replies go to.
+     * @param to
+     *            which endpoint that should get the request - for a REPLY Call, this is obtained by popping the first
+     *            element of the stack.
+     * @param data
+     *            the request data, most often a JSON representing the Request Data Transfer Object that the requesting
+     *            service expects to get.
+     * @param replyStack
+     *            for an REPLY call, this would normally be the rest of the list after the first element has been popped
+     *            of the stack.
+     */
+    public void addReplyCall(String from, String to, String data, List<String> replyStack) {
+        calls.add(new Call(CallType.REPLY, from, to, data, replyStack));
     }
 
     public Call getCurrentCall() {
+        // Return last element
         return calls.get(calls.size() - 1);
+    }
+
+    public String getCurrentState() {
+        // Return the state for the current stack depth (which is the number of stack elements below this).
+        return getState(getCurrentCall().stack.size());
+    }
+
+    /**
+     * Searches in the stack-list from the back (most recent) for the first element that is of the specified stackDepth.
+     * If a more shallow stackDepth than the specified is encountered, or the list is exhausted without the stackDepth
+     * being found, the search is terminated with null.
+     * <p>
+     * The point of the stack-list is the same as for the Call list: Monitoring and debugging, by keeping a history of
+     * all calls in the processing, along with the states that was present at each call point.
+     * <p>
+     * If "condensed" is on, the stack-list is - by the condensing algorithm - turned in to a pure stack, with the
+     * StackState for the most shallow stack element at position 0, while the deepest (and current) at end of list. The
+     * above-specified search algorithm still works, as it now will either find the element with the correct stack depth
+     * at the end of the list, or it is not there.
+     *
+     * @param stackDepth
+     *            the stack depth to find stack state for - it should be the size of the stack below you. For e.g. a
+     *            Terminator, it is 0. The first request adds a stack element, so it resides at stackDepth 1. Etc.
+     * @return the state String if found.
+     */
+    private String getState(int stackDepth) {
+        for (int i = stackStates.size() - 1; i >= 0; i++) {
+            StackState stackState = stackStates.get(i);
+            // ?: Have we reached a lower depth than ourselves?
+            if (stackDepth > stackState.depth) {
+                // -> Yes, we're at a lower depth: The rest can not possibly be meant for us.
+                break;
+            }
+            if (stackDepth == stackState.depth) {
+                return stackState.state;
+            }
+        }
+        // Did not find any stack state for us.
+        return null;
     }
 
     /**
@@ -103,8 +216,6 @@ public class MatsTrace {
 
         private final String to;
 
-        private final String replyTo;
-
         private final String data;
 
         private final List<String> stack;
@@ -114,16 +225,14 @@ public class MatsTrace {
             this.type = null;
             this.from = null;
             this.to = null;
-            this.replyTo = null;
             this.data = null;
             this.stack = null;
         }
 
-        Call(CallType type, String from, String to, String replyTo, String data, List<String> stack) {
+        Call(CallType type, String from, String to, String data, List<String> stack) {
             this.type = type;
             this.from = from;
             this.to = to;
-            this.replyTo = replyTo;
             this.data = data;
             this.stack = stack;
         }
@@ -144,16 +253,41 @@ public class MatsTrace {
             return to;
         }
 
-        public String getReplyTo() {
-            return replyTo;
-        }
-
         public String getData() {
             return data;
         }
 
         public List<String> getStack() {
             return stack;
+        }
+    }
+
+    public static class StackState {
+        private final int depth;
+        private final String state;
+
+        // Jackson JSON-lib needs a default constructor, but it can re-set finals.
+        private StackState() {
+            depth = 0;
+            state = null;
+        }
+
+        public StackState(int depth, String state) {
+            this.depth = depth;
+            this.state = state;
+        }
+
+        public int getDepth() {
+            return depth;
+        }
+
+        public String getState() {
+            return state;
+        }
+
+        @Override
+        public String toString() {
+            return getClass().getName() + ":depth=" + depth + ",state=" + state;
         }
     }
 }

@@ -26,18 +26,20 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
     private final JmsMatsEndpoint<S, R> _parentEndpoint;
     private final String _stageId;
     private final boolean _queue;
-    private final Class<I> _incomingClass;
+    private final Class<S> _stateClass;
+    private final Class<I> _incomingMessageClass;
     private final ProcessLambda<S, I, R> _processLambda;
 
     private final MatsStringSerializer _matsJsonSerializer;
     private final JmsMatsFactory _parentFactory;
 
-    public JmsMatsStage(JmsMatsEndpoint<S, R> parentEndpoint, String stageId, boolean queue, Class<I> incomingClass,
-            ProcessLambda<S, I, R> processLambda) {
+    public JmsMatsStage(JmsMatsEndpoint<S, R> parentEndpoint, String stageId, boolean queue,
+            Class<S> stateClass, Class<I> incomingMessageClass, ProcessLambda<S, I, R> processLambda) {
         _parentEndpoint = parentEndpoint;
         _stageId = stageId;
         _queue = queue;
-        _incomingClass = incomingClass;
+        _stateClass = stateClass;
+        _incomingMessageClass = incomingMessageClass;
         _processLambda = processLambda;
 
         _parentFactory = _parentEndpoint.getMatsFactory();
@@ -128,22 +130,26 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
                     }
 
                     String matsTraceString = matsMM.getString(factoryConfig.getMatsTraceKey());
+                    log.info("MatsTraceString:\n" + matsTraceString);
                     MatsTrace matsTrace = _matsJsonSerializer.deserializeMatsTrace(matsTraceString);
-                    Call currentCall = matsTrace.getCurrentCall();
 
+                    // :: Current Call
+                    Call currentCall = matsTrace.getCurrentCall();
                     if (!_stageId.equals(currentCall.getTo())) {
                         log.error(LOG_PREFIX + "The incoming MATS message is not to this Stage! "
                                 + "this:[" + _stageId + "], msg:[" + currentCall.getTo()
-                                + "]. Looping to fetch next message.\n" + matsMM);
-                        // TODO: Throw "RefuseMessge" thingy.
+                                + "]. Refusing this message.\n" + matsMM);
+                        // TODO: Ensure "RefuseMessge" semantics.
+                        _jmsSession.rollback();
                         continue;
                     }
 
                     log.info(LOG_PREFIX + "RECEIVED message from:[" + currentCall.getFrom() + "].");
 
-                    I incomingDto = _matsJsonSerializer.deserializeObject(currentCall.getData(), _incomingClass);
+                    I incomingDto = _matsJsonSerializer.deserializeObject(currentCall.getData(), _incomingMessageClass);
+                    S state = _matsJsonSerializer.deserializeObject(matsTrace.getCurrentState(), _stateClass);
                     try {
-                        _processLambda.process(null, null, incomingDto);
+                        _processLambda.process(null, state, incomingDto);
                     }
                     catch (Exception e) {
                         log.error("The processing stage of [" + _stageId + "] raised an Exception."
@@ -194,7 +200,7 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
         if (!(message instanceof MapMessage)) {
             log.error(LOG_PREFIX + "Got some JMS Message that is not instanceof MapMessage"
                     + " - cannot be MATS. Looping to fetch next message.\n" + message);
-            // TODO: Throw "RefuseMessge" thingy.
+            // TODO: Ensure "RefuseMessge" semantics.
             return null;
         }
         return (MapMessage) message;

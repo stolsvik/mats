@@ -1,7 +1,5 @@
 package com.stolsvik.mats.util;
 
-import javax.swing.DefaultBoundedRangeModel;
-
 import com.stolsvik.mats.MatsTrace;
 
 /**
@@ -15,14 +13,14 @@ import com.stolsvik.mats.MatsTrace;
  * mechanism, as this constitute the "wire-representation" of the protocol that {@link MatsTrace} represents.
  * <p>
  * One can envision the protocol being serialized in a binary fashion, getting much smaller wire representations.
- * 
+ *
  * @author Endre Stølsvik - 2015-07-22 - http://endre.stolsvik.com
  */
 public interface MatsStringSerializer {
     /**
      * Used for serializing the {@link MatsTrace}. The {@link MatsTrace} class is inherently serializable directly, but
      * it is possible to implement different serialization schemes.
-     * 
+     *
      * @param matsTrace
      *            the {@link MatsTrace} instance to serialize.
      * @return a string representation.
@@ -45,7 +43,7 @@ public interface MatsStringSerializer {
      * <p>
      * Also note that the ordinary serialization process for JSON also directly returns the toString()'ed values of any
      * {@link Number} or {@link Boolean}.
-     * 
+     *
      * @param object
      *            the object to serialize.
      * @return a String representation of the provided object.
@@ -60,12 +58,15 @@ public interface MatsStringSerializer {
      * endpoint or endpoint stage specify that you take String.class, while the sender sends JSONed objects. You will
      * then get the JSON directly, enabling handling different types of incoming JSONs - sort of how like
      * java.lang.Object parameters can receive whatever.
-     * 
+     * <p>
+     * If <code>null</code> is provided as the String parameter, then <code>null</code> shall be returned.
+     *
      * @param string
-     *            the String that should be deserialized into an object of Class T.
+     *            the String that should be deserialized into an object of Class T. If <code>null</code> is provided,
+     *            then <code>null</code> shall be returned.
      * @param type
      *            the Class that the supplied String representation is thought to represent.
-     * 
+     *
      * @return the reconstituted Object.
      */
     <T> T deserializeObject(String string, Class<T> type);

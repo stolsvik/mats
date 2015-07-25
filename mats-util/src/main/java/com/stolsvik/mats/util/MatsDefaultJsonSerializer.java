@@ -9,17 +9,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stolsvik.mats.MatsTrace;
 
 /**
- * Implementation of {@link MatsStringSerializer} that employs <a href="https://github.com/FasterXML/jackson">Jackson JSON
- * library</a> for serialization and deserialization.
+ * Implementation of {@link MatsStringSerializer} that employs <a href="https://github.com/FasterXML/jackson">Jackson
+ * JSON library</a> for serialization and deserialization.
  * <p>
  * The Jackson ObjectMapper is configured as such:
- * 
+ *
  * <pre>
  * ObjectMapper mapper = new ObjectMapper();
  * mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
  * mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
  * </pre>
- * 
+ *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public class MatsDefaultJsonSerializer implements MatsStringSerializer {
@@ -68,6 +68,9 @@ public class MatsDefaultJsonSerializer implements MatsStringSerializer {
 
     @Override
     public <T> T deserializeObject(String json, Class<T> type) {
+        if (json == null) {
+            return null;
+        }
         if (type == String.class) {
             // Well, this is certainly pretty obviously correct.
             @SuppressWarnings("unchecked")
