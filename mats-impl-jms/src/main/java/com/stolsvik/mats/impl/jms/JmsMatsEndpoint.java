@@ -50,8 +50,9 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
 
     @Override
     public <I> void stage(Class<I> incomingMessageClass, ProcessLambda<S, I, R> processor) {
+        // TODO: Refuse adding stages if already started, or if lastStage is added.
         // Make stageId, which is the endpointId for the first, then endpointId.stage1, stage2 etc.
-        String stageId = _stages.size() == 0 ? _endpointId : _endpointId + "stage" + (_stages.size() + 1);
+        String stageId = _stages.size() == 0 ? _endpointId : _endpointId + ".stage" + (_stages.size() + 1);
         JmsMatsStage<S, I, R> stage = new JmsMatsStage<>(this, stageId, _queue,
                 _stateClass, incomingMessageClass, processor);
         // :: Set this next stage's Id on the previous stage, unless we're first, in which case there is no previous.
@@ -63,6 +64,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
 
     @Override
     public <I> void lastStage(Class<I> incomingClass, ProcessReturnLambda<S, I, R> processor) {
+        // TODO: Refuse adding stages if already started, or if lastStage is added.
         // :: Wrap a standard ProcessLambda around the ProcessReturnLambda, performing the sole convenience it provides.
         stage(incomingClass, (processContext, state, incomingDto) -> {
             // Invoke the ProcessReturnLambda, holding on to the returned value from it.
@@ -70,6 +72,8 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
             // Replying with the returned value.
             processContext.reply(replyDto);
         });
+        // Since this is the last stage, we'll start it now.
+        start();
     }
 
     @Override

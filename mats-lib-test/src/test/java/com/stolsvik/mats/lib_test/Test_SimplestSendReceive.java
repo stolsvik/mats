@@ -18,15 +18,13 @@ public class Test_SimplestSendReceive extends AMatsTest {
 
     @Test
     public void doTest() throws JMSException, InterruptedException {
-        StateTO sto = new StateTO(42, "StateAnswer");
         DataTO dto = new DataTO(420, "DataAnswer");
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.from(INITIATOR).to(TERMINATOR).invoke(sto, dto);
+            msg.from(INITIATOR).to(TERMINATOR).invoke(dto);
         });
 
         // Wait synchronously - due to test scenario - for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
-        Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(dto, result.getData());
     }
 }

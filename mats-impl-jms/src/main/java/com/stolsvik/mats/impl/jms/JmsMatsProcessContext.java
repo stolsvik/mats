@@ -13,18 +13,20 @@ import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.util.MatsStringSerializer;
 
-public class JmsMatsProcessContext<R> implements ProcessContext<R>, JmsMatsStatics {
+public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsStatics {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsProcessContext.class);
 
     private final JmsMatsStage<?, ?, R> _matsStage;
     private final Session _jmsSession;
     private final MatsTrace _matsTrace;
+    private final S _sto;
 
-    public JmsMatsProcessContext(JmsMatsStage matsStage, Session jmsSession, MatsTrace matsTrace) {
+    public JmsMatsProcessContext(JmsMatsStage matsStage, Session jmsSession, MatsTrace matsTrace, S sto) {
         _matsStage = matsStage;
         _jmsSession = jmsSession;
         _matsTrace = matsTrace;
+        _sto = sto;
     }
 
     @Override
@@ -53,8 +55,19 @@ public class JmsMatsProcessContext<R> implements ProcessContext<R>, JmsMatsStati
 
     @Override
     public void request(String endpointId, Object requestDto) {
-        // TODO Auto-generated method stub
+        // :: Get infrastructure.
+        JmsMatsFactory parentFactory = _matsStage.getParentEndpoint().getParentFactory();
+        FactoryConfig factoryConfig = parentFactory.getFactoryConfig();
+        MatsStringSerializer matsStringSerializer = parentFactory.getMatsStringSerializer();
 
+        // :: Create next MatsTrace
+        List<String> stack = _matsTrace.getCurrentCall().getStack();
+        stack.add(0, _matsStage.getNextStageId());
+        MatsTrace requestMatsTrace = _matsTrace.addRequestCall(_matsStage.getStageId(), endpointId,
+                matsStringSerializer.serializeObject(requestDto), stack,
+                matsStringSerializer.serializeObject(_sto), null);
+
+        sendMessage(log, _jmsSession, factoryConfig, matsStringSerializer, requestMatsTrace, endpointId, "REQUEST");
     }
 
     @Override

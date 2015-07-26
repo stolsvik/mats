@@ -60,6 +60,10 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
         _nextStageId = nextStageId;
     }
 
+    String getNextStageId() {
+        return _nextStageId;
+    }
+
     JmsMatsEndpoint<S, R> getParentEndpoint() {
         return _parentEndpoint;
     }
@@ -154,11 +158,19 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
 
                     log.info(LOG_PREFIX + "RECEIVED message from:[" + currentCall.getFrom() + "].");
 
+                    // :: Current State. If null, then make an empty object instead.
+                    String currentState = matsTrace.getCurrentState();
+                    currentState = (currentState != null ? currentState : "{}");
+                    S currentSto = _matsJsonSerializer.deserializeObject(currentState, _stateClass);
+                    log.info("State object: " + currentSto);
+
+                    // :: Incoming DTO
                     I incomingDto = _matsJsonSerializer.deserializeObject(currentCall.getData(), _incomingMessageClass);
-                    S state = _matsJsonSerializer.deserializeObject(matsTrace.getCurrentState(), _stateClass);
+
+                    // :: Invoke the process lambda (stage processor).
                     try {
-                        _processLambda.process(new JmsMatsProcessContext<R>(this, _jmsSession, matsTrace),
-                                state, incomingDto);
+                        _processLambda.process(new JmsMatsProcessContext<S, R>(this, _jmsSession, matsTrace,
+                                currentSto), currentSto, incomingDto);
                     }
                     catch (Exception e) {
                         log.error("The processing stage of [" + _stageId + "] raised an Exception."

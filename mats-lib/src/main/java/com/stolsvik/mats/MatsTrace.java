@@ -189,7 +189,7 @@ public class MatsTrace implements Cloneable {
      * @return the state String if found.
      */
     private String getState(int stackDepth) {
-        for (int i = stackStates.size() - 1; i >= 0; i++) {
+        for (int i = stackStates.size() - 1; i >= 0; i--) {
             StackState stackState = stackStates.get(i);
             // ?: Have we reached a lower depth than ourselves?
             if (stackDepth > stackState.depth) {

@@ -53,10 +53,10 @@ public class AMatsTest {
                 throw new AssertionError(StateTO.class.getSimpleName() + " was attempted equalled to [" + obj + "].");
             }
             StateTO other = (StateTO) obj;
-            if ((this.string == null) && (other.string != null)) {
+            if ((this.string == null) ^ (other.string == null)) {
                 return false;
             }
-            return (this.number == other.number) && (this.string.equals(other.string));
+            return (this.number == other.number) && ((this.string == null) || (this.string.equals(other.string)));
         }
 
         @Override
@@ -95,10 +95,10 @@ public class AMatsTest {
                 throw new AssertionError(StateTO.class.getSimpleName() + " was attempted equalled to [" + obj + "].");
             }
             DataTO other = (DataTO) obj;
-            if ((this.string == null) && (other.string != null)) {
+            if ((this.string == null) ^ (other.string == null)) {
                 return false;
             }
-            return (this.number == other.number) && (this.string.equals(other.string));
+            return (this.number == other.number) && ((this.string == null) || (this.string.equals(other.string)));
         }
 
         @Override

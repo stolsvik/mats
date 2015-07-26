@@ -70,8 +70,9 @@ public class JmsMatsFactory implements MatsFactory {
 
     @Override
     public <S, R> MatsEndpoint<S, R> staged(String endpointId, Class<S> stateClass, Class<R> replyClass) {
-        // TODO Auto-generated method stub
-        return null;
+        JmsMatsEndpoint<S, R> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, stateClass, replyClass);
+        _createdEndpoints.add(endpoint);
+        return endpoint;
     }
 
     @Override
