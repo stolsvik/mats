@@ -5,9 +5,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import javax.jms.JMSException;
-import javax.jms.MapMessage;
-import javax.jms.MessageProducer;
-import javax.jms.Queue;
 import javax.jms.Session;
 
 import org.slf4j.Logger;
@@ -24,18 +21,18 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
 
     private final JmsMatsFactory _parentFactory;
     private final Session _jmsSession;
-    private final MatsStringSerializer _matsJsonSerializer;
+    private final MatsStringSerializer _matsStringSerializer;
 
     JmsMatsInitiate(JmsMatsFactory parentFactory, Session jmsSession, MatsStringSerializer matsJsonSerializer) {
         _parentFactory = parentFactory;
         _jmsSession = jmsSession;
-        _matsJsonSerializer = matsJsonSerializer;
+        _matsStringSerializer = matsJsonSerializer;
     }
 
     private String _traceId;
     private String _from;
     private String _to;
-    private String _reply;
+    private String _replyTo;
     private Map<String, byte[]> _binaries = new LinkedHashMap<>();
     private Map<String, String> _strings = new LinkedHashMap<>();
 
@@ -58,8 +55,8 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
     }
 
     @Override
-    public MatsInitiate reply(String endpointId) {
-        _reply = endpointId;
+    public MatsInitiate replyTo(String endpointId) {
+        _replyTo = endpointId;
         return this;
     }
 
@@ -76,15 +73,41 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
     }
 
     @Override
-    public void request(Object requestDto, Object replyStateDto) {
-        // TODO Auto-generated method stub
-
+    public void request(Object replySto, Object requestDto) {
+        request(null, replySto, requestDto);
     }
 
     @Override
-    public void request(Object requestStateDto, Object requestDto, Object replyStateDto) {
-        // TODO Auto-generated method stub
+    public void request(Object requestSto, Object replyStateDto, Object requestDto) {
+        if (_from == null) {
+            throw new NullPointerException(
+                    "Both 'from', 'to' and 'replyTo' must be set when request(..): Missing 'from'.");
+        }
+        if (_to == null) {
+            throw new NullPointerException(
+                    "Both 'from', 'to' and 'replyTo' must be set when request(..): Missing 'to'.");
+        }
+        if (_replyTo == null) {
+            throw new NullPointerException(
+                    "Both 'from', 'to' and 'replyTo' must be set when request(..): Missing 'replyTo'.");
+        }
+        FactoryConfig factoryConfig = _parentFactory.getFactoryConfig();
 
+        MatsTrace matsTrace = MatsTrace.createNew(_traceId);
+
+        matsTrace = matsTrace.addRequestCall(_from, _to, _matsStringSerializer.serializeObject(requestDto),
+                Collections.singletonList(_replyTo),
+                _matsStringSerializer.serializeObject(replyStateDto),
+                _matsStringSerializer.serializeObject(requestSto));
+
+        sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, matsTrace, _to, "new REQUEST");
+        try {
+            _jmsSession.commit();
+        }
+        catch (JMSException e) {
+            throw new MatsBackendException("Problems committing when sending new REQUEST message to [" + _to
+                    + "] via JMS API", e);
+        }
     }
 
     @Override
@@ -93,34 +116,29 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
     }
 
     @Override
-    public void invoke(Object requestStateDto, Object requestDto) {
+    public void invoke(Object requestSto, Object requestDto) {
+        if (_from == null) {
+            throw new NullPointerException("Both 'from' and 'to' must be set when invoke(..): Missing 'from'.");
+        }
+        if (_to == null) {
+            throw new NullPointerException("Both 'from' and 'to' must be set when invoke(..): Missing 'to'.");
+        }
+        FactoryConfig factoryConfig = _parentFactory.getFactoryConfig();
+
+        MatsTrace matsTrace = MatsTrace.createNew(_traceId);
+
+        matsTrace = matsTrace.addInvokeCall(_from, _to,
+                _matsStringSerializer.serializeObject(requestDto),
+                Collections.emptyList(),
+                _matsStringSerializer.serializeObject(requestSto));
+
+        sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, matsTrace, _to, "new INVOKE");
         try {
-            FactoryConfig factoryConfig = _parentFactory.getFactoryConfig();
-
-            MatsTrace trace = MatsTrace.createNew(_traceId);
-            String requestStateString = requestStateDto != null
-                    ? _matsJsonSerializer.serializeObject(requestStateDto)
-                    : null;
-
-            trace.addInvokeCall(_from, _to,
-                    _matsJsonSerializer.serializeObject(requestDto),
-                    Collections.emptyList(),
-                    requestStateString);
-
-            MapMessage mm = _jmsSession.createMapMessage();
-            mm.setString(factoryConfig.getMatsTraceKey(), _matsJsonSerializer.serializeMatsTrace(trace));
-
-            Queue destination = _jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + _to);
-            log.info("Created destionation to send to: [" + destination + "].");
-            MessageProducer producer = _jmsSession.createProducer(destination);
-
-            log.info(LOG_PREFIX + "SENDING new INVOKE message to [" + _to + "].");
-
-            producer.send(mm);
             _jmsSession.commit();
         }
         catch (JMSException e) {
-            throw new MatsBackendException("Problems talking with the JMS API", e);
+            throw new MatsBackendException("Problems committing when sending new INVOKE message to [" + _to
+                    + "] via JMS API", e);
         }
     }
 

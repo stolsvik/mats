@@ -18,16 +18,18 @@ import com.stolsvik.mats.MatsTrace;
  */
 public interface MatsStringSerializer {
     /**
-     * Used for serializing the {@link MatsTrace}. The {@link MatsTrace} class is inherently serializable directly, but
-     * it is possible to implement different serialization schemes.
+     * Used for serializing the {@link MatsTrace} to a string. The {@link MatsTrace} class is inherently serializable
+     * directly, but it is possible to implement different serialization schemes.
      *
      * @param matsTrace
      *            the {@link MatsTrace} instance to serialize.
-     * @return a string representation.
+     * @return a string representation of the provided {@link MatsTrace}.
      */
     String serializeMatsTrace(MatsTrace matsTrace);
 
     /**
+     * Used for deserializing a string into a {@link MatsTrace}
+     *
      * @param string
      *            the String to reconstitute the {@link MatsTrace} from.
      * @return the reconstituted {@link MatsTrace}.
@@ -43,15 +45,17 @@ public interface MatsStringSerializer {
      * <p>
      * Also note that the ordinary serialization process for JSON also directly returns the toString()'ed values of any
      * {@link Number} or {@link Boolean}.
+     * <p>
+     * If <code>null</code> is provided as the Object parameter, then <code>null</code> shall be returned.
      *
      * @param object
-     *            the object to serialize.
+     *            the object to serialize. If <code>null</code> is provided, then <code>null</code> shall be returned.
      * @return a String representation of the provided object.
      */
     String serializeObject(Object object);
 
     /**
-     * Used for serializing deserialize Strings to STOs and DTOs.
+     * Used for deserializing Strings to STOs and DTOs.
      * <p>
      * Note that the {@link MatsDefaultJsonSerializer} handles String.class specially: If this is specified as type, you
      * will get the raw string no matter if it is JSON. This leads to an interesting possibility: You may for some
@@ -67,7 +71,7 @@ public interface MatsStringSerializer {
      * @param type
      *            the Class that the supplied String representation is thought to represent.
      *
-     * @return the reconstituted Object.
+     * @return the reconstituted Object (STO or DTO).
      */
     <T> T deserializeObject(String string, Class<T> type);
 }

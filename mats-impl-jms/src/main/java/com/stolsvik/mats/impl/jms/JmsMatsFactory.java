@@ -40,7 +40,7 @@ public class JmsMatsFactory implements MatsFactory {
         return _jmsConnectionFactory;
     }
 
-    MatsStringSerializer getMatsJsonSerializer() {
+    MatsStringSerializer getMatsStringSerializer() {
         return _matsJsonSerializer;
     }
 
@@ -84,8 +84,18 @@ public class JmsMatsFactory implements MatsFactory {
     @Override
     public <I, R> MatsEndpoint<Void, R> single(String endpointId, Class<I> incomingClass, Class<R> replyClass,
             ProcessSingleLambda<I, R> processor) {
-        // TODO Auto-generated method stub
-        return null;
+        JmsMatsEndpoint<Void, R> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, Void.class, replyClass);
+        // :: Wrap a standard ProcessLambda around the ProcessTerminatorLambda
+        endpoint.stage(incomingClass, (processContext, state, incomingDto) -> {
+            // Invoke the endpoint, storing the returned value... (Note: no state)
+            R reply = processor.process(processContext, incomingDto);
+            // ... and invoke reply on the context with that.
+            // (The only difference between a normal multi-stage and a single endpoint is this one convenience)
+            processContext.reply(reply);
+        });
+        _createdEndpoints.add(endpoint);
+        endpoint.start();
+        return endpoint;
     }
 
     @Override
@@ -202,5 +212,4 @@ public class JmsMatsFactory implements MatsFactory {
             return _running;
         }
     }
-
 }

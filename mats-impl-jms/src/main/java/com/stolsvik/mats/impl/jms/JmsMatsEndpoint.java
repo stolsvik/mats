@@ -32,7 +32,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
         _replyClass = replyClass;
     }
 
-    JmsMatsFactory getMatsFactory() {
+    JmsMatsFactory getParentFactory() {
         return _parentFactory;
     }
 

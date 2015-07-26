@@ -27,7 +27,7 @@ import java.util.List;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class MatsTrace {
+public class MatsTrace implements Cloneable {
 
     /**
      * Represents the version of the {@link MatsTrace} that the initiator were using, but also points out forward
@@ -44,9 +44,9 @@ public class MatsTrace {
 
     private final String traceId;
 
-    private final List<Call> calls = new ArrayList<>();
+    private List<Call> calls = new ArrayList<>(); // Not final due to clone-impl.
 
-    private final List<StackState> stackStates = new ArrayList<>();
+    private List<StackState> stackStates = new ArrayList<>(); // Not final due to clone-impl.
 
     public static MatsTrace createNew(String traceId) {
         return new MatsTrace(traceId);
@@ -95,16 +95,18 @@ public class MatsTrace {
      *            an optional feature, whereby the state can be set for the initial stage of the requested endpoint.
      *            Same stuff as replyState.
      */
-    public void addRequestCall(String from, String to, String data, List<String> replyStack, String replyState,
+    public MatsTrace addRequestCall(String from, String to, String data, List<String> replyStack, String replyState,
             String initialState) {
-        calls.add(new Call(CallType.REQUEST, from, to, data, replyStack));
+        MatsTrace clone = clone();
+        clone.calls.add(new Call(CallType.REQUEST, from, to, data, replyStack));
         // Add the replyState - i.e. the state that is outgoing from the current call, destined for the reply
         // the parameter replyStack includes the replyTo stage/endpointId as first element, subtract this.
-        stackStates.add(new StackState(replyStack.size() - 1, replyState));
+        clone.stackStates.add(new StackState(replyStack.size() - 1, replyState));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
-            stackStates.add(new StackState(replyStack.size(), initialState));
+            clone.stackStates.add(new StackState(replyStack.size(), initialState));
         }
+        return clone;
     }
 
     /**
@@ -124,12 +126,14 @@ public class MatsTrace {
      *            for an INVOKE call, this would normally be an empty list.
      * @param initialState
      */
-    public void addInvokeCall(String from, String to, String data, List<String> replyStack, String initialState) {
-        calls.add(new Call(CallType.INVOKE, from, to, data, replyStack));
+    public MatsTrace addInvokeCall(String from, String to, String data, List<String> replyStack, String initialState) {
+        MatsTrace clone = clone();
+        clone.calls.add(new Call(CallType.INVOKE, from, to, data, replyStack));
         // Add any state meant for the initial stage ("stage0")
         if (initialState != null) {
-            stackStates.add(new StackState(replyStack.size(), initialState));
+            clone.stackStates.add(new StackState(replyStack.size(), initialState));
         }
+        return clone;
     }
 
     /**
@@ -150,8 +154,10 @@ public class MatsTrace {
      *            for an REPLY call, this would normally be the rest of the list after the first element has been popped
      *            of the stack.
      */
-    public void addReplyCall(String from, String to, String data, List<String> replyStack) {
-        calls.add(new Call(CallType.REPLY, from, to, data, replyStack));
+    public MatsTrace addReplyCall(String from, String to, String data, List<String> replyStack) {
+        MatsTrace clone = clone();
+        clone.calls.add(new Call(CallType.REPLY, from, to, data, replyStack));
+        return clone;
     }
 
     public Call getCurrentCall() {
@@ -196,6 +202,20 @@ public class MatsTrace {
         }
         // Did not find any stack state for us.
         return null;
+    }
+
+    @Override
+    protected MatsTrace clone() {
+        MatsTrace cloned;
+        try {
+            cloned = (MatsTrace) super.clone();
+            cloned.calls = new ArrayList<>(calls); // Call are immutable
+            cloned.stackStates = new ArrayList<>(stackStates); // StackStaces are immutable
+            return cloned;
+        }
+        catch (CloneNotSupportedException e) {
+            throw new AssertionError("Implements Cloneable, so clone() should not throw.", e);
+        }
     }
 
     /**
@@ -257,8 +277,11 @@ public class MatsTrace {
             return data;
         }
 
+        /**
+         * @return a COPY of the stack.
+         */
         public List<String> getStack() {
-            return stack;
+            return new ArrayList<>(stack);
         }
     }
 

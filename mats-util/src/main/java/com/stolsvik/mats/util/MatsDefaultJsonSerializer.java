@@ -55,6 +55,9 @@ public class MatsDefaultJsonSerializer implements MatsStringSerializer {
 
     @Override
     public String serializeObject(Object object) {
+        if (object == null) {
+            return null;
+        }
         if (object instanceof String) {
             return (String) object;
         }

@@ -34,7 +34,7 @@ public interface MatsFactory extends StartClosable {
      * 
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#reply(String)} methods for this endpoint to get
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to get
      *            the message.
      * @param stateClass
      *            the class of the State DTO that will be sent along the stages.
@@ -62,7 +62,7 @@ public interface MatsFactory extends StartClosable {
      * 
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#reply(String)} methods for this endpoint to get
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to get
      *            the message.
      * @param incomingClass
      *            the class of the incoming (typically request) DTO.
@@ -94,7 +94,7 @@ public interface MatsFactory extends StartClosable {
      * 
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#reply(String)} methods for this endpoint to get
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to get
      *            the message.
      * @param stateClass
      *            the class of the State DTO that will may be provided by the
@@ -124,7 +124,7 @@ public interface MatsFactory extends StartClosable {
      * 
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#reply(String)} methods for this endpoint to get
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to get
      *            the message.
      * @param stateClass
      *            the class of the State DTO that will may be provided by the

@@ -11,14 +11,14 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
  * Provides a way to get a {@link MatsInitiate} instance "from the outside" of MATS, i.e. from a synchronous context. On
  * this instance, you invoke {@link #initiate(InitiateLambda)}, where the lambda will provide you with the necessary
  * {@link MatsInitiate} instance.
- * 
+ *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public interface MatsInitiator extends Closeable {
 
     /**
      * Initiates a new message (request or invocation) out to an endpoint.
-     * 
+     *
      * @param lambda
      *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
      */
@@ -43,7 +43,7 @@ public interface MatsInitiator extends Closeable {
      * <p>
      * To initiate a new message "from the inside", i.e. while already inside a {@link MatsStage processing stage} of an
      * endpoint, get it by invoking {@link ProcessContext#initiate(InitiateLambda)}.
-     * 
+     *
      * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
      */
     public interface MatsInitiate {
@@ -57,7 +57,7 @@ public interface MatsInitiator extends Closeable {
          * The traceId follows a MATS processing from the initiation until it is finished, usually in a Terminator.
          * <p>
          * It is set on the {@link MDC} of the SLF4J logging system, using the key "matsTraceId".
-         * 
+         *
          * @param traceId
          *            some world-unique Id, preferably set all the way back when some actual person performed some event
          *            (e.g. in a "new order" situation, the Id would best be set when the user clicked the "place order"
@@ -72,7 +72,7 @@ public interface MatsInitiator extends Closeable {
         /**
          * Overrides the Initiator Id that was set either with {@link MatsFactory#getInitiator(String)}, or implicitly
          * by the Endpoint (stage) Id from which {@link ProcessContext#initiate(InitiateLambda)} was invoked.
-         * 
+         *
          * @param initiatorId
          *            a fictive "endpointId" representing the "initiating endpoint".
          * @return the {@link MatsInitiate} for chaining.
@@ -81,7 +81,7 @@ public interface MatsInitiator extends Closeable {
 
         /**
          * Sets which MATS Endpoint this message should go.
-         * 
+         *
          * @param endpointId
          *            to which MATS Endpoint this message should go.
          * @return the {@link MatsInitiate} for chaining.
@@ -90,16 +90,16 @@ public interface MatsInitiator extends Closeable {
 
         /**
          * Specified which MATS Endpoint the reply of the invoked Endpoint should go to.
-         * 
+         *
          * @param endpointId
          *            which MATS Endpoint the reply of the invoked Endpoint should go to.
          * @return the {@link MatsInitiate} for chaining.
          */
-        MatsInitiate reply(String endpointId);
+        MatsInitiate replyTo(String endpointId);
 
         /**
          * Adds a binary payload to the endpoint, e.g. a PDF document.
-         * 
+         *
          * @param key
          *            the key on which this is set. A typical logic is to just use an {@link UUID} as key, and then
          *            reference the payload key in the Request DTO.
@@ -114,7 +114,7 @@ public interface MatsInitiator extends Closeable {
          * <p>
          * The rationale for having this is to not have to encode a largish string document inside the JSON structure
          * that carries the Request DTO.
-         * 
+         *
          * @param key
          *            the key on which this is set. A typical logic is to just use an {@link UUID} as key, and then
          *            reference the payload key in the Request DTO.
@@ -125,69 +125,99 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate addString(String key, String payload);
 
         /**
-         * The "normal" initiation method: All of from, to and reply must be set. A message is sent to a service, and
-         * the reply from that service will come to the specified reply endpointId, typically a terminator.
-         * 
+         * <i>The standard request initiation method</i>: All of from, to and replyTo must be set. A message is sent to
+         * a service, and the reply from that service will come to the specified reply endpointId, typically a
+         * terminator.
+         *
+         * @param replySto
+         *            the object that should be provided as STO to the service which get the reply.
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
-         * @param replyStateDto
-         *            the object that should be provided as STO to the service which get the reply.
          */
-        void request(Object requestDto, Object replyStateDto);
+        void request(Object replySto, Object requestDto);
 
         /**
-         * Variation of the normal initiation method, where the incoming state is sent along. This only makes sense if
-         * the same code base "owns" both the initiation code and the endpoint to which this request is sent.
-         * 
-         * @param requestStateDto
+         * <b>Variation of the request initiation method</b>, where the incoming state is sent along.
+         * <p>
+         * <b>This only makes sense if the same code base "owns" both the initiation code and the endpoint to which this
+         * message is sent.</b> It is mostly here for completeness, since it is <i>possible</i> to send state along with
+         * the message, but if employed between different services, it violates the premise that MATS is built on: State
+         * is private to the stages of a multi-stage endpoint, and the Request and Reply DTOs are the public interface.
+         *
+         * @param requestSto
          *            the object which the endpoint will get as its STO (State Transfer Object).
+         * @param replySto
+         *            the object that should be provided as STO to the service which get the reply.
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
-         * @param replyStateDto
-         *            the object that should be provided as STO to the service which get the reply.
          */
-        void request(Object requestStateDto, Object requestDto, Object replyStateDto);
+        void request(Object requestSto, Object replySto, Object requestDto);
 
         /**
-         * Sends a message to an endpoint, without expecting any reply. The 'reply' parameter must not be set.
-         * 
+         * Sends a message to an endpoint, without expecting any reply ("fire-and-forget"). The 'reply' parameter must
+         * not be set.
+         * <p>
+         * Note that the difference between request and invoke is only that replyTo is not set for invoke, otherwise the
+         * mechanism is exactly the same.
+         *
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
          */
         void invoke(Object requestDto);
 
         /**
-         * Variation of the invoke method, where the incoming state is sent along. This only makes sense if the same
-         * code base "owns" both the initiation code and the endpoint to which this request is sent.
-         * 
-         * @param requestStateDto
+         * <b>Variation of the {@link #invoke(Object)} method</b>, where the incoming state is sent along.
+         * <p>
+         * <b>This only makes sense if the same code base "owns" both the initiation code and the endpoint to which this
+         * message is sent.</b> It is mostly here for completeness, since it is <i>possible</i> to send state along with
+         * the message, but if employed between different services, it violates the premise that MATS is built on: State
+         * is private to the stages of a multi-stage endpoint, and the Request and Reply DTOs are the public interface.
+         *
+         * @param requestSto
          *            the object which the endpoint will get as its STO (State Transfer Object).
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
          */
-        void invoke(Object requestStateDto, Object requestDto);
+        void invoke(Object requestSto, Object requestDto);
 
         /**
          * Sends a message to a
          * {@link MatsFactory#subscriptionTerminator(String, Class, Class, MatsEndpoint.ProcessLambda)
          * SubscriptionTerminator}, employing the publish/subscribe pattern instead of message queues (topic in JMS
-         * terms). It is only possible to publish to SubscriptionTerminators as employing publish/subscribe for
-         * multi-stage services makes no sense.
-         * 
+         * terms). <b>This means that all of the live servers that are listening to this endpointId will receive the
+         * message, and if there are no live servers, then no one will receive it.</b>
+         * <p>
+         * The concurrency of a SubscriptionTerminator is always 1, as it only makes sense for there being only one
+         * receiver per server - otherwise it would just mean that all of the active listeners on one server would get
+         * the message, per semantics of the pub/sub.
+         * <p>
+         * It is only possible to publish to SubscriptionTerminators as employing publish/subscribe for multi-stage
+         * services makes no sense.
+         *
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
          */
         void publish(Object requestDto);
 
         /**
-         * Variation of the publish method, where the incoming state is sent along. This only makes sense if the same
-         * code base "owns" both the initiation code and the endpoint to which this request is sent.
-         * 
-         * @param requestStateDto
+         * <b>Variation of the {@link #publish(Object)} method</b>, where the incoming state is sent along.
+         * <p>
+         * <b>This only makes sense if the same code base "owns" both the initiation code and the endpoint to which this
+         * message is sent.</b> The possibility to send state along with the request makes most sense with the publish
+         * method: A SubscriptionTerminator is often paired with a Terminator, where the Terminator receives the
+         * message, typically a reply from a requested service, along with the state that was sent in the initiation.
+         * The terminator does any "needs to be guaranteed to be performed" state changes to e.g. database, and then
+         * passes the request - <b>along with the same state it received</b> - on to a SubscriptionTerminator. The
+         * SubscriptionTerminator performs any updates of any connected GUI clients, or for any other local states, e.g.
+         * invalidation of caches, <i>on all live servers listening to that endpoint</i>, the point being that if no
+         * servers are live at that moment, no one will process that message - but at the same time, there is obviously
+         * no GUI clients connected, nor are there are local state in form of caches that needs to be invalidated.
+         *
+         * @param requestSto
          *            the object which the endpoint will get as its STO (State Transfer Object).
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
          */
-        void publish(Object requestStateDto, Object requestDto);
+        void publish(Object requestSto, Object requestDto);
     }
 }

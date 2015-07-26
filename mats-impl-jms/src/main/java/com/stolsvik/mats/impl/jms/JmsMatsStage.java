@@ -42,8 +42,8 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
         _incomingMessageClass = incomingMessageClass;
         _processLambda = processLambda;
 
-        _parentFactory = _parentEndpoint.getMatsFactory();
-        _matsJsonSerializer = _parentFactory.getMatsJsonSerializer();
+        _parentFactory = _parentEndpoint.getParentFactory();
+        _matsJsonSerializer = _parentFactory.getMatsStringSerializer();
     }
 
     @Override
@@ -58,6 +58,14 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
 
     void setNextStageId(String nextStageId) {
         _nextStageId = nextStageId;
+    }
+
+    JmsMatsEndpoint<S, R> getParentEndpoint() {
+        return _parentEndpoint;
+    }
+
+    String getStageId() {
+        return _stageId;
     }
 
     @Override
@@ -114,7 +122,7 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
         while (_running) {
             try {
                 _jmsSession = _jmsConnection.createSession(true, 0);
-                FactoryConfig factoryConfig = _parentEndpoint.getMatsFactory().getFactoryConfig();
+                FactoryConfig factoryConfig = _parentEndpoint.getParentFactory().getFactoryConfig();
                 Destination destination = createJmsConsumer(factoryConfig);
                 MessageConsumer jmsConsumer = _jmsSession.createConsumer(destination);
                 _jmsConnection.start();
@@ -149,7 +157,8 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
                     I incomingDto = _matsJsonSerializer.deserializeObject(currentCall.getData(), _incomingMessageClass);
                     S state = _matsJsonSerializer.deserializeObject(matsTrace.getCurrentState(), _stateClass);
                     try {
-                        _processLambda.process(null, state, incomingDto);
+                        _processLambda.process(new JmsMatsProcessContext<R>(this, _jmsSession, matsTrace),
+                                state, incomingDto);
                     }
                     catch (Exception e) {
                         log.error("The processing stage of [" + _stageId + "] raised an Exception."

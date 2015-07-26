@@ -11,12 +11,13 @@ public class AMatsTest {
     protected Logger log = LoggerFactory.getLogger(getClass());
 
     protected String INITIATOR = getClass().getName() + ".INITIATOR";
+    protected String SERVICE = getClass().getName() + ".SERVICE";
     protected String TERMINATOR = getClass().getName() + ".TERMINATOR";
 
     @Rule
     public Rule_Mats matsRule = new Rule_Mats();
 
-    protected MatsTestLatch matsLatch = new MatsTestLatch();
+    protected MatsTestLatch matsTestLatch = new MatsTestLatch();
 
     /**
      * Testing State Transfer Object.
@@ -57,6 +58,11 @@ public class AMatsTest {
             }
             return (this.number == other.number) && (this.string.equals(other.string));
         }
+
+        @Override
+        public String toString() {
+            return "StateTO [number=" + number + ", string=" + string + "]";
+        }
     }
 
     /**
@@ -93,6 +99,11 @@ public class AMatsTest {
                 return false;
             }
             return (this.number == other.number) && (this.string.equals(other.string));
+        }
+
+        @Override
+        public String toString() {
+            return "DataTO [number=" + number + ", string=" + string + "]";
         }
     }
 }
