@@ -13,7 +13,7 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
  * The start point for all interaction with MATS - you need to get hold of an instance of this interface to be able to
  * code MATS endpoints, this is an implementation specific feature (you might want a JMS-specific {@link MatsFactory},
  * backed by a ActiveMQ-specific JMS ConnectioFactory).
- * 
+ *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
 public interface MatsFactory extends StartClosable {
@@ -31,11 +31,11 @@ public interface MatsFactory extends StartClosable {
      * Unless the state object was sent along with request or invocation, the first stage will get a newly constructed
      * "empty" state instance, while the subsequent stages will get the state instance in the form it was left in the
      * previous stage.
-     * 
+     *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to get
-     *            the message.
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to
+     *            get the message.
      * @param stateClass
      *            the class of the State DTO that will be sent along the stages.
      * @param replyClass
@@ -59,11 +59,11 @@ public interface MatsFactory extends StartClosable {
      * Do note that this is just a convenience for the often-used scenario where for example a request will just be
      * looked up in the backing data store, and replied directly, using only one stage, not needing any multi-stage
      * processing.
-     * 
+     *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to get
-     *            the message.
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to
+     *            get the message.
      * @param incomingClass
      *            the class of the incoming (typically request) DTO.
      * @param replyClass
@@ -84,67 +84,67 @@ public interface MatsFactory extends StartClosable {
     /**
      * Sets up a {@link MatsEndpoint} that contains a single stage that typically will be the reply-to endpointId for a
      * {@link MatsInitiate#request(Object, Object) request initiation}, or that can be used to send a "fire-and-forget"
-     * style {@link MatsInitiate#invoke(Object) invocation} to. The sole stage is supplied directly. This type of
-     * endpoint cannot reply, as it has no-one to reply to (hence "terminator").
+     * style {@link MatsInitiate#send(Object) invocation} to. The sole stage is supplied directly. This type of endpoint
+     * cannot reply, as it has no-one to reply to (hence "terminator").
      * <p>
      * Do note that this is just a convenience for a often-used scenario where a request goes out to some service, and
      * the reply needs to be handled, and then one is finished. There is nothing hindering you in setting the reply-to
      * endpointId to a multi-stage endpoint, and hence have the ability to do further request-replies on the reply from
      * the initial request.
-     * 
+     *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to get
-     *            the message.
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to
+     *            get the message.
+     * @param incomingClass
+     *            the class of the incoming (typically reply) DTO.
      * @param stateClass
      *            the class of the State DTO that will may be provided by the
      *            {@link MatsInitiate#request(Object, Object) request initiation} (or that was sent along with the
-     *            {@link MatsInitiate#invoke(Object, Object) invocation}).
-     * @param incomingClass
-     *            the class of the incoming (typically reply) DTO.
+     *            {@link MatsInitiate#send(Object, Object) invocation}).
      * @param processor
      *            the {@link MatsStage stage} that will be invoked to process the incoming message.
      * @return the {@link MatsEndpoint}, but you should not add any stages to it, as the sole stage is already added.
      */
-    <S, I> MatsEndpoint<S, Void> terminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
-            ProcessTerminatorLambda<S, I> processor);
+    <I, S> MatsEndpoint<S, Void> terminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
+            ProcessTerminatorLambda<I, S> processor);
 
     /**
      * Variation of {@link #terminator(String, Class, Class, ProcessTerminatorLambda)} that can be configured
      * "on the fly".
      */
-    <S, I> MatsEndpoint<S, Void> terminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
-            ConfigLambda<EndpointConfig> configLambda, ProcessTerminatorLambda<S, I> processor);
+    <I, S> MatsEndpoint<S, Void> terminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
+            ConfigLambda<EndpointConfig> configLambda, ProcessTerminatorLambda<I, S> processor);
 
     /**
      * Special kind of terminator that, in JMS-style terms, subscribes to a topic instead of listening to a queue. You
      * may only communicate with this type of endpoints by using the {@link MatsInitiate#publish(Object)} methods.
      * <p>
      * <b>Notice that the concurrency of a SubscriptionTerminator is always 1</b>.
-     * 
+     *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to get
-     *            the message.
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to
+     *            get the message.
+     * @param incomingClass
+     *            the class of the incoming (typically reply) DTO.
      * @param stateClass
      *            the class of the State DTO that will may be provided by the
      *            {@link MatsInitiate#request(Object, Object) request initiation} (or that was sent along with the
-     *            {@link MatsInitiate#invoke(Object, Object) invocation}).
-     * @param incomingClass
-     *            the class of the incoming (typically reply) DTO.
+     *            {@link MatsInitiate#send(Object, Object) invocation}).
      * @param processor
      *            the {@link MatsStage stage} that will be invoked to process the incoming message.
      * @return the {@link MatsEndpoint}, but you should not add any stages to it, as the sole stage is already added.
      */
-    <S, I> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
-            ProcessLambda<S, I, Void> processor);
+    <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
+            ProcessLambda<I, S, Void> processor);
 
     /**
      * Variation of {@link #subscriptionTerminator(String, Class, Class, ProcessLambda)} that can be configured
      * "on the fly", but <b>notice that the concurrency of a SubscriptionTerminator is always 1</b>.
      */
-    <S, I> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
-            ConfigLambda<EndpointConfig> configLambda, ProcessLambda<S, I, Void> processor);
+    <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
+            ConfigLambda<EndpointConfig> configLambda, ProcessLambda<I, S, Void> processor);
 
     /**
      * The way to start a MATS process: Get hold of a {@link MatsInitiator}, and fire off messages!
@@ -152,7 +152,7 @@ public interface MatsFactory extends StartClosable {
      * <b>Notice: You are not supposed to get one per sent message, rather either just one for the entire application,
      * or for each component:</b> It will have an underlying backend connection attached to it, and should hence also be
      * closed for a clean application shutdown.
-     * 
+     *
      * @param initiatorId
      *            a fictive "endpointId" representing the "initiating endpoint".
      * @return a {@link MatsInitiator}, on which messages can be {@link MatsInitiator#initiate(InitiateLambda)
@@ -196,7 +196,7 @@ public interface MatsFactory extends StartClosable {
          * One should probably either use this functionality, or make sure the {@link MatsFactory} is constructed in a
          * {@link MatsFactory#close() stopped condition}, only starting it when the entire application is finished with
          * configuration.
-         * 
+         *
          * @param milliseconds
          *            the number of milliseconds delay after start is invoked for each process stage.
          * @return the {@link FactoryConfig} for method chaining.
@@ -213,7 +213,7 @@ public interface MatsFactory extends StartClosable {
 
         /**
          * @return the suggested prefix for the messaging system's queues and topics that MATS uses. Defaults to
-         *         <code>"mats:"</code>. 
+         *         <code>"mats:"</code>.
          */
         default String getMatsDestinationPrefix() {
             return "mats:";

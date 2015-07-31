@@ -9,8 +9,8 @@ import org.junit.Test;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
- * Tests the simplest functionality: Sets up a Terminator endpoint, and then an initiator sends a message to that
- * endpoint.
+ * "Extension" of the {@link Test_SimplestSendReceive} that also supplies state with the sending from initiator to
+ * terminator.
  * <p>
  * ASCII-artsy, it looks like this:
  *
@@ -19,9 +19,9 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * [Terminator]
  * </pre>
  *
- * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
+ * @author Endre Stølsvik - 2015-07-31 - http://endre.stolsvik.com
  */
-public class Test_SimplestSendReceive extends AMatsTest {
+public class Test_SendAlongState extends AMatsTest {
     @Before
     public void setupTerminator() {
         matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class, (context, dto, sto) -> {
@@ -31,13 +31,15 @@ public class Test_SimplestSendReceive extends AMatsTest {
 
     @Test
     public void doTest() throws JMSException, InterruptedException {
+        StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.from(INITIATOR).to(TERMINATOR).send(dto);
+            msg.from(INITIATOR).to(TERMINATOR).send(dto, sto);
         });
 
         // Wait synchronously - due to test scenario - for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(dto, result.getData());
+        Assert.assertEquals(sto, result.getState());
     }
 }

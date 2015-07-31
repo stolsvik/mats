@@ -20,7 +20,7 @@ import com.stolsvik.mats.MatsTrace.Call;
 import com.stolsvik.mats.exceptions.MatsConnectionException;
 import com.stolsvik.mats.util.MatsStringSerializer;
 
-public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
+public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsStage.class);
 
     private final JmsMatsEndpoint<S, R> _parentEndpoint;
@@ -28,13 +28,13 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
     private final boolean _queue;
     private final Class<S> _stateClass;
     private final Class<I> _incomingMessageClass;
-    private final ProcessLambda<S, I, R> _processLambda;
+    private final ProcessLambda<I, S, R> _processLambda;
 
     private final MatsStringSerializer _matsJsonSerializer;
     private final JmsMatsFactory _parentFactory;
 
     public JmsMatsStage(JmsMatsEndpoint<S, R> parentEndpoint, String stageId, boolean queue,
-            Class<S> stateClass, Class<I> incomingMessageClass, ProcessLambda<S, I, R> processLambda) {
+            Class<I> incomingMessageClass, Class<S> stateClass, ProcessLambda<I, S, R> processLambda) {
         _parentEndpoint = parentEndpoint;
         _stageId = stageId;
         _queue = queue;
@@ -159,9 +159,9 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
                     log.info(LOG_PREFIX + "RECEIVED message from:[" + currentCall.getFrom() + "].");
 
                     // :: Current State. If null, then make an empty object instead.
-                    String currentState = matsTrace.getCurrentState();
-                    currentState = (currentState != null ? currentState : "{}");
-                    S currentSto = _matsJsonSerializer.deserializeObject(currentState, _stateClass);
+                    String currentStateString = matsTrace.getCurrentState();
+                    currentStateString = (currentStateString != null ? currentStateString : "{}");
+                    S currentSto = _matsJsonSerializer.deserializeObject(currentStateString, _stateClass);
                     log.info("State object: " + currentSto);
 
                     // :: Incoming DTO
@@ -170,7 +170,7 @@ public class JmsMatsStage<S, I, R> implements MatsStage, JmsMatsStatics {
                     // :: Invoke the process lambda (stage processor).
                     try {
                         _processLambda.process(new JmsMatsProcessContext<S, R>(this, _jmsSession, matsTrace,
-                                currentSto), currentSto, incomingDto);
+                                currentSto), incomingDto, currentSto);
                     }
                     catch (Exception e) {
                         log.error("The processing stage of [" + _stageId + "] raised an Exception."

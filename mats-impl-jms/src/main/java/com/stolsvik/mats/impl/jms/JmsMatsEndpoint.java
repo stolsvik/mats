@@ -40,7 +40,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
         return _stateClass;
     }
 
-    private List<JmsMatsStage<S, ?, R>> _stages = new ArrayList<>();
+    private List<JmsMatsStage<?, S, R>> _stages = new ArrayList<>();
 
     @Override
     public EndpointConfig getEndpointConfig() {
@@ -49,12 +49,12 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
     }
 
     @Override
-    public <I> void stage(Class<I> incomingMessageClass, ProcessLambda<S, I, R> processor) {
+    public <I> void stage(Class<I> incomingClass, ProcessLambda<I, S, R> processor) {
         // TODO: Refuse adding stages if already started, or if lastStage is added.
         // Make stageId, which is the endpointId for the first, then endpointId.stage1, stage2 etc.
         String stageId = _stages.size() == 0 ? _endpointId : _endpointId + ".stage" + (_stages.size() + 1);
-        JmsMatsStage<S, I, R> stage = new JmsMatsStage<>(this, stageId, _queue,
-                _stateClass, incomingMessageClass, processor);
+        JmsMatsStage<I, S, R> stage = new JmsMatsStage<>(this, stageId, _queue,
+                incomingClass, _stateClass, processor);
         // :: Set this next stage's Id on the previous stage, unless we're first, in which case there is no previous.
         if (_stages.size() > 0) {
             _stages.get(_stages.size() - 1).setNextStageId(stageId);
@@ -63,12 +63,12 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
     }
 
     @Override
-    public <I> void lastStage(Class<I> incomingClass, ProcessReturnLambda<S, I, R> processor) {
+    public <I> void lastStage(Class<I> incomingClass, ProcessReturnLambda<I, S, R> processor) {
         // TODO: Refuse adding stages if already started, or if lastStage is added.
         // :: Wrap a standard ProcessLambda around the ProcessReturnLambda, performing the sole convenience it provides.
-        stage(incomingClass, (processContext, state, incomingDto) -> {
+        stage(incomingClass, (processContext, incomingDto, state) -> {
             // Invoke the ProcessReturnLambda, holding on to the returned value from it.
-            R replyDto = processor.process(processContext, state, incomingDto);
+            R replyDto = processor.process(processContext, incomingDto, state);
             // Replying with the returned value.
             processContext.reply(replyDto);
         });
@@ -86,5 +86,4 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
     public void close() {
         _stages.forEach(s -> s.close());
     }
-
 }

@@ -129,12 +129,12 @@ public interface MatsInitiator extends Closeable {
          * a service, and the reply from that service will come to the specified reply endpointId, typically a
          * terminator.
          *
-         * @param replySto
-         *            the object that should be provided as STO to the service which get the reply.
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
+         * @param replySto
+         *            the object that should be provided as STO to the service which get the reply.
          */
-        void request(Object replySto, Object requestDto);
+        void request(Object requestDto, Object replySto);
 
         /**
          * <b>Variation of the request initiation method</b>, where the incoming state is sent along.
@@ -144,14 +144,14 @@ public interface MatsInitiator extends Closeable {
          * the message, but if employed between different services, it violates the premise that MATS is built on: State
          * is private to the stages of a multi-stage endpoint, and the Request and Reply DTOs are the public interface.
          *
-         * @param requestSto
-         *            the object which the endpoint will get as its STO (State Transfer Object).
-         * @param replySto
-         *            the object that should be provided as STO to the service which get the reply.
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
+         * @param replySto
+         *            the object that should be provided as STO to the service which get the reply.
+         * @param requestSto
+         *            the object which the endpoint will get as its STO (State Transfer Object).
          */
-        void request(Object requestSto, Object replySto, Object requestDto);
+        void request(Object requestDto, Object replySto, Object requestSto);
 
         /**
          * Sends a message to an endpoint, without expecting any reply ("fire-and-forget"). The 'reply' parameter must
@@ -163,22 +163,22 @@ public interface MatsInitiator extends Closeable {
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
          */
-        void invoke(Object requestDto);
+        void send(Object requestDto);
 
         /**
-         * <b>Variation of the {@link #invoke(Object)} method</b>, where the incoming state is sent along.
+         * <b>Variation of the {@link #send(Object)} method</b>, where the incoming state is sent along.
          * <p>
          * <b>This only makes sense if the same code base "owns" both the initiation code and the endpoint to which this
          * message is sent.</b> It is mostly here for completeness, since it is <i>possible</i> to send state along with
          * the message, but if employed between different services, it violates the premise that MATS is built on: State
          * is private to the stages of a multi-stage endpoint, and the Request and Reply DTOs are the public interface.
          *
-         * @param requestSto
-         *            the object which the endpoint will get as its STO (State Transfer Object).
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
+         * @param requestSto
+         *            the object which the endpoint will get as its STO (State Transfer Object).
          */
-        void invoke(Object requestSto, Object requestDto);
+        void send(Object requestDto, Object requestSto);
 
         /**
          * Sends a message to a
@@ -213,11 +213,11 @@ public interface MatsInitiator extends Closeable {
          * servers are live at that moment, no one will process that message - but at the same time, there is obviously
          * no GUI clients connected, nor are there are local state in form of caches that needs to be invalidated.
          *
-         * @param requestSto
-         *            the object which the endpoint will get as its STO (State Transfer Object).
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
+         * @param requestSto
+         *            the object which the endpoint will get as its STO (State Transfer Object).
          */
-        void publish(Object requestSto, Object requestDto);
+        void publish(Object requestDto, Object requestSto);
     }
 }

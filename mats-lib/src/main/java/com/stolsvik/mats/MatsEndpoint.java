@@ -26,7 +26,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      * @param processor
      *            the lambda that will be invoked when messages arrive in the corresponding queue.
      */
-    <I> void stage(Class<I> incomingClass, ProcessLambda<S, I, R> processor);
+    <I> void stage(Class<I> incomingClass, ProcessLambda<I, S, R> processor);
 
     /**
      * Adds the last stage to a multi-stage endpoint, which also starts the endpoint. Note that the last-stage concept
@@ -39,7 +39,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      * @param processor
      *            the lambda that will be invoked when messages arrive in the corresponding queue.
      */
-    <I> void lastStage(Class<I> incomingClass, ProcessReturnLambda<S, I, R> processor);
+    <I> void lastStage(Class<I> incomingClass, ProcessReturnLambda<I, S, R> processor);
 
     /**
      * Starts the endpoint, invoking {@link MatsStage#start()} on any not-yet started stages (which should be all of
@@ -186,8 +186,8 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      * context, state and incoming message DTO.
      */
     @FunctionalInterface
-    interface ProcessLambda<S, I, R> {
-        void process(ProcessContext<R> processContext, S state, I incomingDto);
+    interface ProcessLambda<I, S, R> {
+        void process(ProcessContext<R> processContext, I incomingDto, S state);
     }
 
     /**
@@ -196,8 +196,8 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      * {@link MatsEndpoint.ProcessContext#reply(Object)}. Used for the last process stage of a multistage endpoint.
      */
     @FunctionalInterface
-    interface ProcessReturnLambda<S, I, R> {
-        R process(ProcessContext<R> processContext, S state, I incomingDto);
+    interface ProcessReturnLambda<I, S, R> {
+        R process(ProcessContext<R> processContext, I incomingDto, S state);
     }
 
     /**
@@ -219,8 +219,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      * terminator endpoints. It has state, as the initiator typically have state that it wants the terminator to get.
      */
     @FunctionalInterface
-    interface ProcessTerminatorLambda<S, I> {
-        void process(ProcessContext<Void> processContext, S state, I incomingDto);
+    interface ProcessTerminatorLambda<I, S> {
+        void process(ProcessContext<Void> processContext, I incomingDto, S state);
     }
-
 }

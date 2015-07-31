@@ -8,7 +8,21 @@ import org.junit.Test;
 
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
-public class Test_SimpleServiceRequest extends AMatsTest {
+/**
+ * Tests the simplest request functionality: A single-stage service is set up. A Terminator is set up. Then an initiator
+ * does a request to the service, setting replyTo(Terminator).
+ * <p>
+ * ASCII-artsy, it looks like this:
+ *
+ * <pre>
+ * [Initiator]
+ *     [Service]
+ * [Terminator]
+ * </pre>
+ *
+ * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
+ */
+public class Test_SimplestServiceRequest extends AMatsTest {
     @Before
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class, (context, dto) -> {
@@ -18,17 +32,17 @@ public class Test_SimpleServiceRequest extends AMatsTest {
 
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class, (context, sto, dto) -> {
-            matsTestLatch.resolve(sto, dto);
+        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class, (context, dto, sto) -> {
+            matsTestLatch.resolve(dto, sto);
         });
     }
 
     @Test
     public void doTest() throws JMSException, InterruptedException {
-        StateTO sto = new StateTO(42, "StateAnswer");
-        DataTO dto = new DataTO(420, "DataAnswer");
+        DataTO dto = new DataTO(42, "TheAnswer");
+        StateTO sto = new StateTO(420, 420.024);
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.from(INITIATOR).to(SERVICE).replyTo(TERMINATOR).request(sto, dto);
+            msg.from(INITIATOR).to(SERVICE).replyTo(TERMINATOR).request(dto, sto);
         });
 
         // Wait synchronously - due to test scenario - for terminator to finish.

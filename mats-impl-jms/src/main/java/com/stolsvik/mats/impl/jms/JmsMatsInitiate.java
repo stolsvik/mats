@@ -73,12 +73,12 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
     }
 
     @Override
-    public void request(Object replySto, Object requestDto) {
-        request(null, replySto, requestDto);
+    public void request(Object requestDto, Object replySto) {
+        request(requestDto, replySto, null);
     }
 
     @Override
-    public void request(Object requestSto, Object replyStateDto, Object requestDto) {
+    public void request(Object requestDto, Object replySto, Object requestSto) {
         if (_from == null) {
             throw new NullPointerException(
                     "Both 'from', 'to' and 'replyTo' must be set when request(..): Missing 'from'.");
@@ -97,7 +97,7 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
 
         matsTrace = matsTrace.addRequestCall(_from, _to, _matsStringSerializer.serializeObject(requestDto),
                 Collections.singletonList(_replyTo),
-                _matsStringSerializer.serializeObject(replyStateDto),
+                _matsStringSerializer.serializeObject(replySto),
                 _matsStringSerializer.serializeObject(requestSto));
 
         sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, matsTrace, _to, "new REQUEST");
@@ -111,12 +111,12 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
     }
 
     @Override
-    public void invoke(Object requestDto) {
-        invoke(null, requestDto);
+    public void send(Object requestDto) {
+        send(requestDto, null);
     }
 
     @Override
-    public void invoke(Object requestSto, Object requestDto) {
+    public void send(Object requestDto, Object requestSto) {
         if (_from == null) {
             throw new NullPointerException("Both 'from' and 'to' must be set when invoke(..): Missing 'from'.");
         }
@@ -149,7 +149,7 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
     }
 
     @Override
-    public void publish(Object requestStateDto, Object requestDto) {
+    public void publish(Object requestDto, Object requestStateDto) {
         // TODO Auto-generated method stub
 
     }

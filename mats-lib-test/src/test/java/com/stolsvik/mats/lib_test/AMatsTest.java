@@ -30,21 +30,21 @@ public class AMatsTest {
      * implementation details.
      */
     protected static class StateTO {
-        public int number;
-        public String string;
+        public int number1;
+        public double number2;
 
         public StateTO() {
             // For Jackson JSON-lib which needs default constructor.
         }
 
-        public StateTO(int number, String string) {
-            this.number = number;
-            this.string = string;
+        public StateTO(int number1, double number2) {
+            this.number1 = number1;
+            this.number2 = number2;
         }
 
         @Override
         public int hashCode() {
-            return (number * 3539) + (string != null ? string.hashCode() : 0);
+            return (number1 * 3539) + (int) Double.doubleToLongBits(number2 * 99713.80309);
         }
 
         @Override
@@ -53,15 +53,12 @@ public class AMatsTest {
                 throw new AssertionError(StateTO.class.getSimpleName() + " was attempted equalled to [" + obj + "].");
             }
             StateTO other = (StateTO) obj;
-            if ((this.string == null) ^ (other.string == null)) {
-                return false;
-            }
-            return (this.number == other.number) && ((this.string == null) || (this.string.equals(other.string)));
+            return (this.number1 == other.number1) && (this.number2 == other.number2);
         }
 
         @Override
         public String toString() {
-            return "StateTO [number=" + number + ", string=" + string + "]";
+            return "StateTO [number1=" + number1 + ", number2=" + number2 + "]";
         }
     }
 
@@ -92,7 +89,7 @@ public class AMatsTest {
         @Override
         public boolean equals(Object obj) {
             if (!(obj instanceof DataTO)) {
-                throw new AssertionError(StateTO.class.getSimpleName() + " was attempted equalled to [" + obj + "].");
+                throw new AssertionError(DataTO.class.getSimpleName() + " was attempted equalled to [" + obj + "].");
             }
             DataTO other = (DataTO) obj;
             if ((this.string == null) ^ (other.string == null)) {

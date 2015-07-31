@@ -87,7 +87,7 @@ public class JmsMatsFactory implements MatsFactory {
             ProcessSingleLambda<I, R> processor) {
         JmsMatsEndpoint<Void, R> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, Void.class, replyClass);
         // :: Wrap a standard ProcessLambda around the ProcessTerminatorLambda
-        endpoint.stage(incomingClass, (processContext, state, incomingDto) -> {
+        endpoint.stage(incomingClass, (processContext, incomingDto, state) -> {
             // Invoke the endpoint, storing the returned value... (Note: no state)
             R reply = processor.process(processContext, incomingDto);
             // ... and invoke reply on the context with that.
@@ -107,13 +107,13 @@ public class JmsMatsFactory implements MatsFactory {
     }
 
     @Override
-    public <S, I> MatsEndpoint<S, Void> terminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
-            ProcessTerminatorLambda<S, I> processor) {
+    public <I, S> MatsEndpoint<S, Void> terminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
+            ProcessTerminatorLambda<I, S> processor) {
         JmsMatsEndpoint<S, Void> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, stateClass, Void.class);
         // :: Wrap a standard ProcessLambda around the ProcessTerminatorLambda
-        endpoint.stage(incomingClass, (processContext, state, incomingDto) -> {
+        endpoint.stage(incomingClass, (processContext, incomingDto, state) -> {
             // This is just a direct forward - there is no difference from a ProcessLambda, except Void reply type.
-            processor.process(processContext, state, incomingDto);
+            processor.process(processContext, incomingDto, state);
         });
         _createdEndpoints.add(endpoint);
         endpoint.start();
@@ -121,22 +121,22 @@ public class JmsMatsFactory implements MatsFactory {
     }
 
     @Override
-    public <S, I> MatsEndpoint<S, Void> terminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
-            ConfigLambda<EndpointConfig> configLambda, ProcessTerminatorLambda<S, I> processor) {
+    public <I, S> MatsEndpoint<S, Void> terminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
+            ConfigLambda<EndpointConfig> configLambda, ProcessTerminatorLambda<I, S> processor) {
         // TODO Auto-generated method stub
         return null;
     }
 
     @Override
-    public <S, I> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<S> stateClass,
-            Class<I> incomingClass, ProcessLambda<S, I, Void> processor) {
+    public <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId,
+            Class<I> incomingClass, Class<S> stateClass, ProcessLambda<I, S, Void> processor) {
         // TODO Auto-generated method stub
         return null;
     }
 
     @Override
-    public <S, I> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<S> stateClass,
-            Class<I> incomingClass, ConfigLambda<EndpointConfig> configLambda, ProcessLambda<S, I, Void> processor) {
+    public <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass,
+            Class<S> stateClass, ConfigLambda<EndpointConfig> configLambda, ProcessLambda<I, S, Void> processor) {
         // TODO Auto-generated method stub
         return null;
     }
