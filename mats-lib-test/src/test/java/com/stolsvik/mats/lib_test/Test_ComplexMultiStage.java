@@ -93,7 +93,7 @@ public class Test_ComplexMultiStage extends AMatsTest {
         StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.from(INITIATOR).to(SERVICE).replyTo(TERMINATOR).request(dto, sto);
+            msg.traceId(randomId()).from(INITIATOR).to(SERVICE).replyTo(TERMINATOR).request(dto, sto);
         });
 
         // Wait synchronously for terminator to finish.

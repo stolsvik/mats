@@ -33,7 +33,7 @@ public class Test_SimplestSendReceive extends AMatsTest {
     public void doTest() throws JMSException, InterruptedException {
         DataTO dto = new DataTO(42, "TheAnswer");
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.from(INITIATOR).to(TERMINATOR).send(dto);
+            msg.traceId(randomId()).from(INITIATOR).to(TERMINATOR).send(dto);
         });
 
         // Wait synchronously for terminator to finish.

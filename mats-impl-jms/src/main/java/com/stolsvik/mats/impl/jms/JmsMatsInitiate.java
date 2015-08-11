@@ -10,7 +10,6 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
@@ -79,28 +78,19 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
 
     @Override
     public void request(Object requestDto, Object replySto, Object requestSto) {
-        if (_from == null) {
-            throw new NullPointerException(
-                    "Both 'from', 'to' and 'replyTo' must be set when request(..): Missing 'from'.");
-        }
-        if (_to == null) {
-            throw new NullPointerException(
-                    "Both 'from', 'to' and 'replyTo' must be set when request(..): Missing 'to'.");
-        }
+        String msg = "All of 'traceId', 'from', 'to' and 'replyTo' must be set when request(..)";
+        checkCommon(msg);
         if (_replyTo == null) {
-            throw new NullPointerException(
-                    "Both 'from', 'to' and 'replyTo' must be set when request(..): Missing 'replyTo'.");
+            throw new NullPointerException(msg + ": Missing 'replyTo'.");
         }
-        FactoryConfig factoryConfig = _parentFactory.getFactoryConfig();
-
-        MatsTrace matsTrace = MatsTrace.createNew(_traceId);
-
-        matsTrace = matsTrace.addRequestCall(_from, _to, _matsStringSerializer.serializeObject(requestDto),
+        MatsTrace matsTrace = MatsTrace.createNew(_traceId).addRequestCall(_from, _to,
+                _matsStringSerializer.serializeObject(requestDto),
                 Collections.singletonList(_replyTo),
                 _matsStringSerializer.serializeObject(replySto),
                 _matsStringSerializer.serializeObject(requestSto));
 
-        sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, true, matsTrace, _to, "new REQUEST");
+        sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer,
+                true, matsTrace, _to, "new REQUEST");
         try {
             _jmsSession.commit();
         }
@@ -117,22 +107,14 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
 
     @Override
     public void send(Object messageDto, Object requestSto) {
-        if (_from == null) {
-            throw new NullPointerException("Both 'from' and 'to' must be set when send(..): Missing 'from'.");
-        }
-        if (_to == null) {
-            throw new NullPointerException("Both 'from' and 'to' must be set when send(..): Missing 'to'.");
-        }
-        FactoryConfig factoryConfig = _parentFactory.getFactoryConfig();
-
-        MatsTrace matsTrace = MatsTrace.createNew(_traceId);
-
-        matsTrace = matsTrace.addSendCall(_from, _to,
+        checkCommon("All of 'traceId', 'from' and 'to' must be set when send(..)");
+        MatsTrace matsTrace = MatsTrace.createNew(_traceId).addSendCall(_from, _to,
                 _matsStringSerializer.serializeObject(messageDto),
                 Collections.emptyList(),
                 _matsStringSerializer.serializeObject(requestSto));
 
-        sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, true, matsTrace, _to, "new SEND");
+        sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer,
+                true, matsTrace, _to, "new SEND");
         try {
             _jmsSession.commit();
         }
@@ -149,22 +131,14 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
 
     @Override
     public void publish(Object messageDto, Object requestSto) {
-        if (_from == null) {
-            throw new NullPointerException("Both 'from' and 'to' must be set when publish(..): Missing 'from'.");
-        }
-        if (_to == null) {
-            throw new NullPointerException("Both 'from' and 'to' must be set when publish(..): Missing 'to'.");
-        }
-        FactoryConfig factoryConfig = _parentFactory.getFactoryConfig();
-
-        MatsTrace matsTrace = MatsTrace.createNew(_traceId);
-
-        matsTrace = matsTrace.addSendCall(_from, _to,
+        checkCommon("All of 'traceId', 'from' and 'to' must be set when publish(..)");
+        MatsTrace matsTrace = MatsTrace.createNew(_traceId).addSendCall(_from, _to,
                 _matsStringSerializer.serializeObject(messageDto),
                 Collections.emptyList(),
                 _matsStringSerializer.serializeObject(requestSto));
 
-        sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, false, matsTrace, _to, "new PUBLISH");
+        sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer,
+                false, matsTrace, _to, "new PUBLISH");
         try {
             _jmsSession.commit();
         }
@@ -174,4 +148,15 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
         }
     }
 
+    private void checkCommon(String msg) {
+        if (_traceId == null) {
+            throw new NullPointerException(msg + ": Missing 'traceId'.");
+        }
+        if (_from == null) {
+            throw new NullPointerException(msg + ": Missing 'from'.");
+        }
+        if (_to == null) {
+            throw new NullPointerException(msg + ": Missing 'to'.");
+        }
+    }
 }

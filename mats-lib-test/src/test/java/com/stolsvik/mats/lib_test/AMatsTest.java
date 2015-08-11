@@ -1,5 +1,7 @@
 package com.stolsvik.mats.lib_test;
 
+import java.util.UUID;
+
 import org.junit.Rule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +20,14 @@ public class AMatsTest {
     public Rule_Mats matsRule = new Rule_Mats();
 
     protected MatsTestLatch matsTestLatch = new MatsTestLatch();
+
+    /**
+     * @return a random UUID string, to be used for traceIds when testing - <b>ALWAYS use a semantically meaningful,
+     *         globally unique Id as traceId in production code!</b>
+     */
+    protected String randomId() {
+        return UUID.randomUUID().toString();
+    }
 
     /**
      * Testing State Transfer Object.

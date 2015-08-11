@@ -48,7 +48,7 @@ public class Test_SimplePublishSubscribe extends AMatsTest {
         DataTO dto = new DataTO(42, "TheAnswer");
         StateTO sto = new StateTO(420, 420.024);
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.from(INITIATOR).to(TERMINATOR).publish(dto, sto);
+            msg.traceId(randomId()).from(INITIATOR).to(TERMINATOR).publish(dto, sto);
         });
 
         // Wait synchronously for both terminators to finish.

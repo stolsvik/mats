@@ -34,7 +34,7 @@ public class Test_SendAlongState extends AMatsTest {
         DataTO dto = new DataTO(42, "TheAnswer");
         StateTO sto = new StateTO(420, 420.024);
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.from(INITIATOR).to(TERMINATOR).send(dto, sto);
+            msg.traceId(randomId()).from(INITIATOR).to(TERMINATOR).send(dto, sto);
         });
 
         // Wait synchronously for terminator to finish.
