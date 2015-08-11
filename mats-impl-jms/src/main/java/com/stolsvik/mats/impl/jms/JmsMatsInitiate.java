@@ -100,7 +100,7 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
                 _matsStringSerializer.serializeObject(replySto),
                 _matsStringSerializer.serializeObject(requestSto));
 
-        sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, matsTrace, _to, "new REQUEST");
+        sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, true, matsTrace, _to, "new REQUEST");
         try {
             _jmsSession.commit();
         }
@@ -111,47 +111,67 @@ class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
     }
 
     @Override
-    public void send(Object requestDto) {
-        send(requestDto, null);
+    public void send(Object messageDto) {
+        send(messageDto, null);
     }
 
     @Override
-    public void send(Object requestDto, Object requestSto) {
+    public void send(Object messageDto, Object requestSto) {
         if (_from == null) {
-            throw new NullPointerException("Both 'from' and 'to' must be set when invoke(..): Missing 'from'.");
+            throw new NullPointerException("Both 'from' and 'to' must be set when send(..): Missing 'from'.");
         }
         if (_to == null) {
-            throw new NullPointerException("Both 'from' and 'to' must be set when invoke(..): Missing 'to'.");
+            throw new NullPointerException("Both 'from' and 'to' must be set when send(..): Missing 'to'.");
         }
         FactoryConfig factoryConfig = _parentFactory.getFactoryConfig();
 
         MatsTrace matsTrace = MatsTrace.createNew(_traceId);
 
-        matsTrace = matsTrace.addInvokeCall(_from, _to,
-                _matsStringSerializer.serializeObject(requestDto),
+        matsTrace = matsTrace.addSendCall(_from, _to,
+                _matsStringSerializer.serializeObject(messageDto),
                 Collections.emptyList(),
                 _matsStringSerializer.serializeObject(requestSto));
 
-        sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, matsTrace, _to, "new INVOKE");
+        sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, true, matsTrace, _to, "new SEND");
         try {
             _jmsSession.commit();
         }
         catch (JMSException e) {
-            throw new MatsBackendException("Problems committing when sending new INVOKE message to [" + _to
+            throw new MatsBackendException("Problems committing when sending new SEND message to [" + _to
                     + "] via JMS API", e);
         }
     }
 
     @Override
-    public void publish(Object requestDto) {
-        // TODO Auto-generated method stub
-
+    public void publish(Object messageDto) {
+        publish(messageDto, null);
     }
 
     @Override
-    public void publish(Object requestDto, Object requestStateDto) {
-        // TODO Auto-generated method stub
+    public void publish(Object messageDto, Object requestSto) {
+        if (_from == null) {
+            throw new NullPointerException("Both 'from' and 'to' must be set when publish(..): Missing 'from'.");
+        }
+        if (_to == null) {
+            throw new NullPointerException("Both 'from' and 'to' must be set when publish(..): Missing 'to'.");
+        }
+        FactoryConfig factoryConfig = _parentFactory.getFactoryConfig();
 
+        MatsTrace matsTrace = MatsTrace.createNew(_traceId);
+
+        matsTrace = matsTrace.addSendCall(_from, _to,
+                _matsStringSerializer.serializeObject(messageDto),
+                Collections.emptyList(),
+                _matsStringSerializer.serializeObject(requestSto));
+
+        sendMessage(log, _jmsSession, factoryConfig, _matsStringSerializer, false, matsTrace, _to, "new PUBLISH");
+        try {
+            _jmsSession.commit();
+        }
+        catch (JMSException e) {
+            throw new MatsBackendException("Problems committing when sending new PUBLISH message to [" + _to
+                    + "] via JMS API", e);
+        }
     }
 
 }

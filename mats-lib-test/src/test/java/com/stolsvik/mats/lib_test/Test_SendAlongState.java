@@ -31,13 +31,13 @@ public class Test_SendAlongState extends AMatsTest {
 
     @Test
     public void doTest() throws JMSException, InterruptedException {
-        StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
+        StateTO sto = new StateTO(420, 420.024);
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
             msg.from(INITIATOR).to(TERMINATOR).send(dto, sto);
         });
 
-        // Wait synchronously - due to test scenario - for terminator to finish.
+        // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(dto, result.getData());
         Assert.assertEquals(sto, result.getState());

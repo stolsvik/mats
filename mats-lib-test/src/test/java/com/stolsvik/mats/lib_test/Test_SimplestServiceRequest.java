@@ -45,7 +45,7 @@ public class Test_SimplestServiceRequest extends AMatsTest {
             msg.from(INITIATOR).to(SERVICE).replyTo(TERMINATOR).request(dto, sto);
         });
 
-        // Wait synchronously - due to test scenario - for terminator to finish.
+        // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), result.getData());

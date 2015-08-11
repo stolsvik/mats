@@ -3,7 +3,6 @@ package com.stolsvik.mats;
 import com.stolsvik.mats.MatsConfig.ConfigLambda;
 import com.stolsvik.mats.MatsConfig.StartClosable;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
-import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
@@ -137,14 +136,14 @@ public interface MatsFactory extends StartClosable {
      * @return the {@link MatsEndpoint}, but you should not add any stages to it, as the sole stage is already added.
      */
     <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
-            ProcessLambda<I, S, Void> processor);
+            ProcessTerminatorLambda<I, S> processor);
 
     /**
-     * Variation of {@link #subscriptionTerminator(String, Class, Class, ProcessLambda)} that can be configured
-     * "on the fly", but <b>notice that the concurrency of a SubscriptionTerminator is always 1</b>.
+     * Variation of {@link #subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)} that can be
+     * configured "on the fly", but <b>notice that the concurrency of a SubscriptionTerminator is always 1</b>.
      */
     <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
-            ConfigLambda<EndpointConfig> configLambda, ProcessLambda<I, S, Void> processor);
+            ConfigLambda<EndpointConfig> configLambda, ProcessTerminatorLambda<I, S> processor);
 
     /**
      * The way to start a MATS process: Get hold of a {@link MatsInitiator}, and fire off messages!
@@ -176,7 +175,7 @@ public interface MatsFactory extends StartClosable {
      * factory.</b> This can be useful to halt endpoint startup until the entire application is finished configured, so
      * that one does not end in a situation where an endpoint receives a message and starts processing it, employing
      * services that have not yet finished configuration. <b>Either this functionality, or the
-     * {@link FactoryConfig#setStartDelay(int)} should probably be employed for any appliction.</b>
+     * {@link FactoryConfig#setStartDelay(int)} should probably be employed for any application.</b>
      */
     @Override
     void close();

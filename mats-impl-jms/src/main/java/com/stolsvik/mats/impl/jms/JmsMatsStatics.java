@@ -1,9 +1,9 @@
 package com.stolsvik.mats.impl.jms;
 
+import javax.jms.Destination;
 import javax.jms.JMSException;
 import javax.jms.MapMessage;
 import javax.jms.MessageProducer;
-import javax.jms.Queue;
 import javax.jms.Session;
 
 import org.slf4j.Logger;
@@ -24,17 +24,19 @@ public interface JmsMatsStatics {
     int DEFAULT_DELAY_MILLIS = 50;
 
     default void sendMessage(Logger log, Session jmsSession, FactoryConfig factoryConfig,
-            MatsStringSerializer matsStringSerializer,
+            MatsStringSerializer matsStringSerializer, boolean queue,
             MatsTrace matsTrace, String to, String what) {
         try {
             MapMessage mm = jmsSession.createMapMessage();
             mm.setString(factoryConfig.getMatsTraceKey(), matsStringSerializer.serializeMatsTrace(matsTrace));
 
-            Queue destination = jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + to);
-            log.info("Created destionation to send to: [" + destination + "].");
+            Destination destination = queue
+                    ? jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + to)
+                    : jmsSession.createTopic(factoryConfig.getMatsDestinationPrefix() + to);
+
             MessageProducer producer = jmsSession.createProducer(destination);
 
-            log.info(LOG_PREFIX + "SENDING " + what + " message to [" + to + "].");
+            log.info(LOG_PREFIX + "SENDING " + what + " message to [" + destination + "].");
 
             producer.send(mm);
             producer.close();

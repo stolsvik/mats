@@ -47,7 +47,6 @@ public interface MatsInitiator extends Closeable {
      * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
      */
     public interface MatsInitiate {
-
         /**
          * Sets (or appends with a "|" in case of {@link ProcessContext#initiate(InitiateLambda) initiation within a
          * stage}) the "Trace Id", which is solely used for logging and debugging purposes.
@@ -160,10 +159,10 @@ public interface MatsInitiator extends Closeable {
          * Note that the difference between request and invoke is only that replyTo is not set for invoke, otherwise the
          * mechanism is exactly the same.
          *
-         * @param requestDto
+         * @param messageDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
          */
-        void send(Object requestDto);
+        void send(Object messageDto);
 
         /**
          * <b>Variation of the {@link #send(Object)} method</b>, where the incoming state is sent along.
@@ -173,16 +172,16 @@ public interface MatsInitiator extends Closeable {
          * the message, but if employed between different services, it violates the premise that MATS is built on: State
          * is private to the stages of a multi-stage endpoint, and the Request and Reply DTOs are the public interface.
          *
-         * @param requestDto
+         * @param messageDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
          * @param requestSto
          *            the object which the endpoint will get as its STO (State Transfer Object).
          */
-        void send(Object requestDto, Object requestSto);
+        void send(Object messageDto, Object requestSto);
 
         /**
          * Sends a message to a
-         * {@link MatsFactory#subscriptionTerminator(String, Class, Class, MatsEndpoint.ProcessLambda)
+         * {@link MatsFactory#subscriptionTerminator(String, Class, Class, MatsEndpoint.ProcessTerminatorLambda)
          * SubscriptionTerminator}, employing the publish/subscribe pattern instead of message queues (topic in JMS
          * terms). <b>This means that all of the live servers that are listening to this endpointId will receive the
          * message, and if there are no live servers, then no one will receive it.</b>
@@ -194,10 +193,10 @@ public interface MatsInitiator extends Closeable {
          * It is only possible to publish to SubscriptionTerminators as employing publish/subscribe for multi-stage
          * services makes no sense.
          *
-         * @param requestDto
+         * @param messageDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
          */
-        void publish(Object requestDto);
+        void publish(Object messageDto);
 
         /**
          * <b>Variation of the {@link #publish(Object)} method</b>, where the incoming state is sent along.
@@ -207,17 +206,18 @@ public interface MatsInitiator extends Closeable {
          * method: A SubscriptionTerminator is often paired with a Terminator, where the Terminator receives the
          * message, typically a reply from a requested service, along with the state that was sent in the initiation.
          * The terminator does any "needs to be guaranteed to be performed" state changes to e.g. database, and then
-         * passes the request - <b>along with the same state it received</b> - on to a SubscriptionTerminator. The
-         * SubscriptionTerminator performs any updates of any connected GUI clients, or for any other local states, e.g.
-         * invalidation of caches, <i>on all live servers listening to that endpoint</i>, the point being that if no
-         * servers are live at that moment, no one will process that message - but at the same time, there is obviously
-         * no GUI clients connected, nor are there are local state in form of caches that needs to be invalidated.
+         * passes the incoming message - <b>along with the same state it received</b> - on to a SubscriptionTerminator.
+         * The SubscriptionTerminator performs any updates of any connected GUI clients, or for any other local states,
+         * e.g. invalidation of caches, <i>on all live servers listening to that endpoint</i>, the point being that if
+         * no servers are live at that moment, no one will process that message - but at the same time, there is
+         * obviously no GUI clients connected, nor are there are local state in form of caches that needs to be
+         * invalidated.
          *
-         * @param requestDto
+         * @param messageDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
          * @param requestSto
          *            the object which the endpoint will get as its STO (State Transfer Object).
          */
-        void publish(Object requestDto, Object requestSto);
+        void publish(Object messageDto, Object requestSto);
     }
 }

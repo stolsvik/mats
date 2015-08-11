@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsConfig.ConfigLambda;
 import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
-import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsFactory;
@@ -109,15 +108,7 @@ public class JmsMatsFactory implements MatsFactory {
     @Override
     public <I, S> MatsEndpoint<S, Void> terminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
             ProcessTerminatorLambda<I, S> processor) {
-        JmsMatsEndpoint<S, Void> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, stateClass, Void.class);
-        // :: Wrap a standard ProcessLambda around the ProcessTerminatorLambda
-        endpoint.stage(incomingClass, (processContext, incomingDto, state) -> {
-            // This is just a direct forward - there is no difference from a ProcessLambda, except Void reply type.
-            processor.process(processContext, incomingDto, state);
-        });
-        _createdEndpoints.add(endpoint);
-        endpoint.start();
-        return endpoint;
+        return terminator(true, endpointId, incomingClass, stateClass, processor);
     }
 
     @Override
@@ -128,17 +119,32 @@ public class JmsMatsFactory implements MatsFactory {
     }
 
     @Override
-    public <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId,
-            Class<I> incomingClass, Class<S> stateClass, ProcessLambda<I, S, Void> processor) {
-        // TODO Auto-generated method stub
-        return null;
+    public <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass,
+            Class<S> stateClass, ProcessTerminatorLambda<I, S> processor) {
+        return terminator(false, endpointId, incomingClass, stateClass, processor);
     }
 
     @Override
     public <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass,
-            Class<S> stateClass, ConfigLambda<EndpointConfig> configLambda, ProcessLambda<I, S, Void> processor) {
+            Class<S> stateClass, ConfigLambda<EndpointConfig> configLambda, ProcessTerminatorLambda<I, S> processor) {
         // TODO Auto-generated method stub
         return null;
+    }
+
+    /**
+     * INTERNAL method, since terminator(...) and subscriptionTerminator(...) is near identical.
+     */
+    private <S, I> MatsEndpoint<S, Void> terminator(boolean queue, String endpointId, Class<I> incomingClass,
+            Class<S> stateClass, ProcessTerminatorLambda<I, S> processor) {
+        JmsMatsEndpoint<S, Void> endpoint = new JmsMatsEndpoint<>(this, endpointId, queue, stateClass, Void.class);
+        // :: Wrap a standard ProcessLambda around the ProcessTerminatorLambda
+        endpoint.stage(incomingClass, (processContext, incomingDto, state) -> {
+            // This is just a direct forward - there is no difference from a ProcessLambda, except Void reply type.
+            processor.process(processContext, incomingDto, state);
+        });
+        _createdEndpoints.add(endpoint);
+        endpoint.start();
+        return endpoint;
     }
 
     @Override

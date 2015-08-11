@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * (Concrete class) Represents the protocol that the MATS endpoints and stages communicate with. This class is
+ * (Concrete class) Represents the protocol that the MATS endpoints (their stages) communicate with. This class is
  * serialized into a JSON structure that constitute the entire protocol (along with the additional byte arrays
  * ("binaries") and strings that can be added to the payload - but these latter elements are an implementation specific
  * feature).
@@ -28,7 +28,6 @@ import java.util.List;
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public class MatsTrace implements Cloneable {
-
     /**
      * Represents the version of the {@link MatsTrace} that the initiator were using, but also points out forward
      * compatible versions, where any other version that is fully encoded in the JSON is appended, delimited by a colon
@@ -64,7 +63,7 @@ public class MatsTrace implements Cloneable {
     // == NOTICE == Serialization and deserialization is an implementation specific feature.
 
     public enum CallType {
-        INVOKE,
+        SEND,
 
         REQUEST,
 
@@ -72,9 +71,9 @@ public class MatsTrace implements Cloneable {
     }
 
     /**
-     * Adds a REQUEST Call, which is an invocation of a service where one expects a Reply from this service to go to a
-     * specified endpoint, typically the next stage in a multi-stage endpoint: Envision a normal invocation of some
-     * method that returns a value.
+     * Adds a {@link CallType#REQUEST REQUEST} Call, which is an invocation of a service where one expects a Reply from
+     * this service to go to a specified endpoint, typically the next stage in a multi-stage endpoint: Envision a normal
+     * invocation of some method that returns a value.
      *
      * @param from
      *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
@@ -110,15 +109,16 @@ public class MatsTrace implements Cloneable {
     }
 
     /**
-     * Adds an INVOKE Call, meaning a "request" which do not expect a Reply: Envision an invocation of a void-method, or
-     * an invocation of some method that returns the value, but where you invoke it as a void-method (not storing the
-     * result, e.g. map.remove("test") returns the removed value, but is often invoked without storing this.).
+     * Adds an {@link CallType#SEND SEND} Call, meaning a "request" which do not expect a Reply: Envision an invocation
+     * of a void-method, or an invocation of some method that returns the value, but where you invoke it as a
+     * void-method (not storing the result, e.g. map.remove("test") returns the removed value, but is often invoked
+     * without storing this.).
      *
      * @param from
      *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
      *            does not need the from specifier, as this is not where any replies go to.
      * @param to
-     *            which endpoint that should get the request.
+     *            which endpoint that should get the message.
      * @param data
      *            the request data, most often a JSON representing the Request Data Transfer Object that the requesting
      *            service expects to get.
@@ -126,9 +126,9 @@ public class MatsTrace implements Cloneable {
      *            for an INVOKE call, this would normally be an empty list.
      * @param initialState
      */
-    public MatsTrace addInvokeCall(String from, String to, String data, List<String> replyStack, String initialState) {
+    public MatsTrace addSendCall(String from, String to, String data, List<String> replyStack, String initialState) {
         MatsTrace clone = clone();
-        clone.calls.add(new Call(CallType.INVOKE, from, to, data, replyStack));
+        clone.calls.add(new Call(CallType.SEND, from, to, data, replyStack));
         // Add any state meant for the initial stage ("stage0")
         if (initialState != null) {
             clone.stackStates.add(new StackState(replyStack.size(), initialState));
@@ -137,9 +137,9 @@ public class MatsTrace implements Cloneable {
     }
 
     /**
-     * Adds a REPLY Call, which happens when a requested service is finished with its processing and have some Reply to
-     * return. It then pops the stack (takes the first element of the stack), sets this as the "to" parameter, and
-     * provides the rest of the list as the "replyStack" parameter.
+     * Adds a {@link CallType#REPLY REPLY} Call, which happens when a requested service is finished with its processing
+     * and have some Reply to return. It then pops the stack (takes the first element of the stack), sets this as the
+     * "to" parameter, and provides the rest of the list as the "replyStack" parameter.
      *
      * @param from
      *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol

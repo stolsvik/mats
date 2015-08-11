@@ -36,7 +36,7 @@ public class Test_SimplestSendReceive extends AMatsTest {
             msg.from(INITIATOR).to(TERMINATOR).send(dto);
         });
 
-        // Wait synchronously - due to test scenario - for terminator to finish.
+        // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(dto, result.getData());
     }
