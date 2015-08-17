@@ -16,6 +16,10 @@ public class AMatsTest {
     protected String SERVICE = getClass().getName() + ".SERVICE";
     protected String TERMINATOR = getClass().getName() + ".TERMINATOR";
 
+    {
+        log.info("### Instantiating class [" + this.getClass().getName() + "].");
+    }
+
     @Rule
     public Rule_Mats matsRule = new Rule_Mats();
 

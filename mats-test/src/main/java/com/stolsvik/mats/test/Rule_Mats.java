@@ -6,13 +6,23 @@ import org.apache.activemq.broker.BrokerService;
 import org.apache.activemq.broker.region.policy.IndividualDeadLetterStrategy;
 import org.apache.activemq.broker.region.policy.PolicyEntry;
 import org.apache.activemq.broker.region.policy.PolicyMap;
+import org.junit.Rule;
 import org.junit.rules.ExternalResource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.util.MatsDefaultJsonSerializer;
 
+/**
+ * JUnit {@link Rule} of type {@link ExternalResource} that make a convenient MATS harness, providing a
+ * {@link MatsFactory} backed by an {@link BrokerService ActiveMQ instance}.
+ *
+ * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
+ */
 public class Rule_Mats extends ExternalResource {
+    private static final Logger log = LoggerFactory.getLogger(Rule_Mats.class);
 
     private BrokerService _amqServer;
 
@@ -22,6 +32,7 @@ public class Rule_Mats extends ExternalResource {
 
     @Override
     protected void before() throws Throwable {
+        log.info("+++ BEFORE on JUnit Rule '" + Rule_Mats.class.getSimpleName() + "'");
         // ::: Server (BrokerService)
         // ====================================
         _amqServer = new BrokerService();
@@ -60,6 +71,7 @@ public class Rule_Mats extends ExternalResource {
 
     @Override
     protected void after() {
+        log.info("--- AFTER on JUnit Rule '" + Rule_Mats.class.getSimpleName() + "'");
         // :: Close the MatsFactory (thereby closing all endpoints and initiators, and thus their connections).
         _matsFactory.close();
 
@@ -72,6 +84,9 @@ public class Rule_Mats extends ExternalResource {
         }
     }
 
+    /**
+     * @return the {@link MatsFactory} that this JUnit Rule sets up.
+     */
     public MatsFactory getMatsFactory() {
         return _matsFactory;
     }
