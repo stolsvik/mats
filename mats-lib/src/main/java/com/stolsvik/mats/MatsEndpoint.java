@@ -5,6 +5,7 @@ import java.util.List;
 import com.stolsvik.mats.MatsConfig.StartClosable;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
+import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 
 /**
  * Represents a MATS Endpoint.
@@ -187,7 +188,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      */
     @FunctionalInterface
     interface ProcessLambda<I, S, R> {
-        void process(ProcessContext<R> processContext, I incomingDto, S state);
+        void process(ProcessContext<R> processContext, I incomingDto, S state) throws MatsRefuseMessageException;
     }
 
     /**
@@ -197,7 +198,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      */
     @FunctionalInterface
     interface ProcessReturnLambda<I, S, R> {
-        R process(ProcessContext<R> processContext, I incomingDto, S state);
+        R process(ProcessContext<R> processContext, I incomingDto, S state) throws MatsRefuseMessageException;
     }
 
     /**
@@ -211,7 +212,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      */
     @FunctionalInterface
     interface ProcessSingleLambda<I, R> {
-        R process(ProcessContext<R> processContext, I incomingDto);
+        R process(ProcessContext<R> processContext, I incomingDto) throws MatsRefuseMessageException;
     }
 
     /**
@@ -220,6 +221,6 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      */
     @FunctionalInterface
     interface ProcessTerminatorLambda<I, S> {
-        void process(ProcessContext<Void> processContext, I incomingDto, S state);
+        void process(ProcessContext<Void> processContext, I incomingDto, S state) throws MatsRefuseMessageException;
     }
 }

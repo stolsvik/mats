@@ -11,7 +11,7 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 /**
  * The start point for all interaction with MATS - you need to get hold of an instance of this interface to be able to
  * code MATS endpoints, this is an implementation specific feature (you might want a JMS-specific {@link MatsFactory},
- * backed by a ActiveMQ-specific JMS ConnectioFactory).
+ * backed by a ActiveMQ-specific JMS ConnectionFactory).
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
@@ -217,6 +217,5 @@ public interface MatsFactory extends StartClosable {
         default String getMatsDestinationPrefix() {
             return "mats:";
         }
-
     }
 }

@@ -3,7 +3,6 @@ package com.stolsvik.mats.impl.jms;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import javax.jms.ConnectionFactory;
-import javax.jms.JMSException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,32 +14,41 @@ import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.exceptions.MatsConnectionException;
 import com.stolsvik.mats.util.MatsStringSerializer;
 
-public class JmsMatsFactory implements MatsFactory {
+public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsFactory.class);
 
+    /**
+     * TODO: Must be removed, as it only uses a non-db transaction manager.
+     */
     public static JmsMatsFactory createMatsFactory(ConnectionFactory jmsConnectionFactory,
-            MatsStringSerializer matsSerializer) {
-        return new JmsMatsFactory(jmsConnectionFactory, matsSerializer);
+            MatsStringSerializer matsStringSerializer) {
+        return createMatsFactory(JmsMatsTransactionManager_Standalone.create(jmsConnectionFactory),
+                matsStringSerializer);
     }
 
-    private ConnectionFactory _jmsConnectionFactory;
-    private MatsStringSerializer _matsJsonSerializer;
-
-    private JmsMatsFactory(ConnectionFactory jmsConnectionFactory, MatsStringSerializer matsJsonSerializer) {
-        _jmsConnectionFactory = jmsConnectionFactory;
-        _matsJsonSerializer = matsJsonSerializer;
+    public static JmsMatsFactory createMatsFactory(JmsMatsTransactionManager jmsMatsTransactionManager,
+            MatsStringSerializer matsStringSerializer) {
+        return new JmsMatsFactory(jmsMatsTransactionManager, matsStringSerializer);
     }
 
-    ConnectionFactory getJmsConnectionFactory() {
-        return _jmsConnectionFactory;
+    private final JmsMatsTransactionManager _jmsMatsTransactionManager;
+    private final MatsStringSerializer _matsStringSerializer;
+
+    private JmsMatsFactory(JmsMatsTransactionManager jmsMatsTransactionManager,
+            MatsStringSerializer matsStringSerializer) {
+        _jmsMatsTransactionManager = jmsMatsTransactionManager;
+        _matsStringSerializer = matsStringSerializer;
+    }
+
+    public JmsMatsTransactionManager getJmsMatsTransactionManager() {
+        return _jmsMatsTransactionManager;
     }
 
     MatsStringSerializer getMatsStringSerializer() {
-        return _matsJsonSerializer;
+        return _matsStringSerializer;
     }
 
     int getStartDelay() {
@@ -149,16 +157,10 @@ public class JmsMatsFactory implements MatsFactory {
 
     @Override
     public MatsInitiator getInitiator(String initiatorId) {
-        try {
-            JmsMatsInitiator initiator = new JmsMatsInitiator(this, _jmsConnectionFactory.createConnection(),
-                    _matsJsonSerializer);
-            _createdInitiators.add(initiator);
-            return initiator;
-        }
-        catch (JMSException e) {
-            throw new MatsConnectionException("Got a JMS Exception when trying to createConnection()"
-                    + " on the JMS ConnectionFactory [" + _jmsConnectionFactory + "].", e);
-        }
+        JmsMatsInitiator initiator = new JmsMatsInitiator(this,
+                _jmsMatsTransactionManager.getTransactionalContext(null), _matsStringSerializer);
+        _createdInitiators.add(initiator);
+        return initiator;
     }
 
     @Override
@@ -169,6 +171,8 @@ public class JmsMatsFactory implements MatsFactory {
 
     @Override
     public void close() {
+        log.info(LOG_PREFIX + "Closing this " + this.getClass().getSimpleName() + "@" + Integer.toHexString(System
+                .identityHashCode(this)) + ", thus closing all created endpoints and initiators.");
         for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
             try {
                 endpoint.close();

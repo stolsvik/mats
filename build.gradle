@@ -1,6 +1,6 @@
 subprojects {
     // The Gradle Wrapper generation task.
-    task wrapper(type: Wrapper) { gradleVersion = "2.5" }
+    task wrapper(type: Wrapper) { gradleVersion = "2.8" }
 
     apply plugin: 'java'
     apply plugin: 'maven'

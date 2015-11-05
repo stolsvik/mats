@@ -67,7 +67,8 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
                 matsStringSerializer.serializeObject(requestDto), stack,
                 matsStringSerializer.serializeObject(_sto), null);
 
-        sendMessage(log, _jmsSession, factoryConfig, matsStringSerializer, true, requestMatsTrace, endpointId, "REQUEST");
+        sendMessage(log, _jmsSession, factoryConfig, matsStringSerializer, true, requestMatsTrace, endpointId,
+                "REQUEST");
     }
 
     @Override
@@ -90,7 +91,6 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
                 matsStringSerializer.serializeObject(replyDto), stack);
 
         sendMessage(log, _jmsSession, factoryConfig, matsStringSerializer, true, replyMatsTrace, replyTo, "REPLY");
-
     }
 
     @Override
