@@ -45,4 +45,12 @@ public interface JmsMatsStatics {
             throw new MatsBackendException("Got problems sending [" + what + "] to [" + to + "] via JMS API.", e);
         }
     }
+
+    default String id(String what, Object obj) {
+        return what + '@' + Integer.toHexString(System.identityHashCode(obj));
+    }
+
+    default String id(Object obj) {
+        return obj.getClass().getSimpleName() + '@' + Integer.toHexString(System.identityHashCode(obj));
+    }
 }

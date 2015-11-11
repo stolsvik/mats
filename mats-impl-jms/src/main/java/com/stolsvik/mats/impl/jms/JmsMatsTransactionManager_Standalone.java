@@ -15,7 +15,7 @@ import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 /**
  * Implementation of {@link JmsMatsTransactionManager} handling both JMS Session and any provided JDBC DataSource, doing
  * all transactional handling "native", i.e. using only JMS and JDBC APIs (as opposed to using Spring). Each
- * {@link #getTransactionalContext(JmsMatsStage) transactional context} (stages' processors, and initiators) gets its
+ * {@link #getTransactionContext(JmsMatsStage) transactional context} (stages' processors, and initiators) gets its
  * own {@link Connection JMS Connection}.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
@@ -35,7 +35,7 @@ public class JmsMatsTransactionManager_Standalone implements JmsMatsTransactionM
     }
 
     @Override
-    public TransactionalContext getTransactionalContext(JmsMatsStage<?, ?, ?> stage) {
+    public TransactionContext getTransactionContext(JmsMatsStage<?, ?, ?> stage) {
         try {
             Connection jmsConnection = _jmsConnectionFactory.createConnection();
             // Starting it right away, as that could potentially also give "connection establishment" JMSExceptions
@@ -48,7 +48,7 @@ public class JmsMatsTransactionManager_Standalone implements JmsMatsTransactionM
         }
     }
 
-    public static class TransactionalContext_Standalone implements TransactionalContext {
+    public static class TransactionalContext_Standalone implements TransactionContext {
 
         private final Connection _jmsConnection;
 
@@ -72,7 +72,7 @@ public class JmsMatsTransactionManager_Standalone implements JmsMatsTransactionM
             try {
                 try {
                     lambda.transact();
-                    log.info(LOG_PREFIX + "Processing lambda finished, about to commit.");
+                    log.info(LOG_PREFIX + "Processing lambda finished, about to commit JMS Session.");
                     jmsSession.commit();
                     log.info(LOG_PREFIX + "JMS Session committed.");
                 }

@@ -41,6 +41,7 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
             MatsStringSerializer matsStringSerializer) {
         _jmsMatsTransactionManager = jmsMatsTransactionManager;
         _matsStringSerializer = matsStringSerializer;
+        log.info(LOG_PREFIX + "Created [" + id(this) + "].");
     }
 
     public JmsMatsTransactionManager getJmsMatsTransactionManager() {
@@ -158,7 +159,7 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     @Override
     public MatsInitiator getInitiator(String initiatorId) {
         JmsMatsInitiator initiator = new JmsMatsInitiator(this,
-                _jmsMatsTransactionManager.getTransactionalContext(null), _matsStringSerializer);
+                _jmsMatsTransactionManager.getTransactionContext(null), _matsStringSerializer);
         _createdInitiators.add(initiator);
         return initiator;
     }
@@ -171,8 +172,7 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
 
     @Override
     public void close() {
-        log.info(LOG_PREFIX + "Closing this " + this.getClass().getSimpleName() + "@" + Integer.toHexString(System
-                .identityHashCode(this)) + ", thus closing all created endpoints and initiators.");
+        log.info(LOG_PREFIX + "Closing [" + id(this) + "], thus closing all created endpoints and initiators.");
         for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
             try {
                 endpoint.close();

@@ -13,28 +13,28 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionalContext;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
 import com.stolsvik.mats.util.MatsStringSerializer;
 
 class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsInitiator.class);
 
     private final JmsMatsFactory _parentFactory;
-    private final TransactionalContext _transactionalContext;
+    private final TransactionContext _transactionContext;
     private final MatsStringSerializer _matsJsonSerializer;
 
-    public JmsMatsInitiator(JmsMatsFactory parentFactory, TransactionalContext transactionalContext,
+    public JmsMatsInitiator(JmsMatsFactory parentFactory, TransactionContext transactionalContext,
             MatsStringSerializer matsJsonSerializer) {
         _parentFactory = parentFactory;
-        _transactionalContext = transactionalContext;
+        _transactionContext = transactionalContext;
         _matsJsonSerializer = matsJsonSerializer;
     }
 
     @Override
     public void initiate(InitiateLambda lambda) {
-        Session jmsSession = _transactionalContext.getTransactionalJmsSession(false);
+        Session jmsSession = _transactionContext.getTransactionalJmsSession(false);
         try {
-            _transactionalContext.performWithinTransaction(jmsSession,
+            _transactionContext.performWithinTransaction(jmsSession,
                     () -> lambda.initiate(new JmsMatsInitiate(_parentFactory, jmsSession, _matsJsonSerializer)));
         }
         catch (JMSException e) {
@@ -53,7 +53,7 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
 
     @Override
     public void close() {
-        _transactionalContext.close();
+        _transactionContext.close();
     }
 
     static class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
