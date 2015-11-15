@@ -132,7 +132,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
     }
 
     /**
-     * Package access so that I can refer to it in JavaDoc.
+     * Package access so that it can be referred to from JavaDoc.
      */
     class StageProcessor implements JmsMatsStatics {
 

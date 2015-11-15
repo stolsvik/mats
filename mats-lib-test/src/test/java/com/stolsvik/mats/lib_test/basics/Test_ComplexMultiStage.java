@@ -1,4 +1,4 @@
-package com.stolsvik.mats.lib_test;
+package com.stolsvik.mats.lib_test.basics;
 
 import javax.jms.JMSException;
 
@@ -7,6 +7,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsEndpoint;
+import com.stolsvik.mats.lib_test.AMatsTest;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
@@ -99,8 +100,7 @@ public class Test_ComplexMultiStage extends AMatsTest {
         // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
-        Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 2 * 5,
-                dto.string + ":FromLeafService" + ":FromMidService" + ":FromLeafService" + ":FromMasterService"),
-                result.getData());
+        Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 2 * 5, dto.string + ":FromLeafService" + ":FromMidService"
+                + ":FromLeafService" + ":FromMasterService"), result.getData());
     }
 }

@@ -34,8 +34,8 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
     public void initiate(InitiateLambda lambda) {
         Session jmsSession = _transactionContext.getTransactionalJmsSession(false);
         try {
-            _transactionContext.performWithinTransaction(jmsSession,
-                    () -> lambda.initiate(new JmsMatsInitiate(_parentFactory, jmsSession, _matsJsonSerializer)));
+            _transactionContext.performWithinTransaction(jmsSession, () -> lambda.initiate(new JmsMatsInitiate(
+                    _parentFactory, jmsSession, _matsJsonSerializer)));
         }
         catch (JMSException e) {
             throw new MatsBackendException("Problems committing when performing MATS initiation via JMS API", e);
@@ -57,7 +57,6 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
     }
 
     static class JmsMatsInitiate implements MatsInitiate, JmsMatsStatics {
-        @SuppressWarnings("hiding")
         private static final Logger log = LoggerFactory.getLogger(JmsMatsInitiate.class);
 
         private final JmsMatsFactory _parentFactory;
@@ -125,14 +124,12 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
             if (_replyTo == null) {
                 throw new NullPointerException(msg + ": Missing 'replyTo'.");
             }
-            MatsTrace matsTrace = MatsTrace.createNew(_traceId).addRequestCall(_from, _to,
-                    _matsStringSerializer.serializeObject(requestDto),
-                    Collections.singletonList(_replyTo),
-                    _matsStringSerializer.serializeObject(replySto),
-                    _matsStringSerializer.serializeObject(requestSto));
+            MatsTrace matsTrace = MatsTrace.createNew(_traceId).addRequestCall(_from, _to, _matsStringSerializer
+                    .serializeObject(requestDto), Collections.singletonList(_replyTo), _matsStringSerializer
+                            .serializeObject(replySto), _matsStringSerializer.serializeObject(requestSto));
 
-            sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer,
-                    true, matsTrace, _to, "new REQUEST");
+            sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer, true, matsTrace,
+                    _to, "new REQUEST");
             try {
                 _jmsSession.commit();
             }
@@ -150,13 +147,12 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
         @Override
         public void send(Object messageDto, Object requestSto) {
             checkCommon("All of 'traceId', 'from' and 'to' must be set when send(..)");
-            MatsTrace matsTrace = MatsTrace.createNew(_traceId).addSendCall(_from, _to,
-                    _matsStringSerializer.serializeObject(messageDto),
-                    Collections.emptyList(),
-                    _matsStringSerializer.serializeObject(requestSto));
+            MatsTrace matsTrace = MatsTrace.createNew(_traceId).addSendCall(_from, _to, _matsStringSerializer
+                    .serializeObject(messageDto), Collections.emptyList(), _matsStringSerializer.serializeObject(
+                            requestSto));
 
-            sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer,
-                    true, matsTrace, _to, "new SEND");
+            sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer, true, matsTrace,
+                    _to, "new SEND");
             try {
                 _jmsSession.commit();
             }
@@ -174,13 +170,12 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
         @Override
         public void publish(Object messageDto, Object requestSto) {
             checkCommon("All of 'traceId', 'from' and 'to' must be set when publish(..)");
-            MatsTrace matsTrace = MatsTrace.createNew(_traceId).addSendCall(_from, _to,
-                    _matsStringSerializer.serializeObject(messageDto),
-                    Collections.emptyList(),
-                    _matsStringSerializer.serializeObject(requestSto));
+            MatsTrace matsTrace = MatsTrace.createNew(_traceId).addSendCall(_from, _to, _matsStringSerializer
+                    .serializeObject(messageDto), Collections.emptyList(), _matsStringSerializer.serializeObject(
+                            requestSto));
 
-            sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer,
-                    false, matsTrace, _to, "new PUBLISH");
+            sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer, false, matsTrace,
+                    _to, "new PUBLISH");
             try {
                 _jmsSession.commit();
             }

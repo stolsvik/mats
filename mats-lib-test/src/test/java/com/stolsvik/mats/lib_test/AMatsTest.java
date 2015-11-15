@@ -43,7 +43,7 @@ public class AMatsTest {
      * to which the state is sent along to, resides in the same code base, and hence still can be considered private
      * implementation details.
      */
-    protected static class StateTO {
+    public static class StateTO {
         public int number1;
         public double number2;
 
@@ -82,7 +82,7 @@ public class AMatsTest {
      * Note about DTOs in general: The DTOs are to be considered the public interface of a MATS endpoint, and should be
      * documented thoroughly.
      */
-    protected static class DataTO {
+    public static class DataTO {
         public double number;
         public String string;
 

@@ -22,7 +22,7 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
     private final MatsTrace _matsTrace;
     private final S _sto;
 
-    public JmsMatsProcessContext(JmsMatsStage matsStage, Session jmsSession, MatsTrace matsTrace, S sto) {
+    public JmsMatsProcessContext(JmsMatsStage<?, ?, R> matsStage, Session jmsSession, MatsTrace matsTrace, S sto) {
         _matsStage = matsStage;
         _jmsSession = jmsSession;
         _matsTrace = matsTrace;
@@ -63,9 +63,8 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
         // :: Create next MatsTrace
         List<String> stack = _matsTrace.getCurrentCall().getStack();
         stack.add(0, _matsStage.getNextStageId());
-        MatsTrace requestMatsTrace = _matsTrace.addRequestCall(_matsStage.getStageId(), endpointId,
-                matsStringSerializer.serializeObject(requestDto), stack,
-                matsStringSerializer.serializeObject(_sto), null);
+        MatsTrace requestMatsTrace = _matsTrace.addRequestCall(_matsStage.getStageId(), endpointId, matsStringSerializer
+                .serializeObject(requestDto), stack, matsStringSerializer.serializeObject(_sto), null);
 
         sendMessage(log, _jmsSession, factoryConfig, matsStringSerializer, true, requestMatsTrace, endpointId,
                 "REQUEST");
@@ -87,8 +86,8 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
         MatsStringSerializer matsStringSerializer = parentFactory.getMatsStringSerializer();
 
         // :: Create next MatsTrace
-        MatsTrace replyMatsTrace = _matsTrace.addReplyCall(_matsStage.getStageId(), replyTo,
-                matsStringSerializer.serializeObject(replyDto), stack);
+        MatsTrace replyMatsTrace = _matsTrace.addReplyCall(_matsStage.getStageId(), replyTo, matsStringSerializer
+                .serializeObject(replyDto), stack);
 
         sendMessage(log, _jmsSession, factoryConfig, matsStringSerializer, true, replyMatsTrace, replyTo, "REPLY");
     }

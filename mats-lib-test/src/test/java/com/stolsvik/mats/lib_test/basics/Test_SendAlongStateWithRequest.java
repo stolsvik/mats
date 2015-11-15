@@ -1,4 +1,4 @@
-package com.stolsvik.mats.lib_test;
+package com.stolsvik.mats.lib_test.basics;
 
 import javax.jms.JMSException;
 
@@ -7,6 +7,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsEndpoint;
+import com.stolsvik.mats.lib_test.AMatsTest;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
