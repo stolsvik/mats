@@ -27,7 +27,7 @@ public class Test_SimplestThrowRuntimeExceptionInService extends AMatsTest {
     @Before
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class, (context, dto) -> {
-            throw new RuntimeException("Should send message on DLQ after retries.");
+            throw new RuntimeException("Should send message to DLQ after retries.");
         });
     }
 

@@ -13,6 +13,7 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.MatsConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsStage;
@@ -35,6 +36,8 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
     private final MatsStringSerializer _matsJsonSerializer;
     private final JmsMatsFactory _parentFactory;
 
+    private final JmsStageConfig _stageConfig = new JmsStageConfig();
+
     public JmsMatsStage(JmsMatsEndpoint<S, R> parentEndpoint, String stageId, boolean queue,
             Class<I> incomingMessageClass, Class<S> stateClass, ProcessLambda<I, S, R> processLambda) {
         _parentEndpoint = parentEndpoint;
@@ -52,8 +55,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
 
     @Override
     public StageConfig getStageConfig() {
-        // TODO Auto-generated method stub
-        return null;
+        return _stageConfig;
     }
 
     private String _nextStageId;
@@ -86,13 +88,15 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
         }
 
         _transactionContext = _parentFactory.getJmsMatsTransactionManager().getTransactionContext(this);
-        int numberOfProcessors = 4;
+
+        // :: Fire up the actual stage processors, using the configured (or default) concurrency
+        int numberOfProcessors = getStageConfig().getConcurrency();
         // ?: Is this a topic?
         if (!_queue) {
             /*
              * -> Yes, and in that case, there shall only be one StageProcessor for the endpoint. If the user chooses to
              * make more endpoints picking from the same topic, then so be it, but it generally makes no sense, as the
-             * whole point of a MQ Topic is that all listeners will get the same messages.
+             * whole point of a MQ Topic is that all listeners to the topic will get the same messages.
              *
              * (Optimizations along the line of using a thread pool for the actual work of the processor must be done in
              * user code, as the MATS framework must acknowledge (commit/rollback) each message, and cannot decide what
@@ -129,6 +133,39 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
         log.info(LOG_PREFIX + "Created JMS " + (_queue ? "Queue" : "Topic") + ""
                 + " to receive from: [" + destination + "].");
         return destination;
+    }
+
+    private class JmsStageConfig implements StageConfig {
+        private int _concurrency;
+
+        @Override
+        public MatsConfig setConcurrency(int numberOfThreads) {
+            _concurrency = numberOfThreads;
+            return this;
+        }
+
+        @Override
+        public boolean isConcurrencyDefault() {
+            return _concurrency == 0;
+        }
+
+        @Override
+        public int getConcurrency() {
+            if (_concurrency == 0) {
+                return _parentEndpoint.getEndpointConfig().getConcurrency();
+            }
+            return _concurrency;
+        }
+
+        @Override
+        public boolean isRunning() {
+            return _stageProcessors.size() > 0;
+        }
+
+        @Override
+        public Class<?> getIncomingMessageClass() {
+            return _incomingMessageClass;
+        }
     }
 
     /**

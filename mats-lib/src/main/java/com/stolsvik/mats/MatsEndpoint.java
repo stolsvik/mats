@@ -67,9 +67,6 @@ public interface MatsEndpoint<S, R> extends StartClosable {
          */
         Class<?> getIncomingMessageClass();
 
-        @Override
-        EndpointConfig setConcurrency(int numberOfThreads);
-
         /**
          * @return the class that will be sent as reply for this endpoint.
          */

@@ -51,8 +51,8 @@ public interface MatsFactory extends StartClosable {
 
     /**
      * Sets up a {@link MatsEndpoint} that just contains one stage, useful for simple
-     * "request the full person data for this persionId" scenarios. This sole stage is supplied directly, using a
-     * specialization of the processor lambda which does not have state (as there is only one stage, there is no other
+     * "request the full person data for this/these personId(s)" scenarios. This sole stage is supplied directly, using
+     * a specialization of the processor lambda which does not have state (as there is only one stage, there is no other
      * stage to pass state to), but which can return the reply by simply returning it on exit from the lambda.
      * <p>
      * Do note that this is just a convenience for the often-used scenario where for example a request will just be
@@ -82,14 +82,14 @@ public interface MatsFactory extends StartClosable {
 
     /**
      * Sets up a {@link MatsEndpoint} that contains a single stage that typically will be the reply-to endpointId for a
-     * {@link MatsInitiate#request(Object, Object) request initiation}, or that can be used to send a "fire-and-forget"
-     * style {@link MatsInitiate#send(Object) invocation} to. The sole stage is supplied directly. This type of endpoint
-     * cannot reply, as it has no-one to reply to (hence "terminator").
+     * {@link MatsInitiate#request(Object, Object) request initiation}, or that can be used to directly send a
+     * "fire-and-forget" style {@link MatsInitiate#send(Object) invocation} to. The sole stage is supplied directly.
+     * This type of endpoint cannot reply, as it has no-one to reply to (hence "terminator").
      * <p>
-     * Do note that this is just a convenience for a often-used scenario where a request goes out to some service, and
-     * the reply needs to be handled, and then one is finished. There is nothing hindering you in setting the reply-to
-     * endpointId to a multi-stage endpoint, and hence have the ability to do further request-replies on the reply from
-     * the initial request.
+     * Do note that this is just a convenience for a often-used scenario where a request goes out to some service
+     * (possibly recursing down into further services), and then the reply needs to be handled, and then the process is
+     * finished. There is nothing hindering you in setting the reply-to endpointId to a multi-stage endpoint, and hence
+     * have the ability to do further request-replies on the reply from the initial request.
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
@@ -172,10 +172,11 @@ public interface MatsFactory extends StartClosable {
      * <p>
      * <b>However, if this is invoked before any endpoint is created, the endpoints will not start even though
      * {@link MatsEndpoint#start()} is invoked on them, but will wait till {@link #start()} is invoked on the
-     * factory.</b> This can be useful to halt endpoint startup until the entire application is finished configured, so
-     * that one does not end in a situation where an endpoint receives a message and starts processing it, employing
-     * services that have not yet finished configuration. <b>Either this functionality, or the
-     * {@link FactoryConfig#setStartDelay(int)} should probably be employed for any application.</b>
+     * factory.</b> This feature should be employed in most setups where the MATS endpoints might use other services
+     * whose order of creation and initialization are difficult to fully control, e.g. typically in an IoC container
+     * like Spring: Set all stuff up, where order is not of importance, and <i>then</i> fire up the endpoints. If this
+     * is not done, the endpoints might start consuming messages off of the MQ (there might already be messages waiting
+     * when the service boots), and thus invoke other services that are not yet fully up.
      */
     @Override
     void close();
@@ -186,21 +187,6 @@ public interface MatsFactory extends StartClosable {
     interface FactoryConfig extends MatsConfig {
         @Override
         FactoryConfig setConcurrency(int concurrency);
-
-        /**
-         * Sets the start delay, which may be necessary if there are startup asynchronicity that may prevent the
-         * endpoints from working properly if they are started right away, e.g. some application service has not yet
-         * started. Defaults to 0 ms, while 2500 ms should be enough for anyone.
-         * <p>
-         * One should probably either use this functionality, or make sure the {@link MatsFactory} is constructed in a
-         * {@link MatsFactory#close() stopped condition}, only starting it when the entire application is finished with
-         * configuration.
-         *
-         * @param milliseconds
-         *            the number of milliseconds delay after start is invoked for each process stage.
-         * @return the {@link FactoryConfig} for method chaining.
-         */
-        FactoryConfig setStartDelay(int milliseconds);
 
         /**
          * @return the suggested key on which to store the {@link MatsTrace} if the underlying mechanism uses a Map,

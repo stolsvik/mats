@@ -7,7 +7,7 @@ import com.stolsvik.mats.MatsConfig.StartClosable;
  * endpoints, and terminators), or by invoking the
  * {@link MatsEndpoint#stage(Class, com.stolsvik.mats.MatsEndpoint.ProcessLambda) MatsEndpoint.stage(...)}-methods on
  * {@link MatsFactory#staged(String, Class, Class) multi-stage} endpoints.
- * 
+ *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
 public interface MatsStage extends StartClosable {
@@ -19,9 +19,7 @@ public interface MatsStage extends StartClosable {
 
     /**
      * Starts this stage, thereby firing up the queue processing using a set of threads, the number decided by the
-     * {@link StageConfig#getConcurrency()} for each stage. Note that a
-     * {@link MatsFactory.FactoryConfig#setStartDelay(int) time delay} maybe be imposed, to account for application
-     * startup asynchronicity (e.g. not all services having their startup finished yet).
+     * {@link StageConfig#getConcurrency()} for each stage.
      * <p>
      * Will generally be invoked implicitly by {@link MatsEndpoint#start()}. The only reason for calling this should be
      * if its corresponding {@link #close()} method has been invoked to stop processing.

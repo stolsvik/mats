@@ -1,12 +1,14 @@
 package com.stolsvik.mats.impl.jms;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.MatsConfig;
 import com.stolsvik.mats.MatsEndpoint;
+import com.stolsvik.mats.MatsStage;
 
 /**
  * The JMS implementation of {@link MatsEndpoint}.
@@ -32,6 +34,8 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
         _replyClass = replyClass;
     }
 
+    private final JmsEndpointConfig _endpointConfig = new JmsEndpointConfig();
+
     JmsMatsFactory getParentFactory() {
         return _parentFactory;
     }
@@ -40,12 +44,11 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
         return _stateClass;
     }
 
-    private List<JmsMatsStage<?, S, R>> _stages = new ArrayList<>();
+    private List<JmsMatsStage<?, S, R>> _stages = new CopyOnWriteArrayList<>();
 
     @Override
     public EndpointConfig getEndpointConfig() {
-        // TODO Auto-generated method stub
-        return null;
+        return _endpointConfig;
     }
 
     @Override
@@ -85,5 +88,55 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
     @Override
     public void close() {
         _stages.forEach(s -> s.close());
+    }
+
+    private class JmsEndpointConfig implements EndpointConfig {
+        private int _concurrency;
+
+        @Override
+        public MatsConfig setConcurrency(int numberOfThreads) {
+            _concurrency = numberOfThreads;
+            return this;
+        }
+
+        @Override
+        public boolean isConcurrencyDefault() {
+            return _concurrency == 0;
+        }
+
+        @Override
+        public int getConcurrency() {
+            if (_concurrency == 0) {
+                return _parentFactory.getFactoryConfig().getConcurrency();
+            }
+            return _concurrency;
+        }
+
+        @Override
+        public boolean isRunning() {
+            for (JmsMatsStage<?, S, R> stage : _stages) {
+                if (stage.getStageConfig().isRunning()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public Class<?> getIncomingMessageClass() {
+            return _stages.get(0).getStageConfig().getIncomingMessageClass();
+        }
+
+        @Override
+        public Class<?> getReplyClass() {
+            return _replyClass;
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public List<MatsStage> getStages() {
+            // Hack to have the compiler shut up.
+            return (List<MatsStage>) (List<?>) _stages;
+        }
     }
 }

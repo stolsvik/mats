@@ -36,6 +36,7 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
 
     private final JmsMatsTransactionManager _jmsMatsTransactionManager;
     private final MatsStringSerializer _matsStringSerializer;
+    private final JmsMatsFactoryConfig _factoryConfig = new JmsMatsFactoryConfig();
 
     private JmsMatsFactory(JmsMatsTransactionManager jmsMatsTransactionManager,
             MatsStringSerializer matsStringSerializer) {
@@ -52,28 +53,12 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
         return _matsStringSerializer;
     }
 
-    int getStartDelay() {
-        return _startDelay;
-    }
-
-    boolean isRunning() {
-        return _running;
-    }
-
     private CopyOnWriteArrayList<MatsEndpoint<?, ?>> _createdEndpoints = new CopyOnWriteArrayList<>();
     private CopyOnWriteArrayList<MatsInitiator> _createdInitiators = new CopyOnWriteArrayList<>();
 
-    private boolean _concurrencyIsDefault = true;
-    private int _concurrency = Runtime.getRuntime().availableProcessors();
-
-    private int _startDelay = JmsMatsStatics.DEFAULT_DELAY_MILLIS;
-
-    // For the rationale of having started default to true, please read the JavaDoc of Factory.start() and close()!
-    private boolean _running = true;
-
     @Override
     public FactoryConfig getFactoryConfig() {
-        return new JmsMatsFactoryConfig();
+        return _factoryConfig;
     }
 
     @Override
@@ -192,35 +177,36 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     private class JmsMatsFactoryConfig implements FactoryConfig {
-        @Override
-        public FactoryConfig setConcurrency(int concurrency) {
-            if (concurrency == 0) {
-                _concurrency = Runtime.getRuntime().availableProcessors();
-                _concurrencyIsDefault = true;
-            }
-            _concurrency = concurrency;
-            return this;
-        }
+
+        private int _concurrency;
 
         @Override
-        public FactoryConfig setStartDelay(int milliseconds) {
-            _startDelay = milliseconds;
+        public FactoryConfig setConcurrency(int numberOfThreads) {
+            _concurrency = numberOfThreads;
             return this;
-        }
-
-        @Override
-        public int getConcurrency() {
-            return _concurrency;
         }
 
         @Override
         public boolean isConcurrencyDefault() {
-            return _concurrencyIsDefault;
+            return _concurrency == 0;
+        }
+
+        @Override
+        public int getConcurrency() {
+            if (_concurrency == 0) {
+                return Runtime.getRuntime().availableProcessors();
+            }
+            return _concurrency;
         }
 
         @Override
         public boolean isRunning() {
-            return _running;
+            for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
+                if (endpoint.getEndpointConfig().isRunning()) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }
