@@ -163,6 +163,11 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
         }
 
         @Override
+        public int getRunningStageProcessors() {
+            return _stageProcessors.size();
+        }
+
+        @Override
         public Class<?> getIncomingMessageClass() {
             return _incomingMessageClass;
         }

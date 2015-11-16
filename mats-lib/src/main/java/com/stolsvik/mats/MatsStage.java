@@ -47,5 +47,11 @@ public interface MatsStage extends StartClosable {
          * @return the class expected for incoming messages to this process stage.
          */
         Class<?> getIncomingMessageClass();
+
+        /**
+         * @return the currently number of running Stage Processors (the actual concurrency - this might be different
+         *         from {@link #getConcurrency} if the concurrency was set when stage was running.
+         */
+        int getRunningStageProcessors();
     }
 }

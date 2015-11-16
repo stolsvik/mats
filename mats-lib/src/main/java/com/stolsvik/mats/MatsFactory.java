@@ -27,9 +27,9 @@ public interface MatsFactory extends StartClosable {
      * incoming (typically request) DTO, while any subsequent stage is invoked when the service that the previous stage
      * sent a request to, replies.
      * <p>
-     * Unless the state object was sent along with request or invocation, the first stage will get a newly constructed
-     * "empty" state instance, while the subsequent stages will get the state instance in the form it was left in the
-     * previous stage.
+     * Unless the state object was sent along with the {@link MatsInitiate#request(Object , Object , Object) request} or
+     * {@link MatsInitiate#send(Object, Object) send}, the first stage will get a newly constructed empty state
+     * instance, while the subsequent stages will get the state instance in the form it was left in the previous stage.
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
