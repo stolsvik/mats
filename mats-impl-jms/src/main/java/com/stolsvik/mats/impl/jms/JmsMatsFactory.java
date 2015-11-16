@@ -78,6 +78,13 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     @Override
     public <I, R> MatsEndpoint<Void, R> single(String endpointId, Class<I> incomingClass, Class<R> replyClass,
             ProcessSingleLambda<I, R> processor) {
+        return single(endpointId, incomingClass, replyClass, (endpointConfig) -> {
+            /* no-config */ } , processor);
+    }
+
+    @Override
+    public <I, R> MatsEndpoint<Void, R> single(String endpointId, Class<I> incomingClass, Class<R> replyClass,
+            ConfigLambda<EndpointConfig> configLambda, ProcessSingleLambda<I, R> processor) {
         JmsMatsEndpoint<Void, R> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, Void.class, replyClass);
         // :: Wrap a standard ProcessLambda around the ProcessTerminatorLambda
         endpoint.stage(incomingClass, (processContext, incomingDto, state) -> {
@@ -88,15 +95,9 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
             processContext.reply(reply);
         });
         _createdEndpoints.add(endpoint);
+        configLambda.config(endpoint.getEndpointConfig());
         endpoint.start();
         return endpoint;
-    }
-
-    @Override
-    public <I, R> MatsEndpoint<Void, R> single(String endpointId, Class<I> incomingClass, Class<R> replyClass,
-            ConfigLambda<EndpointConfig> configLambda, ProcessSingleLambda<I, R> processor) {
-        // TODO Auto-generated method stub
-        return null;
     }
 
     @Override

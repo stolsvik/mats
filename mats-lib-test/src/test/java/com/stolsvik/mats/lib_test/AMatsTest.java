@@ -34,6 +34,24 @@ public class AMatsTest {
     }
 
     /**
+     * Sleeps the specified number of milliseconds - can emulate processing time, primarily meant for the concurrency
+     * tests.
+     *
+     * @param millis
+     *            the number of millis to sleep
+     * @throws AssertionError
+     *             if an {@link InterruptedException} occurs.
+     */
+    protected void sleep(int millis) throws AssertionError {
+        try {
+            Thread.sleep(millis);
+        }
+        catch (InterruptedException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    /**
      * Testing State Transfer Object.
      * <p>
      * Note about STOs in general: The STOs in use by the different multi-stage endpoints are to be considered private
