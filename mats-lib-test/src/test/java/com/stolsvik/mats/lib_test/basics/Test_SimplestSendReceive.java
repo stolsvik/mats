@@ -1,7 +1,5 @@
 package com.stolsvik.mats.lib_test.basics;
 
-import javax.jms.JMSException;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -25,17 +23,18 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 public class Test_SimplestSendReceive extends AMatsTest {
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class, (context, dto, sto) -> {
-            matsTestLatch.resolve(dto, sto);
-        });
+        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
+                (context, dto, sto) -> matsTestLatch.resolve(dto, sto));
     }
 
     @Test
-    public void doTest() throws JMSException, InterruptedException {
+    public void doTest() throws InterruptedException {
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.traceId(randomId()).from(INITIATOR).to(TERMINATOR).send(dto);
-        });
+        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+                (msg) -> msg.traceId(randomId())
+                        .from(INITIATOR)
+                        .to(TERMINATOR)
+                        .send(dto));
 
         // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();

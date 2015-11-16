@@ -1,7 +1,5 @@
 package com.stolsvik.mats.lib_test.basics;
 
-import javax.jms.JMSException;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,9 +38,8 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 public class Test_ComplexMultiStage extends AMatsTest {
     @Before
     public void setupLeafService() {
-        matsRule.getMatsFactory().single(SERVICE + ".Leaf", DataTO.class, DataTO.class, (context, dto) -> {
-            return new DataTO(dto.number * 2, dto.string + ":FromLeafService");
-        });
+        matsRule.getMatsFactory().single(SERVICE + ".Leaf", DataTO.class, DataTO.class,
+                (context, dto) -> new DataTO(dto.number * 2, dto.string + ":FromLeafService"));
     }
 
     @Before
@@ -84,18 +81,20 @@ public class Test_ComplexMultiStage extends AMatsTest {
 
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class, (context, dto, sto) -> {
-            matsTestLatch.resolve(dto, sto);
-        });
+        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
+                (context, dto, sto) -> matsTestLatch.resolve(dto, sto));
     }
 
     @Test
-    public void doTest() throws JMSException, InterruptedException {
+    public void doTest() throws InterruptedException {
         StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.traceId(randomId()).from(INITIATOR).to(SERVICE).replyTo(TERMINATOR).request(dto, sto);
-        });
+        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+                (msg) -> msg.traceId(randomId())
+                        .from(INITIATOR)
+                        .to(SERVICE)
+                        .replyTo(TERMINATOR)
+                        .request(dto, sto));
 
         // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();

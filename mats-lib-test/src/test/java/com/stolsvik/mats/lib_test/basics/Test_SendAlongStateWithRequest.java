@@ -1,7 +1,5 @@
 package com.stolsvik.mats.lib_test.basics;
 
-import javax.jms.JMSException;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -33,20 +31,22 @@ public class Test_SendAlongStateWithRequest extends AMatsTest {
     @Before
     public void setupService() {
         MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE, StateTO.class, DataTO.class);
-        ep.stage(DataTO.class, (context, dto, sto) -> {
-            matsTestLatch.resolve(dto, sto);
-        });
+        ep.stage(DataTO.class, (context, dto, sto) -> matsTestLatch.resolve(dto, sto));
+
         // We need to manually start it, since we did not employ lastStage.
         ep.start();
     }
 
     @Test
-    public void doTest() throws JMSException, InterruptedException {
+    public void doTest() throws InterruptedException {
         StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.traceId(randomId()).from(INITIATOR).to(SERVICE).replyTo(TERMINATOR).request(dto, null, sto);
-        });
+        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+                (msg) -> msg.traceId(randomId())
+                        .from(INITIATOR)
+                        .to(SERVICE)
+                        .replyTo(TERMINATOR)
+                        .request(dto, null, sto));
 
         // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();

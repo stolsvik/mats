@@ -1,7 +1,5 @@
 package com.stolsvik.mats.lib_test.basics;
 
-import javax.jms.JMSException;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,13 +29,9 @@ public class Test_SimplePublishSubscribe extends AMatsTest {
     @Before
     public void setupTerminator() throws InterruptedException {
         matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
-                    matsTestLatch.resolve(dto, sto);
-                });
+                (context, dto, sto) -> matsTestLatch.resolve(dto, sto));
         matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
-                    matsTestLatch2.resolve(dto, sto);
-                });
+                (context, dto, sto) -> matsTestLatch2.resolve(dto, sto));
 
         // Sleep for a small while, due to the nature of Pub/Sub: If the listeners are not up when the message is sent,
         // then they will not get the message.
@@ -45,12 +39,14 @@ public class Test_SimplePublishSubscribe extends AMatsTest {
     }
 
     @Test
-    public void doTest() throws JMSException, InterruptedException {
+    public void doTest() throws InterruptedException {
         DataTO dto = new DataTO(42, "TheAnswer");
         StateTO sto = new StateTO(420, 420.024);
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
-            msg.traceId(randomId()).from(INITIATOR).to(TERMINATOR).publish(dto, sto);
-        });
+        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+                (msg) -> msg.traceId(randomId())
+                        .from(INITIATOR)
+                        .to(TERMINATOR)
+                        .publish(dto, sto));
 
         // Wait synchronously for both terminators to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
