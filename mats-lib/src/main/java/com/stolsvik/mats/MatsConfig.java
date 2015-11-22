@@ -5,7 +5,7 @@ import java.io.Closeable;
 /**
  * All of {@link MatsFactory}, {@link MatsEndpoint} and {@link MatsStage} have some configurable elements, provided by a
  * config instance, this is the top of that hierarchy.
- * 
+ *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
 public interface MatsConfig {
@@ -19,7 +19,7 @@ public interface MatsConfig {
      * Will only have effect before the {@link MatsStage} is started. Can be reset by stopping, setting, and restarting.
      * <p>
      * Setting to 0 will invoke default logic.
-     * 
+     *
      * @param numberOfThreads
      *            the number of consumers on the queue(s) for the processing stage(s). If set to 0, default-logic be in
      *            effect.
@@ -46,17 +46,7 @@ public interface MatsConfig {
     boolean isRunning();
 
     /**
-     * Provide a convenient way (and the only way for single stage endpoints and terminators due to them potentially
-     * being immediately started) to configure some MATS elements (endpoints and stages).
-     */
-    @FunctionalInterface
-    interface ConfigLambda<C> {
-        void config(C config);
-    }
-
-    /**
-     * All three of {@link MatsFactory}, {@link MatsEndpoint} and {@link MatsStage} implements this
-     * interface.
+     * All three of {@link MatsFactory}, {@link MatsEndpoint} and {@link MatsStage} implements this interface.
      */
     interface StartClosable {
         /**

@@ -1,10 +1,12 @@
 package com.stolsvik.mats;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 import com.stolsvik.mats.MatsConfig.StartClosable;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
+import com.stolsvik.mats.MatsStage.StageConfig;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 
 /**
@@ -17,7 +19,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
     /**
      * @return the config for this endpoint. If endpoint is not yet started, you may invoke mutators on it.
      */
-    EndpointConfig getEndpointConfig();
+    EndpointConfig<S, R> getEndpointConfig();
 
     /**
      * Adds a new stage to a multi-stage endpoint.
@@ -27,7 +29,13 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      * @param processor
      *            the lambda that will be invoked when messages arrive in the corresponding queue.
      */
-    <I> void stage(Class<I> incomingClass, ProcessLambda<I, S, R> processor);
+    <I> MatsStage<I, S, R> stage(Class<I> incomingClass, ProcessLambda<I, S, R> processor);
+
+    /**
+     * Variation of {@link #stage(Class, ProcessLambda)} that can be configured "on the fly".
+     */
+    <I> MatsStage<I, S, R> stage(Class<I> incomingClass, Consumer<? super StageConfig<I, S, R>> stageConfigLambda,
+            ProcessLambda<I, S, R> processor);
 
     /**
      * Adds the last stage to a multi-stage endpoint, which also starts the endpoint. Note that the last-stage concept
@@ -40,7 +48,13 @@ public interface MatsEndpoint<S, R> extends StartClosable {
      * @param processor
      *            the lambda that will be invoked when messages arrive in the corresponding queue.
      */
-    <I> void lastStage(Class<I> incomingClass, ProcessReturnLambda<I, S, R> processor);
+    <I> MatsStage<I, S, R> lastStage(Class<I> incomingClass, ProcessReturnLambda<I, S, R> processor);
+
+    /**
+     * Variation of {@link #lastStage(Class, ProcessReturnLambda)} that can be configured "on the fly".
+     */
+    <I> MatsStage<I, S, R> lastStage(Class<I> incomingClass, Consumer<? super StageConfig<I, S, R>> stageConfigLambda,
+            ProcessReturnLambda<I, S, R> processor);
 
     /**
      * Starts the endpoint, invoking {@link MatsStage#start()} on any not-yet started stages (which should be all of
@@ -61,23 +75,23 @@ public interface MatsEndpoint<S, R> extends StartClosable {
     /**
      * Provides for both configuring the endpoint (before it is started), and introspecting the configuration.
      */
-    interface EndpointConfig extends MatsConfig {
+    interface EndpointConfig<S, R> extends MatsConfig {
         /**
-         * @return the class expected for incoming messages to this endpoint (decided by the first process stage).
+         * @return the class expected for incoming messages to this endpoint (decided by the first {@link MatsStage}).
          */
         Class<?> getIncomingMessageClass();
 
         /**
          * @return the class that will be sent as reply for this endpoint.
          */
-        Class<?> getReplyClass();
+        Class<R> getReplyClass();
 
         /**
          * @return a List of {@link MatsStage}s, representing all the stages of the endpoint. The order is the same as
          *         the order in which the stages will be invoked. For single-staged endpoints and terminators, this list
          *         is of size 1.
          */
-        List<MatsStage> getStages();
+        List<MatsStage<?, S, R>> getStages();
     }
 
     /**

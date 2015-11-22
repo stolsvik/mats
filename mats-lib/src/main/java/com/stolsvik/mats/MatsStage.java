@@ -10,12 +10,12 @@ import com.stolsvik.mats.MatsConfig.StartClosable;
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
-public interface MatsStage extends StartClosable {
+public interface MatsStage<I, S, R> extends StartClosable {
 
     /**
      * @return the {@link StageConfig} for this stage.
      */
-    StageConfig getStageConfig();
+    StageConfig<I, S, R> getStageConfig();
 
     /**
      * Starts this stage, thereby firing up the queue processing using a set of threads, the number decided by the
@@ -42,11 +42,11 @@ public interface MatsStage extends StartClosable {
     /**
      * Provides for both configuring the stage (before it is started), and introspecting the configuration.
      */
-    interface StageConfig extends MatsConfig {
+    interface StageConfig<I, S, R> extends MatsConfig {
         /**
          * @return the class expected for incoming messages to this process stage.
          */
-        Class<?> getIncomingMessageClass();
+        Class<I> getIncomingMessageClass();
 
         /**
          * @return the currently number of running Stage Processors (the actual concurrency - this might be different

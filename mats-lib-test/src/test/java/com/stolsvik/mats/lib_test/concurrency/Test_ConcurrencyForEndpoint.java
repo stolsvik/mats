@@ -9,6 +9,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.lib_test.AMatsTest;
 
 /**
@@ -19,14 +20,14 @@ import com.stolsvik.mats.lib_test.AMatsTest;
  * ASCII-artsy, it looks like this:
  *
  * <pre>
- * [Initiator] x 1 StageProcessor
+ * [Initiator] x 1, firing off 8 requests.
  *     [Service] x 8 StageProcessors
- * [Terminator] x 1 StageProcessor
+ * [Terminator] x 1 StageProcessor, getting all the 8 replies, counting down a 8-latch.
  * </pre>
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class Test_SimpleMultipleStageProcessorsService extends AMatsTest {
+public class Test_ConcurrencyForEndpoint extends AMatsTest {
 
     private static final int CONCURRENCY_TEST = 8;
 
@@ -40,9 +41,10 @@ public class Test_SimpleMultipleStageProcessorsService extends AMatsTest {
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
                 (endpointConfig) -> endpointConfig.setConcurrency(CONCURRENCY_TEST),
+                MatsFactory.NO_CONFIG,
                 (context, dto) -> {
                     // :: "Emulate" some lengthy processing...
-                    sleep(PROCESSING_TIME);
+                    takeNap(PROCESSING_TIME);
                     return new DataTO(dto.number * 2, dto.string + ":FromService:" + (int) dto.number);
                 });
 
@@ -58,6 +60,18 @@ public class Test_SimpleMultipleStageProcessorsService extends AMatsTest {
 
     @Test
     public void doTest() throws InterruptedException {
+        /*
+         * Sometimes get problem that all the processors has not gotten into consumer.receive()-call before we fire off
+         * the 8 messages and the first processor gets a message. Evidently the first processors then get two of the
+         * messages (the one that gets a message before the latecomer has gotten into receive()), while the latecomer
+         * gets none, and then the test fails.
+         *
+         * Remedy by napping a little before firing off the messages, hoping that all the StageProcessors gets one
+         * message each, which is a requirement for the test to pass.
+         */
+        takeNap(PROCESSING_TIME / 5);
+
+        // .. Now fire off the messages.
         DataTO[] requests = new DataTO[CONCURRENCY_TEST];
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
             for (int i = 0; i < CONCURRENCY_TEST; i++) {

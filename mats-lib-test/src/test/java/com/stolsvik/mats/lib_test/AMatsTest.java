@@ -42,7 +42,7 @@ public class AMatsTest {
      * @throws AssertionError
      *             if an {@link InterruptedException} occurs.
      */
-    protected void sleep(int millis) throws AssertionError {
+    protected void takeNap(int millis) throws AssertionError {
         try {
             Thread.sleep(millis);
         }

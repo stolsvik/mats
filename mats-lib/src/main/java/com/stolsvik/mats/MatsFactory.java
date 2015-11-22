@@ -1,17 +1,31 @@
 package com.stolsvik.mats;
 
-import com.stolsvik.mats.MatsConfig.ConfigLambda;
+import java.util.function.Consumer;
+
 import com.stolsvik.mats.MatsConfig.StartClosable;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
+import com.stolsvik.mats.MatsStage.StageConfig;
 
 /**
  * The start point for all interaction with MATS - you need to get hold of an instance of this interface to be able to
- * code MATS endpoints, this is an implementation specific feature (you might want a JMS-specific {@link MatsFactory},
+ * code MATS endpoints. This is an implementation specific feature (you might want a JMS-specific {@link MatsFactory},
  * backed by a ActiveMQ-specific JMS ConnectionFactory).
+ * <p>
+ * It is worth realizing that all of the methods {@link #staged(String, Class, Class, Consumer) staged(...config)};
+ * {@link #single(String, Class, Class, ProcessSingleLambda) single(...)} and
+ * {@link #single(String, Class, Class, Consumer, Consumer, ProcessSingleLambda) single(...configs)};
+ * {@link #terminator(String, Class, Class, ProcessTerminatorLambda) terminator(...)} and
+ * {@link #terminator(String, Class, Class, Consumer, Consumer, ProcessTerminatorLambda) terminator(...configs)} are
+ * just convenience methods to the one {@link #staged(String, Class, Class) staged(...)}. They could just as well have
+ * resided in a utility-class. They are included in the API since these relatively few methods seem to cover most
+ * scenarios. <i>(Exception to this are the two
+ * {@link #subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) subscriptionTerminator(...)} and
+ * {@link #subscriptionTerminator(String, Class, Class, Consumer, Consumer, ProcessTerminatorLambda)
+ * subscriptionTerminator(...Consumers)}, as they have different semantics, read the JavaDoc).</i>
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
@@ -21,6 +35,14 @@ public interface MatsFactory extends StartClosable {
      * @return the {@link FactoryConfig} on which to configure the factory, e.g. defaults for concurrency.
      */
     FactoryConfig getFactoryConfig();
+
+    /**
+     * Simple Consumer&lt;MatsConfig&gt-implementation that does nothing, for use where you e.g. only need to config the
+     * stage, not the endpoint, in e.g. the method
+     * {@link #terminator(String, Class, Class, Consumer, Consumer, ProcessTerminatorLambda)}.
+     */
+    Consumer<MatsConfig> NO_CONFIG = config -> {
+        /* no-op */ };
 
     /**
      * Sets up a {@link MatsEndpoint} on which you will add stages. The first stage is the one that will receive the
@@ -47,7 +69,7 @@ public interface MatsFactory extends StartClosable {
      * Variation of {@link #staged(String, Class, Class)} that can be configured "on the fly".
      */
     <S, R> MatsEndpoint<S, R> staged(String endpointId, Class<S> stateClass, Class<R> replyClass,
-            ConfigLambda<EndpointConfig> configLambda);
+            Consumer<? super EndpointConfig<S, R>> endpointConfigLambda);
 
     /**
      * Sets up a {@link MatsEndpoint} that just contains one stage, useful for simple
@@ -78,7 +100,9 @@ public interface MatsFactory extends StartClosable {
      * Variation of {@link #single(String, Class, Class, ProcessSingleLambda)} that can be configured "on the fly".
      */
     <I, R> MatsEndpoint<Void, R> single(String endpointId, Class<I> incomingClass, Class<R> replyClass,
-            ConfigLambda<EndpointConfig> configLambda, ProcessSingleLambda<I, R> processor);
+            Consumer<? super EndpointConfig<Void, R>> endpointConfigLambda,
+            Consumer<? super StageConfig<I, Void, R>> stageConfigLambda,
+            ProcessSingleLambda<I, R> processor);
 
     /**
      * Sets up a {@link MatsEndpoint} that contains a single stage that typically will be the reply-to endpointId for a
@@ -113,7 +137,9 @@ public interface MatsFactory extends StartClosable {
      * "on the fly".
      */
     <I, S> MatsEndpoint<S, Void> terminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
-            ConfigLambda<EndpointConfig> configLambda, ProcessTerminatorLambda<I, S> processor);
+            Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
+            Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
+            ProcessTerminatorLambda<I, S> processor);
 
     /**
      * Special kind of terminator that, in JMS-style terms, subscribes to a topic instead of listening to a queue. You
@@ -140,10 +166,12 @@ public interface MatsFactory extends StartClosable {
 
     /**
      * Variation of {@link #subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)} that can be
-     * configured "on the fly", but <b>notice that the concurrency of a SubscriptionTerminator is always 1</b>.
+     * configured "on the fly", <b>but notice that the concurrency of a SubscriptionTerminator is always 1</b>.
      */
     <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
-            ConfigLambda<EndpointConfig> configLambda, ProcessTerminatorLambda<I, S> processor);
+            Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
+            Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
+            ProcessTerminatorLambda<I, S> processor);
 
     /**
      * The way to start a MATS process: Get hold of a {@link MatsInitiator}, and fire off messages!

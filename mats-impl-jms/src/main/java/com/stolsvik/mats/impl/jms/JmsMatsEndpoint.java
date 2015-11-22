@@ -2,13 +2,16 @@ package com.stolsvik.mats.impl.jms;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsConfig;
 import com.stolsvik.mats.MatsEndpoint;
+import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsStage;
+import com.stolsvik.mats.MatsStage.StageConfig;
 
 /**
  * The JMS implementation of {@link MatsEndpoint}.
@@ -52,7 +55,14 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
     }
 
     @Override
-    public <I> void stage(Class<I> incomingClass, ProcessLambda<I, S, R> processor) {
+    public <I> MatsStage<I, S, R> stage(Class<I> incomingClass, ProcessLambda<I, S, R> processor) {
+        return stage(incomingClass, MatsFactory.NO_CONFIG, processor);
+    }
+
+    @Override
+    public <I> MatsStage<I, S, R> stage(Class<I> incomingClass,
+            Consumer<? super StageConfig<I, S, R>> stageConfigLambda,
+            ProcessLambda<I, S, R> processor) {
         // TODO: Refuse adding stages if already started, or if lastStage is added.
         // Make stageId, which is the endpointId for the first, then endpointId.stage1, stage2 etc.
         String stageId = _stages.size() == 0 ? _endpointId : _endpointId + ".stage" + (_stages.size() + 1);
@@ -63,20 +73,33 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
             _stages.get(_stages.size() - 1).setNextStageId(stageId);
         }
         _stages.add(stage);
+        stageConfigLambda.accept(stage.getStageConfig());
+        @SuppressWarnings("unchecked")
+        MatsStage<I, S, R> matsStage = stage;
+        return matsStage;
     }
 
     @Override
-    public <I> void lastStage(Class<I> incomingClass, ProcessReturnLambda<I, S, R> processor) {
+    public <I> MatsStage<I, S, R> lastStage(Class<I> incomingClass, ProcessReturnLambda<I, S, R> processor) {
+        return lastStage(incomingClass, MatsFactory.NO_CONFIG, processor);
+    }
+
+    @Override
+    public <I> MatsStage<I, S, R> lastStage(Class<I> incomingClass,
+            Consumer<? super StageConfig<I, S, R>> stageConfigLambda,
+            com.stolsvik.mats.MatsEndpoint.ProcessReturnLambda<I, S, R> processor) {
         // TODO: Refuse adding stages if already started, or if lastStage is added.
         // :: Wrap a standard ProcessLambda around the ProcessReturnLambda, performing the sole convenience it provides.
-        stage(incomingClass, (processContext, incomingDto, state) -> {
-            // Invoke the ProcessReturnLambda, holding on to the returned value from it.
-            R replyDto = processor.process(processContext, incomingDto, state);
-            // Replying with the returned value.
-            processContext.reply(replyDto);
-        });
+        MatsStage<I, S, R> stage = stage(incomingClass, stageConfigLambda,
+                (processContext, incomingDto, state) -> {
+                    // Invoke the ProcessReturnLambda, holding on to the returned value from it.
+                    R replyDto = processor.process(processContext, incomingDto, state);
+                    // Replying with the returned value.
+                    processContext.reply(replyDto);
+                });
         // Since this is the last stage, we'll start it now.
         start();
+        return stage;
     }
 
     @Override
