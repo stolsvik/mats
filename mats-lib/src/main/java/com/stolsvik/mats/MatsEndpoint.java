@@ -139,6 +139,11 @@ public interface MatsEndpoint<S, R> extends StartClosable {
         void addString(String key, String payload);
 
         /**
+         * @return the current {@link MatsTrace} (the one that invoked this {@link MatsStage}.
+         */
+        MatsTrace getTrace();
+
+        /**
          * Sends a request message, meaning that the specified endpoint will be invoked, with the reply-to endpointId
          * set to the next stage in the multi-stage endpoint. This will throw if the current process stage is a
          * terminator, single-stage endpoint or the last endpoint of a multi-stage endpoint, as there then is no next

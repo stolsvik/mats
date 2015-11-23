@@ -31,7 +31,10 @@ public class Test_SendAlongStateWithRequest extends AMatsTest {
     @Before
     public void setupService() {
         MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE, StateTO.class, DataTO.class);
-        ep.stage(DataTO.class, (context, dto, sto) -> matsTestLatch.resolve(dto, sto));
+        ep.stage(DataTO.class, (context, dto, sto) -> {
+            log.debug("STAGE 0 MatsTrace:\n" + context.getTrace());
+            matsTestLatch.resolve(dto, sto);
+        });
 
         // We need to manually start it, since we did not employ lastStage.
         ep.start();

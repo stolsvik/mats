@@ -63,9 +63,11 @@ public class MatsTrace implements Cloneable {
     // == NOTICE == Serialization and deserialization is an implementation specific feature.
 
     public enum CallType {
+        REQUEST,
+
         SEND,
 
-        REQUEST,
+        NEXT,
 
         REPLY
     }
@@ -98,8 +100,8 @@ public class MatsTrace implements Cloneable {
             String initialState) {
         MatsTrace clone = clone();
         clone.calls.add(new Call(CallType.REQUEST, from, to, data, replyStack));
-        // Add the replyState - i.e. the state that is outgoing from the current call, destined for the reply
-        // the parameter replyStack includes the replyTo stage/endpointId as first element, subtract this.
+        // Add the replyState - i.e. the state that is outgoing from the current call, destined for the reply.
+        // (The parameter replyStack includes the replyTo stage/endpointId as first element, subtract this.)
         clone.stackStates.add(new StackState(replyStack.size() - 1, replyState));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
@@ -109,8 +111,8 @@ public class MatsTrace implements Cloneable {
     }
 
     /**
-     * Adds an {@link CallType#SEND SEND} Call, meaning a "request" which do not expect a Reply: Envision an invocation
-     * of a void-method, or an invocation of some method that returns the value, but where you invoke it as a
+     * Adds a {@link CallType#SEND SEND} Call, meaning a "request" which do not expect a Reply: Envision an invocation
+     * of a void-method. Or an invocation of some method that returns the value, but where you invoke it as a
      * void-method (not storing the result, e.g. map.remove("test") returns the removed value, but is often invoked
      * without storing this.).
      *
@@ -120,18 +122,48 @@ public class MatsTrace implements Cloneable {
      * @param to
      *            which endpoint that should get the message.
      * @param data
-     *            the request data, most often a JSON representing the Request Data Transfer Object that the requesting
+     *            the request data, most often a JSON representing the Request Data Transfer Object that the receiving
      *            service expects to get.
      * @param replyStack
-     *            for an INVOKE call, this would normally be an empty list.
+     *            for an SEND call, this would normally be an empty list.
      * @param initialState
+     *            an optional feature, whereby the state can be set for the initial stage of the requested endpoint.
      */
     public MatsTrace addSendCall(String from, String to, String data, List<String> replyStack, String initialState) {
         MatsTrace clone = clone();
         clone.calls.add(new Call(CallType.SEND, from, to, data, replyStack));
-        // Add any state meant for the initial stage ("stage0")
+        // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
             clone.stackStates.add(new StackState(replyStack.size(), initialState));
+        }
+        return clone;
+    }
+
+    /**
+     * Adds a {@link CallType#NEXT NEXT} Call, which is a "sideways call" to the next stage in a multistage service, as
+     * opposed to the normal request out to a service expecting a reply. The functionality is functionally identical to
+     * {@link #addSendCall(String, String, String, List, String) addSendCall(...)}, but has its own {@link CallType}
+     * enum {@link CallType#NEXT value}.
+     *
+     * @param from
+     *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
+     *            does not need the from specifier, as this is not where any replies go to.
+     * @param to
+     *            which endpoint that should get the message - the next stage in a multi-stage service.
+     * @param data
+     *            the request data, most often a JSON representing the Request Data Transfer Object that the next stage
+     *            expects to get.
+     * @param replyStack
+     *            for an NEXT call, this is the same stack as the current stage has.
+     * @param state
+     *            the state data for the next stage.
+     */
+    public MatsTrace addNextCall(String from, String to, String data, List<String> replyStack, String state) {
+        MatsTrace clone = clone();
+        clone.calls.add(new Call(CallType.NEXT, from, to, data, replyStack));
+        // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
+        if (state != null) {
+            clone.stackStates.add(new StackState(replyStack.size(), state));
         }
         return clone;
     }
@@ -283,6 +315,13 @@ public class MatsTrace implements Cloneable {
         public List<String> getStack() {
             return new ArrayList<>(stack);
         }
+
+        @Override
+        public String toString() {
+            return new String(new char[stack.size()]).replace("\0", ": ") + type
+                    + " #to:" + to + ", #from:" + from
+                    + ", #data:" + data + ", #stack:" + stack;
+        }
     }
 
     public static class StackState {
@@ -310,7 +349,24 @@ public class MatsTrace implements Cloneable {
 
         @Override
         public String toString() {
-            return getClass().getName() + ":depth=" + depth + ",state=" + state;
+            return "depth=" + depth + ",state=" + state;
         }
     }
+
+    @Override
+    public String toString() {
+        StringBuilder buf = new StringBuilder();
+        buf.append("MatsTrace [v=").append(v).append(", traceId=").append(traceId).append("]\n");
+        buf.append(" calls:\n");
+        buf.append("   i [Initiator]\n");
+        for (int i = 0; i < calls.size(); i++) {
+            buf.append("   ").append(i).append(' ').append(calls.get(i)).append("\n");
+        }
+        buf.append(" states:\n");
+        for (int i = 0; i < stackStates.size(); i++) {
+            buf.append("   ").append(i).append(' ').append(stackStates.get(i)).append("\n");
+        }
+        return buf.toString();
+    }
+
 }

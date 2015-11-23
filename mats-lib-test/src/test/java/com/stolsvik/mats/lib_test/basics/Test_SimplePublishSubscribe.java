@@ -27,15 +27,21 @@ public class Test_SimplePublishSubscribe extends AMatsTest {
     private MatsTestLatch matsTestLatch2 = new MatsTestLatch();
 
     @Before
-    public void setupTerminator() throws InterruptedException {
+    public void setupTerminator() {
         matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> matsTestLatch.resolve(dto, sto));
+                (context, dto, sto) -> {
+                    log.debug("SUBSCRIPTION TERMINATOR 1 MatsTrace:\n" + context.getTrace());
+                    matsTestLatch.resolve(dto, sto);
+                });
         matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> matsTestLatch2.resolve(dto, sto));
+                (context, dto, sto) -> {
+                    log.debug("SUBSCRIPTION TERMINATOR 2 MatsTrace:\n" + context.getTrace());
+                    matsTestLatch2.resolve(dto, sto);
+                });
 
-        // Sleep for a small while, due to the nature of Pub/Sub: If the listeners are not up when the message is sent,
+        // Nap for a small while, due to the nature of Pub/Sub: If the listeners are not up when the message is sent,
         // then they will not get the message.
-        Thread.sleep(100);
+        takeNap(100);
     }
 
     @Test

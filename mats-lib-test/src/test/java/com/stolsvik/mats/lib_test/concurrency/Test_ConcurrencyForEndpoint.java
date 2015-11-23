@@ -86,7 +86,7 @@ public class Test_ConcurrencyForEndpoint extends AMatsTest {
             }
         });
 
-        // Wait synchronously for terminator to finish.
+        // Wait synchronously for all messages to reach terminator
         boolean gotToZero = _latch.await((int) (PROCESSING_TIME * 1.5), TimeUnit.MILLISECONDS);
         Assert.assertTrue("The CountDownLatch did not reach zero in " + (PROCESSING_TIME * 1.5) + " ms.", gotToZero);
 

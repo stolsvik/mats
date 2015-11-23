@@ -65,7 +65,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
             ProcessLambda<I, S, R> processor) {
         // TODO: Refuse adding stages if already started, or if lastStage is added.
         // Make stageId, which is the endpointId for the first, then endpointId.stage1, stage2 etc.
-        String stageId = _stages.size() == 0 ? _endpointId : _endpointId + ".stage" + (_stages.size() + 1);
+        String stageId = _stages.size() == 0 ? _endpointId : _endpointId + ".stage" + (_stages.size());
         JmsMatsStage<I, S, R> stage = new JmsMatsStage<>(this, stageId, _queue,
                 incomingClass, _stateClass, processor);
         // :: Set this next stage's Id on the previous stage, unless we're first, in which case there is no previous.

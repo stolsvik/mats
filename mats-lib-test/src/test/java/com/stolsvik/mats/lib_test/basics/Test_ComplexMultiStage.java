@@ -82,7 +82,10 @@ public class Test_ComplexMultiStage extends AMatsTest {
     @Before
     public void setupTerminator() {
         matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> matsTestLatch.resolve(dto, sto));
+                (context, dto, sto) -> {
+                    log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
+                    matsTestLatch.resolve(dto, sto);
+                });
     }
 
     @Test
