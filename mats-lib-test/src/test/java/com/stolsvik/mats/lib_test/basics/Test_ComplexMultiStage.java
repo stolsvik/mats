@@ -23,13 +23,13 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  *
  * <pre>
  * [Initiator]
- *     [Master S0, init]
- *         [Mid S0, init]
+ *     [Master S0 (init)]
+ *         [Mid S0 (init)]
  *             [Leaf]
- *         [Mid S1, last]
+ *         [Mid S1 (last)]
  *     [Master S1]
  *         [Leaf]
- *     [Master S2, last]
+ *     [Master S2 (last)]
  * [Terminator]
  * </pre>
  *
