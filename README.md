@@ -1,49 +1,44 @@
 # MATS<sup>3</sup> - Message-based Asynchronous Transactional Staged Stateful Services
 
-A library that facilitates the development of asynchronous multi-stage message-based services, where
-a state object is maintained between each stage, and each stage is independently transactional.
+A library that facilitates the development of asynchronous multi-stage message-based services, where a state object is maintained between each stage, and each stage is independently transactional.
 
-The API consist nearly solely of interfaces, and can have implementations on several messaging platform,
-but the current sole implementation is employing Java Message Service API - JMS v1.1.
+The API consist nearly solely of interfaces, not depending on any specific messaging platform's protocol or API. It can have implementations on several messaging platform, but the current sole implementation is employing Java Message Service API - JMS v1.1.
 
 # Rationale
 
-In a multi-service architecture (e.g. <i>Micro Services</i>) one needs to communicate between the different services.
-The golden hammer for such communication is REST services employing JSON over HTTP.
+In a multi-service architecture (e.g. <i>Micro Services</i>) one needs to communicate between the different services. The golden hammer for such communication is REST services employing JSON over HTTP.
 
-Asynchronous Message Oriented Middleware architectures are superior to synchronous REST-based systems in many ways, e.g.:
+Asynchronous Message Oriented Middleware architectures are superior to synchronous REST-based systems in many ways, for example:
 
-* High Availability (can have listeners on several servers for each queue)
-* Scalability (can increase the number of listeners and servers for a queue, without any clients needing reconfiguration)
-* Transactional-ability (each endpoint has either processed a message, done its DB-stuff, and sent a message, or none of it)
-* Resiliency and Fault Tolerance (if a node goes down mid-way in processing, the transactional aspect kicks in and rolls back the processing, and another node picks up. Also, centralized retry.)
-* Service Locating (only targets the logical queue name, without needing information about which servers are active for that endpoint)
-* Debugging (the messages are typically strings and JSON, and can be inspected centrally on the Message Broker).
-* Error handling (unprocessable messages will be refused and eventually put on a Dead Letter Queue, where they can be monitored, ops be alerted, and handled manually - centrally)
+* **High Availability**: Can have listeners on several nodes (servers/containers) for each queue.
+* **Scalability**: Can increase the number of listeners and nodes for a queue, without any clients needing reconfiguration.
+* **Transactionality**: Each endpoint has either processed a message, done its DB-stuff, and sent a message, or none of it.
+* **Resiliency and Fault Tolerance**: If a node goes down mid-way in processing, the transactional aspect kicks in and rolls back the processing, and another node picks up. Also, centralized retry.
+* **Service Locating**: Only targets the logical queue name, without needing information about which nodes are active for that endpoint)
+* **Monitoring**: All messages pass by the Message Broker, and can be logged and recorded, and made statistics on, to whatever degree one wants. 
+* **Debugging**: The messages are typically strings and JSON, and can be inspected centrally on the Message Broker.
+* **Error handling**: Unprocessable messages will be refused and eventually put on a Dead Letter Queue, where they can be monitored, ops be alerted, and handled manually - centrally.
 
-However, the big pain point with message-based communcations is that to reap all these benefits, one need to fully
-embrace ansyncronous, multi-staged processing, where each stage is totally stateless, but where one still needs to
-maintain a state throughout the flow. This is typically so hard to grasp, not to mention implement, that many
-projects choose to go for the much easier model of synchronous processing where one can code linearly, employing
-blocking calls out to other services that are needed - a model that every programmer intuitively know.
+However, the big pain point with message-based communications is that to reap all these benefits, one need to fully embrace asynchronous, multi-staged processing, where each stage is totally stateless, but where one still needs to maintain a state throughout the flow. This is typically so hard to grasp, not to mention implement, that many projects choose to go for the much easier model of synchronous processing where one can code linearly, employing blocking calls out to other services that are needed - a model that every programmer intuitively know due to it closely mimicking local method invocations.
 
-The main idea of this library is to let developers code message-based endpoints that themselves may "invoke"
-other such endpoints, in a manner that closely resembles a synchronous "straight down" linear code style (envision
-a plain Java method that invokes other methods, or more relevant, a REST service that invokes other REST services)
-where state will be kept through the flow, but in fact ends up being a forward-only "Pipes and Filters" multi-stage
-process. Effectively, the mental model feels like home, and coding is really straight-forward, while you reap all
-the benefits of a Message Oriented Architecture.
+The main idea of this library is to let developers code message-based endpoints that themselves may "invoke" other such endpoints, in a manner that closely resembles a synchronous "straight down" linear code style (envision a plain Java method that invokes other methods, or more relevant, a REST service that invokes other REST services) where state will be kept through the flow, but in fact ends up being a forward-only "Pipes and Filters" multi-stage fully asynchronous process.
+
+Effectively, the mental model feels like home, and coding is really straight-forward, while you reap all the benefits of a Message Oriented Architecture.
 
 # Examples
 
-Some examples taken from the unit tests ("mats-lib-test"). Notice the use of the "MatsRule", which sets up an ActiveMQ in-memory server and creates a MatsFactory based on that.
+Some examples taken from the unit tests ("mats-lib-test"). Notice the use of the JUnit Rule *Rule_Mats*, which sets up an ActiveMQ in-memory server and creates a MatsFactory based on that.
 
 In these examples, all the elements/endpoints are set up in one class, and thus obviously runs on the same machine - but in actual usage, you would typically have each
-service run in a different project on different servers. The DTO-classes, which acts as the interface between the different endpoints' requests and replies, would then be copied between the projects (in this testing-scenario, one DTO class is used as all interfaces). 
+endpoint run in a different process on different nodes. The DTO-classes, which acts as the interface between the different endpoints' requests and replies, would in real usage be copied between the projects (in this testing-scenario, one DTO class is used as all interfaces).
+
+It is important to realize that each of the stages - even each stage in multi-stage endpoints - are handled by separate threads, *sharing no contextual JVM state whatsoever*: The state, request and reply objects' references are not shared between stages. Each stage's processor receives a message, supplies the stage-lambda with a context-instance, the request-object, and the state-object (where both request and state is deserialized from the incoming MatsTrace), and then exits that lambda (after typically having sent a new message out), going back to listening for new messages for that stage. *There is no state shared between these stages outside of the contents of the MatsTrace which is being passed with the message.* In particular, if you have a process running a three-stage MATS endpoint which is running on two nodes A and B, the first stage might execute on A, while the next on B, and the last one on A again.
+
+This means that what *looks like* a blocking, synchronous request/reply "method call" is actually fully asynchronous, where the reply will be handled in the next stage by a different thread, quite possibly on a different node if you have deployed the service in multiple instances.
 
 ## Simple send-receive
 
-The following class tests the simplest functionality: Sets up a Terminator endpoint, and then an initiator sends a message to that endpoint. *(This example does not demonstrate the state keeping)*
+The following class exercises the simplest functionality: Sets up a Terminator endpoint, and then an initiator sends a message to that endpoint. *(This example does not demonstrate neither the stack (request/reply), nor state keeping - it is just the simplest possible message passing, sending some information from an initiator to a terminator endpoint)*
 
 ASCII-artsy, it looks like this:
 <pre>
@@ -80,7 +75,7 @@ public class Test_SimplestSendReceive extends AMatsTest {
 
 ## Simple request to single stage "leaf-service"
 
-Tests the simplest request functionality: A single-stage service is set up. A Terminator is set up. Then an initiator does a request to the service, setting replyTo(Terminator). *(This example demonstrates state keeping between initiator and terminator)*
+Exercises the simplest request functionality: A single-stage service is set up. A Terminator is set up. Then an initiator does a request to the service, setting replyTo(Terminator). *(This example demonstrates one stack level request/reply, and state keeping between initiator and terminator)*
 
 ASCII-artsy, it looks like this:
 <pre>
@@ -128,9 +123,9 @@ public class Test_SimplestServiceRequest extends AMatsTest {
 
 ## Multi-stage service and multi-level requests
 
-Sets up a somewhat complex test scenario, testing the basic state keeping and request-reply passing. 
+Sets up a somewhat complex test scenario, testing request/reply message passing and state keeping between stages in several multi-stage endpoints, at different levels in the stack.
 
-The main aspects of MATS are demonstrated here, notice in particular how the code of <code>setupMasterMultiStagedService()</code> looks - if you squint a little - like a linear "straight down" method with two "blocking" requests out to other services, with a return at the end.
+The main aspects of MATS are demonstrated here, notice in particular how the code of <code>setupMasterMultiStagedService()</code> *looks like* - if you squint a little - a linear "straight down" method with two "blocking requests" out to other services, where the last stage ends with a return statement, sending off the reply to whoever invoked it.
 <p>
 Sets up these services:
 <ul>
@@ -164,8 +159,8 @@ public class Test_ComplexMultiStage extends AMatsTest {
 
     @Before
     public void setupMidMultiStagedService() {
-        MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE + ".Mid", StateTO.class,
-                DataTO.class);
+        MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE + ".Mid",
+                                                                            StateTO.class, DataTO.class);
         ep.stage(DataTO.class, (context, dto, sto) -> {
             Assert.assertEquals(new StateTO(0, 0), sto);
             sto.number1 = 10;
@@ -180,7 +175,8 @@ public class Test_ComplexMultiStage extends AMatsTest {
 
     @Before
     public void setupMasterMultiStagedService() {
-        MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE, StateTO.class, DataTO.class);
+        MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE,
+                                                                            StateTO.class, DataTO.class);
         ep.stage(DataTO.class, (context, dto, sto) -> {
             Assert.assertEquals(new StateTO(0, 0), sto);
             sto.number1 = Integer.MAX_VALUE;
@@ -222,8 +218,10 @@ public class Test_ComplexMultiStage extends AMatsTest {
         // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
-        Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 2 * 5, dto.string + ":FromLeafService" + ":FromMidService"
-                + ":FromLeafService" + ":FromMasterService"), result.getData());
+        Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 2 * 5,
+                                       dto.string + ":FromLeafService" + ":FromMidService"
+                                                  + ":FromLeafService" + ":FromMasterService"),
+                            result.getData());
     }
 }
 ```
