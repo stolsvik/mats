@@ -90,18 +90,6 @@ public interface JmsMatsTransactionManager {
         void performWithinTransaction(Session jmsSession, ProcessingLambda lambda) throws JMSException;
 
         /**
-         * Will commit external resources (which in roughly 100% of setups means <i>the database(s)</i>), and then open
-         * a new transaction for these resources right away. Meant to enable for the user code a way to create a
-         * "channel" / "double delivery catcher".
-         * <p>
-         * TODO: Reconsider - probably just as well the user creates his own SQL connection (an extra DataSource) and
-         * uses that for "gate keeping" on double-deliveries. ALSO, one of the best way to ensure this, is to have a
-         * table with a unique-constraint on row with an ID being an UUID <i>that the requestor</i> generates. This way,
-         * a double-delivery will be caught on the attempted insert of the row, before the e.g. email is sent out.
-         */
-        void commitExt();
-
-        /**
          * Closes this {@link TransactionContext}, invoked when the {@link JmsMatsStage} to which it was requested for
          * is closed. Should close relevant JMS Connections.
          */

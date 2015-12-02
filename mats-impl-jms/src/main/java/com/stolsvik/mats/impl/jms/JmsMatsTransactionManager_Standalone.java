@@ -15,8 +15,8 @@ import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 /**
  * Implementation of {@link JmsMatsTransactionManager} handling both JMS Session and any provided JDBC DataSource, doing
  * all transactional handling "native", i.e. using only JMS and JDBC APIs (as opposed to using Spring). Each
- * {@link #getTransactionContext(JmsMatsStage) transactional context} (stages' processors, and initiators) gets its
- * own {@link Connection JMS Connection}.
+ * {@link #getTransactionContext(JmsMatsStage) transactional context} (stages' processors, and initiators) gets its own
+ * {@link Connection JMS Connection}.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
@@ -116,11 +116,6 @@ public class JmsMatsTransactionManager_Standalone implements JmsMatsTransactionM
                 }
                 throw e;
             }
-        }
-
-        @Override
-        public void commitExt() {
-            // TODO Auto-generated method stub
         }
 
         @Override
