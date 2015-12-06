@@ -14,7 +14,7 @@ import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsStage.StageProcessor;
 
 /**
- * Transactional aspects of the JMS implementation. (It is the duty of the MATS implementation to ensure that the
+ * Transactional aspects of the JMS MATS implementation. (It is the duty of the MATS implementation to ensure that the
  * transactional principles of MATS are honored).
  * <p>
  * The reason for this being an interface, is that the transactional aspects can be implemented through different means.

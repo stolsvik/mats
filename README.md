@@ -8,20 +8,20 @@ The API consist nearly solely of interfaces, not depending on any specific messa
 
 In a multi-service architecture (e.g. <i>Micro Services</i>) one needs to communicate between the different services. The golden hammer for such communication is REST services employing JSON over HTTP.
 
-Asynchronous Message Oriented Middleware architectures are superior to synchronous REST-based systems in many ways, for example:
+However, *Asynchronous Message Oriented Middleware architectures* are superior to synchronous REST-based systems in many ways, for example:
 
-* **High Availability**: Can have listeners on several nodes (servers/containers) for each queue.
-* **Scalability**: Can increase the number of listeners and nodes for a queue, without any clients needing reconfiguration.
+* **High Availability**: Can have listeners on several nodes (servers/containers) for each queue, so that if one goes down, the others are still processing.
+* **Scalability**: Can [increase the number of nodes](http://www.reactivemanifesto.org/glossary#Replication) (or listeners per node) for a queue, thereby increasing throughput, without any clients needing reconfiguration.
 * **Transactionality**: Each endpoint has either processed a message, done its DB-stuff, and sent a message, or none of it.
-* **Resiliency and Fault Tolerance**: If a node goes down mid-way in processing, the transactional aspect kicks in and rolls back the processing, and another node picks up. Also, centralized retry.
-* **Service Locating**: Only targets the logical queue name, without needing information about which nodes are active for that endpoint)
+* **Resiliency** / **Fault Tolerance**: If a node goes down mid-way in processing, the transactional aspect kicks in and rolls back the processing, and another node picks up. Also, centralized retry.
+* **[Location Transparency](http://www.reactivemanifesto.org/glossary#Location-Transparency)**: *Service Location Discovery* is avoided, as messages only targets the logical queue name, without needing information about which nodes are active for that endpoint.
 * **Monitoring**: All messages pass by the Message Broker, and can be logged and recorded, and made statistics on, to whatever degree one wants. 
 * **Debugging**: The messages are typically strings and JSON, and can be inspected centrally on the Message Broker.
-* **Error handling**: Unprocessable messages will be refused and eventually put on a Dead Letter Queue, where they can be monitored, ops be alerted, and handled manually - centrally.
+* **Error handling**: Unprocessable messages (both in face of coded-for conditions and programming errors) will be refused and eventually put on a *Dead Letter Queue*, where they can be monitored, ops be alerted, and handled manually - centrally.
 
 However, the big pain point with message-based communications is that to reap all these benefits, one need to fully embrace asynchronous, multi-staged processing, where each stage is totally stateless, but where one still needs to maintain a state throughout the flow. This is typically so hard to grasp, not to mention implement, that many projects choose to go for the much easier model of synchronous processing where one can code linearly, employing blocking calls out to other services that are needed - a model that every programmer intuitively know due to it closely mimicking local method invocations.
 
-The main idea of this library is to let developers code message-based endpoints that themselves may "invoke" other such endpoints, in a manner that closely resembles a synchronous "straight down" linear code style (envision a plain Java method that invokes other methods, or more relevant, a REST service that invokes other REST services) where state will be kept through the flow, but in fact ends up being a forward-only "Pipes and Filters" multi-stage fully asynchronous process.
+The main idea of this library is to let developers code message-based endpoints that themselves may "invoke" other such endpoints, in a manner that closely resembles a synchronous "straight down" linear code style where state will be kept through the flow (envision a plain Java method that invokes other methods, or more relevant, a REST service that invokes other REST services), but in fact ends up being a forward-only *"Pipes and Filters"* multi-stage, fully stateless, asynchronous distributed process.
 
 Effectively, the mental model feels like home, and coding is really straight-forward, while you reap all the benefits of a Message Oriented Architecture.
 
