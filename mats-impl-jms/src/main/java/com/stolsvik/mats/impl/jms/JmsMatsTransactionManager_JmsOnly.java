@@ -132,14 +132,16 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                     // TODO: Make ActiveMQ directly to DLQ stuff
                     jmsSession.rollback();
                 }
-                catch (Throwable t) {
+                catch (Throwable rollbackT) {
                     /*
                      * Could not roll back. This certainly indicates that we have some problem with the JMS Session, and
                      * we'll throw it out so that we start new JMS Session.
+                     *
+                     * However, it is not that bad, as the JMS Message Broker probably will redeliver anyway.
                      */
                     throw new MatsBackendException("When trying to rollback JMS Session due to a "
                             + MatsRefuseMessageException.class.getSimpleName()
-                            + ", we got some Exception. The JMS Session certainly seems unstable.", t);
+                            + ", we got some Exception. The JMS Session certainly seems unstable.", rollbackT);
                 }
                 // -> The JMS Session rolled nicely back.
                 log.info(LOG_PREFIX + "JMS Session rolled back.");
@@ -155,14 +157,16 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 try {
                     jmsSession.rollback();
                 }
-                catch (Throwable t2) {
+                catch (Throwable rollbackT) {
                     /*
                      * Could not roll back. This certainly indicates that we have some problem with the JMS Session, and
                      * we'll throw it out so that we start new JMS Session.
+                     *
+                     * However, it is not that bad, as the JMS Message Broker probably will redeliver anyway.
                      */
                     throw new MatsBackendException("When trying to rollback JMS Session due to a "
                             + t.getClass().getName()
-                            + ", we got some Exception. The JMS Session certainly seems unstable.", t2);
+                            + ", we got some Exception. The JMS Session certainly seems unstable.", rollbackT);
                 }
                 // -> The JMS Session rolled nicely back.
                 log.info(LOG_PREFIX + "JMS Session rolled back.");
