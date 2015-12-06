@@ -1,5 +1,6 @@
 package com.stolsvik.mats.impl.jms;
 
+import javax.jms.Connection;
 import javax.jms.ConnectionFactory;
 import javax.jms.Destination;
 import javax.jms.JMSException;
@@ -96,8 +97,23 @@ public interface JmsMatsTransactionManager {
         void close();
     }
 
+    /**
+     * Abstracts away JMS Connection generation - useful if you need to provide username and password, or some other
+     * connection parameters a la for IBM MQ.
+     * <p>
+     * Otherwise, the lambda can be as simple as <code>(stage) -> _jmsConnectionFactory.createConnection()</code>.
+     */
+    @FunctionalInterface
+    interface JmsConnectionSupplier {
+        Connection createConnection(JmsMatsStage<?, ?, ?> stage) throws JMSException;
+    }
+
+    /**
+     * The lambda that is provided to the {@link JmsMatsTransactionManager} for it to provide transactional demarcation
+     * around.
+     */
     @FunctionalInterface
     interface ProcessingLambda {
-        void transact() throws JMSException, MatsRefuseMessageException;
+        void performWithinTransaction() throws JMSException, MatsRefuseMessageException;
     }
 }

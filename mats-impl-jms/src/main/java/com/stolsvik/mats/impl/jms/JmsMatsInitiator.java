@@ -32,10 +32,15 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
 
     @Override
     public void initiate(InitiateLambda lambda) {
+        // TODO / OPTIMIZE: Do not create JMS Session for every initiation.
+        // TODO / OPTIMIZE: Consider doing lazy init for TransactionContext too
+        // as well as being able to "open" again after close? What about introspection/monitoring/instrumenting -
+        // that is, "turn off" a MatsInitiator: Either hang requsts, or probably more interesting, fail them. And
+        // that would be nice to use "close()" for: As long as it is closed, it can't be used. Need to evaluate.
         Session jmsSession = _transactionContext.getTransactionalJmsSession(false);
         try {
-            _transactionContext.performWithinTransaction(jmsSession, () -> lambda.initiate(new JmsMatsInitiate(
-                    _parentFactory, jmsSession, _matsJsonSerializer)));
+            _transactionContext.performWithinTransaction(jmsSession, () -> lambda.initiate(
+                    new JmsMatsInitiate(_parentFactory, jmsSession, _matsJsonSerializer)));
         }
         catch (JMSException e) {
             throw new MatsBackendException("Problems committing when performing MATS initiation via JMS API", e);

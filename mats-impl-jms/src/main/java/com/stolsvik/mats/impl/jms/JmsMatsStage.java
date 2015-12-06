@@ -320,12 +320,12 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
                                     _incomingMessageClass);
 
                             // :: Invoke the process lambda (stage processor).
-                            _processLambda.process(new JmsMatsProcessContext<S, R>(JmsMatsStage.this, _jmsSession,
+                            _processLambda.process(new JmsMatsProcessContext<>(JmsMatsStage.this, _jmsSession,
                                     matsTrace, currentSto), incomingDto, currentSto);
                         });
                     }
                 }
-                catch (JMSException t) {
+                catch (Throwable t) {
                     log.error(LOG_PREFIX + "Got " + t.getClass().getSimpleName() + ", closing JMS Session,"
                             + " looping to check run-flag.", t);
                     closeJmsSession(_jmsSession);

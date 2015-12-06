@@ -3,8 +3,6 @@ package com.stolsvik.mats.impl.jms;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
-import javax.jms.ConnectionFactory;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,6 +14,7 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.MatsStage.StageConfig;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsConnectionSupplier;
 import com.stolsvik.mats.util.MatsStringSerializer;
 
 public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
@@ -25,9 +24,9 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     /**
      * TODO: Must be removed, as it only uses a non-db transaction manager.
      */
-    public static JmsMatsFactory createMatsFactory(ConnectionFactory jmsConnectionFactory,
+    public static JmsMatsFactory createMatsFactory_JmsOnlyTransactions(JmsConnectionSupplier jmsConnectionSupplier,
             MatsStringSerializer matsStringSerializer) {
-        return createMatsFactory(JmsMatsTransactionManager_Standalone.create(jmsConnectionFactory),
+        return createMatsFactory(JmsMatsTransactionManager_JmsOnly.create(jmsConnectionSupplier),
                 matsStringSerializer);
     }
 

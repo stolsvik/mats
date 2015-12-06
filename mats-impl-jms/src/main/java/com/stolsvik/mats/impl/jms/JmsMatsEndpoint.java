@@ -50,7 +50,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
     private List<JmsMatsStage<?, S, R>> _stages = new CopyOnWriteArrayList<>();
 
     @Override
-    public EndpointConfig getEndpointConfig() {
+    public EndpointConfig<S, R> getEndpointConfig() {
         return _endpointConfig;
     }
 
@@ -113,7 +113,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
         _stages.forEach(s -> s.close());
     }
 
-    private class JmsEndpointConfig implements EndpointConfig {
+    private class JmsEndpointConfig implements EndpointConfig<S, R> {
         private int _concurrency;
 
         @Override
@@ -151,15 +151,20 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
         }
 
         @Override
-        public Class<?> getReplyClass() {
+        public Class<R> getReplyClass() {
             return _replyClass;
         }
 
         @Override
+        public Class<S> getStateClass() {
+            return _stateClass;
+        }
+
+        @Override
         @SuppressWarnings("unchecked")
-        public List<MatsStage> getStages() {
+        public List<MatsStage<?, S, R>> getStages() {
             // Hack to have the compiler shut up.
-            return (List<MatsStage>) (List<?>) _stages;
+            return (List<MatsStage<?, S, R>>) (List<?>) _stages;
         }
     }
 }

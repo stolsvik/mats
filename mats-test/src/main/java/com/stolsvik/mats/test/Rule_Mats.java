@@ -80,7 +80,8 @@ public class Rule_Mats extends ExternalResource {
         // ::: MatsFactory
         // ====================================
         _matsStringSerializer = new MatsDefaultJsonSerializer();
-        _matsFactory = JmsMatsFactory.createMatsFactory(_amqClient, _matsStringSerializer);
+        _matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions((s) -> _amqClient.createConnection(),
+                _matsStringSerializer);
         // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
         _matsFactory.getFactoryConfig().setConcurrency(1);
     }

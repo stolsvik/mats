@@ -82,6 +82,11 @@ public interface MatsEndpoint<S, R> extends StartClosable {
         Class<?> getIncomingMessageClass();
 
         /**
+         * @return the class used for the endpoint's state.
+         */
+        Class<S> getStateClass();
+
+        /**
          * @return the class that will be sent as reply for this endpoint.
          */
         Class<R> getReplyClass();
