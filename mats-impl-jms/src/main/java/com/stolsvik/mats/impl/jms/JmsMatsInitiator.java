@@ -135,13 +135,6 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
 
             sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer, true, matsTrace,
                     _to, "new REQUEST");
-            try {
-                _jmsSession.commit();
-            }
-            catch (JMSException e) {
-                throw new MatsBackendException("Problems committing when sending new REQUEST message to [" + _to
-                        + "] via JMS API", e);
-            }
         }
 
         @Override
@@ -158,13 +151,6 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
 
             sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer, true, matsTrace,
                     _to, "new SEND");
-            try {
-                _jmsSession.commit();
-            }
-            catch (JMSException e) {
-                throw new MatsBackendException("Problems committing when sending new SEND message to [" + _to
-                        + "] via JMS API", e);
-            }
         }
 
         @Override
@@ -181,13 +167,6 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
 
             sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer, false, matsTrace,
                     _to, "new PUBLISH");
-            try {
-                _jmsSession.commit();
-            }
-            catch (JMSException e) {
-                throw new MatsBackendException("Problems committing when sending new PUBLISH message to [" + _to
-                        + "] via JMS API", e);
-            }
         }
 
         private void checkCommon(String msg) {
