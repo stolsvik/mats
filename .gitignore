@@ -7,3 +7,6 @@ build-eclipse/
 # Gradle
 .gradle
 build-gradle/
+
+# H2 test database
+matsTestH2DB.mv.db

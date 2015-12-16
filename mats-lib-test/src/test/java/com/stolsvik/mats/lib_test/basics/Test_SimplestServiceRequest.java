@@ -4,7 +4,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.stolsvik.mats.lib_test.AMatsTest;
+import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
@@ -21,7 +21,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class Test_SimplestServiceRequest extends AMatsTest {
+public class Test_SimplestServiceRequest extends MatsBasicTest {
     @Before
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,

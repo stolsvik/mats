@@ -4,7 +4,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.stolsvik.mats.lib_test.AMatsTest;
+import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
@@ -22,7 +22,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class Test_SimplePublishSubscribe extends AMatsTest {
+public class Test_SimplePublishSubscribe extends MatsBasicTest {
 
     private MatsTestLatch matsTestLatch2 = new MatsTestLatch();
 

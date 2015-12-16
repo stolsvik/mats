@@ -5,7 +5,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsEndpoint;
-import com.stolsvik.mats.lib_test.AMatsTest;
+import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
@@ -27,7 +27,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  *
  * @author Endre Stølsvik - 2015-07-31 - http://endre.stolsvik.com
  */
-public class Test_SendAlongStateWithRequest extends AMatsTest {
+public class Test_SendAlongStateWithRequest extends MatsBasicTest {
     @Before
     public void setupService() {
         MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE, StateTO.class, DataTO.class);

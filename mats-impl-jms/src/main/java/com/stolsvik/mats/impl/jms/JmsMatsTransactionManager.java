@@ -114,6 +114,6 @@ public interface JmsMatsTransactionManager {
      */
     @FunctionalInterface
     interface ProcessingLambda {
-        void performWithinTransaction() throws JMSException, MatsRefuseMessageException;
+        void performWithinTransaction() throws MatsRefuseMessageException;
     }
 }

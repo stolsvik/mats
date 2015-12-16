@@ -10,14 +10,14 @@ import org.junit.Before;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.stolsvik.mats.lib_test.AMatsTest;
+import com.stolsvik.mats.lib_test.MatsBasicTest;
 
 /**
  * Abstract class for concurrency tests.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class ATest_AbstractConcurrency extends AMatsTest {
+public class ATest_AbstractConcurrency extends MatsBasicTest {
     private final Logger log = LoggerFactory.getLogger(this.getClass());
 
     protected static final int CONCURRENCY_TEST = 8;

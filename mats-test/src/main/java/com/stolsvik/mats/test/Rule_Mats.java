@@ -1,6 +1,7 @@
 package com.stolsvik.mats.test;
 
 import javax.jms.Connection;
+import javax.jms.ConnectionFactory;
 import javax.jms.JMSException;
 import javax.jms.MapMessage;
 import javax.jms.Message;
@@ -25,6 +26,7 @@ import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.util.MatsDefaultJsonSerializer;
+import com.stolsvik.mats.util.MatsStringSerializer;
 
 /**
  * JUnit {@link Rule} of type {@link ExternalResource} that make a convenient MATS harness, providing a
@@ -80,10 +82,16 @@ public class Rule_Mats extends ExternalResource {
         // ::: MatsFactory
         // ====================================
         _matsStringSerializer = new MatsDefaultJsonSerializer();
-        _matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions((s) -> _amqClient.createConnection(),
-                _matsStringSerializer);
+        // Allow for override in specialization classes, in particular the one with DB.
+        _matsFactory = createMatsFactory(_matsStringSerializer, _amqClient);
         // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
         _matsFactory.getFactoryConfig().setConcurrency(1);
+    }
+
+    protected MatsFactory createMatsFactory(MatsStringSerializer stringSerializer,
+            ConnectionFactory connectionFactory) {
+        return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions((s) -> connectionFactory.createConnection(),
+                _matsStringSerializer);
     }
 
     @Override

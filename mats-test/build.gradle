@@ -17,20 +17,20 @@ sourceSets {
 eclipse.classpath.plusConfigurations += [ configurations.provided ]
 
 dependencies {
+    // H2 Database, for database tests
+    compile 'com.h2database:h2:1.4.+'
+
     // TOOD: Preliminary dep on JMS MATS impl
     compile project(':mats-impl-jms')
 
     // TODO: Preliminary dep on ActiveMQ BROKER
     compile 'org.apache.activemq:activemq-broker:5.11.+'
 
-    // Dep on the actual MATS library    
+    // Dep on the actual MATS library
     compile project(':mats-lib')
     // Dep on the utils of MATS
     compile project(':mats-util')
-    
+
     // The JUnit library
     provided 'junit:junit:4.+'
-    
-    // TODO: Remove Mockito - used when creating the lib.
-    compile 'org.mockito:mockito-all:1.9.5'
 }

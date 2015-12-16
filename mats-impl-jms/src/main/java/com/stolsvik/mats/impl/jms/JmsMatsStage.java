@@ -19,6 +19,7 @@ import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.MatsTrace.Call;
+import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
 import com.stolsvik.mats.util.MatsStringSerializer;
@@ -54,7 +55,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
     }
 
     @Override
-    public StageConfig getStageConfig() {
+    public StageConfig<I, S, R> getStageConfig() {
         return _stageConfig;
     }
 
@@ -135,7 +136,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
         return destination;
     }
 
-    private class JmsStageConfig implements StageConfig {
+    private class JmsStageConfig implements StageConfig<I, S, R> {
         private int _concurrency;
 
         @Override
@@ -168,7 +169,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
         }
 
         @Override
-        public Class<?> getIncomingMessageClass() {
+        public Class<I> getIncomingMessageClass() {
             return _incomingMessageClass;
         }
     }
@@ -295,7 +296,14 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
 
                             MapMessage matsMM = (MapMessage) message;
 
-                            String matsTraceString = matsMM.getString(factoryConfig.getMatsTraceKey());
+                            String matsTraceString;
+                            try {
+                                matsTraceString = matsMM.getString(factoryConfig.getMatsTraceKey());
+                            }
+                            catch (JMSException e) {
+                                throw new MatsBackendException(
+                                        "Got JMSException when doing mapMessage.getString(..). Pretty crazy.", e);
+                            }
                             log.info("MatsTraceString:\n" + matsTraceString);
                             MatsTrace matsTrace = _matsJsonSerializer.deserializeMatsTrace(matsTraceString);
 

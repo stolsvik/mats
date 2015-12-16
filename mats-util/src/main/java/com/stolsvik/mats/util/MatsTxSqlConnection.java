@@ -48,7 +48,9 @@ public final class MatsTxSqlConnection {
     }
 
     /**
-     * @return the SQL Connection bound to the current {@link MatsStage}'s Stage Processor.
+     * @return the SQL Connection bound to the current {@link MatsStage}'s Stage Processor - it is already set into
+     *         transactional mode ({@link Connection#setAutoCommit(boolean) con.setAutoCommit(false)}) - <b>do not
+     *         commit or close it, as that is done by the Mats infrastructure</b>.
      */
     public static Connection getConnection() {
         Supplier<Connection> supplier = __threadLocalConnectionSupplier.get();

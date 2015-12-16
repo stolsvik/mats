@@ -10,6 +10,7 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.exceptions.MatsRuntimeException;
 import com.stolsvik.mats.util.MatsTxSqlConnection;
 import com.stolsvik.mats.util.MatsTxSqlConnection.MatsSqlConnectionCreationException;
@@ -115,7 +116,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
             // :: We invoke the "outer" transaction, which is the JMS transaction.
             super.performWithinTransaction(jmsSession, () -> {
-                // ----- We're *within* the JMS Transaction demarcation
+                // ----- We're *within* the JMS Transaction demarcation.
 
                 /*
                  * NOTICE: We will not get the SQL Connection and set AutoCommit to false /here/ (i.e. start the
@@ -124,38 +125,65 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                  *
                  * ----- Therefore, we're now IMPLICITLY *within* the SQL Transaction demarcation.
                  */
+                boolean allPathsHandled = false;
                 try {
                     /*
                      * Invoking the actual user code (albeit wrapped with some minor code from the JmsMatsStage to parse
-                     * the MapMessage, deserialize the MatsTrace, and fetch the state etc.), which is now (implicitly)
-                     * within both the inner SQL Transaction demarcation, and the outer JMS Transaction demarcation.
+                     * the MapMessage, deserialize the MatsTrace, and fetch the state etc.), which will now be inside
+                     * both the inner (implicit) SQL Transaction demarcation, and the outer JMS Transaction demarcation.
                      */
                     lambda.performWithinTransaction();
+
+                    // User code went OK: "Good path" is handled.
+                    allPathsHandled = true;
                 }
-                catch (RuntimeException | Error e) {
+                // Catch EVERYTHING that can come out of the try-block:
+                catch (MatsRefuseMessageException | RuntimeException | Error e) {
                     // ----- The user code had some error occur, or want to reject this message.
-                    log.error("The stage [" + _stage + "] raised some exception - rollbacking SQL Connection.", e);
+
+                    // The user code raised some Exception, and this is the handling: "Bad path" is handled.
+                    allPathsHandled = true;
+
+                    log.error("ROLLBACK: The stage [" + _stage
+                            + "] raised " + e.getClass().getSimpleName() + " - rollbacking SQL Connection.", e);
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                      */
                     commitOrRollbackThenCloseConnection(false, lazyConnectionSupplier.getAnyGottenConnection());
+
                     // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
-                    // Throw on to the JMS Transaction handler, which will rollback the JMS Transaction.
+                    // We will now throw on the Exception, which will rollback the JMS Transaction.
 
-                    // ----- We're exiting the JMS Transaction demarcation, which will be rollbacked.
+                    // ----- We're exiting the JMS Transaction demarcation (by exception), which will be rollbacked.
                     throw e;
                 }
+                // Sanity check that we caught any exception.
+                finally {
+                    // ?: Are all paths handled?
+                    if (!allPathsHandled) {
+                        // -> No: This is a coding error, the catch block above should have caught the Exception.
+                        log.error("The stage [" + _stage
+                                + "] raised some Exception that should have been caught! This should never happen!");
+                        commitOrRollbackThenCloseConnection(false, lazyConnectionSupplier.getAnyGottenConnection());
+                        throw new IllegalStateException("This should never happen.");
+                    }
+                }
+
+                // ----- The user code went OK, no Exception was raised.
 
                 /*
                  * IFF the SQL Connection was fetched, we will now commit (and close) it.
                  */
                 commitOrRollbackThenCloseConnection(true, lazyConnectionSupplier.getAnyGottenConnection());
-                // ----- We're *outside* the SQL Transaction demarcation (committed).
+
+                // ----- We're now *outside* the SQL Transaction demarcation (committed).
 
                 // Return nicely, as the SQL Connection.commit() and .close() went OK.
 
-                // ----- We're exiting the JMS Transaction demarcation, which will be committed.
+                // ----- We're exiting to the JMS Transaction demarcation, which will be committed.
+                return;
+
             });
         }
 

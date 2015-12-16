@@ -5,10 +5,10 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsEndpoint;
-import com.stolsvik.mats.lib_test.AMatsTest;
+import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
-public class Test_MutilStageNext extends AMatsTest {
+public class Test_MutilStageNext extends MatsBasicTest {
     @Before
     public void setupMultiStageService() {
         MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE, StateTO.class, DataTO.class);

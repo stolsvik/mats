@@ -2,14 +2,18 @@ package com.stolsvik.mats.lib_test;
 
 import java.util.UUID;
 
-import org.junit.Rule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.test.MatsTestLatch;
-import com.stolsvik.mats.test.Rule_Mats;
 
-public class AMatsTest {
+/**
+ * Common top-level class for the Mats JUnit tests - use the extensions {@link MatsBasicTest} and {@link MatsDbTest}
+ * which also provides the Mats JUnit Rules.
+ *
+ * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
+ */
+public class _MatsTestBase {
     protected Logger log = LoggerFactory.getLogger(getClass());
 
     protected String INITIATOR = getClass().getName() + ".INITIATOR";
@@ -19,9 +23,6 @@ public class AMatsTest {
     {
         log.info("### Instantiating class [" + this.getClass().getName() + "].");
     }
-
-    @Rule
-    public Rule_Mats matsRule = new Rule_Mats();
 
     protected MatsTestLatch matsTestLatch = new MatsTestLatch();
 
@@ -52,10 +53,14 @@ public class AMatsTest {
     }
 
     /**
-     * Testing State Transfer Object.
+     * A <i>State Transfer Object</i> meant for unit tests.
      * <p>
      * Note about STOs in general: The STOs in use by the different multi-stage endpoints are to be considered private
      * implementation details, and should typically reside as a private inner class of the endpoint employing them.
+     * <p>
+     * Typically, a STO class should just be fields that are access directly - they are to be employed like a "this"
+     * object for the state that needs to traverse stages. The equals(..), hashCode() and toString() of this testing STO
+     * is just to facilitate efficient testing.
      * <p>
      * The possibility to send STOs along with the request should only be employed if both the sender and the endpoint
      * to which the state is sent along to, resides in the same code base, and hence still can be considered private
@@ -65,8 +70,12 @@ public class AMatsTest {
         public int number1;
         public double number2;
 
+        /**
+         * Provide a Default Constructor for the Jackson JSON-lib which needs default constructor. It is needed
+         * explicitly in this case since we also have a constructor taking arguments - this would normally not be needed
+         * for a STO class.
+         */
         public StateTO() {
-            // For Jackson JSON-lib which needs default constructor.
         }
 
         public StateTO(int number1, double number2) {
@@ -95,10 +104,10 @@ public class AMatsTest {
     }
 
     /**
-     * Testing Data Transfer Object.
+     * A <i>Data Transfer Object</i> meant for unit tests.
      * <p>
-     * Note about DTOs in general: The DTOs are to be considered the public interface of a MATS endpoint, and should be
-     * documented thoroughly.
+     * Note about DTOs in general: The DTOs used in MATS endpoints are to be considered their public interface, and
+     * should be documented thoroughly.
      */
     public static class DataTO {
         public double number;
@@ -135,4 +144,5 @@ public class AMatsTest {
             return "DataTO [number=" + number + ", string=" + string + "]";
         }
     }
+
 }

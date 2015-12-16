@@ -15,19 +15,23 @@ import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.MatsStage.StageConfig;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsConnectionSupplier;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
 import com.stolsvik.mats.util.MatsStringSerializer;
 
 public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsFactory.class);
 
-    /**
-     * TODO: Must be removed, as it only uses a non-db transaction manager.
-     */
     public static JmsMatsFactory createMatsFactory_JmsOnlyTransactions(JmsConnectionSupplier jmsConnectionSupplier,
             MatsStringSerializer matsStringSerializer) {
         return createMatsFactory(JmsMatsTransactionManager_JmsOnly.create(jmsConnectionSupplier),
                 matsStringSerializer);
+    }
+
+    public static JmsMatsFactory createMatsFactory_JmsAndJdbcTransactions(JmsConnectionSupplier jmsConnectionSupplier,
+            JdbcConnectionSupplier jdbcConnectionSupplier, MatsStringSerializer matsStringSerializer) {
+        return createMatsFactory(JmsMatsTransactionManager_JmsAndJdbc.create(jmsConnectionSupplier,
+                jdbcConnectionSupplier), matsStringSerializer);
     }
 
     public static JmsMatsFactory createMatsFactory(JmsMatsTransactionManager jmsMatsTransactionManager,
