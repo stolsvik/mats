@@ -82,7 +82,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
     private final List<StageProcessor> _stageProcessors = new CopyOnWriteArrayList<>();
 
     @Override
-    public void start() {
+    public synchronized void start() {
         log.info(JmsMatsStatics.LOG_PREFIX + "     \\-  Starting Stage [" + id(_stageId, this) + "].");
         if (_stageProcessors.size() > 1) {
             throw new IllegalStateException("Already started.");
@@ -109,31 +109,17 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
         for (int i = 0; i < numberOfProcessors; i++) {
             _stageProcessors.add(new StageProcessor(i));
         }
-        _stageProcessors.forEach(StageProcessor::start);
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         log.info(LOG_PREFIX + "Closing [" + _stageId + "], setting running to false,"
-                + " stopping StageProcessors, closing TransactionalContext.");
+                + " stopping StageProcessors, closing TransactionContext.");
+        _stageProcessors.forEach(StageProcessor::setRunFlagFalse);
         _stageProcessors.forEach(sp -> sp.stop(5000));
         _stageProcessors.clear();
 
         _transactionContext.close();
-    }
-
-    private Destination createJmsDestination(Session jmsSession, FactoryConfig factoryConfig) throws JMSException {
-        Destination destination;
-        String destinationName = factoryConfig.getMatsDestinationPrefix() + _stageId;
-        if (_queue) {
-            destination = jmsSession.createQueue(destinationName);
-        }
-        else {
-            destination = jmsSession.createTopic(destinationName);
-        }
-        log.info(LOG_PREFIX + "Created JMS " + (_queue ? "Queue" : "Topic") + ""
-                + " to receive from: [" + destination + "].");
-        return destination;
     }
 
     private class JmsStageConfig implements StageConfig<I, S, R> {
@@ -181,7 +167,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
 
         private final int _processorNumber;
 
-        private volatile boolean _run;
+        private volatile boolean _run = true; // Start off running.
 
         private volatile Thread _processorThread;
 
@@ -191,10 +177,6 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
 
         public StageProcessor(int processorNumber) {
             _processorNumber = processorNumber;
-        }
-
-        void start() {
-            _run = true;
             _processorThread = new Thread(this::runner, THREAD_PREFIX + _stageId + " " + id());
             _processorThread.start();
         }
@@ -203,10 +185,17 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
             return id("StageProcessor#" + _processorNumber, this);
         }
 
+        /**
+         * First invoke this on all StageProcessors to block any new message receptions.
+         */
+        void setRunFlagFalse() {
+            _run = false;
+        }
+
         void stop(int gracefulWaitMillis) {
+            _run = false;
             Session jmsSessionToClose;
             synchronized (this) {
-                _run = false;
                 jmsSessionToClose = _jmsSession;
             }
             /*
@@ -217,42 +206,63 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
              * We won't put too much effort in making this race-proof, as if it fails, which should be seldom, the only
              * problems are a couple of ugly stack traces in the log: Transactionality will keep integrity.
              */
+            // ?: Has processorThread already exited?
+            if (!_processorThread.isAlive()) {
+                // -> Yes, thread already exited, so just close session (this is our responsibility).
+                log.info(LOG_PREFIX + id() + "-thread has already exited, so just close JMS Session.");
+                closeJmsSession(jmsSessionToClose);
+                // Finished!
+                return;
+            }
+            // E-> No, thread has not exited.
+
             boolean sessionClosed = false;
+            // ?: Is thread currently waiting in consumer.receive()?
             if (_inReceive) {
-                log.info(LOG_PREFIX + id() + " is waiting in consumer.receive(), so we'll close the JMS Session,"
+                // -> Yes, waiting in receive(), so close session, thus making receive() return null.
+                log.info(LOG_PREFIX + id() + "-thread is waiting in consumer.receive(), so we'll close the JMS Session,"
                         + " thereby making the receive() call return null, and the thread will exit.");
                 closeJmsSession(jmsSessionToClose);
                 sessionClosed = true;
             }
             else {
-                log.info(LOG_PREFIX + id() + " is NOT waiting in consumer.receive(), so we assume it is out doing"
-                        + "work, and will come back and see the run-flag being false, thus exit.");
+                // -> No, not in receive()
+                log.info(LOG_PREFIX + id() + "-thread is NOT waiting in consumer.receive(), so we assume it is out"
+                        + " doing work, and will come back and see the run-flag being false, thus exit.");
             }
-            // ?: Do we have a processor-thread?
-            if (_processorThread != null) {
-                // -> Yes, so wait for it to exit, with a max-time.
-                log.info(LOG_PREFIX + "Waiting for " + id() + "-thread to exit.");
-                try {
-                    _processorThread.join(gracefulWaitMillis);
-                }
-                catch (InterruptedException e) {
-                    log.warn(LOG_PREFIX + "Got InterruptedException when waiting for " + id() + "-thread to join."
-                            + " Dropping out.");
-                }
-                // ?: Did the thread exit?
-                if (_processorThread.isAlive()) {
-                    log.warn(LOG_PREFIX + id() + "-thread did not exit, so interrupting it, and closing JMS Session.");
-                    // -> No, so interrupt it from whatever it is doing.
-                    _processorThread.interrupt();
-                    // Close the JMS Session from under its feet.
-                    closeJmsSession(jmsSessionToClose);
-                    sessionClosed = true;
-                }
+
+            log.info(LOG_PREFIX + "Waiting for " + id() + "-thread to exit.");
+            joinProcessorThread(gracefulWaitMillis);
+            // ?: Did the thread exit?
+            if (!_processorThread.isAlive()) {
+                // -> Yes, thread exited.
+                log.info(LOG_PREFIX + id() + "-thread exited nicely.");
             }
+            else {
+                // -> No, thread did not exit within graceful wait period.
+                log.warn(LOG_PREFIX + id() + "-thread did not exit after " + gracefulWaitMillis
+                        + "ms, so interrupt it, wait some more, and then close JMS Session.");
+                // -> No, so interrupt it from whatever it is doing.
+                _processorThread.interrupt();
+                // Wait another graceful wait period
+                joinProcessorThread(gracefulWaitMillis);
+                // ----- At this point, if the thread has not exited, we'll just close the JMS Session and pray.
+            }
+
             // ?: Have we already closed the session?
             if (!sessionClosed) {
                 // -> No, so do it now.
                 closeJmsSession(jmsSessionToClose);
+            }
+        }
+
+        private void joinProcessorThread(int gracefulWaitMillis) {
+            try {
+                _processorThread.join(gracefulWaitMillis);
+            }
+            catch (InterruptedException e) {
+                log.warn(LOG_PREFIX + "Got InterruptedException when waiting for " + id() + "-thread to join."
+                        + " Dropping out.");
             }
         }
 
@@ -262,11 +272,15 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
                     log.info(LOG_PREFIX + "Getting JMS Session, Destination and Consumer for stage [" + _stageId
                             + "].");
                     Session newSession = _transactionContext.getTransactionalJmsSession(true);
+                    // :: Set the JMS Session
                     synchronized (this) {
+                        // ?: Check the run-flag one more time!
                         if (_run) {
+                            // -> Yes, we're good!
                             _jmsSession = newSession;
                         }
                         else {
+                            // -> No, we're asked to exit. Close session and break out of run-loop.
                             closeJmsSession(newSession);
                             break;
                         }
@@ -286,51 +300,60 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
                             continue;
                         }
 
-                        _transactionContext.performWithinTransaction(_jmsSession, () -> {
-                            if (!(message instanceof MapMessage)) {
-                                String msg = "Got some JMS Message that is not instanceof MapMessage"
-                                        + " - cannot be a MATS message! Refusing this message!";
-                                log.error(LOG_PREFIX + msg + "\n" + message);
-                                throw new MatsRefuseMessageException(msg);
-                            }
+                        try {
+                            _transactionContext.performWithinTransaction(_jmsSession, () -> {
+                                if (!(message instanceof MapMessage)) {
+                                    String msg = "Got some JMS Message that is not instanceof MapMessage"
+                                            + " - cannot be a MATS message! Refusing this message!";
+                                    log.error(LOG_PREFIX + msg + "\n" + message);
+                                    throw new MatsRefuseMessageException(msg);
+                                }
 
-                            MapMessage matsMM = (MapMessage) message;
+                                MapMessage matsMM = (MapMessage) message;
 
-                            String matsTraceString;
-                            try {
-                                matsTraceString = matsMM.getString(factoryConfig.getMatsTraceKey());
-                            }
-                            catch (JMSException e) {
-                                throw new MatsBackendException(
-                                        "Got JMSException when doing mapMessage.getString(..). Pretty crazy.", e);
-                            }
-                            log.info("MatsTraceString:\n" + matsTraceString);
-                            MatsTrace matsTrace = _matsJsonSerializer.deserializeMatsTrace(matsTraceString);
+                                String matsTraceString;
+                                try {
+                                    matsTraceString = matsMM.getString(factoryConfig.getMatsTraceKey());
+                                }
+                                catch (JMSException e) {
+                                    throw new MatsBackendException(
+                                            "Got JMSException when doing mapMessage.getString(..). Pretty crazy.", e);
+                                }
+                                log.info("MatsTraceString:\n" + matsTraceString);
+                                MatsTrace matsTrace = _matsJsonSerializer.deserializeMatsTrace(matsTraceString);
 
-                            // :: Current Call
-                            Call currentCall = matsTrace.getCurrentCall();
-                            if (!_stageId.equals(currentCall.getTo())) {
-                                String msg = "The incoming MATS message is not to this Stage! this:[" + _stageId + "],"
-                                        + " msg:[" + currentCall.getTo() + "]. Refusing this message!";
-                                log.error(LOG_PREFIX + msg + "\n" + matsMM);
-                                throw new MatsRefuseMessageException(msg);
-                            }
+                                // :: Current Call
+                                Call currentCall = matsTrace.getCurrentCall();
+                                if (!_stageId.equals(currentCall.getTo())) {
+                                    String msg = "The incoming MATS message is not to this Stage! this:[" + _stageId
+                                            + "],"
+                                            + " msg:[" + currentCall.getTo() + "]. Refusing this message!";
+                                    log.error(LOG_PREFIX + msg + "\n" + matsMM);
+                                    throw new MatsRefuseMessageException(msg);
+                                }
 
-                            log.info(LOG_PREFIX + "RECEIVED message from:[" + currentCall.getFrom() + "].");
+                                log.info(LOG_PREFIX + "RECEIVED message from:[" + currentCall.getFrom() + "].");
 
-                            // :: Current State. If null, then make an empty object instead.
-                            String currentStateString = matsTrace.getCurrentState();
-                            currentStateString = (currentStateString != null ? currentStateString : "{}");
-                            S currentSto = _matsJsonSerializer.deserializeObject(currentStateString, _stateClass);
+                                // :: Current State. If null, then make an empty object instead.
+                                String currentStateString = matsTrace.getCurrentState();
+                                currentStateString = (currentStateString != null ? currentStateString : "{}");
+                                S currentSto = _matsJsonSerializer.deserializeObject(currentStateString, _stateClass);
 
-                            // :: Incoming DTO
-                            I incomingDto = _matsJsonSerializer.deserializeObject(currentCall.getData(),
-                                    _incomingMessageClass);
+                                // :: Incoming DTO
+                                I incomingDto = _matsJsonSerializer.deserializeObject(currentCall.getData(),
+                                        _incomingMessageClass);
 
-                            // :: Invoke the process lambda (stage processor).
-                            _processLambda.process(new JmsMatsProcessContext<>(JmsMatsStage.this, _jmsSession,
-                                    matsTrace, currentSto), incomingDto, currentSto);
-                        });
+                                // :: Invoke the process lambda (stage processor).
+                                _processLambda.process(new JmsMatsProcessContext<>(JmsMatsStage.this, _jmsSession,
+                                        matsTrace, currentSto), incomingDto, currentSto);
+                            });
+                        }
+                        catch (RuntimeException e) {
+                            log.info(LOG_PREFIX + "Got [" + e.getClass().getName()
+                                    + "] when processing " + stageOrInit(JmsMatsStage.this)
+                                    + ", which shall have been handled by the MATS TransactionManager (rollback)."
+                                    + " Looping to fetch next message.");
+                        }
                     }
                 }
                 catch (Throwable t) {
@@ -350,8 +373,22 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
                     }
                 }
             }
-            log.info(LOG_PREFIX + id() + " asked to exit.");
+            log.info(LOG_PREFIX + id() + " asked to exit, and that we do! Bye.");
         }
+    }
+
+    private Destination createJmsDestination(Session jmsSession, FactoryConfig factoryConfig) throws JMSException {
+        Destination destination;
+        String destinationName = factoryConfig.getMatsDestinationPrefix() + _stageId;
+        if (_queue) {
+            destination = jmsSession.createQueue(destinationName);
+        }
+        else {
+            destination = jmsSession.createTopic(destinationName);
+        }
+        log.info(LOG_PREFIX + "Created JMS " + (_queue ? "Queue" : "Topic") + ""
+                + " to receive from: [" + destination + "].");
+        return destination;
     }
 
     private static void closeJmsSession(Session sessionToClose) {

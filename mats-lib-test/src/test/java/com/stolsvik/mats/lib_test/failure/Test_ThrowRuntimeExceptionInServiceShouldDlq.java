@@ -5,7 +5,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsTrace;
-import com.stolsvik.mats.lib_test.MatsBasicTest;
+import com.stolsvik.mats.lib_test.MatsDbTest;
 
 /**
  * Tests the simplest failure in a single-stage service: A single-stage endpoint is invoked from the Initiator, but the
@@ -16,12 +16,12 @@ import com.stolsvik.mats.lib_test.MatsBasicTest;
  *
  * <pre>
  * [Initiator]
- *     [Service] - throws Exception, message ends up on DLQ after MQ retries.
+ *     [Service] - throws RuntimeException, message ends up on DLQ after MQ retries.
  * </pre>
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class Test_SimplestThrowRuntimeExceptionInService extends MatsBasicTest {
+public class Test_ThrowRuntimeExceptionInServiceShouldDlq extends MatsDbTest {
     @Before
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,

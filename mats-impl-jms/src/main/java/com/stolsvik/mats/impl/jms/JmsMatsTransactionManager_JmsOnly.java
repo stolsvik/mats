@@ -40,7 +40,7 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
 
     @Override
     public TransactionContext getTransactionContext(JmsMatsStage<?, ?, ?> stage) {
-        return new TransactionalContext_JmsOnly(createJmsConnection(stage));
+        return new TransactionalContext_JmsOnly(createJmsConnection(stage), stage);
     }
 
     /**
@@ -63,12 +63,14 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
      * The {@link JmsMatsTransactionManager.TransactionContext} implementation for
      * {@link JmsMatsTransactionManager_JmsOnly}.
      */
-    public static class TransactionalContext_JmsOnly implements TransactionContext {
+    public static class TransactionalContext_JmsOnly implements TransactionContext, JmsMatsStatics {
 
         private final Connection _jmsConnection;
+        private final JmsMatsStage<?, ?, ?> _stage;
 
-        public TransactionalContext_JmsOnly(Connection jmsConnection) {
+        public TransactionalContext_JmsOnly(Connection jmsConnection, JmsMatsStage<?, ?, ?> stage) {
             _jmsConnection = jmsConnection;
+            _stage = stage;
         }
 
         @Override
@@ -84,9 +86,50 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
 
         @Override
         public void performWithinTransaction(Session jmsSession, ProcessingLambda lambda) throws JMSException {
+
+            /*
+             * We're always within a JMS transaction (as that is the nature of the JMS API when in transactional modus).
+             *
+             * -- Therefore, we're now *within* the JMS Transaction demarcation.
+             */
+
+            // Flag to check that we've handled all paths we know of.
+            boolean allPathsHandled = false;
             try {
-                log.debug(LOG_PREFIX + "About to run ProcessingLambda.");
+                log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_stage)
+                        + ", within JMS Transactional demarcation.");
+                /*
+                 * Invoking the provided ProcessingLambda, which typically will be the actual user code (albeit wrapped
+                 * with some minor code from the JmsMatsStage to parse the MapMessage, deserialize the MatsTrace, and
+                 * fetch the state etc.), which will now be inside both the inner (implicit) SQL Transaction
+                 * demarcation, and the outer JMS Transaction demarcation.
+                 */
+
                 lambda.performWithinTransaction();
+
+                // ProcessingLambda went OK: "Good path" is handled.
+                allPathsHandled = true;
+            }
+            /*
+             * Catch EVERYTHING that can come out of the try-block, with some cases handled specially.
+             */
+            catch (MatsRefuseMessageException e) {
+                /*
+                 * Special exception allowed from the MATS API from the MatsStage lambda, denoting that one wants
+                 * immediate refusal of the message. (This is just a hint/wish, as e.g. the JMS specification does
+                 * provide such a mechanism).
+                 */
+                // The ProcessngLambda raised some Exception, and we're handling: A "Bad path" is handled.
+                allPathsHandled = true;
+
+                log.error(LOG_PREFIX + "ROLLBACK JMS: Got a " + MatsRefuseMessageException.class.getSimpleName() +
+                        " while processing " + stageOrInit(_stage) + " (most probably from the user code)."
+                        + " Rolling back the JMS transaction - trying to ensure that it goes directly to DLQ.", e);
+                // TODO: Make ActiveMQ directly to DLQ stuff
+                rollback(jmsSession, e);
+                // -> The JMS Session rolled nicely back.
+                log.info(LOG_PREFIX + "JMS Session rolled back.");
+                return;
             }
             catch (MatsBackendException e) {
                 /*
@@ -97,84 +140,49 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                  * binaries or strings. Sending this on to the outside catch block, as this means that we have an
                  * unstable JMS context.
                  */
-                try {
-                    log.warn(LOG_PREFIX + "Got a " + MatsBackendException.class.getSimpleName()
-                            + " indicating that the MATS JMS implementation had problems performing"
-                            + " some operation. Rolling back JMS Session.", e);
-                    jmsSession.rollback();
-                    /*
-                     * Since a MatsBackendException should really never happen, it indicates that we have some problem
-                     * with the JMS Session, and we'll throw it out so that we start new JMS Session.
-                     */
-                    throw e;
-                }
-                catch (Throwable t) {
-                    /*
-                     * Could not roll back. This certainly indicates that we have some problem with the JMS Session, and
-                     * we'll throw it out so that we start new JMS Session.
-                     */
-                    throw new MatsBackendException("When trying to rollback JMS Session due to a "
-                            + MatsBackendException.class.getSimpleName()
-                            + ", we got a JMSException. The JMS Session certainly seems unstable.", t);
-                }
-                // -> Unreachable, since we throw out in all paths above.
+                // The ProcessngLambda raised some Exception, and we're handling: A "Bad path" is handled.
+                allPathsHandled = true;
+
+                log.error(LOG_PREFIX + "ROLLBACK JMS: Got a " + MatsBackendException.class.getSimpleName()
+                        + " while processing " + stageOrInit(_stage)
+                        + ", indicating that the MATS JMS implementation had problems performing"
+                        + " some operation. Rolling back JMS Session.", e);
+                rollback(jmsSession, e);
+                throw e;
             }
-            catch (MatsRefuseMessageException e) {
-                /*
-                 * Special exception allowed from the MATS API from the MatsStage lambda, denoting that one wants
-                 * immediate refusal of the message. (This is just a hint/wish, as e.g. the JMS specification does
-                 * provide such a mechanism).
-                 */
-                log.error(LOG_PREFIX + "Got a MatsRefuseMessageException when processing the stage or initiation"
-                        + " (most probably from the user code). Rolling back the JMS transaction"
-                        + " - trying to ensure that it goes directly to DLQ.", e);
-                try {
-                    // TODO: Make ActiveMQ directly to DLQ stuff
-                    jmsSession.rollback();
-                }
-                catch (Throwable rollbackT) {
-                    /*
-                     * Could not roll back. This certainly indicates that we have some problem with the JMS Session, and
-                     * we'll throw it out so that we start new JMS Session.
-                     *
-                     * However, it is not that bad, as the JMS Message Broker probably will redeliver anyway.
-                     */
-                    throw new MatsBackendException("When trying to rollback JMS Session due to a "
-                            + MatsRefuseMessageException.class.getSimpleName()
-                            + ", we got some Exception. The JMS Session certainly seems unstable.", rollbackT);
-                }
-                // -> The JMS Session rolled nicely back.
-                log.info(LOG_PREFIX + "JMS Session rolled back.");
-                return;
-            }
-            catch (Throwable t) {
+            catch (RuntimeException | Error e) {
                 /*
                  * Should only be user code, as errors from "ourselves" (the JMS MATS impl) should throw
                  * MatsBackendExcetion, and are caught earlier (see above).
                  */
-                log.error(LOG_PREFIX + "Got some Throwable when processing the stage or initiation (should only"
-                        + " be from user code). Rolling back the JMS transaction.", t);
-                try {
-                    jmsSession.rollback();
-                }
-                catch (Throwable rollbackT) {
-                    /*
-                     * Could not roll back. This certainly indicates that we have some problem with the JMS Session, and
-                     * we'll throw it out so that we start new JMS Session.
-                     *
-                     * However, it is not that bad, as the JMS Message Broker probably will redeliver anyway.
-                     */
-                    throw new MatsBackendException("When trying to rollback JMS Session due to a "
-                            + t.getClass().getName()
-                            + ", we got some Exception. The JMS Session certainly seems unstable.", rollbackT);
-                }
+                // The ProcessngLambda raised some Exception, and we're handling: A "Bad path" is handled.
+                allPathsHandled = true;
+
+                log.error(LOG_PREFIX + "ROLLBACK JMS: " + e.getClass().getSimpleName() + " while processing "
+                        + stageOrInit(_stage) + " (should only be from user code)."
+                        + " Rolling back the JMS session.", e);
+                rollback(jmsSession, e);
                 // -> The JMS Session rolled nicely back.
                 log.info(LOG_PREFIX + "JMS Session rolled back.");
-                return;
+                throw e;
+            }
+            // :: Sanity check that we have handled all paths
+            finally {
+                // ?: Are all paths handled?
+                if (!allPathsHandled) {
+                    // -> No: This is a MATS coding error, the catch block above should have caught the Exception.
+                    String msg = "The " + stageOrInit(_stage)
+                            + " raised some Exception that should have been caught! This should never happen!";
+                    log.error(msg);
+                    MatsBackendException e = new MatsBackendException(msg);
+                    rollback(jmsSession, e);
+                    throw e;
+                }
             }
 
-            // -> The ProcessingLambda finished nicely.
-            log.debug(LOG_PREFIX + "ProcessingLambda finished, about to commit JMS Session.");
+            // ----- The ProcessingLambda went OK, no Exception was raised.
+
+            log.debug(LOG_PREFIX + "COMMIT JMS: ProcessingLambda finished, committing JMS Session.");
             try {
                 jmsSession.commit();
             }
@@ -198,7 +206,24 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
             }
 
             // -> The JMS Session nicely committed.
-            log.info(LOG_PREFIX + "ProcessingLambda finished and JMS Session committed.");
+            log.debug(LOG_PREFIX + "JMS Session committed.");
+        }
+
+        private void rollback(Session jmsSession, Throwable t) {
+            try {
+                jmsSession.rollback();
+            }
+            catch (Throwable rollbackT) {
+                /*
+                 * Could not roll back. This certainly indicates that we have some problem with the JMS Session, and
+                 * we'll throw it out so that we start new JMS Session.
+                 *
+                 * However, it is not that bad, as the JMS Message Broker probably will redeliver anyway.
+                 */
+                throw new MatsBackendException("When trying to rollback JMS Session due to a "
+                        + t.getClass().getSimpleName()
+                        + ", we got some Exception. The JMS Session certainly seems unstable.", rollbackT);
+            }
         }
 
         @Override

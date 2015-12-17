@@ -53,4 +53,12 @@ public interface JmsMatsStatics {
     default String id(Object obj) {
         return obj.getClass().getSimpleName() + '@' + Integer.toHexString(System.identityHashCode(obj));
     }
+
+    default String stageOrInit(JmsMatsStage<?, ?, ?> stage) {
+        if (stage != null) {
+            return "Stage [" + stage.toString() + "]";
+        }
+        return "Initiation";
+    }
+
 }

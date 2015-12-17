@@ -10,6 +10,7 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.exceptions.MatsRuntimeException;
 import com.stolsvik.mats.util.MatsTxSqlConnection;
@@ -103,7 +104,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
         public TransactionalContext_JmsAndJdbc(javax.jms.Connection jmsConnection,
                 JdbcConnectionSupplier jdbcConnectionSupplier, JmsMatsStage<?, ?, ?> stage) {
-            super(jmsConnection);
+            super(jmsConnection, stage);
             _jdbcConnectionSupplier = jdbcConnectionSupplier;
             _stage = stage;
         }
@@ -125,27 +126,34 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                  *
                  * ----- Therefore, we're now IMPLICITLY *within* the SQL Transaction demarcation.
                  */
+
+                // Flag to check that we've handled all paths we know of.
                 boolean allPathsHandled = false;
                 try {
+                    log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_stage)
+                            + ", within JDBC SQL Transactional demarcation.");
                     /*
-                     * Invoking the actual user code (albeit wrapped with some minor code from the JmsMatsStage to parse
-                     * the MapMessage, deserialize the MatsTrace, and fetch the state etc.), which will now be inside
-                     * both the inner (implicit) SQL Transaction demarcation, and the outer JMS Transaction demarcation.
+                     * Invoking the provided ProcessingLambda, which typically will be the actual user code (albeit
+                     * wrapped with some minor code from the JmsMatsStage to parse the MapMessage, deserialize the
+                     * MatsTrace, and fetch the state etc.), which will now be inside both the inner (implicit) SQL
+                     * Transaction demarcation, and the outer JMS Transaction demarcation.
                      */
                     lambda.performWithinTransaction();
 
-                    // User code went OK: "Good path" is handled.
+                    // ProcessingLambda went OK: "Good path" is handled.
                     allPathsHandled = true;
                 }
                 // Catch EVERYTHING that can come out of the try-block:
                 catch (MatsRefuseMessageException | RuntimeException | Error e) {
                     // ----- The user code had some error occur, or want to reject this message.
 
-                    // The user code raised some Exception, and this is the handling: "Bad path" is handled.
+                    // The ProcessngLambda raised some Exception, and this is the handling: "Bad path" is handled.
                     allPathsHandled = true;
 
-                    log.error("ROLLBACK: The stage [" + _stage
-                            + "] raised " + e.getClass().getSimpleName() + " - rollbacking SQL Connection.", e);
+                    // !!NOTE!!: The full Exception will be logged by super class when it does its rollback handling.
+                    log.error(LOG_PREFIX + "ROLLBACK SQL: " + e.getClass().getSimpleName() + " while processing "
+                            + stageOrInit(_stage) + " (most probably from user code)."
+                            + " Rolling back the SQL Connection.");
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                      */
@@ -154,24 +162,24 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                     // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
                     // We will now throw on the Exception, which will rollback the JMS Transaction.
-
-                    // ----- We're exiting the JMS Transaction demarcation (by exception), which will be rollbacked.
                     throw e;
                 }
-                // Sanity check that we caught any exception.
+                // :: Sanity check that we have handled all paths
                 finally {
                     // ?: Are all paths handled?
                     if (!allPathsHandled) {
-                        // -> No: This is a coding error, the catch block above should have caught the Exception.
-                        log.error("The stage [" + _stage
-                                + "] raised some Exception that should have been caught! This should never happen!");
+                        // -> No: This is a MATS coding error, the catch block above should have caught the Exception.
+                        String msg = "The " + stageOrInit(_stage)
+                                + " raised some Exception that should have been caught! This should never happen!";
+                        log.error(msg);
                         commitOrRollbackThenCloseConnection(false, lazyConnectionSupplier.getAnyGottenConnection());
-                        throw new IllegalStateException("This should never happen.");
+                        throw new MatsBackendException(msg);
                     }
                 }
 
-                // ----- The user code went OK, no Exception was raised.
+                // ----- The ProcessingLambda went OK, no Exception was raised.
 
+                log.debug(LOG_PREFIX + "COMMIT SQL: ProcessingLambda finished, committing SQL Connection.");
                 /*
                  * IFF the SQL Connection was fetched, we will now commit (and close) it.
                  */
@@ -180,37 +188,45 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 // ----- We're now *outside* the SQL Transaction demarcation (committed).
 
                 // Return nicely, as the SQL Connection.commit() and .close() went OK.
-
-                // ----- We're exiting to the JMS Transaction demarcation, which will be committed.
                 return;
 
             });
         }
 
         private void commitOrRollbackThenCloseConnection(boolean commit, Connection con) {
-            if (con != null) {
-                // :: Commit or Rollback
-                try {
-                    if (commit) {
-                        con.commit();
-                    }
-                    else {
-                        con.rollback();
-                    }
+            // ?: Was connection gotten by code in ProcessingLambda (user code)
+            if (con == null) {
+                // -> No, Connection was not gotten
+                log.debug(LOG_PREFIX
+                        + "SQL Connection was not requested by stage processing lambda (user code), nothing"
+                        + " to perform " + (commit ? "commit" : "rollback") + " on!");
+                return;
+            }
+            // E-> Yes, Connection was gotten by ProcessingLambda (user code)
+            // :: Commit or Rollback
+            try {
+                if (commit) {
+                    con.commit();
+                    log.debug(LOG_PREFIX + "SQL Connection committed.");
                 }
-                catch (SQLException e) {
-                    throw new MatsSqlCommitOrRollbackFailedException("Could not " + (commit ? "commit" : "rollback")
-                            + " SQL Connection [" + con + "] - for stage [" + _stage + "].", e);
+                else {
+                    con.rollback();
+                    log.debug(LOG_PREFIX + "SQL Connection rolled back.");
                 }
-                // :: Close
-                try {
-                    con.close();
-                }
-                catch (SQLException e) {
-                    throw new MatsSqlConnectionCloseFailedException("After performing " + (commit ? "commit"
-                            : "rollback") + " on SQL Connection [" + con
-                            + "], we tried to close it but that threw - for stage [" + _stage + "].", e);
-                }
+            }
+            catch (SQLException e) {
+                throw new MatsSqlCommitOrRollbackFailedException("Could not " + (commit ? "commit" : "rollback")
+                        + " SQL Connection [" + con + "] - for stage [" + _stage + "].", e);
+            }
+            // :: Close
+            try {
+                con.close();
+                log.debug(LOG_PREFIX + "SQL Connection closed.");
+            }
+            catch (SQLException e) {
+                throw new MatsSqlConnectionCloseFailedException("After performing " + (commit ? "commit"
+                        : "rollback") + " on SQL Connection [" + con
+                        + "], we tried to close it but that threw - for stage [" + _stage + "].", e);
             }
         }
 
@@ -233,8 +249,9 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
         }
 
         /**
-         * Performs Lazy-getting of SQL Connection for the ThreadLocal StageProcessor thread, by means of being set as
-         * the supplier using {@link MatsTxSqlConnection#setThreadLocalConnectionSupplier(Supplier)}.
+         * Performs Lazy-getting (and setting AutoCommit false) of SQL Connection for the StageProcessor thread, by
+         * means of being set as the ThreadLocal supplier using
+         * {@link MatsTxSqlConnection#setThreadLocalConnectionSupplier(Supplier)}.
          */
         private class LazyJdbcConnectionSupplier implements Supplier<Connection> {
             private Connection _gottenConnection;
