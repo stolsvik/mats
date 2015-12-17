@@ -50,6 +50,7 @@ public class Rule_Mats extends ExternalResource {
         log.info("+++ BEFORE on JUnit Rule '" + Rule_Mats.class.getSimpleName() + "'");
         // ::: Server (BrokerService)
         // ====================================
+        log.info("Setting up ActiveMQ BrokerService (server).");
         _amqServer = new BrokerService();
         _amqServer.setBrokerName("localhost");
         _amqServer.setUseJmx(false); // No need for JMX registry
@@ -72,6 +73,7 @@ public class Rule_Mats extends ExternalResource {
 
         // ::: Client (ConnectionFactory)
         // ====================================
+        log.info("Setting up ActiveMQ ConnectionFactory (client).");
         _amqClient = new ActiveMQConnectionFactory("vm://localhost?create=false");
         RedeliveryPolicy redeliveryPolicy = _amqClient.getRedeliveryPolicy();
         // :: Only try redelivery once, since the unit tests does not need any more to prove that they work.
@@ -81,6 +83,7 @@ public class Rule_Mats extends ExternalResource {
 
         // ::: MatsFactory
         // ====================================
+        log.info("Setting up JmsMatsFactory.");
         _matsStringSerializer = new MatsDefaultJsonSerializer();
         // Allow for override in specialization classes, in particular the one with DB.
         _matsFactory = createMatsFactory(_matsStringSerializer, _amqClient);

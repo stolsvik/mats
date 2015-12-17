@@ -89,7 +89,7 @@ public class Test_ComplexMultiStage extends MatsBasicTest {
     }
 
     @Test
-    public void doTest() throws InterruptedException {
+    public void doTest() {
         StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(

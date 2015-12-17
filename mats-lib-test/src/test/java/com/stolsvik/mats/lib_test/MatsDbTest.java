@@ -13,5 +13,6 @@ import com.stolsvik.mats.test.Rule_MatsWithDb;
  */
 public class MatsDbTest extends _MatsTestBase {
     @Rule
+    // NOTICE: Rules must, for some damn annoying reason, be public.
     public Rule_MatsWithDb matsRule = new Rule_MatsWithDb();
 }

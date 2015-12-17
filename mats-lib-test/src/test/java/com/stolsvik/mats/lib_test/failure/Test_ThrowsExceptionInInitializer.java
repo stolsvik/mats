@@ -60,13 +60,13 @@ public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
         // Wait synchronously for terminator to finish.
         try {
             matsTestLatch.waitForResult(WAIT_MILLIS);
+            Assert.fail("Should NOT have gotten message!");
         }
         catch (AssertionError e) {
             // Good that we came here! - we should NOT receive the message on the Terminator, due to init Exception.
             log.info("We as expected dit NOT get the message that was sent in the initiator!");
             return;
         }
-        Assert.fail("Should NOT have gotten message!");
     }
 
     private void sendMessageToTerminator(boolean throwInInitiation) {

@@ -39,7 +39,7 @@ public class Test_SimplestServiceRequest extends MatsBasicTest {
     }
 
     @Test
-    public void doTest() throws InterruptedException {
+    public void doTest() {
         DataTO dto = new DataTO(42, "TheAnswer");
         StateTO sto = new StateTO(420, 420.024);
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
