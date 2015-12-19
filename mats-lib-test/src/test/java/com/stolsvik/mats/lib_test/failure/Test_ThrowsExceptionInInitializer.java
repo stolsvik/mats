@@ -14,7 +14,7 @@ import com.stolsvik.mats.lib_test.MatsDbTest;
  * ASCII-artsy, it looks like this:
  *
  * <pre>
- * [Initiator] - throws RuntimeException, which should propagate all the way out.
+ * [Initiator]    - init request, but throws RuntimeException, which should propagate all the way out.
  *   [Terminator] - should not get the message (but we have a test asserting it will actually get it if do NOT throw!)
  * </pre>
  *

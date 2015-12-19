@@ -14,7 +14,7 @@ import com.stolsvik.mats.MatsFactory;
  *
  * <pre>
  * [Initiator] x 1, firing off 8 requests.
- *     [Service] x 8 StageProcessors (sleeping 500 ms)
+ *     [Service] x 8 StageProcessors (sleeping 500 ms) - reply
  * [Terminator] x 1 StageProcessor, getting all the 8 replies, counting down a 8-latch.
  * </pre>
  *

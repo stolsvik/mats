@@ -50,8 +50,8 @@ public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
     }
 
     /**
-     * Tests that the infrastructure for checking that SERVICE's SQL inserts are rolled back upon RTE, by sending a
-     * message using the same code which we assert that we DO receive, and where the data is inserted!
+     * Tests the infrastructure for checking that SERVICE's SQL inserts are rolled back upon RTE, by sending a message
+     * using the same path (but with no RTE) which we assert that we DO receive, and where the data is inserted!
      */
     @Test
     public void checkTestInfrastructre() {
@@ -118,7 +118,7 @@ public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
         // Assert that there the data inserted in SERVICE is NOT inserted!
         try {
             matsRule.getDataFromDataTable(matsRule.getNonTxConnection());
-            Assert.fail("Should NOT have found the data in SQL Table 'datatable'!");
+            Assert.fail("Should NOT have found any data in SQL Table 'datatable'!");
         }
         catch (DatabaseException e) {
             // Good that we came here! - the data should NOT have been received.

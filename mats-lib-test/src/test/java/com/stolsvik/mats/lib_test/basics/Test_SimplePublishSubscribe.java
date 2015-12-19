@@ -16,7 +16,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * ASCII-artsy, it looks like this:
  *
  * <pre>
- *                     [Initiator]
+ *                     [Initiator]  - init publish
  * [SubscriptionTerminator_1][SubscriptionTerminator_2] <i>(both receives the message)</i>
  * </pre>
  *

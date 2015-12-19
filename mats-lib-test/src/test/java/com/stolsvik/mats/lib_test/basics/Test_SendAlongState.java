@@ -14,7 +14,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * ASCII-artsy, it looks like this:
  *
  * <pre>
- * [Initiator]
+ * [Initiator] - init send
  * [Terminator]
  * </pre>
  *

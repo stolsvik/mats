@@ -15,10 +15,10 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * ASCII-artsy, it looks like this:
  *
  * <pre>
- * [Initiator] - requests Service
- *     [Service S0 - init] - calls next
- *     [Service S1] - calls next
- *     [Service S2 - last] - replies
+ * [Initiator]             - init request
+ *     [Service S0 - init] - next
+ *     [Service S1]        - next
+ *     [Service S2 - last] - reply
  * [Terminator]
  * </pre>
  *

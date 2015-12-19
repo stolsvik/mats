@@ -18,8 +18,8 @@ import com.stolsvik.mats.util.MatsTxSqlConnection;
  * ASCII-artsy, it looks like this:
  *
  * <pre>
- * [Initiator]  - inserts into database.
- *     [Service]  - fetches from database.
+ * [Initiator]   - inserts into database - request
+ *     [Service] - fetches from database - reply
  * [Terminator]
  * </pre>
  *

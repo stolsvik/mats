@@ -15,7 +15,7 @@ import com.stolsvik.mats.lib_test.MatsDbTest;
  * ASCII-artsy, it looks like this <i>(note that we do not bother setting up the Terminator)</i>:
  *
  * <pre>
- * [Initiator]
+ * [Initiator]   - request
  *     [Service] - throws RuntimeException, message ends up on DLQ after MQ retries.
  * </pre>
  *

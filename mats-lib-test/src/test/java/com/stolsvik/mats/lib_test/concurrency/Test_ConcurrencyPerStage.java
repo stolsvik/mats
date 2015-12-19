@@ -16,8 +16,8 @@ import com.stolsvik.mats.MatsEndpoint;
  *
  * <pre>
  * [Initiator] x 1, firing off 8 requests.
- *     [Service S0 (init)] x 8 StageProcessors (sleeping 250 ms), invoking next(..)
- *     [Service S1 (last)] x 4 StageProcessors (sleeping 125 ms)
+ *     [Service S0 (init)] x 8 StageProcessors (sleeping 250 ms) - next
+ *     [Service S1 (last)] x 4 StageProcessors (sleeping 125 ms) - reply
  * [Terminator] x 1 StageProcessor, getting all the 8 replies, counting down a 8-latch.
  * </pre>
  *
