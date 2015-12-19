@@ -112,7 +112,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
          *            the key for which to retrieve a binary payload from the incoming message.
          * @return the requested byte array.
          */
-        byte[] getBinary(String key);
+        byte[] getBytes(String key);
 
         /**
          * @param key
@@ -130,7 +130,7 @@ public interface MatsEndpoint<S, R> extends StartClosable {
          * @param payload
          *            the payload to store.
          */
-        void addBinary(String key, byte[] payload);
+        void addBytes(String key, byte[] payload);
 
         /**
          * Attaches a String payload to the next outgoing message, being it a request or a reply. Note that for

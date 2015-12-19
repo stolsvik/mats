@@ -2,7 +2,6 @@ package com.stolsvik.mats.impl.jms;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.Map;
 
 import javax.jms.JMSException;
 import javax.jms.Session;
@@ -78,8 +77,8 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
         private String _from;
         private String _to;
         private String _replyTo;
-        private Map<String, byte[]> _binaries = new LinkedHashMap<>();
-        private Map<String, String> _strings = new LinkedHashMap<>();
+        private LinkedHashMap<String, byte[]> _binaries = new LinkedHashMap<>();
+        private LinkedHashMap<String, String> _strings = new LinkedHashMap<>();
 
         @Override
         public MatsInitiate traceId(String traceId) {
@@ -106,7 +105,7 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
         }
 
         @Override
-        public MatsInitiate addBinary(String key, byte[] payload) {
+        public MatsInitiate addBytes(String key, byte[] payload) {
             _binaries.put(key, payload);
             return this;
         }
@@ -133,8 +132,7 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
                     .serializeObject(requestDto), Collections.singletonList(_replyTo), _matsStringSerializer
                             .serializeObject(replySto), _matsStringSerializer.serializeObject(requestSto));
 
-            sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer, true, matsTrace,
-                    _to, "new REQUEST");
+            sendMatsMessage(log, _jmsSession, _parentFactory, true, matsTrace, _binaries, _strings, _to, "new REQUEST");
         }
 
         @Override
@@ -149,8 +147,7 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
                     .serializeObject(messageDto), Collections.emptyList(), _matsStringSerializer.serializeObject(
                             requestSto));
 
-            sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer, true, matsTrace,
-                    _to, "new SEND");
+            sendMatsMessage(log, _jmsSession, _parentFactory, true, matsTrace, _binaries, _strings, _to, "new SEND");
         }
 
         @Override
@@ -165,8 +162,8 @@ class JmsMatsInitiator implements MatsInitiator, JmsMatsStatics {
                     .serializeObject(messageDto), Collections.emptyList(), _matsStringSerializer.serializeObject(
                             requestSto));
 
-            sendMessage(log, _jmsSession, _parentFactory.getFactoryConfig(), _matsStringSerializer, false, matsTrace,
-                    _to, "new PUBLISH");
+            sendMatsMessage(log, _jmsSession, _parentFactory, false, matsTrace, _binaries, _strings, _to,
+                    "new PUBLISH");
         }
 
         private void checkCommon(String msg) {

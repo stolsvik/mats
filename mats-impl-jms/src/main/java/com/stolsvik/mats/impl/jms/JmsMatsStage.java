@@ -333,11 +333,11 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
                                     throw new MatsRefuseMessageException(msg);
                                 }
 
-                                MapMessage matsMM = (MapMessage) message;
+                                MapMessage mapMessage = (MapMessage) message;
 
                                 String matsTraceString;
                                 try {
-                                    matsTraceString = matsMM.getString(factoryConfig.getMatsTraceKey());
+                                    matsTraceString = mapMessage.getString(factoryConfig.getMatsTraceKey());
                                 }
                                 catch (JMSException e) {
                                     throw new MatsBackendException(
@@ -350,7 +350,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
                                 if (!_stageId.equals(currentCall.getTo())) {
                                     String msg = "The incoming MATS message is not to this Stage! this:[" + _stageId
                                             + "]," + " msg:[" + currentCall.getTo() + "]. Refusing this message!";
-                                    log.error(LOG_PREFIX + msg + "\n" + matsMM);
+                                    log.error(LOG_PREFIX + msg + "\n" + mapMessage);
                                     throw new MatsRefuseMessageException(msg);
                                 }
 
@@ -367,7 +367,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
 
                                 // :: Invoke the process lambda (stage processor).
                                 _processLambda.process(new JmsMatsProcessContext<>(JmsMatsStage.this, _jmsSession,
-                                        matsTrace, currentSto), incomingDto, currentSto);
+                                        mapMessage, matsTrace, currentSto), incomingDto, currentSto);
                             });
                         }
                         catch (RuntimeException e) {

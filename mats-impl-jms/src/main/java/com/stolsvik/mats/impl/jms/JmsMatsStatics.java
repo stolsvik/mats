@@ -1,5 +1,9 @@
 package com.stolsvik.mats.impl.jms;
 
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import javax.jms.Destination;
 import javax.jms.JMSException;
 import javax.jms.MapMessage;
@@ -10,10 +14,7 @@ import org.slf4j.Logger;
 
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsTrace;
-import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
-import com.stolsvik.mats.util.MatsStringSerializer;
-import com.stolsvik.mats.util.MatsStringSerializer;
 
 public interface JmsMatsStatics {
 
@@ -23,21 +24,51 @@ public interface JmsMatsStatics {
 
     int DEFAULT_DELAY_MILLIS = 50;
 
-    default void sendMessage(Logger log, Session jmsSession, FactoryConfig factoryConfig,
-            MatsStringSerializer matsStringSerializer, boolean queue,
-            MatsTrace matsTrace, String to, String what) {
+    /**
+     * Common sending method - handles commonalities. <b>Notice that the bytes- and Strings-Maps come back cleared, even
+     * if any part of sending throws.</b>
+     */
+    default void sendMatsMessage(Logger log, Session jmsSession, JmsMatsFactory jmsMatsFactory, boolean queue,
+            MatsTrace matsTrace, LinkedHashMap<String, byte[]> bytes, LinkedHashMap<String, String> strings,
+            String to, String what) {
         try {
-            MapMessage mm = jmsSession.createMapMessage();
-            mm.setString(factoryConfig.getMatsTraceKey(), matsStringSerializer.serializeMatsTrace(matsTrace));
+            // :: Clone the bytes and strings Maps, and then clear the local Maps for any next message.
+            // This could be done after the sending (the map shall be empty for every new message), but then if the
+            // sending raises any RTE, it will not happen - and the user could potentially catch this, and send a new
+            // message.
+            @SuppressWarnings("unchecked")
+            HashMap<String, byte[]> bytesCopied = (HashMap<String, byte[]>) bytes.clone();
+            bytes.clear();
+            @SuppressWarnings("unchecked")
+            HashMap<String, String> stringsCopied = (HashMap<String, String>) strings.clone();
+            strings.clear();
 
+            // Create the JMS Message that will be sent.
+            MapMessage mm = jmsSession.createMapMessage();
+            // Set the MatsTrace.
+            FactoryConfig factoryConfig = jmsMatsFactory.getFactoryConfig();
+            mm.setString(factoryConfig.getMatsTraceKey(),
+                    jmsMatsFactory.getMatsStringSerializer().serializeMatsTrace(matsTrace));
+
+            // :: Add the properties to the MapMessage
+            for (Map.Entry<String, byte[]> entry : bytesCopied.entrySet()) {
+                mm.setBytes(entry.getKey(), entry.getValue());
+            }
+            for (Map.Entry<String, String> entry : stringsCopied.entrySet()) {
+                mm.setString(entry.getKey(), entry.getValue());
+            }
+
+            // :: Create the JMS Queue or Topic.
             Destination destination = queue
                     ? jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + to)
                     : jmsSession.createTopic(factoryConfig.getMatsDestinationPrefix() + to);
 
+            // Create JMS Producer
+            // OPTIMIZE: Check how expensive this is (with the closing) - it could be cached.
             MessageProducer producer = jmsSession.createProducer(destination);
 
+            // :: Pack along, and close producer.
             log.info(LOG_PREFIX + "SENDING " + what + " message to [" + destination + "].");
-
             producer.send(mm);
             producer.close();
         }

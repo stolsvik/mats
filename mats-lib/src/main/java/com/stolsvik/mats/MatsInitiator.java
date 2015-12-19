@@ -106,7 +106,7 @@ public interface MatsInitiator extends Closeable {
          *            the byte array.
          * @return the {@link MatsInitiate} for chaining.
          */
-        MatsInitiate addBinary(String key, byte[] payload);
+        MatsInitiate addBytes(String key, byte[] payload);
 
         /**
          * Adds a String payload to the endpoint, e.g. a XML document.
