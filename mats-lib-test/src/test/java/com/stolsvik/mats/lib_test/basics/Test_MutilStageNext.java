@@ -8,6 +8,22 @@ import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
+/**
+ * Tests the "next stage" functionality: A three-stage service is set, where init-stage calls next to stage1, that calls
+ * next to state2. A Terminator is set up. Then an initiator does a request to the service, setting replyTo(Terminator).
+ * <p>
+ * ASCII-artsy, it looks like this:
+ *
+ * <pre>
+ * [Initiator] - requests Service
+ *     [Service S0 - init] - calls next
+ *     [Service S1] - calls next
+ *     [Service S2 - last] - replies
+ * [Terminator]
+ * </pre>
+ *
+ * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
+ */
 public class Test_MutilStageNext extends MatsBasicTest {
     @Before
     public void setupMultiStageService() {
