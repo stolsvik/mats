@@ -147,6 +147,7 @@ ASCII-artsy, it looks like this:
     [Master S2 (last)]   {reply}
 [Terminator]
 </pre>
+**Again, it is important to realize that the three stages of the Master service (and the two of the Mid service) are actually fully independent messaging endpoints (with their own JMS queue when run on a JMS backend), and if you've deployed the service to multiple nodes, each stage in a particular invocation flow might run on a different node.** What the MATS API does is to set up each stage of a multi-stage service in a way where the "reply" method invocation of a requested service knows which queue to send its result to.
 
 
 ```java
