@@ -1,6 +1,6 @@
 # MATS<sup>3</sup> - Message-based Asynchronous Transactional Staged Stateful Services
 
-A library that facilitates the development of asynchronous multi-stage message-based services, where a state object is maintained between each stage, and each stage is independently transactional.
+A library that facilitates the development of asynchronous, stateless, multi-stage, message-based services. A MATS service may do a request to another MATS service, which replies back, after possibly itself doing a request to a third service - with arbitrary nesting levels possible. Services consisting of multiple stages are connected with a *state object* which is passed along in the subsequent message flow, which simulates the "this" reference when compared to traditional synchronous programming. In addition, each stage is independently transactional, making a system made up of these services exceptionally resilient against any type of failure.
 
 The API consist nearly solely of interfaces, not depending on any specific messaging platform's protocol or API. It can have implementations on several messaging platform, but the current sole implementation is employing Java Message Service API - JMS v1.1.
 
