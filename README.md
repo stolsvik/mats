@@ -162,13 +162,21 @@ public class Test_ComplexMultiStage extends AMatsTest {
         MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE + ".Mid",
                                                                             StateTO.class, DataTO.class);
         ep.stage(DataTO.class, (context, dto, sto) -> {
-            Assert.assertEquals(new StateTO(0, 0), sto);
+            // State object is "empty" at initial stage.
+            Assert.assertEquals(0, sto.number1);
+            Assert.assertEquals(0, sto.number2);
+            // Setting some variables.
             sto.number1 = 10;
             sto.number2 = Math.PI;
+            // Perform request to "Leaf Service".
             context.request(SERVICE + ".Leaf", dto);
         });
         ep.lastStage(DataTO.class, (context, dto, sto) -> {
-            Assert.assertEquals(new StateTO(10, Math.PI), sto);
+            // .. "continuing" after the "Leaf Service" has replied.
+            // Assert that variables set in previous stage are still with us.
+            Assert.assertEquals(10,      sto.number1);
+            Assert.assertEquals(Math.PI, sto.number2);
+            // Replying to calling service.
             return new DataTO(dto.number * 3, dto.string + ":FromMidService");
         });
     }
@@ -178,19 +186,32 @@ public class Test_ComplexMultiStage extends AMatsTest {
         MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE,
                                                                             StateTO.class, DataTO.class);
         ep.stage(DataTO.class, (context, dto, sto) -> {
-            Assert.assertEquals(new StateTO(0, 0), sto);
+            // State object is "empty" at initial stage.
+            Assert.assertEquals(0, sto.number1);
+            Assert.assertEquals(0, sto.number2);
+            // Setting some variables.
             sto.number1 = Integer.MAX_VALUE;
             sto.number2 = Math.E;
+            // Perform request to "Mid Service".
             context.request(SERVICE + ".Mid", dto);
         });
         ep.stage(DataTO.class, (context, dto, sto) -> {
-            Assert.assertEquals(new StateTO(Integer.MAX_VALUE, Math.E), sto);
+            // .. "continuing" after the "Mid Service" has replied.
+            // Assert that variables set in previous stage are still with us.
+            Assert.assertEquals(Integer.MAX_VALUE, sto.number1);
+            Assert.assertEquals(Math.E,            sto.number2);
+            // Changing the variables.
             sto.number1 = Integer.MIN_VALUE;
             sto.number2 = Math.E * 2;
+            // Perform request to "Leaf Service".
             context.request(SERVICE + ".Leaf", dto);
         });
         ep.lastStage(DataTO.class, (context, dto, sto) -> {
-            Assert.assertEquals(new StateTO(Integer.MIN_VALUE, Math.E * 2), sto);
+            // .. "continuing" after the "Leaf Service" has replied.
+            // Assert that variables changed in previous stage are still with us.
+            Assert.assertEquals(Integer.MIN_VALUE, sto.number1);
+            Assert.assertEquals(Math.E * 2,        sto.number2);
+            // Replying to calling service.
             return new DataTO(dto.number * 5, dto.string + ":FromMasterService");
         });
     }
@@ -199,6 +220,7 @@ public class Test_ComplexMultiStage extends AMatsTest {
     public void setupTerminator() {
         matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
                 (context, dto, sto) -> {
+                    // .. "continuing" after the request to "Master Service" from Initiator.
                     log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
                     matsTestLatch.resolve(dto, sto);
                 });
@@ -206,8 +228,9 @@ public class Test_ComplexMultiStage extends AMatsTest {
 
     @Test
     public void doTest() throws InterruptedException {
-        StateTO sto = new StateTO(420, 420.024);
-        DataTO dto = new DataTO(42, "TheAnswer");
+        // Send request to "Master Service", specifying reply to "Terminator".
+        StateTO sto = new StateTO(420, 420.024);  // State object for "Terminator".
+        DataTO dto = new DataTO(42, "TheAnswer"); // Request object to "Master Service".
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
@@ -217,7 +240,9 @@ public class Test_ComplexMultiStage extends AMatsTest {
 
         // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        // Asserting that the state object which the Terminator got is equal to the one we sent.
         Assert.assertEquals(sto, result.getState());
+        // Asserting that the final result has passed through all the services' stages.
         Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 2 * 5,
                                        dto.string + ":FromLeafService" + ":FromMidService"
                                                   + ":FromLeafService" + ":FromMasterService"),
