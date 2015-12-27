@@ -111,6 +111,9 @@ public interface MatsEndpoint<S, R> extends StartClosable {
          * @param key
          *            the key for which to retrieve a binary payload from the incoming message.
          * @return the requested byte array.
+         * @see #getBytes(String)
+         * @see #addString(String, String)
+         * @see #getString(String)
          */
         byte[] getBytes(String key);
 
@@ -118,28 +121,37 @@ public interface MatsEndpoint<S, R> extends StartClosable {
          * @param key
          *            the key for which to retrieve a String payload from the incoming message.
          * @return the requested String.
+         * @see #getString(String)
+         * @see #addBytes(String, byte[])
+         * @see #getBytes(String)
          */
         String getString(String key);
 
         /**
          * Attaches a binary payload to the next outgoing message, being it a request or a reply. Note that for
-         * initiations, you do the same on the {@link MatsInitiate} instance.
+         * initiations, you have the same method on the {@link MatsInitiate} instance.
          *
          * @param key
          *            the key on which to store the binary payload.
          * @param payload
          *            the payload to store.
+         * @see #getBytes(String)
+         * @see #addString(String, String)
+         * @see #getString(String)
          */
         void addBytes(String key, byte[] payload);
 
         /**
          * Attaches a String payload to the next outgoing message, being it a request or a reply. Note that for
-         * initiations, you do the same on the {@link MatsInitiate} instance.
+         * initiations, you have the same method on the {@link MatsInitiate} instance.
          *
          * @param key
          *            the key on which to store the String payload.
          * @param payload
          *            the payload to store.
+         * @see #getString(String)
+         * @see #addBytes(String, byte[])
+         * @see #getBytes(String)
          */
         void addString(String key, String payload);
 

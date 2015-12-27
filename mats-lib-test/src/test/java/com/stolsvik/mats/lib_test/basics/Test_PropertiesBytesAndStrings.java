@@ -9,8 +9,8 @@ import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
- * Tests the send-along bytes and Strings properties with the message - close to copy of the
- * {@link Test_PropertiesBytesAndStrings} except testing the properties too. Test initiation, next, and reply.
+ * Tests the send-along bytes and Strings properties with the message - close to copy of the {@link Test_MutilStageNext}
+ * except testing the properties too. Test initiation, next, and reply.
  * <p>
  * ASCII-artsy, it looks like this:
  *

@@ -73,6 +73,14 @@ public class MatsTrace implements Cloneable {
     }
 
     /**
+     * @return the TraceId that this {@link MatsTrace} was initiated with - this is set once, at initiation time, and
+     *         follows the processing till it terminates. (All log lines will have the traceId set on the MDC.)
+     */
+    public String getTraceId() {
+        return traceId;
+    }
+
+    /**
      * Adds a {@link CallType#REQUEST REQUEST} Call, which is an invocation of a service where one expects a Reply from
      * this service to go to a specified endpoint, typically the next stage in a multi-stage endpoint: Envision a normal
      * invocation of some method that returns a value.

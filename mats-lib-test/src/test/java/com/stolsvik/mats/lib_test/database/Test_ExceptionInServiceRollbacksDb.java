@@ -115,7 +115,7 @@ public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
         Assert.assertNotNull(dlqMatsTrace);
         Assert.assertEquals(SERVICE, dlqMatsTrace.getCurrentCall().getTo());
 
-        // Assert that there the data inserted in SERVICE is NOT inserted!
+        // Assert that the data inserted in SERVICE is NOT inserted!
         try {
             matsRule.getDataFromDataTable(matsRule.getNonTxConnection());
             Assert.fail("Should NOT have found any data in SQL Table 'datatable'!");

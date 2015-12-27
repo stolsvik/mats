@@ -43,10 +43,11 @@ public interface JmsMatsStatics {
             HashMap<String, String> stringsCopied = (HashMap<String, String>) strings.clone();
             strings.clear();
 
+            FactoryConfig factoryConfig = jmsMatsFactory.getFactoryConfig();
+
             // Create the JMS Message that will be sent.
             MapMessage mm = jmsSession.createMapMessage();
             // Set the MatsTrace.
-            FactoryConfig factoryConfig = jmsMatsFactory.getFactoryConfig();
             mm.setString(factoryConfig.getMatsTraceKey(),
                     jmsMatsFactory.getMatsStringSerializer().serializeMatsTrace(matsTrace));
 

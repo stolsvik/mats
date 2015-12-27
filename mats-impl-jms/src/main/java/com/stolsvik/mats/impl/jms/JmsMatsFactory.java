@@ -163,7 +163,7 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     @Override
     public MatsInitiator getInitiator(String initiatorId) {
         JmsMatsInitiator initiator = new JmsMatsInitiator(this,
-                _jmsMatsTransactionManager.getTransactionContext(null), _matsStringSerializer);
+                _jmsMatsTransactionManager.getTransactionContext(null));
         _createdInitiators.add(initiator);
         return initiator;
     }

@@ -15,6 +15,7 @@ import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
+import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
 import com.stolsvik.mats.util.MatsStringSerializer;
 
 /**
@@ -46,11 +47,6 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
     private final LinkedHashMap<String, String> _propsForNextMessage_String = new LinkedHashMap<>();
 
     @Override
-    public MatsTrace getTrace() {
-        return _matsTrace;
-    }
-
-    @Override
     public byte[] getBytes(String key) {
         try {
             return _mapMessage.getBytes(key);
@@ -78,6 +74,11 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
     @Override
     public void addString(String key, String payload) {
         _propsForNextMessage_String.put(key, payload);
+    }
+
+    @Override
+    public MatsTrace getTrace() {
+        return _matsTrace;
     }
 
     @Override
@@ -144,7 +145,7 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
 
     @Override
     public void initiate(InitiateLambda lambda) {
-        // TODO Auto-generated method stub
-
+        lambda.initiate(new JmsMatsInitiate(_matsStage.getParentEndpoint().getParentFactory(), _jmsSession,
+                _matsTrace.getTraceId(), _matsStage.getStageId()));
     }
 }
