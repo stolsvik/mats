@@ -27,12 +27,12 @@ Effectively, the mental model feels like home, and coding is really straight-for
 
 # Examples
 
-Some examples taken from the unit tests ("mats-lib-test"). Notice the use of the JUnit Rule *Rule_Mats*, which sets up an ActiveMQ in-memory server and creates a MatsFactory based on that.
+Some examples taken from the unit tests ("mats-lib-test"). Notice the use of the JUnit Rule *Rule_Mats*, which sets up an ActiveMQ in-memory server and creates a JMS-backed MatsFactory based on that.
 
-In these examples, all the elements/endpoints are set up in one class, and thus obviously runs on the same machine - but in actual usage, you would typically have each
+In these examples, all the endpoints and stages are set up in one test class, and thus obviously runs on the same machine - but in actual usage, you would typically have each
 endpoint run in a different process on different nodes. The DTO-classes, which acts as the interface between the different endpoints' requests and replies, would in real usage be copied between the projects (in this testing-scenario, one DTO class is used as all interfaces).
 
-It is important to realize that each of the stages - even each stage in multi-stage endpoints - are handled by separate threads, *sharing no contextual JVM state whatsoever*: The state, request and reply objects' references are not shared between stages. Each stage's processor receives a message, supplies the stage-lambda with a context-instance, the request-object, and the state-object (where both request and state is deserialized from the incoming MatsTrace), and then exits that lambda (after typically having sent a new message out), going back to listening for new messages for that stage. *There is no state shared between these stages outside of the contents of the MatsTrace which is being passed with the message.* In particular, if you have a process running a three-stage MATS endpoint which is running on two nodes A and B, the first stage might execute on A, while the next on B, and the last one on A again.
+It is important to realize that each of the stages - even each stage in multi-stage endpoints - are handled by separate threads, *sharing no contextual JVM state whatsoever:* The state, request and reply objects' JVM references are not shared between stages. Each stage's processor receives a message, supplies the stage-lambda with a context-instance, the request-object, and the state-object (where both request and state is deserialized from the incoming MatsTrace), and then exits that lambda (after typically having sent a new message out), going back to listening for new messages for that stage. *There is no state shared between these stages outside of the contents of the MatsTrace which is being passed with the message.* In particular, if you have a process running a three-stage MATS endpoint which is running on two nodes A and B, the first stage might execute on A, while the next on B, and the last one on A again.
 
 This means that what *looks like* a blocking, synchronous request/reply "method call" is actually fully asynchronous, where the reply will be handled in the next stage by a different thread, quite possibly on a different node if you have deployed the service in multiple instances.
 
@@ -166,7 +166,7 @@ public class Test_ComplexMultiStage extends AMatsTest {
             // State object is "empty" at initial stage.
             Assert.assertEquals(0, sto.number1);
             Assert.assertEquals(0, sto.number2);
-            // Setting some variables.
+            // Setting state some variables.
             sto.number1 = 10;
             sto.number2 = Math.PI;
             // Perform request to "Leaf Service".
@@ -174,7 +174,7 @@ public class Test_ComplexMultiStage extends AMatsTest {
         });
         ep.lastStage(DataTO.class, (context, dto, sto) -> {
             // .. "continuing" after the "Leaf Service" has replied.
-            // Assert that variables set in previous stage are still with us.
+            // Assert that state variables set in previous stage are still with us.
             Assert.assertEquals(10,      sto.number1);
             Assert.assertEquals(Math.PI, sto.number2);
             // Replying to calling service.
@@ -190,7 +190,7 @@ public class Test_ComplexMultiStage extends AMatsTest {
             // State object is "empty" at initial stage.
             Assert.assertEquals(0, sto.number1);
             Assert.assertEquals(0, sto.number2);
-            // Setting some variables.
+            // Setting some state variables.
             sto.number1 = Integer.MAX_VALUE;
             sto.number2 = Math.E;
             // Perform request to "Mid Service".
@@ -198,10 +198,10 @@ public class Test_ComplexMultiStage extends AMatsTest {
         });
         ep.stage(DataTO.class, (context, dto, sto) -> {
             // .. "continuing" after the "Mid Service" has replied.
-            // Assert that variables set in previous stage are still with us.
+            // Assert that state variables set in previous stage are still with us.
             Assert.assertEquals(Integer.MAX_VALUE, sto.number1);
             Assert.assertEquals(Math.E,            sto.number2);
-            // Changing the variables.
+            // Changing the state variables.
             sto.number1 = Integer.MIN_VALUE;
             sto.number2 = Math.E * 2;
             // Perform request to "Leaf Service".
@@ -209,7 +209,7 @@ public class Test_ComplexMultiStage extends AMatsTest {
         });
         ep.lastStage(DataTO.class, (context, dto, sto) -> {
             // .. "continuing" after the "Leaf Service" has replied.
-            // Assert that variables changed in previous stage are still with us.
+            // Assert that state variables changed in previous stage are still with us.
             Assert.assertEquals(Integer.MIN_VALUE, sto.number1);
             Assert.assertEquals(Math.E * 2,        sto.number2);
             // Replying to calling service.
