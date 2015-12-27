@@ -97,6 +97,19 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate replyTo(String endpointId);
 
         /**
+         * Adds a property that will "stick" with the {@link MatsTrace} from this call on out. Read more on
+         * {@link ProcessContext#setTraceProperty(String, Object)}.
+         *
+         * @param propertyName
+         *            the name of the property
+         * @param propertyValue
+         *            the value of the property, which will be serialized using the active MATS serializer.
+         * @see ProcessContext#setTraceProperty(String, Object)
+         * @see ProcessContext#getTraceProperty(String, Class)
+         */
+        MatsInitiate setTraceProperty(String propertyName, Object propertyValue);
+
+        /**
          * Adds a binary payload to the endpoint, e.g. a PDF document.
          *
          * @param key

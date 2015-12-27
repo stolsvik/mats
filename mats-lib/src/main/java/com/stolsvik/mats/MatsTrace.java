@@ -1,7 +1,11 @@
 package com.stolsvik.mats;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+
+import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 
 /**
  * (Concrete class) Represents the protocol that the MATS endpoints (their stages) communicate with. This class is
@@ -47,6 +51,8 @@ public class MatsTrace implements Cloneable {
 
     private List<StackState> stackStates = new ArrayList<>(); // Not final due to clone-impl.
 
+    private Map<String, String> traceProps = new LinkedHashMap<>(); // Not final due to clone-impl.
+
     public static MatsTrace createNew(String traceId) {
         return new MatsTrace(traceId);
     }
@@ -78,6 +84,31 @@ public class MatsTrace implements Cloneable {
      */
     public String getTraceId() {
         return traceId;
+    }
+
+    /**
+     * Sets a trace property, refer to {@link ProcessContext#setTraceProperty(String, Object)}. Notice that on the
+     * MatsTrace-side, the value must be a String.
+     *
+     * @param propertyName
+     *            the name of the property.
+     * @param propertyValue
+     *            the value of the property.
+     */
+    public void setTraceProperty(String propertyName, String propertyValue) {
+        traceProps.put(propertyName, propertyValue);
+    }
+
+    /**
+     * Retrieves a property value set by {@link #setTraceProperty(String, String)}, refer to
+     * {@link ProcessContext#getTraceProperty(String, Class)}. Notice that on the MatsTrace-side, the value is a String.
+     *
+     * @param propertyName
+     *            the name of the property to retrieve.
+     * @return the value of the property.
+     */
+    public String getTraceProperty(String propertyName) {
+        return traceProps.get(propertyName);
     }
 
     /**
@@ -167,12 +198,13 @@ public class MatsTrace implements Cloneable {
      *            the state data for the next stage.
      */
     public MatsTrace addNextCall(String from, String to, String data, List<String> replyStack, String state) {
+        if (state == null) {
+            throw new IllegalStateException("When adding next-call, state-data string should not be null.");
+        }
         MatsTrace clone = clone();
         clone.calls.add(new Call(CallType.NEXT, from, to, data, replyStack));
-        // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
-        if (state != null) {
-            clone.stackStates.add(new StackState(replyStack.size(), state));
-        }
+        // Add the state meant for the next stage
+        clone.stackStates.add(new StackState(replyStack.size(), state));
         return clone;
     }
 
@@ -251,6 +283,7 @@ public class MatsTrace implements Cloneable {
             cloned = (MatsTrace) super.clone();
             cloned.calls = new ArrayList<>(calls); // Call are immutable
             cloned.stackStates = new ArrayList<>(stackStates); // StackStaces are immutable
+            cloned.traceProps = new LinkedHashMap<>(traceProps); // TraceProps are immutable (just Strings)
             return cloned;
         }
         catch (CloneNotSupportedException e) {

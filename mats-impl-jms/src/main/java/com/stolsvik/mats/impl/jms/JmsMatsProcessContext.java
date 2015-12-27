@@ -43,8 +43,9 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
         _sto = sto;
     }
 
-    private final LinkedHashMap<String, byte[]> _propsForNextMessage_binary = new LinkedHashMap<>();
-    private final LinkedHashMap<String, String> _propsForNextMessage_String = new LinkedHashMap<>();
+    private final LinkedHashMap<String, Object> _props = new LinkedHashMap<>();
+    private final LinkedHashMap<String, byte[]> _binaries = new LinkedHashMap<>();
+    private final LinkedHashMap<String, String> _strings = new LinkedHashMap<>();
 
     @Override
     public byte[] getBytes(String key) {
@@ -68,17 +69,33 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
 
     @Override
     public void addBytes(String key, byte[] payload) {
-        _propsForNextMessage_binary.put(key, payload);
+        _binaries.put(key, payload);
     }
 
     @Override
     public void addString(String key, String payload) {
-        _propsForNextMessage_String.put(key, payload);
+        _strings.put(key, payload);
     }
 
     @Override
     public MatsTrace getTrace() {
         return _matsTrace;
+    }
+
+    @Override
+    public void setTraceProperty(String propertyName, Object propertyValue) {
+        _props.put(propertyName, propertyValue);
+    }
+
+    @Override
+    public <T> T getTraceProperty(String propertyName, Class<T> clazz) {
+        MatsStringSerializer matsStringSerializer = _matsStage
+                .getParentEndpoint().getParentFactory().getMatsStringSerializer();
+        String value = _matsTrace.getTraceProperty(propertyName);
+        if (value == null) {
+            throw new IllegalArgumentException("No value for property named [" + propertyName + "].");
+        }
+        return matsStringSerializer.deserializeObject(value, clazz);
     }
 
     @Override
@@ -95,7 +112,7 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
 
         // Pack it off
         sendMatsMessage(log, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, requestMatsTrace,
-                _propsForNextMessage_binary, _propsForNextMessage_String, endpointId, "REQUEST");
+                _props, _binaries, _strings, endpointId, "REQUEST");
     }
 
     @Override
@@ -118,7 +135,7 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
 
         // Pack it off
         sendMatsMessage(log, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, replyMatsTrace,
-                _propsForNextMessage_binary, _propsForNextMessage_String, replyToEndpointId, "REPLY");
+                _props, _binaries, _strings, replyToEndpointId, "REPLY");
     }
 
     @Override
@@ -140,7 +157,7 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
 
         // Pack it off
         sendMatsMessage(log, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, nextMatsTrace,
-                _propsForNextMessage_binary, _propsForNextMessage_String, _matsStage.getNextStageId(), "NEXT");
+                _props, _binaries, _strings, _matsStage.getNextStageId(), "NEXT");
     }
 
     @Override

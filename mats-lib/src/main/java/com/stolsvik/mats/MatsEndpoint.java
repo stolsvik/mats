@@ -156,6 +156,43 @@ public interface MatsEndpoint<S, R> extends StartClosable {
         void addString(String key, String payload);
 
         /**
+         * Adds a property that will "stick" with the {@link MatsTrace} from this call on out. Note that for
+         * initiations, you have the same method on the {@link MatsInitiate} instance. The functionality effectively
+         * acts like a {@link ThreadLocal} when compared to normal java method invocations: If the Initiator adds it,
+         * all subsequent stages will see it, on any stack level, including the terminator. If a stage in a service
+         * nested some levels down in the stack adds it, it will be present in all subsequent stages including all the
+         * way up to the Terminator.
+         * <p>
+         * Possible use cases: You can for example "sneak along" some property meant for Service X through an invocation
+         * of intermediate Service A (which subsequently calls Service X), where the signature (DTO) of the intermediate
+         * Service A does not provide such functionality. Another usage would be to add some "global context variable",
+         * e.g. "current user", that is available for any down-stream Service that requires it. Both of these scenarios
+         * can obviously lead to pretty hard-to-understand code if used extensively: When employed, you should code
+         * rather defensively, where if this property is not present when a stage needs it, it should throw
+         * {@link MatsRefuseMessageException} and clearly explain that the property needs to be present.
+         *
+         * @param propertyName
+         *            the name of the property
+         * @param propertyValue
+         *            the value of the property, which will be serialized using the active MATS serializer.
+         * @see #getTraceProperty(String, Class)
+         */
+        void setTraceProperty(String propertyName, Object propertyValue);
+
+        /**
+         * Retrieves the {@link MatsTrace} property with the specified name, deserializing the value to the specified
+         * class, using the active MATS serializer. Read more on {@link #setTraceProperty(String, Object)}.
+         *
+         * @param propertyName
+         *            the name of the {@link MatsTrace} property to retrieve.
+         * @param clazz
+         *            the class to which the value should be deserialized.
+         * @return the value of the {@link MatsTrace} property, deserialized as the specified class.
+         * @see #setTraceProperty(String, Object)
+         */
+        <T> T getTraceProperty(String propertyName, Class<T> clazz);
+
+        /**
          * @return the current {@link MatsTrace} (the one that invoked this {@link MatsStage}.
          */
         MatsTrace getTrace();

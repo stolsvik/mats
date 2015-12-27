@@ -12,6 +12,12 @@ import com.stolsvik.mats.MatsTrace;
  * Implementation of {@link MatsStringSerializer} that employs <a href="https://github.com/FasterXML/jackson">Jackson
  * JSON library</a> for serialization and deserialization.
  * <p>
+ * Notice that there is a special case for Strings for {@link #serializeObject(Object)} and
+ * {@link #deserializeObject(String, Class)}: For the serialize-method, if the value is a String, it is returned
+ * directly ("serialized as-is"), while when deserialized and the requested class is String, the supplied "json" String
+ * argument is returned directly. This enables an endpoint to receive any type of value if it specifies String.class as
+ * expected DTO, as it'll just get the JSON document itself - and thus effectively acts as a Java method taking Object.
+ * <p>
  * The Jackson ObjectMapper is configured as such:
  *
  * <pre>

@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
+import com.stolsvik.mats.util.MatsStringSerializer;
 
 public interface JmsMatsStatics {
 
@@ -29,7 +30,8 @@ public interface JmsMatsStatics {
      * if any part of sending throws.</b>
      */
     default void sendMatsMessage(Logger log, Session jmsSession, JmsMatsFactory jmsMatsFactory, boolean queue,
-            MatsTrace matsTrace, LinkedHashMap<String, byte[]> bytes, LinkedHashMap<String, String> strings,
+            MatsTrace matsTrace, LinkedHashMap<String, Object> props,
+            LinkedHashMap<String, byte[]> bytes, LinkedHashMap<String, String> strings,
             String to, String what) {
         try {
             // :: Clone the bytes and strings Maps, and then clear the local Maps for any next message.
@@ -37,19 +39,31 @@ public interface JmsMatsStatics {
             // sending raises any RTE, it will not happen - and the user could potentially catch this, and send a new
             // message.
             @SuppressWarnings("unchecked")
+            HashMap<String, Object> propsCopied = (HashMap<String, Object>) props.clone();
+            props.clear();
+            @SuppressWarnings("unchecked")
             HashMap<String, byte[]> bytesCopied = (HashMap<String, byte[]>) bytes.clone();
             bytes.clear();
             @SuppressWarnings("unchecked")
             HashMap<String, String> stringsCopied = (HashMap<String, String>) strings.clone();
             strings.clear();
 
+            // Get the serializer
+            MatsStringSerializer serializer = jmsMatsFactory.getMatsStringSerializer();
+
+            // :: Add the MatsTrace properties
+            for (Map.Entry<String, Object> entry : propsCopied.entrySet()) {
+                matsTrace.setTraceProperty(entry.getKey(), serializer.serializeObject(entry.getValue()));
+            }
+
+            // Get FactoryConfig
             FactoryConfig factoryConfig = jmsMatsFactory.getFactoryConfig();
 
             // Create the JMS Message that will be sent.
             MapMessage mm = jmsSession.createMapMessage();
             // Set the MatsTrace.
             mm.setString(factoryConfig.getMatsTraceKey(),
-                    jmsMatsFactory.getMatsStringSerializer().serializeMatsTrace(matsTrace));
+                    serializer.serializeMatsTrace(matsTrace));
 
             // :: Add the properties to the MapMessage
             for (Map.Entry<String, byte[]> entry : bytesCopied.entrySet()) {
