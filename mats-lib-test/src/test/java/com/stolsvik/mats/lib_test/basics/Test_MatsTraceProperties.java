@@ -15,9 +15,9 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * ASCII-artsy, it looks like this:
  *
  * <pre>
- * [Initiator]   - request, adding a String property, and a DataTO property
- *     [Service] - reply - and reads the two properties (also checking the "read as JSON" functionality), and sets a new property
- * [Terminator]  - reads all three properties
+ * [Initiator]   - request, adding a String property, and a DataTO property.
+ *     [Service] - reply - and reads the two properties (also checking the "read as JSON" functionality), and sets a new property.
+ * [Terminator]  - reads all three properties.
  * </pre>
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com

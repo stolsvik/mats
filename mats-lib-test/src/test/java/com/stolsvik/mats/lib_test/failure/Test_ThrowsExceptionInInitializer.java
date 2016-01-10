@@ -15,7 +15,7 @@ import com.stolsvik.mats.lib_test.MatsDbTest;
  *
  * <pre>
  * [Initiator]    - init request, but throws RuntimeException, which should propagate all the way out.
- *   [Terminator] - should not get the message (but we have a test asserting it will actually get it if do NOT throw!)
+ * [Terminator] - should not get the message (but we have a test asserting it will actually get it if do NOT throw!)
  * </pre>
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com

@@ -1,7 +1,7 @@
-subprojects {
-    // The Gradle Wrapper generation task.
-    task wrapper(type: Wrapper) { gradleVersion = "2.8" }
+// The Gradle Wrapper generation task.
+task wrapper(type: Wrapper) { gradleVersion = "2.10" }
 
+subprojects {
     apply plugin: 'java'
     apply plugin: 'maven'
     apply plugin: 'eclipse'
@@ -40,7 +40,7 @@ subprojects {
     }
 
     // ------------------------------------------------
-    // -- Boring shit, should be a plugin.
+    // -- Boring stuff, should be a plugin.
 
     task systemInformation << {
         println "\n** Java properties [System.getProperties()], sorted:\n"
