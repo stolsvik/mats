@@ -24,7 +24,7 @@ dependencies {
     compile project(':mats-impl-jms')
 
     // TODO: Preliminary dep on ActiveMQ BROKER
-    compile 'org.apache.activemq:activemq-broker:5.11.+'
+    compile 'org.apache.activemq:activemq-broker:'+activeMqVersion
 
     // Dep on the actual MATS library
     compile project(':mats-lib')
