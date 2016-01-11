@@ -12,6 +12,8 @@ import org.apache.activemq.broker.util.LoggingBrokerPlugin;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.amq.MatsLoggingBrokerPlugin;
+
 public class ActiveMqStarter {
     private static final Logger log = LoggerFactory.getLogger(ActiveMqStarter.class);
 
@@ -64,7 +66,7 @@ public class ActiveMqStarter {
         // :: Add LoggerBrokerPlugin
         LoggingBrokerPlugin loggingBrokerPlugin = new LoggingBrokerPlugin();
         loggingBrokerPlugin.setLogAll(true);
-        _amqBroker.setPlugins(new BrokerPlugin[] { loggingBrokerPlugin });
+        _amqBroker.setPlugins(new BrokerPlugin[] { loggingBrokerPlugin, new MatsLoggingBrokerPlugin() });
 
         // :: Set Individual DLQ
         // Hear, hear: http://activemq.2283324.n4.nabble.com/PolicyMap-api-is-really-bad-td4284307.html
