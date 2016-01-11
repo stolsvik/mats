@@ -173,7 +173,7 @@ public class Rule_Mats extends ExternalResource {
         try {
             Connection jmsConnection = _amqClient.createConnection();
             try {
-                Session jmsSession = jmsConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+                Session jmsSession = jmsConnection.createSession(true, Session.SESSION_TRANSACTED);
                 Queue dlqQueue = jmsSession.createQueue(dlqQueueName);
                 MessageConsumer dlqConsumer = jmsSession.createConsumer(dlqQueue);
                 jmsConnection.start();
@@ -190,6 +190,7 @@ public class Rule_Mats extends ExternalResource {
                 MapMessage matsMM = (MapMessage) msg;
                 String matsTraceString = matsMM.getString(factoryConfig.getMatsTraceKey());
                 log.info("!! Got a DLQ Message! MatsTraceString:\n" + matsTraceString);
+                jmsSession.commit();
                 jmsConnection.close(); // Closes session and consumer
                 return _matsStringSerializer.deserializeMatsTrace(matsTraceString);
             }
