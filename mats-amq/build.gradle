@@ -1,0 +1,18 @@
+// mats-amq
+
+dependencies {
+    // The ActiveMQ broker which this project starts
+    compile 'org.apache.activemq:activemq-broker:'+activeMqVersion
+    
+    // Logback, for both the project and 
+    compile 'ch.qos.logback:logback-classic:1.1.+'
+    
+
+    // H2 Database, to put the log lines into
+    compile 'com.h2database:h2:1.4.+'
+
+    // Dep on the actual MATS library
+    compile project(':mats-lib')
+    // Dep on the utils of MATS
+    compile project(':mats-util')
+}
