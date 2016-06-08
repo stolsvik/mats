@@ -4,6 +4,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsFactory;
+import com.stolsvik.mats.lib_test.DataTO;
 
 /**
  * Tests concurrency by sending 8 requests to a service, where the processing takes 500 ms, but where the concurrency is

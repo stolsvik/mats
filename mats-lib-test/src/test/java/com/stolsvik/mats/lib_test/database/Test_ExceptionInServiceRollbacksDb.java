@@ -7,7 +7,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsTrace;
+import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsDbTest;
+import com.stolsvik.mats.lib_test.StateTO;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.test.Rule_MatsWithDb.DatabaseException;
 import com.stolsvik.mats.util.MatsTxSqlConnection;

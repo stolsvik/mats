@@ -4,6 +4,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsEndpoint;
+import com.stolsvik.mats.lib_test.DataTO;
+import com.stolsvik.mats.lib_test.StateTO;
 
 /**
  * Very similar to {@link Test_ConcurrencyPerStage}, but with two stages for the service, where the first has 8

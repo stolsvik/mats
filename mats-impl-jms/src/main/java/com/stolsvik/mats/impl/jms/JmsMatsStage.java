@@ -117,7 +117,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
     }
 
     @Override
-    public synchronized void close() {
+    public synchronized void stop() {
         log.info(LOG_PREFIX + "Closing [" + _stageId + "], setting running to false,"
                 + " stopping StageProcessors, closing TransactionContext.");
         _stageProcessors.forEach(StageProcessor::setRunFlagFalse);

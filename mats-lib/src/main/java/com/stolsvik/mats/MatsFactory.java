@@ -2,7 +2,7 @@ package com.stolsvik.mats;
 
 import java.util.function.Consumer;
 
-import com.stolsvik.mats.MatsConfig.StartClosable;
+import com.stolsvik.mats.MatsConfig.StartStoppable;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
@@ -29,7 +29,7 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
-public interface MatsFactory extends StartClosable {
+public interface MatsFactory extends StartStoppable {
 
     /**
      * @return the {@link FactoryConfig} on which to configure the factory, e.g. defaults for concurrency.
@@ -93,13 +93,17 @@ public interface MatsFactory extends StartClosable {
      *            the {@link MatsStage stage} that will be invoked to process the incoming message.
      * @return the {@link MatsEndpoint}, but you should not add any stages to it, as the sole stage is already added.
      */
-    <I, R> MatsEndpoint<Void, R> single(String endpointId, Class<I> incomingClass, Class<R> replyClass,
+    <I, R> MatsEndpoint<Void, R> single(String endpointId,
+            Class<I> incomingClass,
+            Class<R> replyClass,
             ProcessSingleLambda<I, R> processor);
 
     /**
      * Variation of {@link #single(String, Class, Class, ProcessSingleLambda)} that can be configured "on the fly".
      */
-    <I, R> MatsEndpoint<Void, R> single(String endpointId, Class<I> incomingClass, Class<R> replyClass,
+    <I, R> MatsEndpoint<Void, R> single(String endpointId,
+            Class<I> incomingClass,
+            Class<R> replyClass,
             Consumer<? super EndpointConfig<Void, R>> endpointConfigLambda,
             Consumer<? super StageConfig<I, Void, R>> stageConfigLambda,
             ProcessSingleLambda<I, R> processor);
@@ -112,8 +116,9 @@ public interface MatsFactory extends StartClosable {
      * <p>
      * Do note that this is just a convenience for a often-used scenario where a request goes out to some service
      * (possibly recursing down into further services), and then the reply needs to be handled, and then the process is
-     * finished. There is nothing hindering you in setting the reply-to endpointId to a multi-stage endpoint, and hence
-     * have the ability to do further request-replies on the reply from the initial request.
+     * finished. There is nothing hindering you in setting the reply-to endpointId for a request initiation to point to
+     * a multi-stage endpoint, and hence have the ability to do further request-replies on the reply from the initial
+     * request.
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
@@ -129,23 +134,32 @@ public interface MatsFactory extends StartClosable {
      *            the {@link MatsStage stage} that will be invoked to process the incoming message.
      * @return the {@link MatsEndpoint}, but you should not add any stages to it, as the sole stage is already added.
      */
-    <I, S> MatsEndpoint<S, Void> terminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
+    <I, S> MatsEndpoint<S, Void> terminator(String endpointId,
+            Class<I> incomingClass,
+            Class<S> stateClass,
             ProcessTerminatorLambda<I, S> processor);
 
     /**
      * Variation of {@link #terminator(String, Class, Class, ProcessTerminatorLambda)} that can be configured
      * "on the fly".
      */
-    <I, S> MatsEndpoint<S, Void> terminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
+    <I, S> MatsEndpoint<S, Void> terminator(String endpointId,
+            Class<I> incomingClass,
+            Class<S> stateClass,
             Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
             Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
             ProcessTerminatorLambda<I, S> processor);
 
     /**
-     * Special kind of terminator that, in JMS-style terms, subscribes to a topic instead of listening to a queue. You
-     * may only communicate with this type of endpoints by using the {@link MatsInitiate#publish(Object)} methods.
+     * Special kind of terminator that, in JMS-style terms, subscribes to a topic instead of listening to a queue (i.e.
+     * "pub-sub"-style messaging). You may only communicate with this type of endpoints by using the
+     * {@link MatsInitiate#publish(Object)} methods.
      * <p>
-     * <b>Notice that the concurrency of a SubscriptionTerminator is always 1</b>.
+     * <b>Notice that the concurrency of a SubscriptionTerminator is always 1, as it makes no sense to have multiple
+     * processors for a subscription - all of the processors would just get an identical copy of each message.</b> If
+     * you do need to handle massive amounts of messages, or your work handling is slow, you should instead of handling
+     * the work in the processor itself, rather accept the message as fast as possible and send the work out to be
+     * processed by some kind of thread pool.
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
@@ -176,9 +190,10 @@ public interface MatsFactory extends StartClosable {
     /**
      * The way to start a MATS process: Get hold of a {@link MatsInitiator}, and fire off messages!
      * <p>
-     * <b>Notice: You are not supposed to get one per sent message, rather either just one for the entire application,
-     * or for each component:</b> It will have an underlying backend connection attached to it, and should hence also be
-     * closed for a clean application shutdown.
+     * <b>Notice: You are <em>not</em> supposed to get one instance of {@link MatsInitiator} per message you need to
+     * send - rather either just one for the entire application, or for each component:</b> The {@code MatsInitiator}
+     * will have an underlying backend connection attached to it - which also means that it needs to be closed for a
+     * clean application shutdown.
      *
      * @param initiatorId
      *            a fictive "endpointId" representing the "initiating endpoint".
@@ -188,14 +203,14 @@ public interface MatsFactory extends StartClosable {
     MatsInitiator getInitiator(String initiatorId);
 
     /**
-     * "Releases" any start-waiting endpoints, read up on {@link #close}. Unless {@link #close()} has been invoked
-     * first, this method has no effect.
+     * "Releases" any start-waiting endpoints, read up on {@link #stop}. Unless {@link #stop()} has been invoked first,
+     * this method has no effect.
      */
     @Override
     void start();
 
     /**
-     * Stops the factory, which will invoke {@link MatsEndpoint#close()} on all the endpoints, and
+     * Stops the factory, which will invoke {@link MatsEndpoint#stop()} on all the endpoints, and
      * {@link MatsInitiator#close()} on all initiators, that has been created by it. Meant for application shutdown.
      * <p>
      * <b>However, if this is invoked before any endpoint is created, the endpoints will not start even though
@@ -207,7 +222,7 @@ public interface MatsFactory extends StartClosable {
      * when the service boots), and thus invoke other services that are not yet fully up.
      */
     @Override
-    void close();
+    void stop();
 
     /**
      * Provides for a way to configure factory-wide elements and defaults.

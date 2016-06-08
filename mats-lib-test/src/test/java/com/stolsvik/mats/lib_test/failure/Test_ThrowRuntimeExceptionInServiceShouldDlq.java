@@ -5,7 +5,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsTrace;
+import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsDbTest;
+import com.stolsvik.mats.lib_test.StateTO;
 
 /**
  * Tests the simplest failure in a single-stage service: A single-stage endpoint is invoked from the Initiator, but the

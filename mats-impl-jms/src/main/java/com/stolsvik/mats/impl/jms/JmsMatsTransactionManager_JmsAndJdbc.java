@@ -73,7 +73,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
      */
     @FunctionalInterface
     public interface JdbcConnectionSupplier {
-        Connection createConnection(JmsMatsStage<?, ?, ?> stage) throws SQLException;
+        Connection createJdbcConnection(JmsMatsStage<?, ?, ?> stage) throws SQLException;
     }
 
     private final JdbcConnectionSupplier _jdbcConnectionSupplier;
@@ -261,7 +261,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 // This shall only be done on one thread: The whole point is its ThreadLocal-ness - No concurrency.
                 if (_gottenConnection == null) {
                     try {
-                        _gottenConnection = _jdbcConnectionSupplier.createConnection(_stage);
+                        _gottenConnection = _jdbcConnectionSupplier.createJdbcConnection(_stage);
                     }
                     catch (SQLException e) {
                         throw new MatsSqlConnectionCreationException("Could not get SQL Connection from ["

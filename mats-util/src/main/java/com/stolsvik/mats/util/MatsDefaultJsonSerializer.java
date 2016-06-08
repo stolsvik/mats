@@ -5,6 +5,7 @@ import java.io.IOException;
 import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stolsvik.mats.MatsTrace;
 
@@ -18,12 +19,15 @@ import com.stolsvik.mats.MatsTrace;
  * argument is returned directly. This enables an endpoint to receive any type of value if it specifies String.class as
  * expected DTO, as it'll just get the JSON document itself - and thus effectively acts as a Java method taking Object.
  * <p>
- * The Jackson ObjectMapper is configured as such:
+ * The Jackson ObjectMapper is configured to only handle fields (think "data struct"), i.e. not use setters or getters,
+ * and upon deserialization to ignore properties from the JSON that has no field in the class to be deserialized into
+ * (to handle <i>widening conversions<i> for incoming DTOs):
  *
  * <pre>
  * ObjectMapper mapper = new ObjectMapper();
  * mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
  * mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
+ * mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
  * </pre>
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
@@ -36,6 +40,7 @@ public class MatsDefaultJsonSerializer implements MatsStringSerializer {
         ObjectMapper mapper = new ObjectMapper();
         mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
         mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         __objectMapper = mapper;
     }
 

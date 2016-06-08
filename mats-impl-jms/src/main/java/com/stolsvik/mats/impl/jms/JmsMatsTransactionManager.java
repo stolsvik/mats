@@ -105,7 +105,7 @@ public interface JmsMatsTransactionManager {
      */
     @FunctionalInterface
     interface JmsConnectionSupplier {
-        Connection createConnection(JmsMatsStage<?, ?, ?> stage) throws JMSException;
+        Connection createJmsConnection(JmsMatsStage<?, ?, ?> stage) throws JMSException;
     }
 
     /**

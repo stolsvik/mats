@@ -10,7 +10,9 @@ import org.junit.Before;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsBasicTest;
+import com.stolsvik.mats.lib_test.StateTO;
 
 /**
  * Abstract class for concurrency tests.

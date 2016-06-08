@@ -12,7 +12,6 @@ import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.MatsStage.StageConfig;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsConnectionSupplier;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
@@ -67,12 +66,12 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public <S, R> MatsEndpoint<S, R> staged(String endpointId, Class<S> stateClass, Class<R> replyClass) {
+    public <S, R> JmsMatsEndpoint<S, R> staged(String endpointId, Class<S> stateClass, Class<R> replyClass) {
         return staged(endpointId, stateClass, replyClass, NO_CONFIG);
     }
 
     @Override
-    public <S, R> MatsEndpoint<S, R> staged(String endpointId, Class<S> stateClass, Class<R> replyClass,
+    public <S, R> JmsMatsEndpoint<S, R> staged(String endpointId, Class<S> stateClass, Class<R> replyClass,
             Consumer<? super EndpointConfig<S, R>> endpointConfigLambda) {
         JmsMatsEndpoint<S, R> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, stateClass, replyClass);
         _createdEndpoints.add(endpoint);
@@ -81,40 +80,43 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public <I, R> MatsEndpoint<Void, R> single(String endpointId, Class<I> incomingClass, Class<R> replyClass,
+    public <I, R> MatsEndpoint<Void, R> single(String endpointId,
+            Class<I> incomingClass,
+            Class<R> replyClass,
             ProcessSingleLambda<I, R> processor) {
         return single(endpointId, incomingClass, replyClass, NO_CONFIG, NO_CONFIG, processor);
     }
 
     @Override
-    public <I, R> MatsEndpoint<Void, R> single(String endpointId, Class<I> incomingClass, Class<R> replyClass,
+    public <I, R> JmsMatsEndpoint<Void, R> single(String endpointId,
+            Class<I> incomingClass,
+            Class<R> replyClass,
             Consumer<? super EndpointConfig<Void, R>> endpointConfigLambda,
             Consumer<? super StageConfig<I, Void, R>> stageConfigLambda,
             ProcessSingleLambda<I, R> processor) {
-        JmsMatsEndpoint<Void, R> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, Void.class, replyClass);
-        // :: Wrap a standard ProcessLambda around the ProcessTerminatorLambda
-        MatsStage<I, Void, R> stage = endpoint.stage(incomingClass, (processContext, incomingDto, state) -> {
-            // Invoke the endpoint, storing the returned value... (Note: no state)
-            R reply = processor.process(processContext, incomingDto);
-            // ... and invoke reply on the context with that.
-            // (The only difference between a normal multi-stage and a single endpoint is this one convenience)
-            processContext.reply(reply);
-        });
-        _createdEndpoints.add(endpoint);
-        endpointConfigLambda.accept(endpoint.getEndpointConfig());
-        stageConfigLambda.accept(stage.getStageConfig());
-        endpoint.start();
+        // Get a normal Staged Endpoint
+        JmsMatsEndpoint<Void, R> endpoint = staged(endpointId, Void.class, replyClass, endpointConfigLambda);
+        // :: Wrap the ProcessSingleLambda in a single lastStage-ProcessReturnLambda
+        endpoint.lastStage(incomingClass, stageConfigLambda,
+                (processContext, incomingDto, state) -> {
+                    // This is just a direct forward - albeit a single stage has no state.
+                    return processor.process(processContext, incomingDto);
+                });
         return endpoint;
     }
 
     @Override
-    public <I, S> MatsEndpoint<S, Void> terminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
+    public <I, S> JmsMatsEndpoint<S, Void> terminator(String endpointId,
+            Class<I> incomingClass,
+            Class<S> stateClass,
             ProcessTerminatorLambda<I, S> processor) {
         return terminator(true, endpointId, incomingClass, stateClass, NO_CONFIG, NO_CONFIG, processor);
     }
 
     @Override
-    public <I, S> MatsEndpoint<S, Void> terminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
+    public <I, S> JmsMatsEndpoint<S, Void> terminator(String endpointId,
+            Class<I> incomingClass,
+            Class<S> stateClass,
             Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
             Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
             ProcessTerminatorLambda<I, S> processor) {
@@ -123,14 +125,14 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass,
+    public <I, S> JmsMatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass,
             Class<S> stateClass,
             ProcessTerminatorLambda<I, S> processor) {
         return terminator(false, endpointId, incomingClass, stateClass, NO_CONFIG, NO_CONFIG, processor);
     }
 
     @Override
-    public <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass,
+    public <I, S> JmsMatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass,
             Class<S> stateClass,
             Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
             Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
@@ -140,23 +142,27 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     /**
-     * INTERNAL method, since terminator(...) and subscriptionTerminator(...) is near identical.
+     * INTERNAL method, since terminator(...) and subscriptionTerminator(...) are near identical.
      */
-    private <S, I> MatsEndpoint<S, Void> terminator(boolean queue, String endpointId, Class<I> incomingClass,
+    private <S, I> JmsMatsEndpoint<S, Void> terminator(boolean queue, String endpointId,
+            Class<I> incomingClass,
             Class<S> stateClass,
             Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
             Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
             ProcessTerminatorLambda<I, S> processor) {
-        JmsMatsEndpoint<S, Void> endpoint = new JmsMatsEndpoint<>(this, endpointId, queue, stateClass, Void.class);
-        // :: Wrap a standard ProcessLambda around the ProcessTerminatorLambda
-        MatsStage<I, S, Void> stage = endpoint.stage(incomingClass, (processContext, incomingDto, state) -> {
-            // This is just a direct forward - there is no difference from a ProcessLambda, except Void reply type.
-            processor.process(processContext, incomingDto, state);
-        });
+        // Need to create the JmsMatsEndpoint ourselves, since we need to set the queue-parameter.
+        JmsMatsEndpoint<S, Void> endpoint = new JmsMatsEndpoint<>(this, endpointId, queue, stateClass,
+                Void.class);
         _createdEndpoints.add(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
-        stageConfigLambda.accept(stage.getStageConfig());
-        endpoint.start();
+        // :: Wrap the ProcessTerminatorLambda in a single lastStage-ProcessReturnLambda
+        endpoint.lastStage(incomingClass, stageConfigLambda,
+                (processContext, incomingDto, state) -> {
+                    // This is just a direct forward - there is no difference from a ProcessReturnLambda ...
+                    processor.process(processContext, incomingDto, state);
+                    // ... except we have no reply (Void reply type).
+                    return null;
+                });
         return endpoint;
     }
 
@@ -175,11 +181,11 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public void close() {
+    public void stop() {
         log.info(LOG_PREFIX + "Closing [" + id(this) + "], thus closing all created endpoints and initiators.");
         for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
             try {
-                endpoint.close();
+                endpoint.stop();
             }
             catch (Throwable t) {
                 log.warn("Got some throwable when closing endpoint [" + endpoint + "].", t);

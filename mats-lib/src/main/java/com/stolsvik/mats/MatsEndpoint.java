@@ -3,7 +3,7 @@ package com.stolsvik.mats;
 import java.util.List;
 import java.util.function.Consumer;
 
-import com.stolsvik.mats.MatsConfig.StartClosable;
+import com.stolsvik.mats.MatsConfig.StartStoppable;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsStage.StageConfig;
@@ -14,7 +14,7 @@ import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
-public interface MatsEndpoint<S, R> extends StartClosable {
+public interface MatsEndpoint<S, R> extends StartStoppable {
 
     /**
      * @return the config for this endpoint. If endpoint is not yet started, you may invoke mutators on it.
@@ -67,10 +67,10 @@ public interface MatsEndpoint<S, R> extends StartClosable {
     void start();
 
     /**
-     * Stops the endpoint, invoking {@link MatsStage#close()} on all {@link MatsStage}s.
+     * Stops the endpoint, invoking {@link MatsStage#stop()} on all {@link MatsStage}s.
      */
     @Override
-    void close();
+    void stop();
 
     /**
      * Provides for both configuring the endpoint (before it is started), and introspecting the configuration.

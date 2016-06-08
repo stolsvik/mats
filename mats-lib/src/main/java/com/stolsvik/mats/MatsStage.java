@@ -1,6 +1,6 @@
 package com.stolsvik.mats;
 
-import com.stolsvik.mats.MatsConfig.StartClosable;
+import com.stolsvik.mats.MatsConfig.StartStoppable;
 
 /**
  * A representation of a process stage of a {@link MatsEndpoint}. Either constructed implicitly (for single-stage
@@ -10,7 +10,7 @@ import com.stolsvik.mats.MatsConfig.StartClosable;
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
-public interface MatsStage<I, S, R> extends StartClosable {
+public interface MatsStage<I, S, R> extends StartStoppable {
 
     /**
      * @return the {@link StageConfig} for this stage.
@@ -22,7 +22,7 @@ public interface MatsStage<I, S, R> extends StartClosable {
      * {@link StageConfig#getConcurrency()} for each stage.
      * <p>
      * Will generally be invoked implicitly by {@link MatsEndpoint#start()}. The only reason for calling this should be
-     * if its corresponding {@link #close()} method has been invoked to stop processing.
+     * if its corresponding {@link #stop()} method has been invoked to stop processing.
      * <p>
      * If the {@link MatsFactory} is stopped ("closed") when this method is invoked, it will not start until the factory
      * is started.
@@ -37,7 +37,7 @@ public interface MatsStage<I, S, R> extends StartClosable {
      * possible to {@link #start()} the stage again.
      */
     @Override
-    void close();
+    void stop();
 
     /**
      * Provides for both configuring the stage (before it is started), and introspecting the configuration.

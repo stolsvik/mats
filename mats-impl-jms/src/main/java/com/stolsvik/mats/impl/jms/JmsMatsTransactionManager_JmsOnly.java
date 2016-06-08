@@ -48,7 +48,7 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
      */
     protected Connection createJmsConnection(JmsMatsStage<?, ?, ?> stage) {
         try {
-            Connection jmsConnection = _jmsConnectionSupplier.createConnection(stage);
+            Connection jmsConnection = _jmsConnectionSupplier.createJmsConnection(stage);
             // Starting it right away, as that could potentially also give "connection establishment" JMSExceptions
             jmsConnection.start();
             return jmsConnection;

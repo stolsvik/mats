@@ -4,7 +4,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsDbTest;
+import com.stolsvik.mats.lib_test.StateTO;
 
 /**
  * Tests throwing inside the initiator, which should "propagate all the way out", while the about-to-be-sent message

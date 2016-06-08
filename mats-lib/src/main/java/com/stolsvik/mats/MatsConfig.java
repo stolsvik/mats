@@ -1,7 +1,5 @@
 package com.stolsvik.mats;
 
-import java.io.Closeable;
-
 /**
  * All of {@link MatsFactory}, {@link MatsEndpoint} and {@link MatsStage} have some configurable elements, provided by a
  * config instance, this is the top of that hierarchy.
@@ -48,7 +46,7 @@ public interface MatsConfig {
     /**
      * All three of {@link MatsFactory}, {@link MatsEndpoint} and {@link MatsStage} implements this interface.
      */
-    interface StartClosable {
+    interface StartStoppable {
         /**
          * This method is idempotent, calling it when the endpoint is already running has no effect.
          * <p>
@@ -59,13 +57,8 @@ public interface MatsConfig {
         /**
          * This method is idempotent, calling it when the endpoint is already running has no effect.
          * <p>
-         * The rationale for using close() instead of stop() is that {@link Closeable#close()} have special semantics in
-         * Spring: It will invoke any such methods on beans that are constructed through it, which typically
-         * {@link MatsFactory} should be in a Spring application (read up on
-         * org.springframework.context.annotation.Bean.destroyMethod(String)).
-         * <p>
          * Further documentation on extensions.
          */
-        void close();
+        void stop();
     }
 }

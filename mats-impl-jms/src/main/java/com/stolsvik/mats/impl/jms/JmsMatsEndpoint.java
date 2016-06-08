@@ -20,7 +20,7 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  */
 public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
 
-    private static final Logger log = LoggerFactory.getLogger(JmsMatsFactory.class);
+    private static final Logger log = LoggerFactory.getLogger(JmsMatsEndpoint.class);
 
     private final JmsMatsFactory _parentFactory;
     private final String _endpointId;
@@ -89,7 +89,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
             Consumer<? super StageConfig<I, S, R>> stageConfigLambda,
             com.stolsvik.mats.MatsEndpoint.ProcessReturnLambda<I, S, R> processor) {
         // TODO: Refuse adding stages if already started, or if lastStage is added.
-        // :: Wrap a standard ProcessLambda around the ProcessReturnLambda, performing the sole convenience it provides.
+        // :: Wrap a standard ProcessLambda around the ProcessReturnLambda, performing the return-reply convenience.
         MatsStage<I, S, R> stage = stage(incomingClass, stageConfigLambda,
                 (processContext, incomingDto, state) -> {
                     // Invoke the ProcessReturnLambda, holding on to the returned value from it.
@@ -109,8 +109,8 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
     }
 
     @Override
-    public void close() {
-        _stages.forEach(s -> s.close());
+    public void stop() {
+        _stages.forEach(s -> s.stop());
     }
 
     private class JmsEndpointConfig implements EndpointConfig<S, R> {

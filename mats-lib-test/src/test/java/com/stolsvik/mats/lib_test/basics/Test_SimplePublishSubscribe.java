@@ -4,7 +4,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsBasicTest;
+import com.stolsvik.mats.lib_test.StateTO;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
