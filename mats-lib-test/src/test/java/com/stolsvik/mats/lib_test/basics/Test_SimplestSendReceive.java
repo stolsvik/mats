@@ -42,7 +42,7 @@ public class Test_SimplestSendReceive extends MatsBasicTest {
                         .send(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(dto, result.getData());
     }
 }

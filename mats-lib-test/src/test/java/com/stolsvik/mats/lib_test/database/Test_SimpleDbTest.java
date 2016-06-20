@@ -70,7 +70,7 @@ public class Test_SimpleDbTest extends MatsDbTest {
                 });
 
         // Wait synchronously for terminator to finish.
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService:" + randomData), result.getData());
     }

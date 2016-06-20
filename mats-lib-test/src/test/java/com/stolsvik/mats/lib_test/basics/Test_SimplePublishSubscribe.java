@@ -57,11 +57,11 @@ public class Test_SimplePublishSubscribe extends MatsBasicTest {
                         .publish(dto, sto));
 
         // Wait synchronously for both terminators to finish.
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(dto, result.getData());
         Assert.assertEquals(sto, result.getState());
 
-        Result<StateTO, DataTO> result2 = matsTestLatch2.waitForResult();
+        Result<DataTO, StateTO> result2 = matsTestLatch2.waitForResult();
         Assert.assertEquals(dto, result2.getData());
         Assert.assertEquals(sto, result2.getState());
     }

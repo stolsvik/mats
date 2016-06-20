@@ -69,7 +69,7 @@ public class Test_MutilStageNext extends MatsBasicTest {
                         .request(dto, sto));
 
         // Wait synchronously for terminator to finish.
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 5,
                 dto.string + ":InitialStage" + ":Stage1" + ":ReplyStage"),

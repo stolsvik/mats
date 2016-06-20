@@ -92,19 +92,19 @@ public class Test_InitiateWithinStage extends MatsBasicTest {
 
         // :: Wait synchronously for all three terminators to finish.
         // "Normal" Terminator from the service call
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), result.getData());
         Assert.assertEquals(randomId, _traceId);
 
         // Terminator "stageInit1", for the first initiation within the service's stage
-        Result<StateTO, DataTO> result_stageInit1 = matsTestLatch_stageInit1.waitForResult();
+        Result<DataTO, StateTO> result_stageInit1 = matsTestLatch_stageInit1.waitForResult();
         Assert.assertEquals(new StateTO(0, 0), result_stageInit1.getState());
         Assert.assertEquals(new DataTO(Math.E, "xyz"), result_stageInit1.getData());
         Assert.assertEquals(randomId + "|subtraceId1", _traceId_stageInit1);
 
         // Terminator "stageInit2", for the second initiation within the service's stage
-        Result<StateTO, DataTO> result_stageInit2 = matsTestLatch_stageInit2.waitForResult();
+        Result<DataTO, StateTO> result_stageInit2 = matsTestLatch_stageInit2.waitForResult();
         Assert.assertEquals(new StateTO(Integer.MAX_VALUE, Math.PI), result_stageInit2.getState());
         Assert.assertEquals(new DataTO(-Math.E, "abc"), result_stageInit2.getData());
         Assert.assertEquals(randomId + "|subtraceId2", _traceId_stageInit2);

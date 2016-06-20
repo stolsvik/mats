@@ -70,8 +70,8 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
     }
 
     @Test
-    public void moreSpecificReplyThanServiceSpecifies_AndTerminatorExpectsThis() {
-        // Specifies that Service shall reply with SubDataDto
+    public void serviceRepliesWithMoreSpecificDtoThanSpecified_AndTerminatorExpectsThis() {
+        // Specifies that Service shall reply with SubDataDto (more specific reply DTO than specified)
         DataTO dto = new DataTO(Math.E, "SubDataTO");
         StateTO sto = new StateTO(420, 420.024);
         _initiator.initiate((msg) -> msg.traceId(randomId())
@@ -88,8 +88,8 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
     }
 
     @Test
-    public void moreSpecificReplyThanServiceSpecifies_ButTerminatorReceivesBaseDto_ThusTooManyFields() {
-        // Specifies that Service shall reply with SubDataDto
+    public void serviceRepliesWithMoreSpecificDtoThanSpecified_ButTerminatorExpectsBaseDto_ThusTooManyFields() {
+        // Specifies that Service shall reply with SubDataDto (more specific reply DTO than specified)
         DataTO dto = new DataTO(Math.PI, "SubDataTO");
         StateTO sto = new StateTO(420, 420.024);
         _initiator.initiate((msg) -> msg.traceId(randomId())
@@ -99,14 +99,14 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
                 .request(dto, sto));
 
         // Wait synchronously for terminator to finish.
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService_SubDataTO"), result.getData());
     }
 
     @Test
-    public void baseReplyAsServiceSpecifies_ButTerminatorReceivesSpecificDto_ThusMissingFields() {
-        // Specifies that Service shall reply with SubDataDto
+    public void serviceRepliesWithBaseDtoAsSpecified_ButTerminatorExpectsSubDataDto_ThusMissingFields() {
+        // Specifies that Service shall reply with DataDto (the DTO it specifies it will reply with)
         DataTO dto = new DataTO(Math.E * Math.PI, "DataTO");
         StateTO sto = new StateTO(420, 420.024);
         _initiator.initiate((msg) -> msg.traceId(randomId())
@@ -116,7 +116,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
                 .request(dto, sto));
 
         // Wait synchronously for terminator to finish.
-        Result<StateTO, SubDataTO> result = matsTestLatch.waitForResult();
+        Result<SubDataTO, StateTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new SubDataTO(dto.number * 2, dto.string + ":FromService_DataTO", null),
                 result.getData());

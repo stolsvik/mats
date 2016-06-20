@@ -102,7 +102,7 @@ public class Test_ComplexMultiStage extends MatsBasicTest {
                         .request(dto, sto));
 
         // Wait synchronously for terminator to finish.
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 2 * 5, dto.string + ":FromLeafService" + ":FromMidService"
                 + ":FromLeafService" + ":FromMasterService"), result.getData());
