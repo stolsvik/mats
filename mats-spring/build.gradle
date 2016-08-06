@@ -1,0 +1,10 @@
+// mats-spring
+
+dependencies {
+    compile project(":mats-lib")
+
+    // http://mvnrepository.com/artifact/org.springframework/spring-context
+    compile 'org.springframework:spring-context:4.3.+'
+    compile 'org.springframework:spring-tx:4.3.+'
+    compile 'javax.inject:javax.inject:1'
+}

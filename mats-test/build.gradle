@@ -1,22 +1,11 @@
 // mats-test
 
-configurations {
-    // http://stackoverflow.com/questions/13925724/providedcompile-without-war-plugin
-    provided
-}
-// Add the "provided" configuration to the main and test classpaths.
-sourceSets {
-    main.compileClasspath += configurations.provided
-    test.compileClasspath += configurations.provided
-    test.runtimeClasspath += configurations.provided
-}
-
-// Add the "provided" configuration to IDEA and Eclipse.
-// idea.module.scopes.PROVIDED.plus += configurations.provided
-// eclipse.classpath.plusConfigurations += [ configurations.provided ]
-eclipse.classpath.plusConfigurations += [ configurations.provided ]
-
 dependencies {
+    // Dep on the actual MATS library
+    compile project(':mats-lib')
+    // Dep on the utils of MATS
+    compile project(':mats-util')
+
     // H2 Database, for database tests
     compile 'com.h2database:h2:1.4.+'
 
@@ -26,11 +15,6 @@ dependencies {
     // TODO: Preliminary dep on ActiveMQ BROKER
     compile 'org.apache.activemq:activemq-broker:'+activeMqVersion
 
-    // Dep on the actual MATS library
-    compile project(':mats-lib')
-    // Dep on the utils of MATS
-    compile project(':mats-util')
-
     // The JUnit library
-    provided 'junit:junit:4.+'
+    compile 'junit:junit:4.+'
 }

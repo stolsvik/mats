@@ -21,16 +21,17 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
     private static final String WIDE_TYPES = ".WideTypes";
 
     @Before
-    public void setupService_MatcsTypes() {
-        matsRule.getMatsFactory().single(SERVICE + MATCH_TYPES, DataTO.class, DataTO.class, this::lambda_MatchTypes);
+    public void setupService_MatchTypes_StaticMethodRef() {
+        matsRule.getMatsFactory().single(SERVICE + MATCH_TYPES, DataTO.class, DataTO.class,
+                Test_LambdaMethodRef_Single::lambda_MatchTypes);
     }
 
     @Before
-    public void setupService_WideTypes() {
+    public void setupService_WideTypes_InstanceMethodRef() {
         matsRule.getMatsFactory().single(SERVICE + WIDE_TYPES, DataTO.class, DataTO.class, this::lambda_WideTypes);
     }
 
-    private DataTO lambda_MatchTypes(ProcessContext<DataTO> context, DataTO dto) {
+    private static DataTO lambda_MatchTypes(ProcessContext<DataTO> context, DataTO dto) {
         return new DataTO(dto.number * 2, dto.string + MATCH_TYPES);
     }
 

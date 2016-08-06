@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
+import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
@@ -66,9 +67,13 @@ public class Rule_Mats extends ExternalResource {
 
     private static final String BROKER_NAME = "MatsLocalVmBroker";
 
+    protected String id(Class<?> clazz) {
+        return clazz.getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(this));
+    }
+
     @Override
     public void before() throws Throwable {
-        log.info("+++ BEFORE on JUnit Rule '" + this.getClass().getSimpleName() + "', JMS and MATS:");
+        log.info("+++ BEFORE on JUnit Rule '" + id(Rule_Mats.class) + "', JMS and MATS:");
         String sysprop_matsTestActiveMq = System.getProperty(SYSPROP_MATS_TEST_ACTIVEMQ);
 
         // ::: Server (BrokerService)
@@ -83,6 +88,7 @@ public class Rule_Mats extends ExternalResource {
             _amqServer.setUseJmx(false); // No need for JMX registry.
             _amqServer.setPersistent(false); // No need for persistence (prevents KahaDB dirs from being created).
             _amqServer.setAdvisorySupport(false); // No need Advisory Messages.
+            _amqServer.setUseShutdownHook(false);
 
             // :: Set Individual DLQ
             // Hear, hear: http://activemq.2283324.n4.nabble.com/PolicyMap-api-is-really-bad-td4284307.html
@@ -136,7 +142,7 @@ public class Rule_Mats extends ExternalResource {
         _matsFactory = createMatsFactory(_matsStringSerializer, _amqClient);
         // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
         _matsFactory.getFactoryConfig().setConcurrency(1);
-        log.info("--- BEFORE done! JUnit Rule '" + this.getClass().getSimpleName() + "', JMS and MATS.");
+        log.info("--- BEFORE done! JUnit Rule '" + id(Rule_Mats.class) + "', JMS and MATS.");
     }
 
     protected MatsFactory createMatsFactory(MatsStringSerializer stringSerializer,
@@ -147,7 +153,7 @@ public class Rule_Mats extends ExternalResource {
 
     @Override
     public void after() {
-        log.info("+++ AFTER on JUnit Rule '" + Rule_Mats.class.getSimpleName() + "':");
+        log.info("+++ AFTER on JUnit Rule '" + id(Rule_Mats.class) + "':");
         // :: Close the MatsFactory (thereby closing all endpoints and initiators, and thus their connections).
         _matsFactory.stop();
 
@@ -170,7 +176,7 @@ public class Rule_Mats extends ExternalResource {
                 throw new AssertionError("Got interrupted while sleeping - unexpected, man..!");
             }
         }
-        log.info("--- AFTER done! JUnit Rule '" + Rule_Mats.class.getSimpleName() + "' DONE.");
+        log.info("--- AFTER done! JUnit Rule '" + id(Rule_Mats.class) + "' DONE.");
     }
 
     /**
@@ -224,5 +230,17 @@ public class Rule_Mats extends ExternalResource {
      */
     public MatsFactory getMatsFactory() {
         return _matsFactory;
+    }
+
+    private MatsInitiator _matsInitiator;
+
+    /**
+     * @return the default {@link MatsInitiator} from this JUnit Rule.
+     */
+    public synchronized MatsInitiator getInitiator() {
+        if (_matsInitiator == null) {
+            _matsInitiator = getMatsFactory().getInitiator("Rule_Mats:DefaultInitiator");
+        }
+        return _matsInitiator;
     }
 }

@@ -44,7 +44,7 @@ public class Rule_MatsWithDb extends Rule_Mats {
     public void before() throws Throwable {
         // Set up JMS from super
         super.before();
-        log.info("+++ BEFORE on JUnit Rule '" + this.getClass().getSimpleName() + "', H2 database:");
+        log.info("+++ BEFORE on JUnit Rule '" + id(Rule_MatsWithDb.class) + "', H2 database:");
         log.info("Setting up H2 database using DB URL [" + H2_DATABASE_URL + "], dropping all objects.");
         // Set up H2 Database
         _dataSource = new JdbcDataSource();
@@ -58,7 +58,7 @@ public class Rule_MatsWithDb extends Rule_Mats {
         catch (SQLException e) {
             throw new RuntimeException("Got problems running 'DROP ALL OBJECTS DELETE FILES'.", e);
         }
-        log.info("--- BEFORE done! JUnit Rule '" + this.getClass().getSimpleName() + "', H2 database.");
+        log.info("--- BEFORE done! JUnit Rule '" + id(Rule_MatsWithDb.class) + "', H2 database.");
     }
 
     @Override

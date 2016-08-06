@@ -1,4 +1,6 @@
-include 'mats-lib', 'mats-util', 'mats-test', 'mats-lib-test', 'mats-impl-jms', 'mats-amq'
+include 'mats-lib', 'mats-util', 'mats-test', 'mats-lib-test',
+        'mats-impl-jms', 'mats-amq',
+        'mats-spring', 'mats-spring-test'
 
 println "** Java Version:   "+System.getProperty("java.version")
 println "** Groovy Version: "+GroovySystem.getVersion()

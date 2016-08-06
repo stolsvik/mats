@@ -1,0 +1,11 @@
+// mats-spring-test
+
+dependencies {
+    compile project(":mats-test")
+    compile project(":mats-spring")
+
+    testCompile 'org.springframework:spring-test:4.3.+'
+
+    testCompile 'org.slf4j:log4j-over-slf4j:1.7.+'
+    testCompile 'ch.qos.logback:logback-classic:1.1.+'
+}

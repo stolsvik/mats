@@ -41,7 +41,7 @@ import com.stolsvik.mats.util.MatsTxSqlConnection.MatsSqlConnectionCreationExcep
  * "http://www.javaworld.com/article/2077963/open-source-tools/distributed-transactions-in-spring--with-and-without-xa.html?page=2">
  * this article</a>. If this failure occurs, it will be caught and logged on ERROR level (by
  * {@link JmsMatsTransactionManager_JmsOnly}) - and then the Message Broker will probably try to redeliver the message.
- * Wise tip: Code idempotent!
+ * Wise tips: Code idempotent! Handle double-deliveries!
  * <p>
  * The transactionally demarcated SQL Connection can be retrieved from the {@link MatsTxSqlConnection} utility class.
  * <p>
@@ -189,7 +189,6 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
                 // Return nicely, as the SQL Connection.commit() and .close() went OK.
                 return;
-
             });
         }
 
