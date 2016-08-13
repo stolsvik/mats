@@ -5,16 +5,15 @@ import javax.inject.Inject;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.springframework.test.context.ContextConfiguration;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.test.context.junit4.SpringRunner;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
-import com.stolsvik.mats.spring.MatsTestConfiguration;
+import com.stolsvik.mats.spring.MatsTestContext;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
@@ -26,7 +25,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * @author Endre Stølsvik - 2016-06-23 - http://endre.stolsvik.com
  */
 @RunWith(SpringRunner.class)
-@ContextConfiguration
+@MatsTestContext
 public class MatsSpringDefined_SingleStagesTest {
     public static final String ENDPOINT_ID = "mats.spring.MatsSpringDefined_SingleStagesTest";
     public static final String TERMINATOR = ".TERMINATOR";
@@ -39,8 +38,8 @@ public class MatsSpringDefined_SingleStagesTest {
     public static final String SINGLE_CONTEXT_DTO_STO = ".Single_Context_Dto_Sto";
     public static final String SINGLE_CONTEXT_STO_DTO = ".Single_Context_Sto_Dto";
 
-    @MatsTestConfiguration
-    static class SingleStages {
+    @Configuration
+    static class SingleStagesConfiguration {
 
         // == Permutations WITHOUT ProcessContext
 
@@ -195,16 +194,16 @@ public class MatsSpringDefined_SingleStagesTest {
     private void doTest(String epId, SpringTestDataTO dto, SpringTestStateTO requestSto) {
         SpringTestStateTO sto = new SpringTestStateTO(256, "State");
         _matsInitiator.initiate(
-                msg -> {
-                    MatsInitiate initate = msg.traceId("test_trace_id" + epId)
+                init -> {
+                    init.traceId("test_trace_id" + epId)
                             .from("FromId" + epId)
                             .to(ENDPOINT_ID + epId)
                             .replyTo(ENDPOINT_ID + TERMINATOR);
                     if (requestSto != null) {
-                        initate.request(dto, sto, requestSto);
+                        init.request(dto, sto, requestSto);
                     }
                     else {
-                        initate.request(dto, sto);
+                        init.request(dto, sto);
                     }
                 });
 

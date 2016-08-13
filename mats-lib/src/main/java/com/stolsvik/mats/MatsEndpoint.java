@@ -108,6 +108,20 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
      */
     interface ProcessContext<R> {
         /**
+         * @return the endpointId that is processed, i.e. the id of <i>this</i> endpoint. Should probably never be
+         *         necessary, but accessible for introspection.
+         */
+        String getEndpointId();
+
+        /**
+         * @return the stageId that is processed, i.e. the id of <i>this</i> stage. It will be equal to
+         *         {@link #getEndpointId()} for the first stage in multi-stage-endpoint, and for the sole stage of a
+         *         single-stage and terminator endpoint. Should probably never be necessary, but accessible for
+         *         introspection.
+         */
+        String getStageId();
+
+        /**
          * @param key
          *            the key for which to retrieve a binary payload from the incoming message.
          * @return the requested byte array.

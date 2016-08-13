@@ -48,6 +48,16 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
     private final LinkedHashMap<String, String> _strings = new LinkedHashMap<>();
 
     @Override
+    public String getStageId() {
+        return _matsStage.getStageId();
+    }
+
+    @Override
+    public String getEndpointId() {
+        return _matsStage.getParentEndpoint().getEndpointId();
+    }
+
+    @Override
     public byte[] getBytes(String key) {
         try {
             return _mapMessage.getBytes(key);

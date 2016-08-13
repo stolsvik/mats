@@ -52,8 +52,6 @@ public @interface MatsMapping {
     @Retention(RetentionPolicy.RUNTIME)
     @Documented
     public static @interface MatsMappings {
-
         MatsMapping[]value();
-
     }
 }

@@ -114,11 +114,11 @@ public interface MatsFactory extends StartStoppable {
      * "fire-and-forget" style {@link MatsInitiate#send(Object) invocation} to. The sole stage is supplied directly.
      * This type of endpoint cannot reply, as it has no-one to reply to (hence "terminator").
      * <p>
-     * Do note that this is just a convenience for a often-used scenario where a request goes out to some service
+     * Do note that this is just a convenience for a often-used scenario where an initiation goes out to some service
      * (possibly recursing down into further services), and then the reply needs to be handled, and then the process is
-     * finished. There is nothing hindering you in setting the reply-to endpointId for a request initiation to point to
-     * a multi-stage endpoint, and hence have the ability to do further request-replies on the reply from the initial
-     * request.
+     * finished - this process-terminating endpoint is what is called a "Terminator". There is nothing hindering you in
+     * setting the reply-to endpointId for a request initiation to point to a multi-stage endpoint, and hence have the
+     * ability to do further request-replies on the reply from the initial request.
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the

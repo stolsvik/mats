@@ -43,6 +43,10 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
         return _parentFactory;
     }
 
+    String getEndpointId() {
+        return _endpointId;
+    }
+
     Class<S> getStateClass() {
         return _stateClass;
     }
