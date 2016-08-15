@@ -20,6 +20,11 @@ import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
+/**
+ * Tests that the {@link MatsMapping @MatsMapping} works for setting up Terminators.
+ *
+ * @author Endre Stølsvik - 2016-08-07 - http://endre.stolsvik.com
+ */
 @RunWith(SpringRunner.class)
 @ContextConfiguration(initializers = MatsTestInfrastructureContextInitializer.class)
 @DirtiesContext

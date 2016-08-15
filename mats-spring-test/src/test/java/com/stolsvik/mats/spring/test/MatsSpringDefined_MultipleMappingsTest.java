@@ -23,7 +23,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 /**
  * Tests that {@link MatsMapping @MatsMapping} works when being present multiple times.
  *
- * @author Endre Stølsvik - 2016 - http://endre.stolsvik.com
+ * @author Endre Stølsvik - 2016-08-07 - http://endre.stolsvik.com
  */
 @RunWith(SpringRunner.class)
 @ContextConfiguration(classes = { MatsTestInfrastructureConfiguration.class, MultipleMappingsConfiguration.class })

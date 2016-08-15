@@ -103,6 +103,7 @@ public class MatsSpringDefined_StagedEndpoint {
                 // Resolve directly
                 _latch.resolve(new SpringTestDataTO(dto.number * 17, dto.string + ":FromSingleVoidVoid"), sto);
             });
+            // Must invoke .start(), since we're not invoking lastStage.
             ep.start();
         }
 
