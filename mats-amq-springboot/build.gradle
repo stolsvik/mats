@@ -1,0 +1,23 @@
+apply plugin: 'spring-boot'
+
+jar {
+    baseName = 'mats-amq'
+    version = '0.0.1-SNAPSHOT'
+}
+
+configurations {
+    compile.exclude module: "spring-boot-starter-tomcat"
+}
+
+dependencies {
+    compile('org.springframework.boot:spring-boot-starter-actuator')
+    compile('org.springframework.boot:spring-boot-starter-remote-shell')
+    compile('com.vaadin:vaadin-spring-boot-starter:1.0.0')
+    compile('org.springframework.boot:spring-boot-starter-web')
+    compile("org.springframework.boot:spring-boot-starter-jetty")
+    testCompile('org.springframework.boot:spring-boot-starter-test')
+}
+
+dependencyManagement {
+    imports { mavenBom "com.vaadin:vaadin-bom:7.6.3" }
+}

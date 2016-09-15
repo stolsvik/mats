@@ -1,14 +1,22 @@
+// From Spring Boot
+buildscript {
+    ext { springBootVersion = '1.4.0.RELEASE' }
+    repositories { mavenCentral() }
+    dependencies { classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}") }
+}
+
 // The Gradle Wrapper generation task.
-task wrapper(type: Wrapper) { gradleVersion = "2.10" }
+task wrapper(type: Wrapper) { gradleVersion = "3.0" }
 
 // Used both in mats-test and mats-amq
-ext.activeMqVersion = '5.13.+'
+ext.activeMqVersion = '5.14.+'
+
 
 subprojects {
     apply plugin: 'java'
     apply plugin: 'maven'
     apply plugin: 'eclipse'
-
+    
     repositories { mavenCentral() }
 
     group = 'com.stolsvik.mats'
@@ -20,7 +28,7 @@ subprojects {
     dependencies {
         compile 'org.slf4j:slf4j-api:1.7.+'
 
-        testCompile 'junit:junit:4.11'
+        testCompile 'junit:junit:4.12'
     }
 
     project.buildDir = 'build-gradle'
@@ -63,22 +71,12 @@ subprojects {
     // Always start from scratch.
     tasks.eclipse.dependsOn(cleanEclipse)
     eclipse {
-        project { natures 'org.springsource.ide.eclipse.gradle.core.nature'; }
-
+        // project { natures 'org.springsource.ide.eclipse.gradle.core.nature'; }
         classpath {
             defaultOutputDir = file('build-eclipse')
-
-            // Be specific about the java version
-            containers 'org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8'
-
             file {
-                // Remove the default added classpath entry "Eclipse-default JRE"
                 whenMerged { classpath ->
-                    // Remove the one we don't want - the default one (since we add a specific, cannot have both).
-                    classpath.entries.removeAll { entry ->
-                        entry.kind == "con" && entry.path == "org.eclipse.jdt.launching.JRE_CONTAINER"
-                    }
-                    // Just dump the entries so that we can see them
+                    // Dump the classpath entries so that we can see them
                     classpath.entries.findAll { entry ->
                         println("Entry:"+ entry);
                     }

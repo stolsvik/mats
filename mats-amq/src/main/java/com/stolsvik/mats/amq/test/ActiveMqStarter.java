@@ -3,6 +3,8 @@ package com.stolsvik.mats.amq.test;
 import java.io.IOException;
 import java.util.Scanner;
 
+import org.apache.activemq.ActiveMQConnectionMetaData;
+import org.apache.activemq.broker.Broker;
 import org.apache.activemq.broker.BrokerPlugin;
 import org.apache.activemq.broker.BrokerService;
 import org.apache.activemq.broker.region.policy.IndividualDeadLetterStrategy;
@@ -18,11 +20,10 @@ public class ActiveMqStarter {
     private static final Logger log = LoggerFactory.getLogger(ActiveMqStarter.class);
 
     public static void main(String[] args) throws InterruptedException, IOException {
-        ActiveMqStarter activeMQStarter;
+        BrokerService brokerService;
         try (Scanner in = new Scanner(System.in)) {
             STARTLOOP: while (true) {
-                activeMQStarter = new ActiveMqStarter();
-                activeMQStarter.startActiveMq("tcp://localhost:61616");
+                brokerService = ActiveMqStarter.startActiveMq("tcp://localhost:61616");
 
                 while (true) {
                     System.out.print("\n. Type 'stop' to shut down the ActiveMQ instance,"
@@ -32,32 +33,33 @@ public class ActiveMqStarter {
                         break STARTLOOP;
                     }
                     if ("restart".equalsIgnoreCase(nextLine)) {
-                        activeMQStarter.stopActiveMq();
+                        ActiveMqStarter.stopActiveMq(brokerService);
                         System.out.println("\n.. stopped, now starting again ..\n");
                         continue STARTLOOP;
                     }
                 }
             }
         }
-        activeMQStarter.stopActiveMq();
+        ActiveMqStarter.stopActiveMq(brokerService);
     }
 
-    private BrokerService _amqBroker;
-
-    private void startActiveMq(String connectorUrl) {
+    /**
+     * @param connectorUrl
+     */
+    private static BrokerService startActiveMq(String connectorUrl) {
         // ::: Server (BrokerService)
         // ====================================
         log.info("## Setting up ActiveMQ BrokerService (server).");
-        _amqBroker = new BrokerService();
+        BrokerService brokerService = new BrokerService();
 
         // :: Set properties suitable for testing.
-        _amqBroker.setBrokerName("MatsActiveMQ");
-        _amqBroker.setUseJmx(false); // No need for JMX registry
-        _amqBroker.setPersistent(false); // No need for persistence (prevents KahaDB dirs from being created)
-        _amqBroker.setAdvisorySupport(false); // No need Advisory Messages
+        brokerService.setBrokerName("MatsActiveMQ");
+        brokerService.setUseJmx(false); // No need for JMX registry
+        brokerService.setPersistent(false); // No need for persistence (prevents KahaDB dirs from being created)
+        brokerService.setAdvisorySupport(false); // No need Advisory Messages
         // :: Add Connector
         try {
-            _amqBroker.addConnector(connectorUrl);
+            brokerService.addConnector(connectorUrl);
         }
         catch (Exception e) {
             throw new IllegalStateException("Couldn't perform amqBroker.addConnector(\"" + connectorUrl + "\").", e);
@@ -66,12 +68,12 @@ public class ActiveMqStarter {
         // :: Add LoggerBrokerPlugin
         LoggingBrokerPlugin loggingBrokerPlugin = new LoggingBrokerPlugin();
         loggingBrokerPlugin.setLogAll(true);
-        _amqBroker.setPlugins(new BrokerPlugin[] { loggingBrokerPlugin, new MatsLoggingBrokerPlugin() });
+        brokerService.setPlugins(new BrokerPlugin[] { loggingBrokerPlugin, new MatsLoggingBrokerPlugin() });
 
         // :: Set Individual DLQ
         // Hear, hear: http://activemq.2283324.n4.nabble.com/PolicyMap-api-is-really-bad-td4284307.html
         PolicyMap destinationPolicy = new PolicyMap();
-        _amqBroker.setDestinationPolicy(destinationPolicy);
+        brokerService.setDestinationPolicy(destinationPolicy);
         PolicyEntry policyEntry = new PolicyEntry();
         policyEntry.setQueue(">");
         destinationPolicy.put(policyEntry.getDestination(), policyEntry);
@@ -81,22 +83,33 @@ public class ActiveMqStarter {
         policyEntry.setDeadLetterStrategy(individualDeadLetterStrategy);
 
         try {
-            _amqBroker.start();
+            brokerService.start();
         }
         catch (Exception e) {
             throw new IllegalStateException("Could not start ActiveMQ server.", e);
         }
-        log.info("## ActiveMQ started!");
+
+        Broker broker;
+        try {
+            broker = brokerService.getBroker();
+        }
+        catch (Exception e) {
+            throw new IllegalStateException("Couldn't ask for BrokerService.getBroker().", e);
+        }
+        log.info("## ActiveMQ started!  [AMQ version: " + ActiveMQConnectionMetaData.PROVIDER_VERSION
+                + ", name: " + brokerService.getBrokerName()
+                + " - " + broker.getBrokerId() + "]");
+        return brokerService;
     }
 
-    private void stopActiveMq() {
+    private static void stopActiveMq(BrokerService brokerService) {
         log.info("## Shutting down ActiveMQ.");
         // :: Close the AMQ Broker
         try {
-            _amqBroker.stop();
+            brokerService.stop();
         }
         catch (Exception e) {
-            throw new IllegalStateException("Couldn't stop AMQ Broker!", e);
+            throw new IllegalStateException("Couldn't stop AMQ BrokerService!", e);
         }
         log.info("## ActiveMQ shut down.");
     }

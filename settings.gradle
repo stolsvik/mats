@@ -1,8 +1,8 @@
 include 'mats-lib', 'mats-util', 'mats-test', 'mats-lib-test',
-        'mats-impl-jms', 'mats-amq',
-        'mats-spring', 'mats-spring-test'
+        'mats-impl-jms', 
+        'mats-spring', 'mats-spring-test',
+        'mats-amq', 'mats-amq-springboot'
 
-println "** Java Version:   "+System.getProperty("java.version")
-println "** Groovy Version: "+GroovySystem.getVersion()
-println "** Gradle Version: "+gradle.gradleVersion
+println "** Java: ${System.getProperty('java.version')}, Groovy: $GroovySystem.version," +
+       " Gradle: ${gradle.gradleVersion}   (printed from settings.gradle)"
 
