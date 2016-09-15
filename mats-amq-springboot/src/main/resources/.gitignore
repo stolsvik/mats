@@ -1,0 +1,2 @@
+# We're downloading the Active MQ Web Console file using Gradle
+activemq-web-console.war

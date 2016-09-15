@@ -7,14 +7,33 @@ jar {
 
 configurations {
     compile.exclude module: "spring-boot-starter-tomcat"
+    amqWebConsoleWar
 }
+
+// :: Get hold of the ActiveMQ Web Console WAR file, and place it in src/main/resources before compileJava
+ext.activeMqWebConsoleResource = file("src/main/resources/activemq-web-console.war")
+task downloadAmqWebConsoleWar {
+    inputs.file configurations.amqWebConsoleWar
+    outputs.file activeMqWebConsoleResource
+    doLast {
+        configurations.amqWebConsoleWar.resolve().each { warFile ->
+            println "Got ActiveMQ Web Console WAR: $warFile"
+            println " \\- Copying to destination: ${activeMqWebConsoleResource.getAbsolutePath()}"
+            activeMqWebConsoleResource << warFile.getBytes()
+        }
+    }
+}
+compileJava.dependsOn downloadAmqWebConsoleWar
 
 dependencies {
     compile('org.springframework.boot:spring-boot-starter-actuator')
     compile('org.springframework.boot:spring-boot-starter-remote-shell')
     compile('com.vaadin:vaadin-spring-boot-starter:1.0.0')
     compile('org.springframework.boot:spring-boot-starter-web')
-    compile("org.springframework.boot:spring-boot-starter-jetty")
+    compile('org.springframework.boot:spring-boot-starter-jetty')
+
+    amqWebConsoleWar("org.apache.activemq:activemq-web-console:${activeMqVersion}@war")
+
     testCompile('org.springframework.boot:spring-boot-starter-test')
 }
 
