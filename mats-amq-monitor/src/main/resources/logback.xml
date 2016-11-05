@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/base.xml"/>
+    <logger name="ROOT" level="INFO"/>
+    <logger name="org.springframework.web" level="ALL"/>
+
+    <logger name="org.eclipse.jetty" level="ALL"/>
+    <logger name="org.eclipse.jetty.webapp.WebAppClassLoader" level="INFO"/>
+
+    <!-- Shut up Jasper's TldScanner's XML parsing -->
+    <logger name="org.apache.tomcat.util.digester.Digester" level="INFO"/>
+</configuration>

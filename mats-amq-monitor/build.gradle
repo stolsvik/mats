@@ -1,7 +1,7 @@
 apply plugin: 'spring-boot'
 
 jar {
-    baseName = 'mats-amq'
+    baseName = 'mats-amq-monitor'
     version = '0.0.1-SNAPSHOT'
 }
 
@@ -31,12 +31,15 @@ dependencies {
     compile('com.vaadin:vaadin-spring-boot-starter:1.0.0')
     compile('org.springframework.boot:spring-boot-starter-web')
     compile('org.springframework.boot:spring-boot-starter-jetty')
+    // https://mvnrepository.com/artifact/org.eclipse.jetty/apache-jsp
+    compile group: 'org.eclipse.jetty', name: 'apache-jsp', version: '9.3.11.v20160721'
+
+    // https://mvnrepository.com/artifact/javax.servlet/jstl
+    compile group: 'javax.servlet', name: 'jstl', version: '1.2'
 
     amqWebConsoleWar("org.apache.activemq:activemq-web-console:${activeMqVersion}@war")
 
     testCompile('org.springframework.boot:spring-boot-starter-test')
 }
 
-dependencyManagement {
-    imports { mavenBom "com.vaadin:vaadin-bom:7.6.3" }
-}
+dependencyManagement { imports { mavenBom "com.vaadin:vaadin-bom:7.6.3" } }
