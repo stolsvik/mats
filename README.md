@@ -1,5 +1,7 @@
 # MATS<sup>3</sup> - Message-based Asynchronous Transactional Staged Stateful Services
 
+[![Build Status](https://travis-ci.org/stolsvik/mats.svg?branch=master)](https://travis-ci.org/stolsvik/mats)
+
 A library that facilitates the development of asynchronous, stateless, multi-stage, message-based services. A MATS service may do a request to another MATS service, which replies back, after possibly itself doing a request to a third service - with arbitrary nesting levels possible. Services consisting of multiple stages are connected with a *state object* which is passed along in the subsequent message flow, which simulates the "this" reference when compared to traditional synchronous programming. In addition, each stage is independently transactional, making a system made up of these services exceptionally resilient against any type of failure.
 
 The API consist nearly solely of interfaces, not depending on any specific messaging platform's protocol or API. It can have implementations on several messaging platform, but the current sole implementation is employing Java Message Service API - JMS v1.1.
@@ -147,7 +149,7 @@ ASCII-artsy, it looks like this:
     [Master S2 (last)]   {reply}
 [Terminator]
 </pre>
-**Again, it is important to realize that the three stages of the Master service (and the two of the Mid service) are actually fully independent messaging endpoints (with their own JMS queue when run on a JMS backend), and if you've deployed the service to multiple nodes, each stage in a particular invocation flow might run on a different node.** What the MATS API does is to set up each stage of a multi-stage service in a way where the "reply" method invocation of a requested service knows which queue to send its result to.
+**Again, it is important to realize that the three stages of the Master service (and the two of the Mid service) are actually fully independent messaging endpoints (with their own JMS queue when run on a JMS backend)**, and if you've deployed the service to multiple nodes, each stage in a particular invocation flow might run on a different node. What the MATS API does is to set up each stage of a multi-stage service in a way where the "reply" method invocation of a requested service knows which queue to send its result to.
 
 
 ```java
