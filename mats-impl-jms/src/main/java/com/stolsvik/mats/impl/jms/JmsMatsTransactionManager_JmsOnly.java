@@ -39,14 +39,14 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
     }
 
     @Override
-    public TransactionContext getTransactionContext(JmsMatsStage<?, ?, ?> stage) {
+    public TransactionContext getTransactionContext(JmsMatsStage<?, ?, ?, ?> stage) {
         return new TransactionalContext_JmsOnly(createJmsConnection(stage), stage);
     }
 
     /**
      * @return a new JMS {@link Connection}.
      */
-    protected Connection createJmsConnection(JmsMatsStage<?, ?, ?> stage) {
+    protected Connection createJmsConnection(JmsMatsStage<?, ?, ?, ?> stage) {
         try {
             Connection jmsConnection = _jmsConnectionSupplier.createJmsConnection(stage);
             // Starting it right away, as that could potentially also give "connection establishment" JMSExceptions
@@ -66,9 +66,9 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
     public static class TransactionalContext_JmsOnly implements TransactionContext, JmsMatsStatics {
 
         private final Connection _jmsConnection;
-        private final JmsMatsStage<?, ?, ?> _stage;
+        private final JmsMatsStage<?, ?, ?, ?> _stage;
 
-        public TransactionalContext_JmsOnly(Connection jmsConnection, JmsMatsStage<?, ?, ?> stage) {
+        public TransactionalContext_JmsOnly(Connection jmsConnection, JmsMatsStage<?, ?, ?, ?> stage) {
             _jmsConnection = jmsConnection;
             _stage = stage;
         }

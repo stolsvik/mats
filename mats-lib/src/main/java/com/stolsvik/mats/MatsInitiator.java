@@ -46,7 +46,7 @@ public interface MatsInitiator extends Closeable {
      *
      * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
      */
-    public interface MatsInitiate {
+    interface MatsInitiate {
         /**
          * Sets (or appends with a "|" in case of {@link ProcessContext#initiate(InitiateLambda) initiation within a
          * stage}) the "Trace Id", which is solely used for logging and debugging purposes.

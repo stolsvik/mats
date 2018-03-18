@@ -15,11 +15,11 @@ import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
-import com.stolsvik.mats.util.MatsStringSerializer;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
 
 /**
  * Provides a H2 Database DataSource, and a
- * {@link JmsMatsFactory#createMatsFactory_JmsAndJdbcTransactions(com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsConnectionSupplier, com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier, MatsStringSerializer)
+ * {@link JmsMatsFactory#createMatsFactory_JmsAndJdbcTransactions(com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsConnectionSupplier, com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier, MatsSerializer)
  * JmsAndJdbc MATS Transaction Manager}, in addition to features from {@link Rule_Mats}. This enables testing of
  * combined JMS and JDBC scenarios - in particularly used for testing of the MATS library itself (check that commits and
  * rollbacks work as expected).
@@ -62,11 +62,11 @@ public class Rule_MatsWithDb extends Rule_Mats {
     }
 
     @Override
-    protected MatsFactory createMatsFactory(MatsStringSerializer stringSerializer,
+    protected MatsFactory createMatsFactory(MatsSerializer<String> stringSerializer,
             ConnectionFactory jmsConnectionFactory) {
         // Create the JMS and JDBC TransactionManager-backed JMS MatsFactory.
         return JmsMatsFactory.createMatsFactory_JmsAndJdbcTransactions((s) -> jmsConnectionFactory.createConnection(),
-                (s) -> _dataSource.getConnection(), _matsStringSerializer);
+                (s) -> _dataSource.getConnection(), _matsSerializer);
     }
 
     /**

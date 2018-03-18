@@ -15,37 +15,37 @@ import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage.StageConfig;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsConnectionSupplier;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
-import com.stolsvik.mats.util.MatsStringSerializer;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
 
-public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
+public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsFactory.class);
 
-    public static JmsMatsFactory createMatsFactory_JmsOnlyTransactions(JmsConnectionSupplier jmsConnectionSupplier,
-            MatsStringSerializer matsStringSerializer) {
+    public static <Z> JmsMatsFactory<Z> createMatsFactory_JmsOnlyTransactions(JmsConnectionSupplier jmsConnectionSupplier,
+            MatsSerializer<Z> matsSerializer) {
         return createMatsFactory(JmsMatsTransactionManager_JmsOnly.create(jmsConnectionSupplier),
-                matsStringSerializer);
+                matsSerializer);
     }
 
-    public static JmsMatsFactory createMatsFactory_JmsAndJdbcTransactions(JmsConnectionSupplier jmsConnectionSupplier,
-            JdbcConnectionSupplier jdbcConnectionSupplier, MatsStringSerializer matsStringSerializer) {
+    public static <Z> JmsMatsFactory<Z> createMatsFactory_JmsAndJdbcTransactions(JmsConnectionSupplier jmsConnectionSupplier,
+            JdbcConnectionSupplier jdbcConnectionSupplier, MatsSerializer<Z> matsSerializer) {
         return createMatsFactory(JmsMatsTransactionManager_JmsAndJdbc.create(jmsConnectionSupplier,
-                jdbcConnectionSupplier), matsStringSerializer);
+                jdbcConnectionSupplier), matsSerializer);
     }
 
-    public static JmsMatsFactory createMatsFactory(JmsMatsTransactionManager jmsMatsTransactionManager,
-            MatsStringSerializer matsStringSerializer) {
-        return new JmsMatsFactory(jmsMatsTransactionManager, matsStringSerializer);
+    public static <Z> JmsMatsFactory<Z> createMatsFactory(JmsMatsTransactionManager jmsMatsTransactionManager,
+            MatsSerializer<Z> matsSerializer) {
+        return new JmsMatsFactory<>(jmsMatsTransactionManager, matsSerializer);
     }
 
     private final JmsMatsTransactionManager _jmsMatsTransactionManager;
-    private final MatsStringSerializer _matsStringSerializer;
+    private final MatsSerializer<Z> _matsSerializer;
     private final JmsMatsFactoryConfig _factoryConfig = new JmsMatsFactoryConfig();
 
     private JmsMatsFactory(JmsMatsTransactionManager jmsMatsTransactionManager,
-            MatsStringSerializer matsStringSerializer) {
+            MatsSerializer<Z> matsSerializer) {
         _jmsMatsTransactionManager = jmsMatsTransactionManager;
-        _matsStringSerializer = matsStringSerializer;
+        _matsSerializer = matsSerializer;
         log.info(LOG_PREFIX + "Created [" + id(this) + "].");
     }
 
@@ -53,8 +53,8 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
         return _jmsMatsTransactionManager;
     }
 
-    MatsStringSerializer getMatsStringSerializer() {
-        return _matsStringSerializer;
+    MatsSerializer<Z> getMatsSerializer() {
+        return _matsSerializer;
     }
 
     private CopyOnWriteArrayList<MatsEndpoint<?, ?>> _createdEndpoints = new CopyOnWriteArrayList<>();
@@ -66,14 +66,14 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public <S, R> JmsMatsEndpoint<S, R> staged(String endpointId, Class<S> stateClass, Class<R> replyClass) {
+    public <S, R> JmsMatsEndpoint<S, R, Z> staged(String endpointId, Class<S> stateClass, Class<R> replyClass) {
         return staged(endpointId, stateClass, replyClass, NO_CONFIG);
     }
 
     @Override
-    public <S, R> JmsMatsEndpoint<S, R> staged(String endpointId, Class<S> stateClass, Class<R> replyClass,
+    public <S, R> JmsMatsEndpoint<S, R, Z> staged(String endpointId, Class<S> stateClass, Class<R> replyClass,
             Consumer<? super EndpointConfig<S, R>> endpointConfigLambda) {
-        JmsMatsEndpoint<S, R> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, stateClass, replyClass);
+        JmsMatsEndpoint<S, R, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, stateClass, replyClass);
         _createdEndpoints.add(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
         return endpoint;
@@ -88,14 +88,14 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public <I, R> JmsMatsEndpoint<Void, R> single(String endpointId,
+    public <I, R> JmsMatsEndpoint<Void, R, Z> single(String endpointId,
             Class<I> incomingClass,
             Class<R> replyClass,
             Consumer<? super EndpointConfig<Void, R>> endpointConfigLambda,
             Consumer<? super StageConfig<I, Void, R>> stageConfigLambda,
             ProcessSingleLambda<I, R> processor) {
         // Get a normal Staged Endpoint
-        JmsMatsEndpoint<Void, R> endpoint = staged(endpointId, Void.class, replyClass, endpointConfigLambda);
+        JmsMatsEndpoint<Void, R, Z> endpoint = staged(endpointId, Void.class, replyClass, endpointConfigLambda);
         // :: Wrap the ProcessSingleLambda in a single lastStage-ProcessReturnLambda
         endpoint.lastStage(incomingClass, stageConfigLambda,
                 (processContext, incomingDto, state) -> {
@@ -106,7 +106,7 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public <I, S> JmsMatsEndpoint<S, Void> terminator(String endpointId,
+    public <I, S> JmsMatsEndpoint<S, Void, Z> terminator(String endpointId,
             Class<I> incomingClass,
             Class<S> stateClass,
             ProcessTerminatorLambda<I, S> processor) {
@@ -114,7 +114,7 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public <I, S> JmsMatsEndpoint<S, Void> terminator(String endpointId,
+    public <I, S> JmsMatsEndpoint<S, Void, Z> terminator(String endpointId,
             Class<I> incomingClass,
             Class<S> stateClass,
             Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
@@ -125,14 +125,14 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public <I, S> JmsMatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass,
+    public <I, S> JmsMatsEndpoint<S, Void, Z> subscriptionTerminator(String endpointId, Class<I> incomingClass,
             Class<S> stateClass,
             ProcessTerminatorLambda<I, S> processor) {
         return terminator(false, endpointId, incomingClass, stateClass, NO_CONFIG, NO_CONFIG, processor);
     }
 
     @Override
-    public <I, S> JmsMatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass,
+    public <I, S> JmsMatsEndpoint<S, Void, Z> subscriptionTerminator(String endpointId, Class<I> incomingClass,
             Class<S> stateClass,
             Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
             Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
@@ -144,14 +144,14 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
     /**
      * INTERNAL method, since terminator(...) and subscriptionTerminator(...) are near identical.
      */
-    private <S, I> JmsMatsEndpoint<S, Void> terminator(boolean queue, String endpointId,
+    private <S, I> JmsMatsEndpoint<S, Void, Z> terminator(boolean queue, String endpointId,
             Class<I> incomingClass,
             Class<S> stateClass,
             Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
             Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
             ProcessTerminatorLambda<I, S> processor) {
         // Need to create the JmsMatsEndpoint ourselves, since we need to set the queue-parameter.
-        JmsMatsEndpoint<S, Void> endpoint = new JmsMatsEndpoint<>(this, endpointId, queue, stateClass,
+        JmsMatsEndpoint<S, Void, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, queue, stateClass,
                 Void.class);
         _createdEndpoints.add(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
@@ -168,7 +168,7 @@ public class JmsMatsFactory implements MatsFactory, JmsMatsStatics {
 
     @Override
     public MatsInitiator getInitiator(String initiatorId) {
-        JmsMatsInitiator initiator = new JmsMatsInitiator(this,
+        JmsMatsInitiator<Z> initiator = new JmsMatsInitiator<>(this,
                 _jmsMatsTransactionManager.getTransactionContext(null));
         _createdInitiators.add(initiator);
         return initiator;

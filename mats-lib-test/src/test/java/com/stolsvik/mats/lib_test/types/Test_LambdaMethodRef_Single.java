@@ -44,7 +44,7 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
     public void setupTerminator() {
         matsRule.getMatsFactory().terminator(TERMINATOR, SubDataTO.class, StateTO.class,
                 (context, dto, sto) -> {
-                    log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
+                    log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(dto, sto);
                 });
 

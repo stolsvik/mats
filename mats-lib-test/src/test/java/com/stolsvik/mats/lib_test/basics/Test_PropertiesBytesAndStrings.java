@@ -59,7 +59,7 @@ public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
     public void setupTerminator() {
         matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
                 (context, dto, sto) -> {
-                    log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
+                    log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     _bytes = context.getBytes("bytes");
                     _string = context.getString("string");
                     matsTestLatch.resolve(dto, sto);

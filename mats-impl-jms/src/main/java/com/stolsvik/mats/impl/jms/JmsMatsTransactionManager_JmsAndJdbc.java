@@ -73,7 +73,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
      */
     @FunctionalInterface
     public interface JdbcConnectionSupplier {
-        Connection createJdbcConnection(JmsMatsStage<?, ?, ?> stage) throws SQLException;
+        Connection createJdbcConnection(JmsMatsStage<?, ?, ?, ?> stage) throws SQLException;
     }
 
     private final JdbcConnectionSupplier _jdbcConnectionSupplier;
@@ -90,7 +90,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
     }
 
     @Override
-    public TransactionContext getTransactionContext(JmsMatsStage<?, ?, ?> stage) {
+    public TransactionContext getTransactionContext(JmsMatsStage<?, ?, ?, ?> stage) {
         return new TransactionalContext_JmsAndJdbc(createJmsConnection(stage), _jdbcConnectionSupplier, stage);
     }
 
@@ -100,10 +100,10 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
      */
     public static class TransactionalContext_JmsAndJdbc extends TransactionalContext_JmsOnly {
         private final JdbcConnectionSupplier _jdbcConnectionSupplier;
-        private final JmsMatsStage<?, ?, ?> _stage;
+        private final JmsMatsStage<?, ?, ?, ?> _stage;
 
         public TransactionalContext_JmsAndJdbc(javax.jms.Connection jmsConnection,
-                JdbcConnectionSupplier jdbcConnectionSupplier, JmsMatsStage<?, ?, ?> stage) {
+                JdbcConnectionSupplier jdbcConnectionSupplier, JmsMatsStage<?, ?, ?, ?> stage) {
             super(jmsConnection, stage);
             _jdbcConnectionSupplier = jdbcConnectionSupplier;
             _stage = stage;

@@ -13,10 +13,10 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.MatsTrace;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
-import com.stolsvik.mats.util.MatsStringSerializer;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
 
 /**
  * The JMS MATS implementation of {@link ProcessContext}. Instantiated for each incoming JMS message that is processed,
@@ -24,18 +24,18 @@ import com.stolsvik.mats.util.MatsStringSerializer;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsStatics {
+public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMatsStatics {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsProcessContext.class);
 
-    private final JmsMatsStage<?, ?, R> _matsStage;
+    private final JmsMatsStage<?, ?, R, Z> _matsStage;
     private final Session _jmsSession;
     private final MapMessage _mapMessage;
-    private final MatsTrace _matsTrace;
+    private final MatsTrace<Z> _matsTrace;
     private final S _sto;
 
-    public JmsMatsProcessContext(JmsMatsStage<?, ?, R> matsStage, Session jmsSession, MapMessage mapMessage,
-            MatsTrace matsTrace, S sto) {
+    JmsMatsProcessContext(JmsMatsStage<?, ?, R, Z> matsStage, Session jmsSession, MapMessage mapMessage,
+            MatsTrace<Z> matsTrace, S sto) {
         _matsStage = matsStage;
         _jmsSession = jmsSession;
         _mapMessage = mapMessage;
@@ -50,6 +50,21 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
     @Override
     public String getStageId() {
         return _matsStage.getStageId();
+    }
+
+    @Override
+    public String getFromStageId() {
+        return _matsTrace.getCurrentCall().getFrom();
+    }
+
+    @Override
+    public String toString() {
+        return _matsTrace.toString();
+    }
+
+    @Override
+    public String getTraceId() {
+        return _matsTrace.getTraceId();
     }
 
     @Override
@@ -88,24 +103,19 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
     }
 
     @Override
-    public MatsTrace getTrace() {
-        return _matsTrace;
-    }
-
-    @Override
     public void setTraceProperty(String propertyName, Object propertyValue) {
         _props.put(propertyName, propertyValue);
     }
 
     @Override
     public <T> T getTraceProperty(String propertyName, Class<T> clazz) {
-        MatsStringSerializer matsStringSerializer = _matsStage
-                .getParentEndpoint().getParentFactory().getMatsStringSerializer();
-        String value = _matsTrace.getTraceProperty(propertyName);
+        MatsSerializer<Z> matsSerializer = _matsStage
+                .getParentEndpoint().getParentFactory().getMatsSerializer();
+        Z value = _matsTrace.getTraceProperty(propertyName);
         if (value == null) {
             throw new IllegalArgumentException("No value for property named [" + propertyName + "].");
         }
-        return matsStringSerializer.deserializeObject(value, clazz);
+        return matsSerializer.deserializeObject(value, clazz);
     }
 
     @Override
@@ -115,10 +125,10 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
         stack.add(0, _matsStage.getNextStageId());
 
         // :: Create next MatsTrace
-        MatsStringSerializer matsStringSerializer = _matsStage
-                .getParentEndpoint().getParentFactory().getMatsStringSerializer();
-        MatsTrace requestMatsTrace = _matsTrace.addRequestCall(_matsStage.getStageId(), endpointId, matsStringSerializer
-                .serializeObject(requestDto), stack, matsStringSerializer.serializeObject(_sto), null);
+        MatsSerializer<Z> matsSerializer = _matsStage
+                .getParentEndpoint().getParentFactory().getMatsSerializer();
+        MatsTrace<Z> requestMatsTrace = _matsTrace.addRequestCall(_matsStage.getStageId(), endpointId, matsSerializer
+                .serializeObject(requestDto), stack, matsSerializer.serializeObject(_sto), null);
 
         // Pack it off
         sendMatsMessage(log, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, requestMatsTrace,
@@ -138,10 +148,10 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
         String replyToEndpointId = stack.remove(0);
 
         // :: Create next MatsTrace
-        MatsStringSerializer matsStringSerializer = _matsStage
-                .getParentEndpoint().getParentFactory().getMatsStringSerializer();
-        MatsTrace replyMatsTrace = _matsTrace.addReplyCall(_matsStage.getStageId(), replyToEndpointId,
-                matsStringSerializer.serializeObject(replyDto), stack);
+        MatsSerializer<Z> matsSerializer = _matsStage
+                .getParentEndpoint().getParentFactory().getMatsSerializer();
+        MatsTrace<Z> replyMatsTrace = _matsTrace.addReplyCall(_matsStage.getStageId(), replyToEndpointId,
+                matsSerializer.serializeObject(replyDto), stack);
 
         // Pack it off
         sendMatsMessage(log, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, replyMatsTrace,
@@ -160,10 +170,10 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
         List<String> stack = _matsTrace.getCurrentCall().getStack();
 
         // :: Create next (heh!) MatsTrace
-        MatsStringSerializer matsStringSerializer = _matsStage
-                .getParentEndpoint().getParentFactory().getMatsStringSerializer();
-        MatsTrace nextMatsTrace = _matsTrace.addNextCall(_matsStage.getStageId(), _matsStage.getNextStageId(),
-                matsStringSerializer.serializeObject(incomingDto), stack, matsStringSerializer.serializeObject(_sto));
+        MatsSerializer<Z> matsSerializer = _matsStage
+                .getParentEndpoint().getParentFactory().getMatsSerializer();
+        MatsTrace<Z> nextMatsTrace = _matsTrace.addNextCall(_matsStage.getStageId(), _matsStage.getNextStageId(),
+                matsSerializer.serializeObject(incomingDto), stack, matsSerializer.serializeObject(_sto));
 
         // Pack it off
         sendMatsMessage(log, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, nextMatsTrace,
@@ -172,7 +182,7 @@ public class JmsMatsProcessContext<S, R> implements ProcessContext<R>, JmsMatsSt
 
     @Override
     public void initiate(InitiateLambda lambda) {
-        lambda.initiate(new JmsMatsInitiate(_matsStage.getParentEndpoint().getParentFactory(), _jmsSession,
+        lambda.initiate(new JmsMatsInitiate<>(_matsStage.getParentEndpoint().getParentFactory(), _jmsSession,
                 _matsTrace.getTraceId(), _matsStage.getStageId()));
     }
 }

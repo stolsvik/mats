@@ -7,6 +7,10 @@ build-eclipse/
 # Gradle
 .gradle
 build-gradle/
+out/
+
+# ActiveMQ KahaDB
+kahadb/
 
 # Idea
 .idea

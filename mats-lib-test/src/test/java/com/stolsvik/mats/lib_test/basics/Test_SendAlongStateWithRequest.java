@@ -34,7 +34,7 @@ public class Test_SendAlongStateWithRequest extends MatsBasicTest {
     public void setupService() {
         MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE, StateTO.class, DataTO.class);
         ep.stage(DataTO.class, (context, dto, sto) -> {
-            log.debug("STAGE 0 MatsTrace:\n" + context.getTrace());
+            log.debug("STAGE 0 MatsTrace:\n" + context.toString());
             matsTestLatch.resolve(dto, sto);
         });
 

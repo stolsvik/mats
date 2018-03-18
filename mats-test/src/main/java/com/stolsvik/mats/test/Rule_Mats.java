@@ -23,11 +23,11 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.MatsTrace;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
-import com.stolsvik.mats.util.MatsDefaultJsonSerializer;
-import com.stolsvik.mats.util.MatsStringSerializer;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.json.MatsSerializer_DefaultJson;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
 
 /**
  * JUnit {@link Rule} of type {@link ExternalResource} that make a convenient MATS harness, providing a
@@ -61,7 +61,7 @@ public class Rule_Mats extends ExternalResource {
 
     private ActiveMQConnectionFactory _amqClient;
 
-    MatsDefaultJsonSerializer _matsStringSerializer;
+    MatsSerializer<String> _matsSerializer;
 
     private MatsFactory _matsFactory;
 
@@ -137,18 +137,18 @@ public class Rule_Mats extends ExternalResource {
         // ====================================
 
         log.info("Setting up JmsMatsFactory.");
-        _matsStringSerializer = new MatsDefaultJsonSerializer();
+        _matsSerializer = new MatsSerializer_DefaultJson();
         // Allow for override in specialization classes, in particular the one with DB.
-        _matsFactory = createMatsFactory(_matsStringSerializer, _amqClient);
+        _matsFactory = createMatsFactory(_matsSerializer, _amqClient);
         // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
         _matsFactory.getFactoryConfig().setConcurrency(1);
         log.info("--- BEFORE done! JUnit Rule '" + id(Rule_Mats.class) + "', JMS and MATS.");
     }
 
-    protected MatsFactory createMatsFactory(MatsStringSerializer stringSerializer,
+    protected MatsFactory createMatsFactory(MatsSerializer<String> stringSerializer,
             ConnectionFactory connectionFactory) {
         return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions((s) -> connectionFactory.createConnection(),
-                _matsStringSerializer);
+                _matsSerializer);
     }
 
     @Override
@@ -188,7 +188,7 @@ public class Rule_Mats extends ExternalResource {
      *            the endpoint which is expected to generate a DLQ message.
      * @return the {@link MatsTrace} of the DLQ'ed message.
      */
-    public MatsTrace getDlqMessage(String endpointId) {
+    public MatsTrace<String> getDlqMessage(String endpointId) {
         FactoryConfig factoryConfig = getMatsFactory().getFactoryConfig();
         String dlqQueueName = "DLQ." + factoryConfig.getMatsDestinationPrefix() + endpointId;
         try {
@@ -209,11 +209,11 @@ public class Rule_Mats extends ExternalResource {
                 }
 
                 MapMessage matsMM = (MapMessage) msg;
-                String matsTraceString = matsMM.getString(factoryConfig.getMatsTraceKey());
-                log.info("!! Got a DLQ Message! MatsTraceString:\n" + matsTraceString);
+                byte[] matsTraceSerialized = matsMM.getBytes(factoryConfig.getMatsTraceKey());
+                log.info("!! Got a DLQ Message! Length of byte serialized MatsTrace: "+matsTraceSerialized.length);
                 jmsSession.commit();
                 jmsConnection.close(); // Closes session and consumer
-                return _matsStringSerializer.deserializeMatsTrace(matsTraceString);
+                return _matsSerializer.deserializeMatsTrace(matsTraceSerialized);
             }
             finally {
                 jmsConnection.close();

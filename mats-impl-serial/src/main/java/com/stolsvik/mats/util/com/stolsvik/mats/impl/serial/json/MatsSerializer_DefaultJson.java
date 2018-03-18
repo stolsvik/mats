@@ -1,16 +1,20 @@
-package com.stolsvik.mats.util;
+package com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.json;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.stolsvik.mats.MatsTrace;
+import com.fasterxml.jackson.databind.ObjectReader;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
 
 /**
- * Implementation of {@link MatsStringSerializer} that employs <a href="https://github.com/FasterXML/jackson">Jackson
+ * Implementation of {@link MatsSerializer} that employs <a href="https://github.com/FasterXML/jackson">Jackson
  * JSON library</a> for serialization and deserialization.
  * <p>
  * Notice that there is a special case for Strings for {@link #serializeObject(Object)} and
@@ -32,35 +36,47 @@ import com.stolsvik.mats.MatsTrace;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class MatsDefaultJsonSerializer implements MatsStringSerializer {
+public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
 
-    private static final ObjectMapper __objectMapper;
+    private final ObjectMapper _objectMapper;
+    private final ObjectReader _matsTraceJson_Reader;
+    private final ObjectWriter _matsTraceJson_Writer;
 
-    static {
+    public MatsSerializer_DefaultJson() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
         mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        __objectMapper = mapper;
+        _matsTraceJson_Reader = mapper.readerFor(MatsTrace_DefaultJson.class);
+        _matsTraceJson_Writer = mapper.writerFor(MatsTrace_DefaultJson.class);
+        _objectMapper = mapper;
     }
 
     @Override
-    public String serializeMatsTrace(MatsTrace matsTrace) {
+    public MatsTrace<String> createNewMatsTrace(String traceId) {
+        return MatsTrace_DefaultJson.createNew(traceId);
+    }
+
+    @Override
+    public byte[] serializeMatsTrace(MatsTrace<String> matsTrace) {
         try {
-            return __objectMapper.writeValueAsString(matsTrace);
+            return _matsTraceJson_Writer.writeValueAsBytes(matsTrace);
         }
         catch (JsonProcessingException e) {
             throw new AssertionError("Couldn't serialize MatsTrace, which is crazy!\n" + matsTrace, e);
         }
     }
 
+    private static final Charset UTF8 = Charset.forName("UTF-8");
+
     @Override
-    public MatsTrace deserializeMatsTrace(String json) {
+    public MatsTrace<String> deserializeMatsTrace(byte[] jsonUtf8ByteArray) {
         try {
-            return __objectMapper.readValue(json, MatsTrace.class);
+            return _matsTraceJson_Reader.readValue(jsonUtf8ByteArray);
         }
         catch (IOException e) {
-            throw new AssertionError("Couldn't deserialize MatsTrace from given JSON, which is crazy!\n" + json, e);
+            throw new AssertionError("Couldn't deserialize MatsTrace from given JSON, which is crazy!\n"
+                    + new String(jsonUtf8ByteArray, UTF8), e);
         }
     }
 
@@ -73,7 +89,7 @@ public class MatsDefaultJsonSerializer implements MatsStringSerializer {
             return (String) object;
         }
         try {
-            return __objectMapper.writeValueAsString(object);
+            return _objectMapper.writeValueAsString(object);
         }
         catch (JsonProcessingException e) {
             throw new AssertionError("Couldn't serialize Object [" + object + "].", e);
@@ -81,21 +97,22 @@ public class MatsDefaultJsonSerializer implements MatsStringSerializer {
     }
 
     @Override
-    public <T> T deserializeObject(String json, Class<T> type) {
-        if (json == null) {
+    public <T> T deserializeObject(String serialized, Class<T> type) {
+        if (serialized == null) {
             return null;
         }
         if (type == String.class) {
             // Well, this is certainly pretty obviously correct.
             @SuppressWarnings("unchecked")
-            T ret = (T) json;
+            T ret = (T) serialized;
             return ret;
         }
         try {
-            return __objectMapper.readValue(json, type);
+            return _objectMapper.readValue(serialized, type);
         }
         catch (IOException e) {
-            throw new AssertionError("Couldn't deserialize JSON into object of type [" + type + "].\n" + json, e);
+            throw new AssertionError("Couldn't deserialize JSON into object of type [" + type + "].\n"
+                    + serialized, e);
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.stolsvik.mats.impl.jms;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -17,34 +19,34 @@ import com.stolsvik.mats.MatsConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.MatsTrace;
-import com.stolsvik.mats.MatsTrace.Call;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace.Call;
 import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
-import com.stolsvik.mats.util.MatsStringSerializer;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
 
 /**
  * The JMS implementation of {@link MatsStage}.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
+public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsStage.class);
 
-    private final JmsMatsEndpoint<S, R> _parentEndpoint;
+    private final JmsMatsEndpoint<S, R, Z> _parentEndpoint;
     private final String _stageId;
     private final boolean _queue;
     private final Class<S> _stateClass;
     private final Class<I> _incomingMessageClass;
     private final ProcessLambda<I, S, R> _processLambda;
 
-    private final MatsStringSerializer _matsJsonSerializer;
-    private final JmsMatsFactory _parentFactory;
+    private final MatsSerializer<Z> _matsJsonSerializer;
+    private final JmsMatsFactory<Z> _parentFactory;
 
     private final JmsStageConfig _stageConfig = new JmsStageConfig();
 
-    public JmsMatsStage(JmsMatsEndpoint<S, R> parentEndpoint, String stageId, boolean queue,
+    public JmsMatsStage(JmsMatsEndpoint<S, R, Z> parentEndpoint, String stageId, boolean queue,
             Class<I> incomingMessageClass, Class<S> stateClass, ProcessLambda<I, S, R> processLambda) {
         _parentEndpoint = parentEndpoint;
         _stageId = stageId;
@@ -54,7 +56,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
         _processLambda = processLambda;
 
         _parentFactory = _parentEndpoint.getParentFactory();
-        _matsJsonSerializer = _parentFactory.getMatsStringSerializer();
+        _matsJsonSerializer = _parentFactory.getMatsSerializer();
 
         log.info(LOG_PREFIX + "Created Stage [" + id(_stageId, this) + "].");
     }
@@ -74,7 +76,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
         return _nextStageId;
     }
 
-    JmsMatsEndpoint<S, R> getParentEndpoint() {
+    JmsMatsEndpoint<S, R, Z> getParentEndpoint() {
         return _parentEndpoint;
     }
 
@@ -183,7 +185,7 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
 
         private volatile boolean _inReceive;
 
-        public StageProcessor(int processorNumber) {
+        StageProcessor(int processorNumber) {
             _processorNumber = processorNumber;
             _processorThread = new Thread(this::runner, THREAD_PREFIX + _stageId + " " + id());
             _processorThread.start();
@@ -335,18 +337,18 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
 
                                 MapMessage mapMessage = (MapMessage) message;
 
-                                String matsTraceString;
+                                byte[] matsTraceSerialized;
                                 try {
-                                    matsTraceString = mapMessage.getString(factoryConfig.getMatsTraceKey());
+                                    matsTraceSerialized = mapMessage.getBytes(factoryConfig.getMatsTraceKey());
                                 }
                                 catch (JMSException e) {
                                     throw new MatsBackendException(
                                             "Got JMSException when doing mapMessage.getString(..). Pretty crazy.", e);
                                 }
-                                MatsTrace matsTrace = _matsJsonSerializer.deserializeMatsTrace(matsTraceString);
+                                MatsTrace<Z> matsTrace = _matsJsonSerializer.deserializeMatsTrace(matsTraceSerialized);
 
                                 // :: Current Call
-                                Call currentCall = matsTrace.getCurrentCall();
+                                Call<Z> currentCall = matsTrace.getCurrentCall();
                                 if (!_stageId.equals(currentCall.getTo())) {
                                     String msg = "The incoming MATS message is not to this Stage! this:[" + _stageId
                                             + "]," + " msg:[" + currentCall.getTo() + "]. Refusing this message!";
@@ -357,9 +359,10 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
                                 log.info(LOG_PREFIX + "RECEIVED message from:[" + currentCall.getFrom() + "].");
 
                                 // :: Current State. If null, then make an empty object instead.
-                                String currentStateString = matsTrace.getCurrentState();
-                                currentStateString = (currentStateString != null ? currentStateString : "{}");
-                                S currentSto = _matsJsonSerializer.deserializeObject(currentStateString, _stateClass);
+                                Z currentSerializedState = matsTrace.getCurrentState();
+                                S currentSto = (currentSerializedState == null
+                                        ? newEmptyInstanceOf(_stateClass)
+                                        : _matsJsonSerializer.deserializeObject(currentSerializedState, _stateClass));
 
                                 // :: Incoming DTO
                                 I incomingDto = _matsJsonSerializer.deserializeObject(currentCall.getData(),
@@ -412,6 +415,42 @@ public class JmsMatsStage<I, S, R> implements MatsStage, JmsMatsStatics {
             return destination;
         }
     }
+
+
+    /**
+     * Creates an instance of the specified class - used to create State Transfer Objects (STOs) for the initial stage,
+     * which typically starts with "null" state (although it is possible to invoke an endpoint with specified state,
+     * this is definitely the exception rather than the rule).
+     *
+     * @param clazz the Class which should be instantiated
+     * @param <T> the type of the Class.
+     * @return a newly minted object of the specified class.
+     */
+    private static <T> T newEmptyInstanceOf(Class<T> clazz) throws MatsCannotCreateEmptyStoInstanceException {
+        Constructor<T> noArgsConstructor;
+        try {
+            noArgsConstructor = clazz.getDeclaredConstructor();
+        }
+        catch (NoSuchMethodException e) {
+            throw new MatsCannotCreateEmptyStoInstanceException("Missing no-args constructor on STO class ["
+                    + clazz.getName() + "].", e);
+        }
+        try {
+            noArgsConstructor.setAccessible(true);
+            return noArgsConstructor.newInstance();
+        }
+        catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
+            throw new MatsCannotCreateEmptyStoInstanceException("Couldn't create new empty instance of STO class ["
+                    + clazz.getName() + "].", e);
+        }
+    }
+
+    private static class MatsCannotCreateEmptyStoInstanceException extends MatsRefuseMessageException {
+        public MatsCannotCreateEmptyStoInstanceException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
 
     private static void closeJmsSession(Session sessionToClose) {
         if (sessionToClose != null) {

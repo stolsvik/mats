@@ -62,7 +62,7 @@ public class Test_MatsTraceProperties extends MatsBasicTest {
                     _objectProp_terminator = context.getTraceProperty("objectProp", DataTO.class);
                     // Get the Object prop set in the Service
                     _objectPropFromService_terminator = context.getTraceProperty("objectPropFromService", DataTO.class);
-                    log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
+                    log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(dto, sto);
                 });
 

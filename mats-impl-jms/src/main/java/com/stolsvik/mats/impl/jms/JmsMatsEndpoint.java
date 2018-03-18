@@ -18,17 +18,17 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
+public class JmsMatsEndpoint<S, R, Z> implements MatsEndpoint<S, R> {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsEndpoint.class);
 
-    private final JmsMatsFactory _parentFactory;
+    private final JmsMatsFactory<Z> _parentFactory;
     private final String _endpointId;
     private final boolean _queue;
     private final Class<S> _stateClass;
     private final Class<R> _replyClass;
 
-    JmsMatsEndpoint(JmsMatsFactory parentFactory, String endpointId, boolean queue, Class<S> stateClass,
+    JmsMatsEndpoint(JmsMatsFactory<Z> parentFactory, String endpointId, boolean queue, Class<S> stateClass,
             Class<R> replyClass) {
         _parentFactory = parentFactory;
         _endpointId = endpointId;
@@ -39,7 +39,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
 
     private final JmsEndpointConfig _endpointConfig = new JmsEndpointConfig();
 
-    JmsMatsFactory getParentFactory() {
+    JmsMatsFactory<Z> getParentFactory() {
         return _parentFactory;
     }
 
@@ -51,7 +51,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
         return _stateClass;
     }
 
-    private List<JmsMatsStage<?, S, R>> _stages = new CopyOnWriteArrayList<>();
+    private List<JmsMatsStage<?, S, R, Z>> _stages = new CopyOnWriteArrayList<>();
 
     @Override
     public EndpointConfig<S, R> getEndpointConfig() {
@@ -70,7 +70,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
         // TODO: Refuse adding stages if already started, or if lastStage is added.
         // Make stageId, which is the endpointId for the first, then endpointId.stage1, stage2 etc.
         String stageId = _stages.size() == 0 ? _endpointId : _endpointId + ".stage" + (_stages.size());
-        JmsMatsStage<I, S, R> stage = new JmsMatsStage<>(this, stageId, _queue,
+        JmsMatsStage<I, S, R, Z> stage = new JmsMatsStage<>(this, stageId, _queue,
                 incomingClass, _stateClass, processor);
         // :: Set this next stage's Id on the previous stage, unless we're first, in which case there is no previous.
         if (_stages.size() > 0) {
@@ -109,12 +109,12 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
     @Override
     public void start() {
         log.info(JmsMatsStatics.LOG_PREFIX + "   | Starting all stages for [" + _endpointId + "].");
-        _stages.forEach(s -> s.start());
+        _stages.forEach(JmsMatsStage::start);
     }
 
     @Override
     public void stop() {
-        _stages.forEach(s -> s.stop());
+        _stages.forEach(JmsMatsStage::stop);
     }
 
     private class JmsEndpointConfig implements EndpointConfig<S, R> {
@@ -141,7 +141,7 @@ public class JmsMatsEndpoint<S, R> implements MatsEndpoint<S, R> {
 
         @Override
         public boolean isRunning() {
-            for (JmsMatsStage<?, S, R> stage : _stages) {
+            for (JmsMatsStage<?, S, R, Z> stage : _stages) {
                 if (stage.getStageConfig().isRunning()) {
                     return true;
                 }

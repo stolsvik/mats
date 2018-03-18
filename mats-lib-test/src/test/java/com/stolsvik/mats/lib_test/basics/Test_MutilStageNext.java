@@ -52,7 +52,7 @@ public class Test_MutilStageNext extends MatsBasicTest {
     public void setupTerminator() {
         matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
                 (context, dto, sto) -> {
-                    log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
+                    log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(dto, sto);
                 });
     }

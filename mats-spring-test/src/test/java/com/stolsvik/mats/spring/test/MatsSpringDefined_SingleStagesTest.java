@@ -10,7 +10,6 @@ import org.springframework.test.context.junit4.SpringRunner;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.MatsTrace;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.MatsTestContext;
@@ -87,8 +86,7 @@ public class MatsSpringDefined_SingleStagesTest {
         @MatsMapping(endpointId = ENDPOINT_ID + SINGLE_CONTEXT)
         public SpringTestDataTO springMatsSingleEndpoint_Context(ProcessContext<SpringTestDataTO> context,
                 SpringTestDataTO msg) {
-            MatsTrace trace = context.getTrace();
-            Assert.assertEquals("test_trace_id" + SINGLE_CONTEXT, trace.getTraceId());
+            Assert.assertEquals("test_trace_id" + SINGLE_CONTEXT, context.getTraceId());
             return new SpringTestDataTO(msg.number * 2, msg.string + SINGLE_CONTEXT);
         }
 
@@ -98,8 +96,7 @@ public class MatsSpringDefined_SingleStagesTest {
         @MatsMapping(endpointId = ENDPOINT_ID + SINGLE_CONTEXT_DTO)
         public SpringTestDataTO springMatsSingleEndpoint_Context_Dto(ProcessContext<SpringTestDataTO> context,
                 @Dto SpringTestDataTO msg) {
-            MatsTrace trace = context.getTrace();
-            Assert.assertEquals("test_trace_id" + SINGLE_CONTEXT_DTO, trace.getTraceId());
+            Assert.assertEquals("test_trace_id" + SINGLE_CONTEXT_DTO, context.getTraceId());
             return new SpringTestDataTO(msg.number * 2, msg.string + SINGLE_CONTEXT_DTO);
         }
 
@@ -109,8 +106,7 @@ public class MatsSpringDefined_SingleStagesTest {
         @MatsMapping(endpointId = ENDPOINT_ID + SINGLE_CONTEXT_DTO_STO)
         public SpringTestDataTO springMatsSingleEndpoint_Context_Dto_Sto(ProcessContext<SpringTestDataTO> context,
                 @Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
-            MatsTrace trace = context.getTrace();
-            Assert.assertEquals("test_trace_id" + SINGLE_CONTEXT_DTO_STO, trace.getTraceId());
+            Assert.assertEquals("test_trace_id" + SINGLE_CONTEXT_DTO_STO, context.getTraceId());
             return new SpringTestDataTO(msg.number * state.number,
                     msg.string + SINGLE_CONTEXT_DTO_STO + '.' + state.string);
         }
@@ -121,8 +117,7 @@ public class MatsSpringDefined_SingleStagesTest {
         @MatsMapping(endpointId = ENDPOINT_ID + SINGLE_CONTEXT_STO_DTO)
         public SpringTestDataTO springMatsSingleEndpoint_Context_Sto_Dto(ProcessContext<SpringTestDataTO> context,
                 @Sto SpringTestStateTO state, @Dto SpringTestDataTO msg) {
-            MatsTrace trace = context.getTrace();
-            Assert.assertEquals("test_trace_id" + SINGLE_CONTEXT_STO_DTO, trace.getTraceId());
+            Assert.assertEquals("test_trace_id" + SINGLE_CONTEXT_STO_DTO, context.getTraceId());
             return new SpringTestDataTO(msg.number * state.number,
                     msg.string + SINGLE_CONTEXT_STO_DTO + '.' + state.string);
         }
@@ -133,7 +128,7 @@ public class MatsSpringDefined_SingleStagesTest {
         private MatsTestLatch _latch;
 
         /**
-         * Terminator for all the tests.
+         * Terminator for all the tests (no return value specified; return type == void).
          */
         @MatsMapping(endpointId = ENDPOINT_ID + TERMINATOR)
         public void springMatsTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {

@@ -104,9 +104,15 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
      * (for multi-stage endpoints, this provides a way to do a "early return"), initiate a new message etc. Note that
      * the MATS-implementations might provide for specializations of this class - if you choose to cast down to that,
      * you tie into the implementation (e.g. JMS specific implementations might want to expose the underlying incoming
-     * and outgoing {@code MapMessage}s.)
+     * and outgoing JMS {@code Message}s.)
      */
     interface ProcessContext<R> {
+        /**
+         * @return the {@link MatsInitiate#traceId(String) trace id} for the processed message.
+         * @see MatsInitiate#traceId(String)
+         */
+        String getTraceId();
+
         /**
          * @return the endpointId that is processed, i.e. the id of <i>this</i> endpoint. Should probably never be
          *         necessary, but accessible for introspection.
@@ -120,6 +126,18 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
          *         introspection.
          */
         String getStageId();
+
+        /**
+         * @return the stageId from which the currently processing message came.
+         */
+        String getFromStageId();
+
+        /**
+         * @return a for-human-consumption, multi-line debug-String representing the current processing context,
+         *         typically the "MatsTrace" up to the current stage. The format is utterly arbitrary, can and will
+         *         change between versions and revisions, and <b>shall <u>NOT</u> be used programmatically!!</b>.
+         */
+        String toString();
 
         /**
          * @param key
@@ -170,7 +188,7 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
         void addString(String key, String payload);
 
         /**
-         * Adds a property that will "stick" with the {@link MatsTrace} from this call on out. Note that for
+         * Adds a property that will "stick" with the Mats Trace from this call on out. Note that for
          * initiations, you have the same method on the {@link MatsInitiate} instance. The functionality effectively
          * acts like a {@link ThreadLocal} when compared to normal java method invocations: If the Initiator adds it,
          * all subsequent stages will see it, on any stack level, including the terminator. If a stage in a service
@@ -194,22 +212,17 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
         void setTraceProperty(String propertyName, Object propertyValue);
 
         /**
-         * Retrieves the {@link MatsTrace} property with the specified name, deserializing the value to the specified
+         * Retrieves the Mats Trace property with the specified name, deserializing the value to the specified
          * class, using the active MATS serializer. Read more on {@link #setTraceProperty(String, Object)}.
          *
          * @param propertyName
-         *            the name of the {@link MatsTrace} property to retrieve.
+         *            the name of the Mats Trace property to retrieve.
          * @param clazz
          *            the class to which the value should be deserialized.
-         * @return the value of the {@link MatsTrace} property, deserialized as the specified class.
+         * @return the value of the Mats Trace property, deserialized as the specified class.
          * @see #setTraceProperty(String, Object)
          */
         <T> T getTraceProperty(String propertyName, Class<T> clazz);
-
-        /**
-         * @return the current {@link MatsTrace} (the one that invoked this {@link MatsStage}.
-         */
-        MatsTrace getTrace();
 
         /**
          * Sends a request message, meaning that the specified endpoint will be invoked, with the reply-to endpointId

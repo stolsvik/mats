@@ -13,9 +13,9 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
-import com.stolsvik.mats.MatsTrace;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
-import com.stolsvik.mats.util.MatsStringSerializer;
+import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
 
 public interface JmsMatsStatics {
 
@@ -23,14 +23,12 @@ public interface JmsMatsStatics {
 
     String THREAD_PREFIX = "MATS:";
 
-    int DEFAULT_DELAY_MILLIS = 50;
-
     /**
      * Common sending method - handles commonalities. <b>Notice that the bytes- and Strings-Maps come back cleared, even
      * if any part of sending throws.</b>
      */
-    default void sendMatsMessage(Logger log, Session jmsSession, JmsMatsFactory jmsMatsFactory, boolean queue,
-            MatsTrace matsTrace, LinkedHashMap<String, Object> props,
+    default <Z> void sendMatsMessage(Logger log, Session jmsSession, JmsMatsFactory<Z> jmsMatsFactory, boolean queue,
+            MatsTrace<Z> matsTrace, LinkedHashMap<String, Object> props,
             LinkedHashMap<String, byte[]> bytes, LinkedHashMap<String, String> strings,
             String to, String what) {
         try {
@@ -49,7 +47,7 @@ public interface JmsMatsStatics {
             strings.clear();
 
             // Get the serializer
-            MatsStringSerializer serializer = jmsMatsFactory.getMatsStringSerializer();
+            MatsSerializer<Z> serializer = jmsMatsFactory.getMatsSerializer();
 
             // :: Add the MatsTrace properties
             for (Map.Entry<String, Object> entry : propsCopied.entrySet()) {
@@ -62,7 +60,7 @@ public interface JmsMatsStatics {
             // Create the JMS Message that will be sent.
             MapMessage mm = jmsSession.createMapMessage();
             // Set the MatsTrace.
-            mm.setString(factoryConfig.getMatsTraceKey(),
+            mm.setBytes(factoryConfig.getMatsTraceKey(),
                     serializer.serializeMatsTrace(matsTrace));
 
             // :: Add the properties to the MapMessage
@@ -100,7 +98,7 @@ public interface JmsMatsStatics {
         return obj.getClass().getSimpleName() + '@' + Integer.toHexString(System.identityHashCode(obj));
     }
 
-    default String stageOrInit(JmsMatsStage<?, ?, ?> stage) {
+    default String stageOrInit(JmsMatsStage<?, ?, ?, ?> stage) {
         if (stage != null) {
             return "Stage [" + stage.toString() + "]";
         }

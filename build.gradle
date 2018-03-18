@@ -6,7 +6,11 @@ buildscript {
 }
 
 // The Gradle Wrapper generation task.
-task wrapper(type: Wrapper) { gradleVersion = "3.0" }
+task wrapper(type: Wrapper) {
+    gradleVersion = "4.6"
+    // Use "-all"-version of distribution, since IntelliJ works better then..
+    distributionUrl = "http://services.gradle.org/distributions/gradle-${gradleVersion}-all.zip"
+}
 
 // Used both in mats-test and mats-amq
 ext.activeMqVersion = '5.14.+'
@@ -27,8 +31,14 @@ subprojects {
 
     dependencies {
         compile 'org.slf4j:slf4j-api:1.7.+'
-
         testCompile 'junit:junit:4.12'
+    }
+
+    compileJava {
+        options.encoding = 'UTF-8'
+        options.deprecation = true
+        options.incremental = true
+        options.compilerArgs += ['-Xlint:all', '-Xlint:-serial', '-Werror']
     }
 
     project.buildDir = 'build-gradle'
@@ -53,22 +63,24 @@ subprojects {
     // ------------------------------------------------
     // -- Boring stuff, should be a plugin.
 
-    task systemInformation << {
-        println "\n** Java properties [System.getProperties()], sorted:\n"
-        System.properties.sort().each { k, v ->
-            println("$k = $v")
+    task systemInformation {
+        doLast {
+            println "\n** Java properties [System.getProperties()], sorted:\n"
+            System.properties.sort().each { k, v ->
+                println("$k = $v")
+            }
+            println "\n** Environment [System.getenv()], sorted:\n"
+            System.env.sort().each { k, v ->
+                println("$k = $v")
+            }
+            println ''
+            println "** Java Version:   " + System.getProperty("java.version")
+            println "** Groovy Version: " + GroovySystem.getVersion()
+            println "** Gradle Version: " + gradle.gradleVersion
         }
-        println "\n** Environment [System.getenv()], sorted:\n"
-        System.env.sort().each { k, v ->
-            println("$k = $v")
-        }
-        println ''
-        println "** Java Version:   "+System.getProperty("java.version")
-        println "** Groovy Version: "+groovy.lang.GroovySystem.getVersion()
-        println "** Gradle Version: "+gradle.gradleVersion
     }
 
-    // Always start from scratch.
+    // Eclipse-plugin configuration
     tasks.eclipse.dependsOn(cleanEclipse)
     eclipse {
         // project { natures 'org.springsource.ide.eclipse.gradle.core.nature'; }
@@ -78,7 +90,7 @@ subprojects {
                 whenMerged { classpath ->
                     // Dump the classpath entries so that we can see them
                     classpath.entries.findAll { entry ->
-                        println("Entry:"+ entry);
+                        println("Entry: $entry")
                     }
                 }
             }

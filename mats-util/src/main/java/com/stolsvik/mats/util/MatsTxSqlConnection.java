@@ -10,9 +10,9 @@ import com.stolsvik.mats.exceptions.MatsRuntimeException;
 
 /**
  * The different MATS Transaction Managers that include and handle a SQL {@link Connection} will provide some means for
- * {@link MatsStage} Stage Processors to get hold of the transactional Connection by using the static method
- * {@link #getConnection()}. This is done by the MATS Transaction Manager binding a SQL Connection Supplier to a
- * ThreadLocal by invoking the {@link #setThreadLocalConnectionSupplier(Supplier)}.
+ * {@link MatsStage Stage Processors} to get hold of the transactional Connection by using the static method
+ * {@link #getConnection()} on this class. This is done by the MATS Transaction Manager binding a SQL Connection
+ * Supplier to a ThreadLocal by invoking the {@link #setThreadLocalConnectionSupplier(Supplier)}.
  * <p>
  * Notice that within a Spring environment, the usual way to get hold of the SQL Connection is by means of an injected
  * {@link DataSource} which the Spring transaction system has taken control of, so that the Connection you get out of

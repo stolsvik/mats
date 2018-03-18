@@ -13,7 +13,7 @@ configurations {
 // :: Get hold of the ActiveMQ Web Console WAR file, and place it in src/main/resources before compileJava
 ext.activeMqWebConsoleResource = file("src/main/resources/activemq-web-console.war")
 task downloadAmqWebConsoleWar {
-    inputs.file configurations.amqWebConsoleWar
+    inputs.files configurations.amqWebConsoleWar
     outputs.file activeMqWebConsoleResource
     doLast {
         configurations.amqWebConsoleWar.resolve().each { warFile ->

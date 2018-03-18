@@ -44,7 +44,7 @@ public interface JmsMatsTransactionManager {
      *            {@link MatsInitiator}, this is <code>null</code>.
      * @return a {@link TransactionContext} for the supplied stage.
      */
-    TransactionContext getTransactionContext(JmsMatsStage<?, ?, ?> stage);
+    TransactionContext getTransactionContext(JmsMatsStage<?, ?, ?, ?> stage);
 
     /**
      * One {@link TransactionContext} per {@link JmsMatsStage} - each {@link StageProcessor} will currently not get its
@@ -105,7 +105,7 @@ public interface JmsMatsTransactionManager {
      */
     @FunctionalInterface
     interface JmsConnectionSupplier {
-        Connection createJmsConnection(JmsMatsStage<?, ?, ?> stage) throws JMSException;
+        Connection createJmsConnection(JmsMatsStage<?, ?, ?, ?> stage) throws JMSException;
     }
 
     /**
