@@ -52,6 +52,8 @@ ASCII-artsy, it looks like this:
 public class Test_SimplestSendReceive extends AMatsTest {
     @Before
     public void setupTerminator() {
+        // A "Terminator" is a service which does not reply, i.e. it "consumes" any incoming messages.
+        // However, in this test, it countdowns the test-latch, so that the main test thread can assert.
         matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
                 (context, dto, sto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
@@ -61,6 +63,7 @@ public class Test_SimplestSendReceive extends AMatsTest {
 
     @Test
     public void doTest() throws InterruptedException {
+        // Send message directly to the "Terminator" endpoint.
         DataTO dto = new DataTO(42, "TheAnswer");
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
                 (msg) -> msg.traceId(randomId())
@@ -90,12 +93,17 @@ ASCII-artsy, it looks like this:
 public class Test_SimplestServiceRequest extends AMatsTest {
     @Before
     public void setupService() {
+        // This service is very simple, where it simply returns with an alteration of what it gets input.
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
-                (context, dto) -> new DataTO(dto.number * 2, dto.string + ":FromService"));
+                (context, dto) -> {
+                    return new DataTO(dto.number * 2, dto.string + ":FromService");
+                });
     }
 
     @Before
     public void setupTerminator() {
+        // A "Terminator" is a service which does not reply, i.e. it "consumes" any incoming messages.
+        // However, in this test, it countdowns the test-latch, so that the main test thread can assert.
         matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
                 (context, dto, sto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
@@ -106,6 +114,7 @@ public class Test_SimplestServiceRequest extends AMatsTest {
 
     @Test
     public void doTest() throws InterruptedException {
+        // Send request to "Service", specifying reply to "Terminator".
         DataTO dto = new DataTO(42, "TheAnswer");
         StateTO sto = new StateTO(420, 420.024);
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
@@ -149,15 +158,21 @@ ASCII-artsy, it looks like this:
     [Master S2 (last)]   {reply}
 [Terminator]
 </pre>
-**Again, it is important to realize that the three stages of the Master service (and the two of the Mid service) are actually fully independent messaging endpoints (with their own JMS queue when run on a JMS backend)**, and if you've deployed the service to multiple nodes, each stage in a particular invocation flow might run on a different node. What the MATS API does is to set up each stage of a multi-stage service in a way where the "reply" method invocation of a requested service knows which queue to send its result to.
+
+**Again, it is important to realize that the three stages of the Master service (and the two of the Mid service) are actually fully independent messaging endpoints (with their own JMS queue when run on a JMS backend), and if you've deployed the service to multiple nodes, each stage in a particular invocation flow might run on a different node.**
+
+The MATS API and implementation sets up a call stack that can be of arbitrary depth, along with "stack frames" whose state flows along with the message passing, so that you can code *as if* you were coding a normal service method that invokes remote services synchronously.
 
 
 ```java
 public class Test_ComplexMultiStage extends AMatsTest {
     @Before
     public void setupLeafService() {
+        // This service is very simple, where it simply returns with an alteration of what it gets input.
         matsRule.getMatsFactory().single(SERVICE + ".Leaf", DataTO.class, DataTO.class,
-                (context, dto) -> new DataTO(dto.number * 2, dto.string + ":FromLeafService"));
+                (context, dto) -> {
+                    return new DataTO(dto.number * 2, dto.string + ":FromLeafService");
+                });
     }
 
     @Before
@@ -172,9 +187,9 @@ public class Test_ComplexMultiStage extends AMatsTest {
             sto.number1 = 10;
             sto.number2 = Math.PI;
             // Perform request to "Leaf Service".
-            context.request(SERVICE + ".Leaf", dto);
-        });
-        ep.lastStage(DataTO.class, (context, dto, sto) -> {
+            context.request(SERVICE + ".Leaf", dto);                //  These three lines constitute the ..
+        });                                                         //  .. "service call" from "Mid Service" ..
+        ep.lastStage(DataTO.class, (context, dto, sto) -> {         //  .. out to the "Leaf Service" ..
             // .. "continuing" after the "Leaf Service" has replied.
             // Assert that state variables set in previous stage are still with us.
             Assert.assertEquals(10,      sto.number1);
@@ -196,9 +211,9 @@ public class Test_ComplexMultiStage extends AMatsTest {
             sto.number1 = Integer.MAX_VALUE;
             sto.number2 = Math.E;
             // Perform request to "Mid Service".
-            context.request(SERVICE + ".Mid", dto);
-        });
-        ep.stage(DataTO.class, (context, dto, sto) -> {
+            context.request(SERVICE + ".Mid", dto);                 //  These three lines constitute the ..
+        });                                                         //  .. "service call" from "Master Service" ..
+        ep.stage(DataTO.class, (context, dto, sto) -> {             //  .. out to the "Mid Service" ..
             // .. "continuing" after the "Mid Service" has replied.
             // Assert that state variables set in previous stage are still with us.
             Assert.assertEquals(Integer.MAX_VALUE, sto.number1);
@@ -207,9 +222,9 @@ public class Test_ComplexMultiStage extends AMatsTest {
             sto.number1 = Integer.MIN_VALUE;
             sto.number2 = Math.E * 2;
             // Perform request to "Leaf Service".
-            context.request(SERVICE + ".Leaf", dto);
-        });
-        ep.lastStage(DataTO.class, (context, dto, sto) -> {
+            context.request(SERVICE + ".Leaf", dto);                //  These three lines constitute the ..
+        });                                                         //  .. "service call" from "Master Service" ..
+        ep.lastStage(DataTO.class, (context, dto, sto) -> {         //  .. out to the "Leaf Service" ..
             // .. "continuing" after the "Leaf Service" has replied.
             // Assert that state variables changed in previous stage are still with us.
             Assert.assertEquals(Integer.MIN_VALUE, sto.number1);
@@ -221,6 +236,8 @@ public class Test_ComplexMultiStage extends AMatsTest {
 
     @Before
     public void setupTerminator() {
+        // A "Terminator" is a service which does not reply, i.e. it "consumes" any incoming messages.
+        // However, in this test, it countdowns the test-latch, so that the main test thread can assert.
         matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
                 (context, dto, sto) -> {
                     // .. "continuing" after the request to "Master Service" from Initiator.
