@@ -19,12 +19,12 @@ import com.stolsvik.mats.MatsConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace.Call;
+import com.stolsvik.mats.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace.Call;
 import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsSerializer;
 
 /**
  * The JMS implementation of {@link MatsStage}.

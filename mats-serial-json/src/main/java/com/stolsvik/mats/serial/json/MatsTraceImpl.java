@@ -1,4 +1,4 @@
-package com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.json;
+package com.stolsvik.mats.serial.json;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace;
 
 /**
  * (Concrete class) Represents the protocol that the MATS endpoints (their stages) communicate with. This class is
@@ -27,31 +27,44 @@ import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
  * used, while when the system have performed flawless for a while, one can change it to use the condensed form, thereby
  * shaving some cycles for the serialization and deserialization, but more importantly potentially quite a bit of
  * bandwidth and message processing compared to transfer of the full trace.
- * <p>
- * Serialization and deserialization is left to the implementations, but Jackson JSON databind library is recommended.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
-    private final String traceId;
+@SuppressWarnings("PMD")
+public final class MatsTraceImpl implements MatsTrace<String>, Cloneable {
+    private final String tid;  // TraceId
 
-    private List<CallImpl> calls = new ArrayList<>(); // Not final due to clone-impl.
+    private final boolean kt; // KeepTrace.
 
-    private List<StackState> stackStates = new ArrayList<>(); // Not final due to clone-impl.
+    private final boolean np; // NonPersistent.
 
-    private Map<String, String> traceProps = new LinkedHashMap<>(); // Not final due to clone-impl.
+    private final boolean rt; // Interactive ... as in "Real Time".
 
-    public static MatsTrace<String> createNew(String traceId) {
-        return new MatsTrace_DefaultJson(traceId);
+    private List<CallImpl> c = new ArrayList<>(); // Calls. Not final due to clone-impl.
+
+    private List<StackState> ss = new ArrayList<>(); // StackStates. Not final due to clone-impl.
+
+    private Map<String, String> tp = new LinkedHashMap<>(); // TracePros. Not final due to clone-impl.
+
+    public static MatsTrace<String> createNew(String traceId, boolean keepTrace, boolean nonpersistent,
+                                              boolean interactive) {
+        return new MatsTraceImpl(traceId, keepTrace, nonpersistent, interactive);
     }
 
     // Jackson JSON-lib needs a default constructor, but it can re-set finals.
-    private MatsTrace_DefaultJson() {
-        traceId = null;
+    private MatsTraceImpl() {
+        // REMEMBER: These will be set by the deserialization mechanism.
+        tid = null;
+        kt = false;
+        np = false;
+        rt = false;
     }
 
-    private MatsTrace_DefaultJson(String traceId) {
-        this.traceId = traceId;
+    private MatsTraceImpl(String traceId, boolean keepTrace, boolean nonpersistent, boolean interactive) {
+        this.tid = traceId;
+        this.kt = keepTrace;
+        this.np = nonpersistent;
+        this.rt = interactive;
     }
 
     // == NOTICE == Serialization and deserialization is an implementation specific feature.
@@ -63,7 +76,22 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
      */
     @Override
     public String getTraceId() {
-        return traceId;
+        return tid;
+    }
+
+    @Override
+    public boolean isKeepTrace() {
+        return kt;
+    }
+
+    @Override
+    public boolean isNonPersistent() {
+        return np;
+    }
+
+    @Override
+    public boolean isInteractive() {
+        return rt;
     }
 
     /**
@@ -77,7 +105,7 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
      */
     @Override
     public void setTraceProperty(String propertyName, String propertyValue) {
-        traceProps.put(propertyName, propertyValue);
+        tp.put(propertyName, propertyValue);
     }
 
     /**
@@ -90,7 +118,7 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
      */
     @Override
     public String getTraceProperty(String propertyName) {
-        return traceProps.get(propertyName);
+        return tp.get(propertyName);
     }
 
     /**
@@ -118,16 +146,16 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
      *            Same stuff as replyState.
      */
     @Override
-    public MatsTrace_DefaultJson addRequestCall(String from, String to, String data, List<String> replyStack, String replyState,
-                                                String initialState) {
-        MatsTrace_DefaultJson clone = clone();
-        clone.calls.add(new CallImpl(CallType.REQUEST, from, to, data, replyStack));
+    public MatsTraceImpl addRequestCall(String from, String to, String data, List<String> replyStack, String replyState,
+                                        String initialState) {
+        MatsTraceImpl clone = clone();
+        clone.c.add(new CallImpl(CallType.REQUEST, from, to, data, replyStack));
         // Add the replyState - i.e. the state that is outgoing from the current call, destined for the reply.
         // (The parameter replyStack includes the replyTo stage/endpointId as first element, subtract this.)
-        clone.stackStates.add(new StackState(replyStack.size() - 1, replyState));
+        clone.ss.add(new StackState(replyStack.size() - 1, replyState));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
-            clone.stackStates.add(new StackState(replyStack.size(), initialState));
+            clone.ss.add(new StackState(replyStack.size(), initialState));
         }
         return clone;
     }
@@ -152,12 +180,12 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
      *            an optional feature, whereby the state can be set for the initial stage of the requested endpoint.
      */
     @Override
-    public MatsTrace_DefaultJson addSendCall(String from, String to, String data, List<String> replyStack, String initialState) {
-        MatsTrace_DefaultJson clone = clone();
-        clone.calls.add(new CallImpl(CallType.SEND, from, to, data, replyStack));
+    public MatsTraceImpl addSendCall(String from, String to, String data, List<String> replyStack, String initialState) {
+        MatsTraceImpl clone = clone();
+        clone.c.add(new CallImpl(CallType.SEND, from, to, data, replyStack));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
-            clone.stackStates.add(new StackState(replyStack.size(), initialState));
+            clone.ss.add(new StackState(replyStack.size(), initialState));
         }
         return clone;
     }
@@ -182,14 +210,14 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
      *            the state data for the next stage.
      */
     @Override
-    public MatsTrace_DefaultJson addNextCall(String from, String to, String data, List<String> replyStack, String state) {
+    public MatsTraceImpl addNextCall(String from, String to, String data, List<String> replyStack, String state) {
         if (state == null) {
             throw new IllegalStateException("When adding next-call, state-data string should not be null.");
         }
-        MatsTrace_DefaultJson clone = clone();
-        clone.calls.add(new CallImpl(CallType.NEXT, from, to, data, replyStack));
+        MatsTraceImpl clone = clone();
+        clone.c.add(new CallImpl(CallType.NEXT, from, to, data, replyStack));
         // Add the state meant for the next stage
-        clone.stackStates.add(new StackState(replyStack.size(), state));
+        clone.ss.add(new StackState(replyStack.size(), state));
         return clone;
     }
 
@@ -208,26 +236,26 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
      *            the request data, most often a JSON representing the Request Data Transfer Object that the requesting
      *            service expects to get.
      * @param replyStack
-     *            for an REPLY call, this would normally be the rest of the list after the first element has been popped
+     *            for a REPLY call, this would normally be the rest of the list after the first element has been popped
      *            of the stack.
      */
     @Override
-    public MatsTrace_DefaultJson addReplyCall(String from, String to, String data, List<String> replyStack) {
-        MatsTrace_DefaultJson clone = clone();
-        clone.calls.add(new CallImpl(CallType.REPLY, from, to, data, replyStack));
+    public MatsTraceImpl addReplyCall(String from, String to, String data, List<String> replyStack) {
+        MatsTraceImpl clone = clone();
+        clone.c.add(new CallImpl(CallType.REPLY, from, to, data, replyStack));
         return clone;
     }
 
     @Override
     public CallImpl getCurrentCall() {
         // Return last element
-        return calls.get(calls.size() - 1);
+        return c.get(c.size() - 1);
     }
 
     @Override
     public String getCurrentState() {
         // Return the state for the current stack depth (which is the number of stack elements below this).
-        return getState(getCurrentCall().stack.size());
+        return getState(getCurrentCall().getStack().size());
     }
 
     /**
@@ -249,15 +277,15 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
      * @return the state String if found.
      */
     private String getState(int stackDepth) {
-        for (int i = stackStates.size() - 1; i >= 0; i--) {
-            StackState stackState = stackStates.get(i);
+        for (int i = ss.size() - 1; i >= 0; i--) {
+            StackState stackState = ss.get(i);
             // ?: Have we reached a lower depth than ourselves?
-            if (stackDepth > stackState.depth) {
+            if (stackDepth > stackState.getDepth()) {
                 // -> Yes, we're at a lower depth: The rest can not possibly be meant for us.
                 break;
             }
-            if (stackDepth == stackState.depth) {
-                return stackState.state;
+            if (stackDepth == stackState.getDepth()) {
+                return stackState.getState();
             }
         }
         // Did not find any stack state for us.
@@ -265,13 +293,13 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
     }
 
     @Override
-    protected MatsTrace_DefaultJson clone() {
-        MatsTrace_DefaultJson cloned;
+    protected MatsTraceImpl clone() {
+        MatsTraceImpl cloned;
         try {
-            cloned = (MatsTrace_DefaultJson) super.clone();
-            cloned.calls = new ArrayList<>(calls); // Call are immutable
-            cloned.stackStates = new ArrayList<>(stackStates); // StackStaces are immutable
-            cloned.traceProps = new LinkedHashMap<>(traceProps); // TraceProps are immutable (just Strings)
+            cloned = (MatsTraceImpl) super.clone();
+            cloned.c = new ArrayList<>(c); // Call are immutable.
+            cloned.ss = new ArrayList<>(ss); // StackStaces are immutable.
+            cloned.tp = new LinkedHashMap<>(tp); // TraceProps are immutable.
             return cloned;
         }
         catch (CloneNotSupportedException e) {
@@ -283,39 +311,39 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
      * Represents an entry in the {@link MatsTrace}.
      */
     public static class CallImpl implements Call<String> {
-        private final CallType type;
+        private final CallType t;  // type.
 
-        private final String from;
+        private final String f;  // from.
 
-        private final String to;
+        private final String to;  // to.
 
-        private final String data;
+        private final String d;  // data.
 
-        private final List<String> stack;
+        private final List<String> s;  // stack.
 
         // Jackson JSON-lib needs a default constructor, but it can re-set finals.
         private CallImpl() {
-            this.type = null;
-            this.from = null;
+            this.t = null;
+            this.f = null;
             this.to = null;
-            this.data = null;
-            this.stack = null;
+            this.d = null;
+            this.s = null;
         }
 
         CallImpl(CallType type, String from, String to, String data, List<String> stack) {
-            this.type = type;
-            this.from = from;
+            this.t = type;
+            this.f = from;
             this.to = to;
-            this.data = data;
-            this.stack = stack;
+            this.d = data;
+            this.s = stack;
         }
 
         public CallType getType() {
-            return type;
+            return t;
         }
 
         public String getFrom() {
-            return from;
+            return f;
         }
 
         public String getTo() {
@@ -323,67 +351,66 @@ public class MatsTrace_DefaultJson implements MatsTrace<String>, Cloneable {
         }
 
         public String getData() {
-            return data;
+            return d;
         }
 
         /**
          * @return a COPY of the stack.
          */
         public List<String> getStack() {
-            return new ArrayList<>(stack);
+            return new ArrayList<>(s);
         }
 
         @Override
         public String toString() {
-            return new String(new char[stack.size()]).replace("\0", ": ") + type
-                    + " #to:" + to + ", #from:" + from
-                    + ", #data:" + data + ", #stack:" + stack;
+            return new String(new char[s.size()]).replace("\0", ": ") + t
+                    + " #from:" + f + ", #to:" + to
+                    + ", #data:" + d + ", #stack:" + s;
         }
     }
 
     public static class StackState {
-        private final int depth;
-        private final String state;
+        private final int d;   // depth.
+        private final String s;   // state.
 
         // Jackson JSON-lib needs a default constructor, but it can re-set finals.
         private StackState() {
-            depth = 0;
-            state = null;
+            d = 0;
+            s = null;
         }
 
         public StackState(int depth, String state) {
-            this.depth = depth;
-            this.state = state;
+            this.d = depth;
+            this.s = state;
         }
 
         public int getDepth() {
-            return depth;
+            return d;
         }
 
         public String getState() {
-            return state;
+            return s;
         }
 
         @Override
         public String toString() {
-            return "depth=" + depth + ",state=" + state;
+            return "depth=" + d + ",state=" + s;
         }
     }
 
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder();
-        buf.append("MatsTrace [").append("traceId=").append(traceId).append("]\n");
+        buf.append("MatsTrace [").append("traceId=").append(tid).append("]\n");
         buf.append(" calls:\n");
         buf.append("   i [Initiator]\n");
-        for (int i = 0; i < calls.size(); i++) {
-            buf.append("   ").append(i).append(' ').append(calls.get(i)).append("\n");
+        for (int i = 0; i < c.size(); i++) {
+            buf.append("   ").append(i).append(' ').append(c.get(i)).append("\n");
         }
         buf.append(" states:\n");
-        for (int i = 0; i < stackStates.size(); i++) {
-            buf.append("   ").append(i).append(' ').append(stackStates.get(i)).append("\n");
+        for (int i = 0; i < ss.size(); i++) {
+            buf.append("   ").append(i).append(' ').append(ss.get(i)).append("\n");
         }
         return buf.toString();
     }
-
 }

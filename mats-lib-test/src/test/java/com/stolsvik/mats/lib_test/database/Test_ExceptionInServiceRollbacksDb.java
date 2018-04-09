@@ -6,7 +6,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsDbTest;
 import com.stolsvik.mats.lib_test.StateTO;

@@ -1,4 +1,4 @@
-package com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.json;
+package com.stolsvik.mats.serial.json;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -10,8 +10,8 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsTrace;
 
 /**
  * Implementation of {@link MatsSerializer} that employs <a href="https://github.com/FasterXML/jackson">Jackson
@@ -22,6 +22,8 @@ import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
  * directly ("serialized as-is"), while when deserialized and the requested class is String, the supplied "json" String
  * argument is returned directly. This enables an endpoint to receive any type of value if it specifies String.class as
  * expected DTO, as it'll just get the JSON document itself - and thus effectively acts as a Java method taking Object.
+ * (Also note that the ordinary serialization process for JSON also directly returns the toString()'ed values of any
+ * {@link Number} or {@link Boolean}.)
  * <p>
  * The Jackson ObjectMapper is configured to only handle fields (think "data struct"), i.e. not use setters or getters,
  * and upon deserialization to ignore properties from the JSON that has no field in the class to be deserialized into
@@ -36,6 +38,7 @@ import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
+@SuppressWarnings("PMD")
 public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
 
     private final ObjectMapper _objectMapper;
@@ -47,14 +50,14 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
         mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
         mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        _matsTraceJson_Reader = mapper.readerFor(MatsTrace_DefaultJson.class);
-        _matsTraceJson_Writer = mapper.writerFor(MatsTrace_DefaultJson.class);
+        _matsTraceJson_Reader = mapper.readerFor(MatsTraceImpl.class);
+        _matsTraceJson_Writer = mapper.writerFor(MatsTraceImpl.class);
         _objectMapper = mapper;
     }
 
     @Override
-    public MatsTrace<String> createNewMatsTrace(String traceId) {
-        return MatsTrace_DefaultJson.createNew(traceId);
+    public MatsTrace<String> createNewMatsTrace(String traceId, boolean keepTrace, boolean nonPersistent, boolean interactive) {
+        return MatsTraceImpl.createNew(traceId, keepTrace, nonPersistent, interactive);
     }
 
     @Override

@@ -13,9 +13,9 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsSerializer;
 
 public interface JmsMatsStatics {
 

@@ -17,3 +17,4 @@ kahadb/
 
 # H2 test database
 matsTestH2DB.mv.db
+/mats.iml

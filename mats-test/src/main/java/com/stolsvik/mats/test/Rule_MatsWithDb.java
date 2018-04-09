@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsSerializer;
 
 /**
  * Provides a H2 Database DataSource, and a

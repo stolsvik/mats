@@ -10,10 +10,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsSerializer;
 
 class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsInitiator.class);
@@ -80,6 +80,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         }
 
         private String _traceId;
+        private boolean _keepTace;
+        private boolean _nonPersistent;
+        private boolean _interactive;
         private String _from;
         private String _to;
         private String _replyTo;
@@ -91,6 +94,24 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         public MatsInitiate traceId(String traceId) {
             // ?: If we're an initiation from within a stage, append the traceId to the existing traceId, else set.
             _traceId = (_existingTraceId != null ? _existingTraceId + '|' + traceId : traceId);
+            return this;
+        }
+
+        @Override
+        public MatsInitiate keepTrace() {
+            _keepTace = true;
+            return this;
+        }
+
+        @Override
+        public MatsInitiate nonPersistent() {
+            _nonPersistent = true;
+            return this;
+        }
+
+        @Override
+        public MatsInitiate interactive() {
+            _interactive = true;
             return this;
         }
 
@@ -143,9 +164,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
                 throw new NullPointerException(msg + ": Missing 'replyTo'.");
             }
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
-            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId).addRequestCall(_from, _to,
-                    ser.serializeObject(requestDto), Collections.singletonList(_replyTo),
-                    ser.serializeObject(replySto), ser.serializeObject(requestSto));
+            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
+                    .addRequestCall(_from, _to, ser.serializeObject(requestDto), Collections.singletonList(_replyTo),
+                            ser.serializeObject(replySto), ser.serializeObject(requestSto));
 
             sendMatsMessage(log, _jmsSession, _parentFactory, true, matsTrace, _props, _binaries, _strings, _to,
                     "new REQUEST");
@@ -160,8 +181,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         public void send(Object messageDto, Object requestSto) {
             checkCommon("All of 'traceId', 'from' and 'to' must be set when send(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
-            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId).addSendCall(_from, _to,
-                    ser.serializeObject(messageDto), Collections.emptyList(), ser.serializeObject(requestSto));
+            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
+                    .addSendCall(_from, _to, ser.serializeObject(messageDto), Collections.emptyList(),
+                            ser.serializeObject(requestSto));
 
             sendMatsMessage(log, _jmsSession, _parentFactory, true, matsTrace, _props, _binaries, _strings, _to,
                     "new SEND");
@@ -176,8 +198,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         public void publish(Object messageDto, Object requestSto) {
             checkCommon("All of 'traceId', 'from' and 'to' must be set when publish(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
-            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId).addSendCall(_from, _to,
-                    ser.serializeObject(messageDto), Collections.emptyList(), ser.serializeObject(requestSto));
+            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
+                    .addSendCall(_from, _to, ser.serializeObject(messageDto), Collections.emptyList(),
+                            ser.serializeObject(requestSto));
 
             sendMatsMessage(log, _jmsSession, _parentFactory, false, matsTrace, _props, _binaries, _strings, _to,
                     "new PUBLISH");

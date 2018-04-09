@@ -69,6 +69,59 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate traceId(String traceId);
 
         /**
+         * <b>Debugging feature:</b> Hint to the underlying implementation that it would be cool if all the calls in
+         * this flow was kept, i.e. that the final reply to the Terminator would contain all the calls that the flow
+         * had been through - otherwise only the needed "stack frames" will be kept, meaning that at the Terminator,
+         * only the very last Reply (the call to the Terminator itself) would be present.
+         * <p>
+         * <b>This is solely meant for debugging.</b> The resulting kept trace would typically be visible in a
+         * "toString()" of the {@link ProcessContext}.
+         *
+         * @return the {@link MatsInitiate} for chaining.
+         */
+        MatsInitiate keepTrace();
+
+        /**
+         * Hint to the underlying implementation that it does not matter that much if this message is lost. The
+         * implication is that the messages that this flow consist of are unreliable - typically, if the MQ broker
+         * is restarted, any outstanding "non persistent" messages are lost. (Also, some backends will loose the
+         * Dead Letter Queue (DLQ) functionality when this is used, where a ordinary persistent message would be DLQed
+         * if it failed to be delivered to an endpoint. This can severely impact monitoring and to a degree debugging.)
+         * <p>
+         * This is only usable for "pure GET"-style requests <i>without any state changes along the flow</i>,
+         * i.e. "AccountService.getBalances", for display to an end user. If such a message is lost, the world won't
+         * go under.
+         * <p>
+         * The upshot here is that non-persistent messaging typically is blazingly fast, as the messages will not have
+         * to (transactionally) be stored in non-volatile storage. It is therefore wise to actually employ this feature
+         * where it makes sense.
+         *
+         * @return the {@link MatsInitiate} for chaining.
+         */
+        MatsInitiate nonPersistent();
+
+        /**
+         * Hint to the underlying implementation that a human is actually waiting for the result of a request, and that
+         * the flow therefore should be prioritized. This status will be kept through the entire flow, so that all
+         * messages in the flow are prioritized. This makes it possible to use the same "AccountService.getBalances"
+         * service both for the Web Application that users are employing, and the batch processing of a ton of orders.
+         * Without such a feature, the interactive usage could be backlogged by the batch process, while if the
+         * interactive flag is set, it will bypass the backlog of "ordinary" messages.
+         * <p>
+         * This implies that MATS defines two levels of prioritization: "Ordinary" and "Interactive". Most processing
+         * should employ the default, i.e. "Ordinary", while places where a human is actually waiting for the reply
+         * should employ the fast-lane, i.e. "Interactive". It is important here to not abuse this feature, or else
+         * it will loose its value: If any batches are going to slow, nothing will be gained by setting the interactive
+         * flag - instead use higher parallelism, by increasing {@link MatsConfig#setConcurrency(int) concurrency}
+         * or the number of nodes running the endpoint.
+         * <p>
+         * It will often make sense to set both this flag, and the {@link #nonPersistent()}, at the same time.
+         *
+         * @return the {@link MatsInitiate} for chaining.
+         */
+        MatsInitiate interactive();
+
+        /**
          * Overrides the Initiator Id that was set either with {@link MatsFactory#getInitiator(String)}, or implicitly
          * by the Endpoint (stage) Id from which {@link ProcessContext#initiate(InitiateLambda)} was invoked.
          *

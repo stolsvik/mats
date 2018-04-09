@@ -13,10 +13,10 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsSerializer;
 
 /**
  * The JMS MATS implementation of {@link ProcessContext}. Instantiated for each incoming JMS message that is processed,
@@ -145,17 +145,17 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                     + " on the stack, hence no one to reply to. Dropping message.");
             return;
         }
-        String replyToEndpointId = stack.remove(0);
+        String replyToStageId = stack.remove(0);
 
         // :: Create next MatsTrace
         MatsSerializer<Z> matsSerializer = _matsStage
                 .getParentEndpoint().getParentFactory().getMatsSerializer();
-        MatsTrace<Z> replyMatsTrace = _matsTrace.addReplyCall(_matsStage.getStageId(), replyToEndpointId,
+        MatsTrace<Z> replyMatsTrace = _matsTrace.addReplyCall(_matsStage.getStageId(), replyToStageId,
                 matsSerializer.serializeObject(replyDto), stack);
 
         // Pack it off
         sendMatsMessage(log, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, replyMatsTrace,
-                _props, _binaries, _strings, replyToEndpointId, "REPLY");
+                _props, _binaries, _strings, replyToStageId, "REPLY");
     }
 
     @Override

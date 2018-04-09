@@ -1,8 +1,13 @@
 // mats-impl-jms
 
 dependencies {
+    // This project is the JMS implements the MATS API.
     compile project(":mats-lib")
-    compile project(":mats-impl-serial")
+
+    // The JMS implementation of MATS relies on the MatsTrace and MatsSerializer "implementation utility".
+    compile project(":mats-serial")
+
+    // Dep on mats-util to set the SQL Connection factory into the MatsTxSqlConnection..
     compile project(":mats-util")
 
     // JMS spec 1.1-rev-1

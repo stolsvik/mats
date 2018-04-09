@@ -15,7 +15,7 @@ import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage.StageConfig;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsConnectionSupplier;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
-import com.stolsvik.mats.util.com.stolsvik.mats.impl.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsSerializer;
 
 public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 

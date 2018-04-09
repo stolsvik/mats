@@ -1,5 +1,5 @@
-include 'mats-lib', 'mats-util', 'mats-test', 'mats-lib-test',
-        'mats-impl-jms', 'mats-impl-serial',
+include 'mats-lib', 'mats-serial', 'mats-util', 'mats-test', 'mats-lib-test',
+        'mats-impl-jms', 'mats-serial-json',
         'mats-spring', 'mats-spring-test',
         'mats-amq', 'mats-amq-monitor'
 
