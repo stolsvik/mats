@@ -77,8 +77,8 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
         _initiator.initiate((msg) -> msg.traceId(randomId())
                 .from(INITIATOR)
                 .to(SERVICE)
-                .replyTo(TERMINATOR + ".SubDataTO")
-                .request(dto, sto));
+                .replyTo(TERMINATOR + ".SubDataTO", sto)
+                .request(dto));
 
         // Wait synchronously for terminator to finish.
         Result<StateTO, SubDataTO> result = matsTestLatch.waitForResult();
@@ -95,8 +95,8 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
         _initiator.initiate((msg) -> msg.traceId(randomId())
                 .from(INITIATOR)
                 .to(SERVICE)
-                .replyTo(TERMINATOR + ".DataTO")
-                .request(dto, sto));
+                .replyTo(TERMINATOR + ".DataTO", sto)
+                .request(dto));
 
         // Wait synchronously for terminator to finish.
         Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
@@ -112,8 +112,8 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
         _initiator.initiate((msg) -> msg.traceId(randomId())
                 .from(INITIATOR)
                 .to(SERVICE)
-                .replyTo(TERMINATOR + ".SubDataTO")
-                .request(dto, sto));
+                .replyTo(TERMINATOR + ".SubDataTO", sto)
+                .request(dto));
 
         // Wait synchronously for terminator to finish.
         Result<SubDataTO, StateTO> result = matsTestLatch.waitForResult();

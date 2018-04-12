@@ -70,7 +70,7 @@ public @interface MatsTestContext {
     @Configuration
     @EnableMats
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    public static class MatsTestInfrastructureConfiguration {
+    class MatsTestInfrastructureConfiguration {
 
         @Bean(destroyMethod = "after")
         protected Rule_Mats rule_Mats() throws Throwable {
@@ -100,7 +100,7 @@ public @interface MatsTestContext {
      * default {@literal @Configuration} lookup is thwarted, i.e. if you specify classes= or location=, it will not find
      * the typical static inner class annotated with {@literal @Configuration}.
      */
-    public static class MatsTestInfrastructureContextInitializer implements
+    class MatsTestInfrastructureContextInitializer implements
             ApplicationContextInitializer<ConfigurableApplicationContext> {
         // Use clogging, since that's what Spring does.
         private static final Log log = LogFactory.getLog(MatsTestInfrastructureContextInitializer.class);

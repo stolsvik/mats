@@ -86,6 +86,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         private String _from;
         private String _to;
         private String _replyTo;
+        private Object _replySto;
         private final LinkedHashMap<String, Object> _props = new LinkedHashMap<>();
         private final LinkedHashMap<String, byte[]> _binaries = new LinkedHashMap<>();
         private final LinkedHashMap<String, String> _strings = new LinkedHashMap<>();
@@ -128,8 +129,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         }
 
         @Override
-        public MatsInitiate replyTo(String endpointId) {
+        public MatsInitiate replyTo(String endpointId, Object replySto) {
             _replyTo = endpointId;
+            _replySto = replySto;
             return this;
         }
 
@@ -152,12 +154,12 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         }
 
         @Override
-        public void request(Object requestDto, Object replySto) {
-            request(requestDto, replySto, null);
+        public void request(Object requestDto) {
+            request(requestDto, null);
         }
 
         @Override
-        public void request(Object requestDto, Object replySto, Object requestSto) {
+        public void request(Object requestDto, Object initialTargetSto) {
             String msg = "All of 'traceId', 'from', 'to' and 'replyTo' must be set when request(..)";
             checkCommon(msg);
             if (_replyTo == null) {
@@ -166,7 +168,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
                     .addRequestCall(_from, _to, ser.serializeObject(requestDto), Collections.singletonList(_replyTo),
-                            ser.serializeObject(replySto), ser.serializeObject(requestSto));
+                            ser.serializeObject(_replySto), ser.serializeObject(initialTargetSto));
 
             sendMatsMessage(log, _jmsSession, _parentFactory, true, matsTrace, _props, _binaries, _strings, _to,
                     "new REQUEST");
@@ -178,12 +180,12 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         }
 
         @Override
-        public void send(Object messageDto, Object requestSto) {
+        public void send(Object messageDto, Object initialTargetSto) {
             checkCommon("All of 'traceId', 'from' and 'to' must be set when send(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
                     .addSendCall(_from, _to, ser.serializeObject(messageDto), Collections.emptyList(),
-                            ser.serializeObject(requestSto));
+                            ser.serializeObject(initialTargetSto));
 
             sendMatsMessage(log, _jmsSession, _parentFactory, true, matsTrace, _props, _binaries, _strings, _to,
                     "new SEND");
@@ -195,12 +197,12 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         }
 
         @Override
-        public void publish(Object messageDto, Object requestSto) {
+        public void publish(Object messageDto, Object initialTargetSto) {
             checkCommon("All of 'traceId', 'from' and 'to' must be set when publish(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
                     .addSendCall(_from, _to, ser.serializeObject(messageDto), Collections.emptyList(),
-                            ser.serializeObject(requestSto));
+                            ser.serializeObject(initialTargetSto));
 
             sendMatsMessage(log, _jmsSession, _parentFactory, false, matsTrace, _props, _binaries, _strings, _to,
                     "new PUBLISH");

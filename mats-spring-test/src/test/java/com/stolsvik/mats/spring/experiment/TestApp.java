@@ -34,8 +34,8 @@ public class TestApp {
                 msg -> msg.traceId("TraceId")
                         .from("FromId")
                         .to(TestMatsEndpoint.ENDPOINT_ID + ".SingleWithState")
-                        .replyTo(TestMatsEndpoint.ENDPOINT_ID + ".Terminator")
-                        .request(dto, sto, requstSto));
+                        .replyTo(TestMatsEndpoint.ENDPOINT_ID + ".Terminator", sto)
+                        .request(dto, requstSto));
 
         Result<SpringTestDataTO, SpringTestStateTO> result = _testBean._latch.waitForResult();
         System.out.println("Reply: " + result.getData());

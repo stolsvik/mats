@@ -58,8 +58,8 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE + MATCH_TYPES)
-                        .replyTo(TERMINATOR)
-                        .request(dto, sto));
+                        .replyTo(TERMINATOR, sto)
+                        .request(dto));
 
         // Wait synchronously for terminator to finish.
         Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
@@ -75,8 +75,8 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE + WIDE_TYPES)
-                        .replyTo(TERMINATOR)
-                        .request(dto, sto));
+                        .replyTo(TERMINATOR, sto)
+                        .request(dto));
 
         // Wait synchronously for terminator to finish.
         Result<SubDataTO, StateTO> result = matsTestLatch.waitForResult();

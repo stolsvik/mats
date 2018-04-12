@@ -79,10 +79,10 @@ public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)
-                        .replyTo(TERMINATOR)
+                        .replyTo(TERMINATOR, sto)
                         .addBytes("bytes", bytes)
                         .addString("string", string)
-                        .request(dto, sto));
+                        .request(dto));
 
         // Wait synchronously for terminator to finish.
         Result<DataTO, StateTO> result = matsTestLatch.waitForResult();

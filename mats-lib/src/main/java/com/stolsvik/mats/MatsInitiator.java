@@ -49,13 +49,31 @@ public interface MatsInitiator extends Closeable {
     interface MatsInitiate {
         /**
          * Sets (or appends with a "|" in case of {@link ProcessContext#initiate(InitiateLambda) initiation within a
-         * stage}) the "Trace Id", which is solely used for logging and debugging purposes.
+         * stage}) the supplied <i>Trace Id</i>, which is solely used for logging and debugging purposes. It should be
+         * unique, at least to a degree where it is <u>very</u> unlikely that you will have two identical traceIds
+         * within a couple of years.
          * <p>
-         * Since it is so important when doing asynchronous architectures, it is mandatory.
+         * Since this is very important when doing distributed (and asynchronous) architectures, it is mandatory.
          * <p>
          * The traceId follows a MATS processing from the initiation until it is finished, usually in a Terminator.
          * <p>
-         * It is set on the {@link MDC} of the SLF4J logging system, using the key "matsTraceId".
+         * It is highly suggested to use small, dense, information rich Trace Ids. Sticking in an UUID as Trace Id
+         * certainly fulfils the uniqueness-requirement, but it is a crappy solution, as it by itself does not give any
+         * hint of source, cause, relevant entities, or goal. <i>(It isn't even dense for the uniqueness an UUID gives,
+         * which also is way above the required uniqueness unless you handle billions of such messages per minute.
+         * A random alphanum (a-z,0-9) and much smaller string would give plenty enough uniqueness).</i>
+         *
+         * The following would be a much better Trace Id, which follows some scheme that could be system wide:
+         * "Web.placeOrder[cid:43512][cart:xa4ru5285fej]qz7apy9". From this example TraceId we could infer that it
+         * originated at the <i>Web system</i>, it regards <i>Placing an order</i> for <i>Customer Id 43512</i>, it
+         * regards the <i>Shopping Cart Id xa4ru5285fej</i>, and it contains some uniqueness ('qz7apy9') generated at
+         * the origination, so that even if the customer managed to click three times on the "place order" button for
+         * the same cart, you would still be able to separate the resulting three different Mats call flows.
+         * <p>
+         * (For the default implementation "JMS Mats", the Trace Id is set on the {@link MDC} of the SLF4J logging
+         * system, using the key "traceId". Since this implementation logs a few lines per handled message, in
+         * addition to any log lines you emit yourself, you would, by collecting the log lines in a common log system
+         * (e.g. the ELK stack), be able to follow the processing trace through all the services the call flow passed.)
          *
          * @param traceId
          *            some world-unique Id, preferably set all the way back when some actual person performed some event
@@ -113,7 +131,7 @@ public interface MatsInitiator extends Closeable {
          * should employ the fast-lane, i.e. "Interactive". It is important here to not abuse this feature, or else
          * it will loose its value: If any batches are going to slow, nothing will be gained by setting the interactive
          * flag - instead use higher parallelism, by increasing {@link MatsConfig#setConcurrency(int) concurrency}
-         * or the number of nodes running the endpoint.
+         * or the number of nodes running the problematic endpoint or stage (or just code it to be faster!).
          * <p>
          * It will often make sense to set both this flag, and the {@link #nonPersistent()}, at the same time.
          *
@@ -145,12 +163,14 @@ public interface MatsInitiator extends Closeable {
          *
          * @param endpointId
          *            which MATS Endpoint the reply of the invoked Endpoint should go to.
+         * @param replySto
+         *            the object that should be provided as STO to the service which get the reply.
          * @return the {@link MatsInitiate} for chaining.
          */
-        MatsInitiate replyTo(String endpointId);
+        MatsInitiate replyTo(String endpointId, Object replySto);
 
         /**
-         * Adds a property that will "stick" with the {@link MatsTrace} from this call on out. Read more on
+         * Adds a property that will "stick" with the call flow from this call on out. Read more on
          * {@link ProcessContext#setTraceProperty(String, Object)}.
          *
          * @param propertyName
@@ -196,10 +216,8 @@ public interface MatsInitiator extends Closeable {
          *
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
-         * @param replySto
-         *            the object that should be provided as STO to the service which get the reply.
          */
-        void request(Object requestDto, Object replySto);
+        void request(Object requestDto);
 
         /**
          * <b>Variation of the request initiation method</b>, where the incoming state is sent along.
@@ -210,13 +228,11 @@ public interface MatsInitiator extends Closeable {
          * is private to the stages of a multi-stage endpoint, and the Request and Reply DTOs are the public interface.
          *
          * @param requestDto
-         *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
-         * @param replySto
-         *            the object that should be provided as STO to the service which get the reply.
-         * @param requestSto
-         *            the object which the endpoint will get as its STO (State Transfer Object).
+         *            the object which the target endpoint will get as its incoming DTO (Data Transfer Object).
+         * @param initialTargetSto
+         *            the object which the target endpoint will get as its STO (State Transfer Object).
          */
-        void request(Object requestDto, Object replySto, Object requestSto);
+        void request(Object requestDto, Object initialTargetSto);
 
         /**
          * Sends a message to an endpoint, without expecting any reply ("fire-and-forget"). The 'reply' parameter must
@@ -226,7 +242,7 @@ public interface MatsInitiator extends Closeable {
          * mechanism is exactly the same.
          *
          * @param messageDto
-         *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
+         *            the object which the target endpoint will get as its incoming DTO (Data Transfer Object).
          */
         void send(Object messageDto);
 
@@ -239,11 +255,11 @@ public interface MatsInitiator extends Closeable {
          * is private to the stages of a multi-stage endpoint, and the Request and Reply DTOs are the public interface.
          *
          * @param messageDto
-         *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
-         * @param requestSto
-         *            the object which the endpoint will get as its STO (State Transfer Object).
+         *            the object which the target endpoint will get as its incoming DTO (Data Transfer Object).
+         * @param initialTargetSto
+         *            the object which the target endpoint will get as its STO (State Transfer Object).
          */
-        void send(Object messageDto, Object requestSto);
+        void send(Object messageDto, Object initialTargetSto);
 
         /**
          * Sends a message to a
@@ -260,7 +276,7 @@ public interface MatsInitiator extends Closeable {
          * services makes no sense.
          *
          * @param messageDto
-         *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
+         *            the object which the target endpoint will get as its incoming DTO (Data Transfer Object).
          */
         void publish(Object messageDto);
 
@@ -280,10 +296,10 @@ public interface MatsInitiator extends Closeable {
          * invalidated.
          *
          * @param messageDto
-         *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
-         * @param requestSto
-         *            the object which the endpoint will get as its STO (State Transfer Object).
+         *            the object which the target endpoint will get as its incoming DTO (Data Transfer Object).
+         * @param initialTargetSto
+         *            the object which the target endpoint will get as its STO (State Transfer Object).
          */
-        void publish(Object messageDto, Object requestSto);
+        void publish(Object messageDto, Object initialTargetSto);
     }
 }

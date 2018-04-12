@@ -60,8 +60,8 @@ public class ATest_AbstractConcurrency extends MatsBasicTest {
                 msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)
-                        .replyTo(TERMINATOR)
-                        .request(dto, sto);
+                        .replyTo(TERMINATOR, sto)
+                        .request(dto);
             }
         });
 

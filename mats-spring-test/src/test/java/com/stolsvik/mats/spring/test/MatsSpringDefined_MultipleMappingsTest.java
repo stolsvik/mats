@@ -68,8 +68,8 @@ public class MatsSpringDefined_MultipleMappingsTest {
             init.traceId("test_trace_id:" + Math.random())
                     .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + SINGLE1)
-                    .replyTo(ENDPOINT_ID + TERMINATOR1)
-                    .request(dto, sto);
+                    .replyTo(ENDPOINT_ID + TERMINATOR1, sto)
+                    .request(dto);
         });
 
         Result<SpringTestDataTO, SpringTestStateTO> result = _latch.waitForResult();
@@ -86,8 +86,8 @@ public class MatsSpringDefined_MultipleMappingsTest {
             init.traceId("test_trace_id:" + Math.random())
                     .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + SINGLE2)
-                    .replyTo(ENDPOINT_ID + TERMINATOR2)
-                    .request(dto, sto);
+                    .replyTo(ENDPOINT_ID + TERMINATOR2, sto)
+                    .request(dto);
         });
 
         Result<SpringTestDataTO, SpringTestStateTO> result = _latch.waitForResult();

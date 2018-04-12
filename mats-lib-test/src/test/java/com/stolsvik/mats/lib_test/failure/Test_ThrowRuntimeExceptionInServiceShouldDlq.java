@@ -40,8 +40,8 @@ public class Test_ThrowRuntimeExceptionInServiceShouldDlq extends MatsDbTest {
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)
-                        .replyTo(TERMINATOR)
-                        .request(dto, sto));
+                        .replyTo(TERMINATOR, sto)
+                        .request(dto));
 
         // Wait for the DLQ
         MatsTrace dlqMatsTrace = matsRule.getDlqMessage(SERVICE);

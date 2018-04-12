@@ -49,14 +49,14 @@ public interface MatsFactory extends StartStoppable {
      * incoming (typically request) DTO, while any subsequent stage is invoked when the service that the previous stage
      * sent a request to, replies.
      * <p>
-     * Unless the state object was sent along with the {@link MatsInitiate#request(Object , Object , Object) request} or
+     * Unless the state object was sent along with the {@link MatsInitiate#request(Object, Object) request} or
      * {@link MatsInitiate#send(Object, Object) send}, the first stage will get a newly constructed empty state
      * instance, while the subsequent stages will get the state instance in the form it was left in the previous stage.
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to
-     *            get the message.
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
+     *            endpoint to get the message.
      * @param stateClass
      *            the class of the State DTO that will be sent along the stages.
      * @param replyClass
@@ -83,8 +83,8 @@ public interface MatsFactory extends StartStoppable {
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to
-     *            get the message.
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
+     *            endpoint to get the message.
      * @param incomingClass
      *            the class of the incoming (typically request) DTO.
      * @param replyClass
@@ -122,8 +122,8 @@ public interface MatsFactory extends StartStoppable {
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to
-     *            get the message.
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
+     *            endpoint to get the message.
      * @param incomingClass
      *            the class of the incoming (typically reply) DTO.
      * @param stateClass
@@ -163,8 +163,8 @@ public interface MatsFactory extends StartStoppable {
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
-     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String)} methods for this endpoint to
-     *            get the message.
+     *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
+     *            endpoint to get the message.
      * @param incomingClass
      *            the class of the incoming (typically reply) DTO.
      * @param stateClass
@@ -232,7 +232,7 @@ public interface MatsFactory extends StartStoppable {
         FactoryConfig setConcurrency(int concurrency);
 
         /**
-         * @return the suggested key on which to store the {@link MatsTrace} if the underlying mechanism uses a Map,
+         * @return the suggested key on which to store the "wire representation" if the underlying mechanism uses a Map,
          *         e.g. a {@code MapMessage} of JMS. Defaults to <code>"mats:trace"</code>.
          */
         default String getMatsTraceKey() {

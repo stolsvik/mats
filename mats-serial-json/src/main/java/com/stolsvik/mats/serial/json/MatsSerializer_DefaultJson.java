@@ -38,7 +38,6 @@ import com.stolsvik.mats.serial.MatsTrace;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-@SuppressWarnings("PMD")
 public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
 
     private final ObjectMapper _objectMapper;

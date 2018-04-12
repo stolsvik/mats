@@ -24,7 +24,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class Test_MatsTraceProperties extends MatsBasicTest {
+public class Test_TraceProperties extends MatsBasicTest {
     private String _stringProp_service;
     private DataTO _objectProp_service;
     private String _objectPropAsString_service;
@@ -76,10 +76,10 @@ public class Test_MatsTraceProperties extends MatsBasicTest {
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)
-                        .replyTo(TERMINATOR)
+                        .replyTo(TERMINATOR, sto)
                         .setTraceProperty("objectProp", new DataTO(Math.E, "abc"))
                         .setTraceProperty("stringProp", "xyz")
-                        .request(dto, sto));
+                        .request(dto));
 
         // Wait synchronously for terminator to finish.
         Result<DataTO, StateTO> result = matsTestLatch.waitForResult();

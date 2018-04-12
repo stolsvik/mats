@@ -66,8 +66,8 @@ public class Test_ServiceInvokedWithDifferentClass extends MatsBasicTest {
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)
-                        .replyTo(TERMINATOR)
-                        .request(dto, sto));
+                        .replyTo(TERMINATOR, sto)
+                        .request(dto));
 
         // Wait synchronously for terminator to finish.
         Result<SubDataTO, StateTO> result = matsTestLatch.waitForResult();

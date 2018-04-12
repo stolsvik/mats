@@ -141,8 +141,8 @@ public class MatsSpringDefined_StagedEndpoint {
             init.traceId("test_trace_id:" + Math.random())
                     .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + MULTI)
-                    .replyTo(ENDPOINT_ID + TERMINATOR)
-                    .request(dto, sto);
+                    .replyTo(ENDPOINT_ID + TERMINATOR, sto)
+                    .request(dto);
         });
 
         Result<SpringTestDataTO, SpringTestStateTO> result = _latch.waitForResult();
@@ -159,8 +159,8 @@ public class MatsSpringDefined_StagedEndpoint {
             init.traceId("test_trace_id:" + Math.random())
                     .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + MULTI_WITH_CONFIG)
-                    .replyTo(ENDPOINT_ID + TERMINATOR)
-                    .request(dto, sto);
+                    .replyTo(ENDPOINT_ID + TERMINATOR, sto)
+                    .request(dto);
         });
 
         Result<SpringTestDataTO, SpringTestStateTO> result = _latch.waitForResult();

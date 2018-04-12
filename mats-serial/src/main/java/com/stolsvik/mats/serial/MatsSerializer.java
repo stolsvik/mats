@@ -13,15 +13,12 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
  * <p>
  * It is worth pointing out that <i>all</i> the communicating parties needs to be using the same serialization
  * mechanism, as this constitute the "wire-representation" of the protocol that {@link MatsTrace} represents.
- * <p>
- * One can envision the protocol being serialized in a binary fashion, getting much smaller wire representations.
  *
  * @param <Z>
  *            The type which STOs and DTOs are serialized into.
  *
  * @author Endre Stølsvik - 2015-07-22 - http://endre.stolsvik.com
  */
-@SuppressWarnings("PMD")
 public interface MatsSerializer<Z> {
     /**
      * Used when initiating a new MATS processing. Since the {@link MatsTrace} implementation is serialization mechanism
@@ -31,7 +28,7 @@ public interface MatsSerializer<Z> {
      *            the {@link MatsInitiate#traceId(String) Trace Id} of this MatsTrace.
      * @param keepTrace
      *            whether the MatsTrace should "keep trace", i.e. not used "compressed mode", i.e. whether all Calls and
-     *            States should be keep through the entire flow from initiation to terminator - default shall be
+     *            States should be kept through the entire flow from initiation to terminator - default shall be
      *            <code>false</code>. The only reason for why this exists is for debugging: The implementation cannot
      *            depend on this feature.
      * @param nonPersistent

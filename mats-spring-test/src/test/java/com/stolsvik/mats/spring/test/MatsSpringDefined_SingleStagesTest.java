@@ -193,12 +193,12 @@ public class MatsSpringDefined_SingleStagesTest {
                     init.traceId("test_trace_id" + epId)
                             .from("FromId" + epId)
                             .to(ENDPOINT_ID + epId)
-                            .replyTo(ENDPOINT_ID + TERMINATOR);
+                            .replyTo(ENDPOINT_ID + TERMINATOR, sto);
                     if (requestSto != null) {
-                        init.request(dto, sto, requestSto);
+                        init.request(dto, requestSto);
                     }
                     else {
-                        init.request(dto, sto);
+                        init.request(dto);
                     }
                 });
 

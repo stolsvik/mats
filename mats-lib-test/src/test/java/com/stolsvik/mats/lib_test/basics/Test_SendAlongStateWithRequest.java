@@ -44,18 +44,18 @@ public class Test_SendAlongStateWithRequest extends MatsBasicTest {
 
     @Test
     public void doTest() {
-        StateTO sto = new StateTO(420, 420.024);
-        DataTO dto = new DataTO(42, "TheAnswer");
+        StateTO initialTargetSto = new StateTO(420, 420.024);
+        DataTO requestDto = new DataTO(42, "TheAnswer");
         matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)
-                        .replyTo(TERMINATOR)
-                        .request(dto, null, sto));
+                        .replyTo(TERMINATOR, null) // TERMINATOR Will never be invoked..
+                        .request(requestDto, initialTargetSto));
 
         // Wait synchronously for terminator to finish.
         Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
-        Assert.assertEquals(dto, result.getData());
-        Assert.assertEquals(sto, result.getState());
+        Assert.assertEquals(requestDto, result.getData());
+        Assert.assertEquals(initialTargetSto, result.getState());
     }
 }

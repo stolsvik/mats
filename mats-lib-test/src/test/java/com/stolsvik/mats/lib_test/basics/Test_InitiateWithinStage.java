@@ -86,8 +86,8 @@ public class Test_InitiateWithinStage extends MatsBasicTest {
                     msg.traceId(randomId)
                             .from(INITIATOR)
                             .to(SERVICE)
-                            .replyTo(TERMINATOR)
-                            .request(dto, sto);
+                            .replyTo(TERMINATOR, sto)
+                            .request(dto);
                 });
 
         // :: Wait synchronously for all three terminators to finish.
