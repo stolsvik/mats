@@ -361,7 +361,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                 // :: Current State. If null, then make an empty object instead.
                                 Z currentSerializedState = matsTrace.getCurrentState();
                                 S currentSto = (currentSerializedState == null
-                                        ? newEmptyInstanceOf(_stateClass)
+                                        ? _matsJsonSerializer.newInstance(_stateClass)
                                         : _matsJsonSerializer.deserializeObject(currentSerializedState, _stateClass));
 
                                 // :: Incoming DTO
@@ -413,41 +413,6 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
             log.info(LOG_PREFIX + "Created JMS " + (_queue ? "Queue" : "Topic") + ""
                     + " to receive from: [" + destination + "].");
             return destination;
-        }
-    }
-
-
-    /**
-     * Creates an instance of the specified class - used to create State Transfer Objects (STOs) for the initial stage,
-     * which typically starts with "null" state (although it is possible to invoke an endpoint with specified state,
-     * this is definitely the exception rather than the rule).
-     *
-     * @param clazz the Class which should be instantiated
-     * @param <T> the type of the Class.
-     * @return a newly minted object of the specified class.
-     */
-    private static <T> T newEmptyInstanceOf(Class<T> clazz) throws MatsCannotCreateEmptyStoInstanceException {
-        Constructor<T> noArgsConstructor;
-        try {
-            noArgsConstructor = clazz.getDeclaredConstructor();
-        }
-        catch (NoSuchMethodException e) {
-            throw new MatsCannotCreateEmptyStoInstanceException("Missing no-args constructor on STO class ["
-                    + clazz.getName() + "].", e);
-        }
-        try {
-            noArgsConstructor.setAccessible(true);
-            return noArgsConstructor.newInstance();
-        }
-        catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
-            throw new MatsCannotCreateEmptyStoInstanceException("Couldn't create new empty instance of STO class ["
-                    + clazz.getName() + "].", e);
-        }
-    }
-
-    private static class MatsCannotCreateEmptyStoInstanceException extends MatsRefuseMessageException {
-        public MatsCannotCreateEmptyStoInstanceException(String message, Throwable cause) {
-            super(message, cause);
         }
     }
 

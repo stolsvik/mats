@@ -1,7 +1,6 @@
 // mats-util
 
 dependencies {
-    compile project(":mats-lib")
     compile project(":mats-serial")
 
     // Dependency on the Jackson JSON library, which is the serialization mechanism in use.

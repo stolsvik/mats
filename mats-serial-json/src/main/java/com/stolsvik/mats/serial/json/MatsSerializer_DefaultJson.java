@@ -1,6 +1,8 @@
 package com.stolsvik.mats.serial.json;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.Charset;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
@@ -65,7 +67,7 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
             return _matsTraceJson_Writer.writeValueAsBytes(matsTrace);
         }
         catch (JsonProcessingException e) {
-            throw new AssertionError("Couldn't serialize MatsTrace, which is crazy!\n" + matsTrace, e);
+            throw new SerializationException("Couldn't serialize MatsTrace, which is crazy!\n" + matsTrace, e);
         }
     }
 
@@ -77,7 +79,7 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
             return _matsTraceJson_Reader.readValue(jsonUtf8ByteArray);
         }
         catch (IOException e) {
-            throw new AssertionError("Couldn't deserialize MatsTrace from given JSON, which is crazy!\n"
+            throw new SerializationException("Couldn't deserialize MatsTrace from given JSON, which is crazy!\n"
                     + new String(jsonUtf8ByteArray, UTF8), e);
         }
     }
@@ -94,7 +96,7 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
             return _objectMapper.writeValueAsString(object);
         }
         catch (JsonProcessingException e) {
-            throw new AssertionError("Couldn't serialize Object [" + object + "].", e);
+            throw new SerializationException("Couldn't serialize Object [" + object + "].", e);
         }
     }
 
@@ -113,8 +115,34 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
             return _objectMapper.readValue(serialized, type);
         }
         catch (IOException e) {
-            throw new AssertionError("Couldn't deserialize JSON into object of type [" + type + "].\n"
+            throw new SerializationException("Couldn't deserialize JSON into object of type [" + type + "].\n"
                     + serialized, e);
+        }
+    }
+
+    @Override
+    public <T> T newInstance(Class<T> clazz) {
+        Constructor<T> noArgsConstructor;
+        try {
+            noArgsConstructor = clazz.getDeclaredConstructor();
+        }
+        catch (NoSuchMethodException e) {
+            throw new CannotCreateEmptyInstanceException("Missing no-args constructor on STO class ["
+                    + clazz.getName() + "].", e);
+        }
+        try {
+            noArgsConstructor.setAccessible(true);
+            return noArgsConstructor.newInstance();
+        }
+        catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
+            throw new CannotCreateEmptyInstanceException("Couldn't create new empty instance of STO class ["
+                    + clazz.getName() + "].", e);
+        }
+    }
+
+    private static class CannotCreateEmptyInstanceException extends SerializationException {
+        public CannotCreateEmptyInstanceException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 }

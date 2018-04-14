@@ -5,7 +5,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.serial.MatsTrace;
 
 /**
@@ -30,7 +29,6 @@ import com.stolsvik.mats.serial.MatsTrace;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-@SuppressWarnings("PMD")
 public final class MatsTraceImpl implements MatsTrace<String>, Cloneable {
     private final String tid;  // TraceId
 
@@ -44,7 +42,7 @@ public final class MatsTraceImpl implements MatsTrace<String>, Cloneable {
 
     private List<StackState> ss = new ArrayList<>(); // StackStates. Not final due to clone-impl.
 
-    private Map<String, String> tp = new LinkedHashMap<>(); // TracePros. Not final due to clone-impl.
+    private Map<String, String> tp = new LinkedHashMap<>(); // TraceProps. Not final due to clone-impl.
 
     public static MatsTrace<String> createNew(String traceId, boolean keepTrace, boolean nonpersistent,
                                               boolean interactive) {
@@ -95,7 +93,7 @@ public final class MatsTraceImpl implements MatsTrace<String>, Cloneable {
     }
 
     /**
-     * Sets a trace property, refer to {@link ProcessContext#setTraceProperty(String, Object)}. Notice that on the
+     * Sets a trace property, refer to <code>ProcessContext.setTraceProperty(String, Object)</code>. Notice that on the
      * MatsTrace-side, the value must be a String.
      *
      * @param propertyName
@@ -110,7 +108,8 @@ public final class MatsTraceImpl implements MatsTrace<String>, Cloneable {
 
     /**
      * Retrieves a property value set by {@link #setTraceProperty(String, String)}, refer to
-     * {@link ProcessContext#getTraceProperty(String, Class)}. Notice that on the MatsTrace-side, the value is a String.
+     * <code>ProcessContext.getTraceProperty(String, Class)</code>. Notice that on the MatsTrace-side, the value is a
+     * String.
      *
      * @param propertyName
      *            the name of the property to retrieve.

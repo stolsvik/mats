@@ -1,7 +1,5 @@
 package com.stolsvik.mats.serial;
 
-import com.stolsvik.mats.MatsFactory;
-
 import java.util.List;
 
 /**
