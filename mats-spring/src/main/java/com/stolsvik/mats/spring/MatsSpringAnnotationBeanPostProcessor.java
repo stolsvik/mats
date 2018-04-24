@@ -165,7 +165,7 @@ public class MatsSpringAnnotationBeanPostProcessor implements
 
         // :: Assert that the endpoint is not annotated with @Transactional
         // (Should probably also check whether it has gotten transactional AOP by XML, but who is stupid enough
-        // to use XML config in 2016?!)
+        // to use XML config in 2016?! Let alone 2018?!)
         Transactional transactionalAnnotation = AnnotationUtils.findAnnotation(method, Transactional.class);
         if (transactionalAnnotation != null) {
             throw new MatsSpringConfigException("The " + descString(matsMapping, method, bean)

@@ -36,7 +36,7 @@ public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
      */
     @Test(expected = TestRuntimeException.class)
     public void exceptionInInitiationShouldPropagateOut() {
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+        matsRule.getMatsFactory().getInitiator().initiate(
                 (msg) -> {
                     throw new TestRuntimeException("Should propagate all the way out.");
                 });
@@ -62,19 +62,20 @@ public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
         // Wait synchronously for terminator to finish.
         try {
             matsTestLatch.waitForResult(WAIT_MILLIS);
-            Assert.fail("Should NOT have gotten message!");
         }
+        // NOTE! The MatsTestLatch throws AssertionError when the wait time overruns.
         catch (AssertionError e) {
             // Good that we came here! - we should NOT receive the message on the Terminator, due to init Exception.
             log.info("We as expected dit NOT get the message that was sent in the initiator!");
             return;
         }
+        Assert.fail("Should NOT have gotten message!");
     }
 
     private void sendMessageToTerminator(boolean throwInInitiation) {
         DataTO dto = new DataTO(42, "TheAnswer");
         try {
-            matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+            matsRule.getMatsFactory().getInitiator().initiate(
                     (msg) -> {
                         msg.traceId(randomId())
                                 .from(INITIATOR)

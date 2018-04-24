@@ -12,7 +12,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
-import com.stolsvik.mats.spring.MatsTestContext;
+import com.stolsvik.mats.spring.MatsSimpleTestContext;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
@@ -24,7 +24,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * @author Endre Stølsvik - 2016-06-23 - http://endre.stolsvik.com
  */
 @RunWith(SpringRunner.class)
-@MatsTestContext
+@MatsSimpleTestContext
 public class MatsSpringDefined_SingleStagesTest {
     public static final String ENDPOINT_ID = "mats.spring.MatsSpringDefined_SingleStagesTest";
     public static final String TERMINATOR = ".TERMINATOR";

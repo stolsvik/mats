@@ -58,7 +58,7 @@ public class Test_SimpleDbTest extends MatsDbTest {
         matsRule.createDataTable();
 
         // :: Insert into 'datatable' and send the request to SERVICE.
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+        matsRule.getMatsFactory().getInitiator().initiate(
                 (msg) -> {
                     matsRule.insertDataIntoDataTable(MatsTxSqlConnection.getConnection(), randomData);
                     // :: Send the request

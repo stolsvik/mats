@@ -26,13 +26,13 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
                 Test_LambdaMethodRef_Single::lambda_MatchTypes);
     }
 
+    private static DataTO lambda_MatchTypes(ProcessContext<DataTO> context, DataTO dto) {
+        return new DataTO(dto.number * 2, dto.string + MATCH_TYPES);
+    }
+
     @Before
     public void setupService_WideTypes_InstanceMethodRef() {
         matsRule.getMatsFactory().single(SERVICE + WIDE_TYPES, DataTO.class, DataTO.class, this::lambda_WideTypes);
-    }
-
-    private static DataTO lambda_MatchTypes(ProcessContext<DataTO> context, DataTO dto) {
-        return new DataTO(dto.number * 2, dto.string + MATCH_TYPES);
     }
 
     private SubDataTO lambda_WideTypes(ProcessContext<?> context, Object dtoObject) {
@@ -54,7 +54,7 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
     public void matchTypes() {
         DataTO dto = new DataTO(Math.PI, "TheAnswer_1");
         StateTO sto = new StateTO(420, 420.024);
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+        matsRule.getMatsFactory().getInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE + MATCH_TYPES)
@@ -64,6 +64,9 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
         // Wait synchronously for terminator to finish.
         Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
+
+        // Note that for the "MatchTypes", the type of the incoming will actually be a SubDataTO, as that is what
+        // the terminator defines, and is what the JSON-lib will deserialize the incoming JSON to.
         Assert.assertEquals(new DataTO(dto.number * 2, dto.string + MATCH_TYPES), result.getData());
     }
 
@@ -71,7 +74,7 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
     public void wideTypes() {
         DataTO dto = new DataTO(Math.E, "TheAnswer_2");
         StateTO sto = new StateTO(420, 420.024);
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+        matsRule.getMatsFactory().getInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE + WIDE_TYPES)

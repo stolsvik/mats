@@ -13,13 +13,7 @@ import com.stolsvik.mats.test.MatsTestLatch;
 
 @Component
 public class TestMatsEndpoint {
-    private static final Logger log = LoggerFactory.getLogger(TestMatsEndpoint.class);
-
     public static final String ENDPOINT_ID = "mats.spring.TestMatsEndpoint";
-
-    public String getHello() {
-        return "World!";
-    }
 
     MatsTestLatch _latch = new MatsTestLatch();
 

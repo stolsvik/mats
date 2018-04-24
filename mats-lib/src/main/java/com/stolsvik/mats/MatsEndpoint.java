@@ -268,7 +268,7 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
         /**
          * Initiates a new message out to an endpoint. This is effectively the same as invoking
          * {@link MatsInitiator#initiate(InitiateLambda lambda) the same method} on a {@link MatsInitiator} gotten via
-         * {@link MatsFactory#getInitiator(String)}, only that this way works within the transactional context of the
+         * {@link MatsFactory#getInitiator()}, only that this way works within the transactional context of the
          * {@link MatsStage} which this method is invoked within. Also, the traceId and from-endpointId is predefined,
          * but it is still recommended to set the traceId, as that will append the new string on the existing traceId,
          * making log tracking (e.g. when debugging) better.

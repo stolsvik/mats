@@ -14,7 +14,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
-import com.stolsvik.mats.spring.MatsTestContext.MatsTestInfrastructureContextInitializer;
+import com.stolsvik.mats.spring.MatsSimpleTestContext.MatsSimpleTestInfrastructureContextInitializer;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
@@ -25,7 +25,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * @author Endre Stølsvik - 2016-08-07 - http://endre.stolsvik.com
  */
 @RunWith(SpringRunner.class)
-@ContextConfiguration(initializers = MatsTestInfrastructureContextInitializer.class)
+@ContextConfiguration(initializers = MatsSimpleTestInfrastructureContextInitializer.class)
 @DirtiesContext
 public class MatsSpringDefined_TerminatorsTest {
     public static final String ENDPOINT_ID = "mats.spring.MatsSpringDefined_TerminatorsTest";

@@ -13,40 +13,63 @@ import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage.StageConfig;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsConnectionSupplier;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly.JmsConnectionSupplier;
 import com.stolsvik.mats.serial.MatsSerializer;
 
 public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsFactory.class);
 
-    public static <Z> JmsMatsFactory<Z> createMatsFactory_JmsOnlyTransactions(JmsConnectionSupplier jmsConnectionSupplier,
+    public static <Z> JmsMatsFactory<Z> createMatsFactory_JmsOnlyTransactions(String appName, String appVersion,
+            JmsConnectionSupplier jmsConnectionSupplier,
             MatsSerializer<Z> matsSerializer) {
-        return createMatsFactory(JmsMatsTransactionManager_JmsOnly.create(jmsConnectionSupplier),
+        return createMatsFactory(appName, appVersion, JmsMatsTransactionManager_JmsOnly.create(jmsConnectionSupplier),
                 matsSerializer);
     }
 
-    public static <Z> JmsMatsFactory<Z> createMatsFactory_JmsAndJdbcTransactions(JmsConnectionSupplier jmsConnectionSupplier,
-            JdbcConnectionSupplier jdbcConnectionSupplier, MatsSerializer<Z> matsSerializer) {
-        return createMatsFactory(JmsMatsTransactionManager_JmsAndJdbc.create(jmsConnectionSupplier,
+    public static <Z> JmsMatsFactory<Z> createMatsFactory_JmsAndJdbcTransactions(String appName, String appVersion,
+            JmsConnectionSupplier jmsConnectionSupplier,
+            JdbcConnectionSupplier jdbcConnectionSupplier,
+            MatsSerializer<Z> matsSerializer) {
+        return createMatsFactory(appName, appVersion, JmsMatsTransactionManager_JmsAndJdbc.create(jmsConnectionSupplier,
                 jdbcConnectionSupplier), matsSerializer);
     }
 
-    public static <Z> JmsMatsFactory<Z> createMatsFactory(JmsMatsTransactionManager jmsMatsTransactionManager,
+    public static <Z> JmsMatsFactory<Z> createMatsFactory(String appName, String appVersion,
+            JmsMatsTransactionManager jmsMatsTransactionManager,
             MatsSerializer<Z> matsSerializer) {
-        return new JmsMatsFactory<>(jmsMatsTransactionManager, matsSerializer);
+        return new JmsMatsFactory<>(appName, appVersion, jmsMatsTransactionManager, matsSerializer);
     }
 
+    private final String _appName;
+    private final String _appVersion;
     private final JmsMatsTransactionManager _jmsMatsTransactionManager;
     private final MatsSerializer<Z> _matsSerializer;
     private final JmsMatsFactoryConfig _factoryConfig = new JmsMatsFactoryConfig();
 
-    private JmsMatsFactory(JmsMatsTransactionManager jmsMatsTransactionManager,
+    private JmsMatsFactory(String appName, String appVersion,
+            JmsMatsTransactionManager jmsMatsTransactionManager,
             MatsSerializer<Z> matsSerializer) {
+        _appName = appName;
+        _appVersion = appVersion;
         _jmsMatsTransactionManager = jmsMatsTransactionManager;
         _matsSerializer = matsSerializer;
         log.info(LOG_PREFIX + "Created [" + id(this) + "].");
+    }
+
+    /**
+     * @return the name of the application that employs (JMS) MATS, set at Factory construction time.
+     */
+    public String getAppName() {
+        return _appName;
+    }
+
+    /**
+     * @return the version string of the application that employs (JMS) MATS, set at Factory construction time.
+     */
+    public String getAppVersion() {
+        return _appVersion;
     }
 
     public JmsMatsTransactionManager getJmsMatsTransactionManager() {
@@ -167,7 +190,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public MatsInitiator getInitiator(String initiatorId) {
+    public MatsInitiator getInitiator() {
         JmsMatsInitiator<Z> initiator = new JmsMatsInitiator<>(this,
                 _jmsMatsTransactionManager.getTransactionContext(null));
         _createdInitiators.add(initiator);

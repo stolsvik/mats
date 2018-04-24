@@ -52,7 +52,7 @@ public class ATest_AbstractConcurrency extends MatsBasicTest {
 
         // .. Now fire off the messages.
         DataTO[] requests = new DataTO[CONCURRENCY_TEST];
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate((msg) -> {
+        matsRule.getMatsFactory().getInitiator().initiate((msg) -> {
             for (int i = 0; i < CONCURRENCY_TEST; i++) {
                 DataTO dto = new DataTO(i, "TheAnswer");
                 StateTO sto = new StateTO(i, i);

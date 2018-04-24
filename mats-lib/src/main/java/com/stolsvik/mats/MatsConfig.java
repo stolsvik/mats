@@ -19,7 +19,7 @@ public interface MatsConfig {
      * Setting to 0 will invoke default logic.
      *
      * @param numberOfThreads
-     *            the number of consumers on the queue(s) for the processing stage(s). If set to 0, default-logic be in
+     *            the number of consumers on the queue(s) for the processing stage(s). If set to 0, default-logic is in
      *            effect.
      * @return the config object, for method chaining.
      */

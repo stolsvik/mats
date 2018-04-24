@@ -120,23 +120,30 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
 
     @Override
     public void request(String endpointId, Object requestDto) {
+        long nanosStart = System.nanoTime();
         // :: Add next stage as replyTo endpoint Id
         List<String> stack = _matsTrace.getCurrentCall().getStack();
         stack.add(0, _matsStage.getNextStageId());
 
+        JmsMatsFactory<Z> parentFactory = _matsStage.getParentEndpoint().getParentFactory();
+
         // :: Create next MatsTrace
-        MatsSerializer<Z> matsSerializer = _matsStage
-                .getParentEndpoint().getParentFactory().getMatsSerializer();
+        MatsSerializer<Z> matsSerializer = parentFactory.getMatsSerializer();
         MatsTrace<Z> requestMatsTrace = _matsTrace.addRequestCall(_matsStage.getStageId(), endpointId, matsSerializer
                 .serializeObject(requestDto), stack, matsSerializer.serializeObject(_sto), null);
 
+        // TODO: Add debug info!
+        requestMatsTrace.getCurrentCall().setDebugInfo(parentFactory.getAppName(), parentFactory.getAppVersion(),
+                HOSTNAME, System.currentTimeMillis(), "Callalala!");
+
         // Pack it off
-        sendMatsMessage(log, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, requestMatsTrace,
+        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, requestMatsTrace,
                 _props, _binaries, _strings, endpointId, "REQUEST");
     }
 
     @Override
     public void reply(Object replyDto) {
+        long nanosStart = System.nanoTime();
         // :: Pop the replyTo endpointId from the stack
         List<String> stack = _matsTrace.getCurrentCall().getStack();
         if (stack.size() == 0) {
@@ -145,21 +152,29 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                     + " on the stack, hence no one to reply to. Dropping message.");
             return;
         }
+
+        // Remove the stageId to reply to from the stack, and then use the remainder as the next call's stack.
         String replyToStageId = stack.remove(0);
 
+        JmsMatsFactory<Z> parentFactory = _matsStage.getParentEndpoint().getParentFactory();
+
         // :: Create next MatsTrace
-        MatsSerializer<Z> matsSerializer = _matsStage
-                .getParentEndpoint().getParentFactory().getMatsSerializer();
+        MatsSerializer<Z> matsSerializer = parentFactory.getMatsSerializer();
         MatsTrace<Z> replyMatsTrace = _matsTrace.addReplyCall(_matsStage.getStageId(), replyToStageId,
                 matsSerializer.serializeObject(replyDto), stack);
 
+        // TODO: Add debug info!
+        replyMatsTrace.getCurrentCall().setDebugInfo(parentFactory.getAppName(), parentFactory.getAppVersion(),
+                HOSTNAME, System.currentTimeMillis(), "Callalala!");
+
         // Pack it off
-        sendMatsMessage(log, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, replyMatsTrace,
+        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, replyMatsTrace,
                 _props, _binaries, _strings, replyToStageId, "REPLY");
     }
 
     @Override
     public void next(Object incomingDto) {
+        long nanosStart = System.nanoTime();
         // :: Assert that we have a next-stage
         if (_matsStage.getNextStageId() == null) {
             throw new IllegalStateException("Stage [" + _matsStage.getStageId()
@@ -169,14 +184,20 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
         // :: Use same stack, as this is a "sideways call", thus the replyStack is same as for previous stage
         List<String> stack = _matsTrace.getCurrentCall().getStack();
 
+        JmsMatsFactory<Z> parentFactory = _matsStage.getParentEndpoint().getParentFactory();
+
         // :: Create next (heh!) MatsTrace
         MatsSerializer<Z> matsSerializer = _matsStage
                 .getParentEndpoint().getParentFactory().getMatsSerializer();
         MatsTrace<Z> nextMatsTrace = _matsTrace.addNextCall(_matsStage.getStageId(), _matsStage.getNextStageId(),
                 matsSerializer.serializeObject(incomingDto), stack, matsSerializer.serializeObject(_sto));
 
+        // TODO: Add debug info!
+        nextMatsTrace.getCurrentCall().setDebugInfo(parentFactory.getAppName(), parentFactory.getAppVersion(),
+                HOSTNAME, System.currentTimeMillis(), "Callalala!");
+
         // Pack it off
-        sendMatsMessage(log, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, nextMatsTrace,
+        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, nextMatsTrace,
                 _props, _binaries, _strings, _matsStage.getNextStageId(), "NEXT");
     }
 

@@ -6,6 +6,8 @@ import java.util.LinkedHashMap;
 import javax.jms.JMSException;
 import javax.jms.Session;
 
+import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -80,7 +82,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         }
 
         private String _traceId;
-        private boolean _keepTace;
+        private KeepMatsTrace _keepTace;
         private boolean _nonPersistent;
         private boolean _interactive;
         private String _from;
@@ -99,8 +101,19 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         }
 
         @Override
-        public MatsInitiate keepTrace() {
-            _keepTace = true;
+        public MatsInitiate keepTrace(KeepTrace keepTrace) {
+            if (keepTrace == KeepTrace.MINIMAL) {
+                _keepTace = KeepMatsTrace.MINIMAL;
+            }
+            else if (keepTrace == KeepTrace.COMPACT) {
+                _keepTace = KeepMatsTrace.COMPACT;
+            }
+            else if (keepTrace == KeepTrace.FULL) {
+                _keepTace = KeepMatsTrace.FULL;
+            }
+            else {
+                throw new IllegalArgumentException("Unknown KeepTrace enum ["+keepTrace+"].");
+            }
             return this;
         }
 
@@ -160,17 +173,25 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
 
         @Override
         public void request(Object requestDto, Object initialTargetSto) {
+            long nanosStart = System.nanoTime();
             String msg = "All of 'traceId', 'from', 'to' and 'replyTo' must be set when request(..)";
             checkCommon(msg);
             if (_replyTo == null) {
                 throw new NullPointerException(msg + ": Missing 'replyTo'.");
             }
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
+            long now = System.currentTimeMillis();
             MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
+                    // TODO: Add debug info!
+                    .setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
+                            HOSTNAME, _from, now, "Tralala!")
                     .addRequestCall(_from, _to, ser.serializeObject(requestDto), Collections.singletonList(_replyTo),
                             ser.serializeObject(_replySto), ser.serializeObject(initialTargetSto));
+            // TODO: Add debug info!
+            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(),
+                    HOSTNAME, now, "Callalala!");
 
-            sendMatsMessage(log, _jmsSession, _parentFactory, true, matsTrace, _props, _binaries, _strings, _to,
+            sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, true, matsTrace, _props, _binaries, _strings, _to,
                     "new REQUEST");
         }
 
@@ -181,13 +202,21 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
 
         @Override
         public void send(Object messageDto, Object initialTargetSto) {
+            long nanosStart = System.nanoTime();
             checkCommon("All of 'traceId', 'from' and 'to' must be set when send(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
+            long now = System.currentTimeMillis();
             MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
+                    // TODO: Add debug info!
+                    .setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
+                            HOSTNAME, _from, now, "Tralala!")
                     .addSendCall(_from, _to, ser.serializeObject(messageDto), Collections.emptyList(),
                             ser.serializeObject(initialTargetSto));
+            // TODO: Add debug info!
+            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
+                    HOSTNAME, now, "Callalala!");
 
-            sendMatsMessage(log, _jmsSession, _parentFactory, true, matsTrace, _props, _binaries, _strings, _to,
+            sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, true, matsTrace, _props, _binaries, _strings, _to,
                     "new SEND");
         }
 
@@ -198,13 +227,21 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
 
         @Override
         public void publish(Object messageDto, Object initialTargetSto) {
+            long nanosStart = System.nanoTime();
             checkCommon("All of 'traceId', 'from' and 'to' must be set when publish(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
+            long now = System.currentTimeMillis();
             MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
+                    // TODO: Add debug info!
+                    .setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
+                            HOSTNAME, _from, now, "Tralala!")
                     .addSendCall(_from, _to, ser.serializeObject(messageDto), Collections.emptyList(),
                             ser.serializeObject(initialTargetSto));
+            // TODO: Add debug info!
+            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
+                    HOSTNAME, now, "Callalala!");
 
-            sendMatsMessage(log, _jmsSession, _parentFactory, false, matsTrace, _props, _binaries, _strings, _to,
+            sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, false, matsTrace, _props, _binaries, _strings, _to,
                     "new PUBLISH");
         }
 

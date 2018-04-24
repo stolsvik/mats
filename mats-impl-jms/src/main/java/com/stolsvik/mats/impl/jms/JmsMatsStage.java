@@ -1,7 +1,5 @@
 package com.stolsvik.mats.impl.jms;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -19,12 +17,13 @@ import com.stolsvik.mats.MatsConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.serial.MatsTrace;
-import com.stolsvik.mats.serial.MatsTrace.Call;
 import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
 import com.stolsvik.mats.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsSerializer.DeserializedMatsTrace;
+import com.stolsvik.mats.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace.Call;
 
 /**
  * The JMS implementation of {@link MatsStage}.
@@ -203,6 +202,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
         }
 
         void stop(int gracefulWaitMillis) {
+            // Start by setting the run-flag to false..
             _run = false;
             Session jmsSessionToClose;
             synchronized (this) {
@@ -216,6 +216,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
              * We won't put too much effort in making this race-proof, as if it fails, which should be seldom, the only
              * problems are a couple of ugly stack traces in the log: Transactionality will keep integrity.
              */
+
             // ?: Has processorThread already exited?
             if (!_processorThread.isAlive()) {
                 // -> Yes, thread already exited, so just close session (this is our responsibility).
@@ -328,6 +329,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                         // :: Perform the work inside the TransactionContext
                         try {
                             _transactionContext.performWithinTransaction(_jmsSession, () -> {
+                                long nanosStart = System.nanoTime();
                                 if (!(message instanceof MapMessage)) {
                                     String msg = "Got some JMS Message that is not instanceof MapMessage"
                                             + " - cannot be a MATS message! Refusing this message!";
@@ -337,15 +339,21 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
 
                                 MapMessage mapMessage = (MapMessage) message;
 
-                                byte[] matsTraceSerialized;
+                                byte[] matsTraceBytes;
+                                String matsTraceMeta;
                                 try {
-                                    matsTraceSerialized = mapMessage.getBytes(factoryConfig.getMatsTraceKey());
+                                    matsTraceBytes = mapMessage.getBytes(factoryConfig.getMatsTraceKey());
+                                    matsTraceMeta = mapMessage.getString(factoryConfig.getMatsTraceKey() + ":meta");
                                 }
                                 catch (JMSException e) {
                                     throw new MatsBackendException(
                                             "Got JMSException when doing mapMessage.getString(..). Pretty crazy.", e);
                                 }
-                                MatsTrace<Z> matsTrace = _matsJsonSerializer.deserializeMatsTrace(matsTraceSerialized);
+
+                                DeserializedMatsTrace<Z> matsTraceDeserialized = _matsJsonSerializer
+                                        .deserializeMatsTrace(matsTraceBytes, matsTraceMeta);
+
+                                MatsTrace<Z> matsTrace = matsTraceDeserialized.getMatsTrace();
 
                                 // :: Current Call
                                 Call<Z> currentCall = matsTrace.getCurrentCall();
@@ -356,17 +364,27 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                     throw new MatsRefuseMessageException(msg);
                                 }
 
-                                log.info(LOG_PREFIX + "RECEIVED message from:[" + currentCall.getFrom() + "].");
-
                                 // :: Current State. If null, then make an empty object instead.
                                 Z currentSerializedState = matsTrace.getCurrentState();
                                 S currentSto = (currentSerializedState == null
-                                        ? _matsJsonSerializer.newInstance(_stateClass)
+                                        ? (_stateClass != Void.class
+                                                ? _matsJsonSerializer.newInstance(_stateClass)
+                                                : null)
                                         : _matsJsonSerializer.deserializeObject(currentSerializedState, _stateClass));
 
                                 // :: Incoming DTO
                                 I incomingDto = _matsJsonSerializer.deserializeObject(currentCall.getData(),
                                         _incomingMessageClass);
+
+                                double nanosTaken = (System.nanoTime() - nanosStart) / 1_000_000d;
+
+                                log.info(LOG_PREFIX + "RECEIVED message from [" + currentCall.getFrom()
+                                        + "], recv:[" + matsTraceBytes.length
+                                        + " B]->decomp:[" + matsTraceMeta
+                                        + " " + matsTraceDeserialized.getMillisDecompression()
+                                        + " ms]->deserialize:[" + matsTraceDeserialized.getSizeDecompressed() + " B, "
+                                        + matsTraceDeserialized.getMillisDeserialization()
+                                        + " ms]->MT - tot w/DTO&STO:[" + nanosTaken + " ms].");
 
                                 // :: Invoke the process lambda (stage processor).
                                 _processLambda.process(new JmsMatsProcessContext<>(JmsMatsStage.this, _jmsSession,
@@ -415,7 +433,6 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
             return destination;
         }
     }
-
 
     private static void closeJmsSession(Session sessionToClose) {
         if (sessionToClose != null) {

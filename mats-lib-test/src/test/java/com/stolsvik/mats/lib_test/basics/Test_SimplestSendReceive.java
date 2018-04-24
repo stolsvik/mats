@@ -35,7 +35,7 @@ public class Test_SimplestSendReceive extends MatsBasicTest {
     @Test
     public void doTest() {
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+        matsRule.getMatsFactory().getInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(TERMINATOR)

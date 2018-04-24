@@ -66,7 +66,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
 
     @Before
     public void getInitiator() {
-        _initiator = matsRule.getMatsFactory().getInitiator(INITIATOR);
+        _initiator = matsRule.getMatsFactory().getInitiator();
     }
 
     @Test

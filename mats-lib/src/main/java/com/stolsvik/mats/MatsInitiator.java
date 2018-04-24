@@ -39,7 +39,7 @@ public interface MatsInitiator extends Closeable {
      * You must have access to an instance of this interface to initiate a MATS process.
      * <p>
      * To initiate a message "from the outside", i.e. from synchronous application code, get it by invoking
-     * {@link MatsFactory#getInitiator(String)}, and then {@link MatsInitiator#initiate(InitiateLambda)} on that.
+     * {@link MatsFactory#getInitiator()}, and then {@link MatsInitiator#initiate(InitiateLambda)} on that.
      * <p>
      * To initiate a new message "from the inside", i.e. while already inside a {@link MatsStage processing stage} of an
      * endpoint, get it by invoking {@link ProcessContext#initiate(InitiateLambda)}.
@@ -60,10 +60,9 @@ public interface MatsInitiator extends Closeable {
          * It is highly suggested to use small, dense, information rich Trace Ids. Sticking in an UUID as Trace Id
          * certainly fulfils the uniqueness-requirement, but it is a crappy solution, as it by itself does not give any
          * hint of source, cause, relevant entities, or goal. <i>(It isn't even dense for the uniqueness an UUID gives,
-         * which also is way above the required uniqueness unless you handle billions of such messages per minute.
-         * A random alphanum (a-z,0-9) and much smaller string would give plenty enough uniqueness).</i>
-         *
-         * The following would be a much better Trace Id, which follows some scheme that could be system wide:
+         * which also is way above the required uniqueness unless you handle billions of such messages per minute. A
+         * random alphanum (a-z,0-9) and much smaller string would give plenty enough uniqueness).</i> The following
+         * would be a much better Trace Id, which follows some scheme that could be system wide:
          * "Web.placeOrder[cid:43512][cart:xa4ru5285fej]qz7apy9". From this example TraceId we could infer that it
          * originated at the <i>Web system</i>, it regards <i>Placing an order</i> for <i>Customer Id 43512</i>, it
          * regards the <i>Shopping Cart Id xa4ru5285fej</i>, and it contains some uniqueness ('qz7apy9') generated at
@@ -71,9 +70,10 @@ public interface MatsInitiator extends Closeable {
          * the same cart, you would still be able to separate the resulting three different Mats call flows.
          * <p>
          * (For the default implementation "JMS Mats", the Trace Id is set on the {@link MDC} of the SLF4J logging
-         * system, using the key "traceId". Since this implementation logs a few lines per handled message, in
-         * addition to any log lines you emit yourself, you would, by collecting the log lines in a common log system
-         * (e.g. the ELK stack), be able to follow the processing trace through all the services the call flow passed.)
+         * system, using the key "traceId". Since this implementation logs a few lines per handled message, in addition
+         * to any log lines you emit yourself, you will, by collecting the log lines in a common log system (e.g. the
+         * ELK stack), be able to very easily follow the processing trace through all the services the call flow
+         * passed.)
          *
          * @param traceId
          *            some world-unique Id, preferably set all the way back when some actual person performed some event
@@ -87,28 +87,27 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate traceId(String traceId);
 
         /**
-         * <b>Debugging feature:</b> Hint to the underlying implementation that it would be cool if all the calls in
-         * this flow was kept, i.e. that the final reply to the Terminator would contain all the calls that the flow
-         * had been through - otherwise only the needed "stack frames" will be kept, meaning that at the Terminator,
-         * only the very last Reply (the call to the Terminator itself) would be present.
+         * <b>Debugging feature:</b> Hint to the underlying implementation to which level of call and state history the
+         * underlying protocol should retain.
          * <p>
          * <b>This is solely meant for debugging.</b> The resulting kept trace would typically be visible in a
          * "toString()" of the {@link ProcessContext}.
          *
          * @return the {@link MatsInitiate} for chaining.
          */
-        MatsInitiate keepTrace();
+        MatsInitiate keepTrace(KeepTrace keepTrace);
 
         /**
-         * Hint to the underlying implementation that it does not matter that much if this message is lost. The
-         * implication is that the messages that this flow consist of are unreliable - typically, if the MQ broker
-         * is restarted, any outstanding "non persistent" messages are lost. (Also, some backends will loose the
-         * Dead Letter Queue (DLQ) functionality when this is used, where a ordinary persistent message would be DLQed
-         * if it failed to be delivered to an endpoint. This can severely impact monitoring and to a degree debugging.)
+         * <b>Enable unreliable, but fast, messaging!</b> Hint to the underlying implementation that it does not matter
+         * that much if this message is lost. The implication is that the messages that this flow consist of are
+         * unreliable - typically, if the MQ broker is restarted, any outstanding "non persistent" messages are lost.
+         * (Also, some backends will loose the Dead Letter Queue (DLQ) functionality when this is used, where a ordinary
+         * persistent message would be DLQed if it failed to be delivered to an endpoint. This can severely impact
+         * monitoring and to a degree debugging.)
          * <p>
-         * This is only usable for "pure GET"-style requests <i>without any state changes along the flow</i>,
-         * i.e. "AccountService.getBalances", for display to an end user. If such a message is lost, the world won't
-         * go under.
+         * This is only usable for "pure GET"-style requests <i>without any state changes along the flow</i>, i.e.
+         * "AccountService.getBalances", for display to an end user. If such a message is lost, the world won't go
+         * under.
          * <p>
          * The upshot here is that non-persistent messaging typically is blazingly fast, as the messages will not have
          * to (transactionally) be stored in non-volatile storage. It is therefore wise to actually employ this feature
@@ -119,19 +118,20 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate nonPersistent();
 
         /**
-         * Hint to the underlying implementation that a human is actually waiting for the result of a request, and that
-         * the flow therefore should be prioritized. This status will be kept through the entire flow, so that all
-         * messages in the flow are prioritized. This makes it possible to use the same "AccountService.getBalances"
-         * service both for the Web Application that users are employing, and the batch processing of a ton of orders.
-         * Without such a feature, the interactive usage could be backlogged by the batch process, while if the
-         * interactive flag is set, it will bypass the backlog of "ordinary" messages.
+         * <b>Prioritize this message!</b> Hint to the underlying implementation that a human is actually waiting for
+         * the result of a request, and that the flow therefore should be prioritized. This status will be kept through
+         * the entire flow, so that all messages in the flow are prioritized. This makes it possible to use the same
+         * "AccountService.getBalances" service both for the Web Application that the user facing GUI are employing, and
+         * the batch processing of a ton of orders. Without such a feature, the interactive usage could be backlogged by
+         * the batch process, while if the interactive flag is set, it will bypass the backlog of "ordinary" messages.
          * <p>
          * This implies that MATS defines two levels of prioritization: "Ordinary" and "Interactive". Most processing
-         * should employ the default, i.e. "Ordinary", while places where a human is actually waiting for the reply
-         * should employ the fast-lane, i.e. "Interactive". It is important here to not abuse this feature, or else
-         * it will loose its value: If any batches are going to slow, nothing will be gained by setting the interactive
-         * flag - instead use higher parallelism, by increasing {@link MatsConfig#setConcurrency(int) concurrency}
-         * or the number of nodes running the problematic endpoint or stage (or just code it to be faster!).
+         * should employ the default, i.e. "Ordinary", while places where <i><u>a human is actually waiting for the
+         * reply</u></i> should employ the fast-lane, i.e. "Interactive". It is important here to not abuse this
+         * feature, or else it will loose its value: If any batches are going to slow, nothing will be gained by setting
+         * the interactive flag - instead use higher parallelism, by increasing {@link MatsConfig#setConcurrency(int)
+         * concurrency} or the number of nodes running the problematic endpoint or stage (or just code it to be
+         * faster!).
          * <p>
          * It will often make sense to set both this flag, and the {@link #nonPersistent()}, at the same time.
          *
@@ -140,11 +140,18 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate interactive();
 
         /**
-         * Overrides the Initiator Id that was set either with {@link MatsFactory#getInitiator(String)}, or implicitly
-         * by the Endpoint (stage) Id from which {@link ProcessContext#initiate(InitiateLambda)} was invoked.
+         * Sets the fictive originating/initiating "endpointId" - only used for tracing/debugging. If this message is
+         * initiated from within a stage, i.e. by use of {@link ProcessContext#initiate(InitiateLambda)}, the 'from'
+         * property is already set to the stageId of the currently processing Stage, but it can be overridden if
+         * desired.
+         * <p>
+         * A typical value that would be of use when debugging a call trace is something following a structure like
+         * <code>"OrderService.initiator.processOrder"</code>.
          *
          * @param initiatorId
-         *            a fictive "endpointId" representing the "initiating endpoint".
+         *            a fictive "endpointId" representing the "initiating endpoint" - only used for tracing/debugging. A
+         *            typical value that would be of use when debugging a call trace is something following a structure
+         *            like <code>"OrderService.initiator.processOrder"</code>.
          * @return the {@link MatsInitiate} for chaining.
          */
         MatsInitiate from(String initiatorId);
@@ -301,5 +308,40 @@ public interface MatsInitiator extends Closeable {
          *            the object which the target endpoint will get as its STO (State Transfer Object).
          */
         void publish(Object messageDto, Object initialTargetSto);
+    }
+
+    /**
+     * A hint to the underlying implementation of how much historic debugging information for the call flow should be
+     * retained in the underlying protocol.
+     */
+    enum KeepTrace {
+        /**
+         * Keep all history for request and reply DTOs, and all history for state STOs.
+         * <p>
+         * All calls with data and state should be kept, which e.g means that at the Terminator, all request and reply
+         * DTOs, and all STOs (with their changing values between each stage of a multi-stage endpoint) will be present
+         * in the underlying protocol.
+         */
+        FULL,
+
+        /**
+         * <b>Default</b>: Nulls out Data for other than current call while still keeping the meta-info for the call
+         * history, and condenses State to a pure stack.
+         * <p>
+         * This is a compromise between FULL and MINIMAL, where the DTOs and STOs except for the ones needed in the
+         * stack, are "nulled out", while the call trace itself (with metadata) is still present, which e.g. means that
+         * at the Terminator, you will know all endpoints and stages that the call flow traversed, but not the data or
+         * state except for what is pertinent for the Terminator.
+         */
+        COMPACT,
+
+        /**
+         * Only keep the current call, and condenses State to a pure stack.
+         * <p>
+         * Keep <b>zero</b> history, where only the current call, and only the STOs needed for the current stack, are
+         * present. This e.g. means that at the Terminator, no Calls nor DTOs and STOs except for the current incoming
+         * to the Terminator will be present in the underlying protocol.
+         */
+        MINIMAL
     }
 }

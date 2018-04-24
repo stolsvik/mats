@@ -19,7 +19,7 @@ public class SubDataTO extends DataTO {
 
     public SubDataTO(double number, String string, String setString) {
         super(number, string);
-        if (stringSet != null) {
+        if (setString != null) {
             stringSet = new HashSet<>();
             stringSet.add(setString);
         }
@@ -47,6 +47,10 @@ public class SubDataTO extends DataTO {
 
     @Override
     public String toString() {
-        return "SubDataTO [number=" + number + ", string=" + string + ", stringSet=" + stringSet + "]";
+        return "SubDataTO [number=" + number
+                + ", string=" + string
+                + ", multiplier=" + multiplier
+                + ", stringSet=" + stringSet
+                + "]";
     }
 }

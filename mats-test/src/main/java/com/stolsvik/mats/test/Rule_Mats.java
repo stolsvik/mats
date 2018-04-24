@@ -146,8 +146,10 @@ public class Rule_Mats extends ExternalResource {
     }
 
     protected MatsFactory createMatsFactory(MatsSerializer<String> stringSerializer,
-            ConnectionFactory connectionFactory) {
-        return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions((s) -> connectionFactory.createConnection(),
+                                            ConnectionFactory connectionFactory) {
+        return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(this.getClass().getSimpleName(),
+                "*testing*",
+                (s) -> connectionFactory.createConnection(),
                 _matsSerializer);
     }
 
@@ -184,8 +186,7 @@ public class Rule_Mats extends ExternalResource {
      * if the test is designed to fail a stage (i.e. that a stage raises some {@link RuntimeException}, or the special
      * {@link MatsRefuseMessageException}).
      *
-     * @param endpointId
-     *            the endpoint which is expected to generate a DLQ message.
+     * @param endpointId the endpoint which is expected to generate a DLQ message.
      * @return the {@link MatsTrace} of the DLQ'ed message.
      */
     public MatsTrace<String> getDlqMessage(String endpointId) {
@@ -209,11 +210,12 @@ public class Rule_Mats extends ExternalResource {
                 }
 
                 MapMessage matsMM = (MapMessage) msg;
-                byte[] matsTraceSerialized = matsMM.getBytes(factoryConfig.getMatsTraceKey());
-                log.info("!! Got a DLQ Message! Length of byte serialized MatsTrace: "+matsTraceSerialized.length);
+                byte[] matsTraceBytes = matsMM.getBytes(factoryConfig.getMatsTraceKey());
+                log.info("!! Got a DLQ Message! Length of byte serialized&compressed MatsTrace: " + matsTraceBytes.length);
                 jmsSession.commit();
                 jmsConnection.close(); // Closes session and consumer
-                return _matsSerializer.deserializeMatsTrace(matsTraceSerialized);
+                return _matsSerializer.deserializeMatsTrace(matsTraceBytes,
+                        matsMM.getString(factoryConfig.getMatsTraceKey() + ":meta")).getMatsTrace();
             }
             finally {
                 jmsConnection.close();
@@ -239,7 +241,7 @@ public class Rule_Mats extends ExternalResource {
      */
     public synchronized MatsInitiator getInitiator() {
         if (_matsInitiator == null) {
-            _matsInitiator = getMatsFactory().getInitiator("Rule_Mats:DefaultInitiator");
+            _matsInitiator = getMatsFactory().getInitiator();
         }
         return _matsInitiator;
     }

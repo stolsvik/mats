@@ -37,7 +37,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  *
  * @author Endre Stølsvik - 2015-07-31 - http://endre.stolsvik.com
  */
-public class Test_ComplexMultiStage extends MatsBasicTest {
+public class Test_MultiLevelMultiStage extends MatsBasicTest {
     @Before
     public void setupLeafService() {
         matsRule.getMatsFactory().single(SERVICE + ".Leaf", DataTO.class, DataTO.class,
@@ -94,7 +94,7 @@ public class Test_ComplexMultiStage extends MatsBasicTest {
     public void doTest() {
         StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+        matsRule.getMatsFactory().getInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)

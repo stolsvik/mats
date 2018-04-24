@@ -16,9 +16,9 @@ import com.stolsvik.mats.test.MatsTestLatch;
 public class _MatsTestBase {
     protected Logger log = LoggerFactory.getLogger(getClass());
 
-    protected String INITIATOR = getClass().getName() + ".INITIATOR";
-    protected String SERVICE = getClass().getName() + ".SERVICE";
-    protected String TERMINATOR = getClass().getName() + ".TERMINATOR";
+    protected String INITIATOR = getClass().getSimpleName() + ".INITIATOR";
+    protected String SERVICE = getClass().getSimpleName() + ".SERVICE";
+    protected String TERMINATOR = getClass().getSimpleName() + ".TERMINATOR";
 
     {
         log.info("### Instantiating class [" + this.getClass().getName() + "].");

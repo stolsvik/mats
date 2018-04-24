@@ -21,13 +21,13 @@ import org.springframework.test.context.ContextConfiguration;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.spring.MatsTestContext.MatsTestInfrastructureContextInitializer;
+import com.stolsvik.mats.spring.MatsSimpleTestContext.MatsSimpleTestInfrastructureContextInitializer;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.Rule_Mats;
 
 /**
- * One-stop-shop for making simple integration/unit tests of MATS endpoints. The configuration is done in
- * {@link MatsTestInfrastructureConfiguration}.
+ * One-stop-shop for making simple integration/unit tests of MATS endpoints, reusing the functionality from
+ * {@link Rule_Mats}. The configuration is done in {@link MatsTestInfrastructureConfiguration}.
  * <ul>
  * <li>Meta-annotated with {@link DirtiesContext}, since the Spring Test Context caching system is problematic when one
  * is handling static/global resources like what an external Message Queue broker is. Read more below.</li>
@@ -59,10 +59,10 @@ import com.stolsvik.mats.test.Rule_Mats;
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@ContextConfiguration(initializers = MatsTestInfrastructureContextInitializer.class)
+@ContextConfiguration(initializers = MatsSimpleTestInfrastructureContextInitializer.class)
 @Documented
 @DirtiesContext
-public @interface MatsTestContext {
+public @interface MatsSimpleTestContext {
     /**
      * Spring {@link Configuration @Configuration} class that cooks up the simple test infrastructure, reusing the
      * functionality from {@link Rule_Mats}.
@@ -100,10 +100,10 @@ public @interface MatsTestContext {
      * default {@literal @Configuration} lookup is thwarted, i.e. if you specify classes= or location=, it will not find
      * the typical static inner class annotated with {@literal @Configuration}.
      */
-    class MatsTestInfrastructureContextInitializer implements
+    class MatsSimpleTestInfrastructureContextInitializer implements
             ApplicationContextInitializer<ConfigurableApplicationContext> {
         // Use clogging, since that's what Spring does.
-        private static final Log log = LogFactory.getLog(MatsTestInfrastructureContextInitializer.class);
+        private static final Log log = LogFactory.getLog(MatsSimpleTestInfrastructureContextInitializer.class);
 
         @Override
         public void initialize(ConfigurableApplicationContext applicationContext) {
@@ -112,7 +112,7 @@ public @interface MatsTestContext {
                     + " on: " + applicationContext);
 
             /*
-             * Hopefully all the ConfigurableApplicationContexts presented here will also be a BeanDefinitionRegistory.
+             * Hopefully all the ConfigurableApplicationContexts presented here will also be a BeanDefinitionRegistry.
              * This at least holds for the default 'GenericApplicationContext'.
              *
              * <a href=

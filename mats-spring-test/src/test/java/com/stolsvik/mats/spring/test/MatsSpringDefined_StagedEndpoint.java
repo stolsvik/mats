@@ -14,7 +14,7 @@ import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.MatsStaged;
-import com.stolsvik.mats.spring.MatsTestContext;
+import com.stolsvik.mats.spring.MatsSimpleTestContext;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
@@ -26,7 +26,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * @author Endre Stølsvik - 2016-08-07 - http://endre.stolsvik.com
  */
 @RunWith(SpringRunner.class)
-@MatsTestContext
+@MatsSimpleTestContext
 public class MatsSpringDefined_StagedEndpoint {
     public static final String ENDPOINT_ID = "mats.spring.MatsSpringDefined_MultiStageEndpoint";
     public static final String TERMINATOR = ".TERMINATOR";
@@ -99,7 +99,8 @@ public class MatsSpringDefined_StagedEndpoint {
             Assert.assertEquals(1, config.getConcurrency());
             // Set up the stages
             ep.stage(SpringTestDataTO.class, (context, dto, sto) -> {
-                Assert.assertEquals(Void.class, sto.getClass());
+                // Void state class should lead to null state.
+                Assert.assertNull(sto);
                 // Resolve directly
                 _latch.resolve(new SpringTestDataTO(dto.number * 17, dto.string + ":FromSingleVoidVoid"), sto);
             });
@@ -180,7 +181,8 @@ public class MatsSpringDefined_StagedEndpoint {
         });
 
         Result<SpringTestDataTO, Void> result = _latch.waitForResult();
-        Assert.assertEquals(Void.class, result.getState().getClass());
+
+        Assert.assertNull(result.getState()); // Void state class should lead to null state.
         Assert.assertEquals(new SpringTestDataTO(dto.number * 17,
                 dto.string + ":FromSingleVoidVoid"), result.getData());
     }

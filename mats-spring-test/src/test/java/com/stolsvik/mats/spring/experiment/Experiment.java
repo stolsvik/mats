@@ -35,6 +35,7 @@ public class Experiment {
     }
 
     public void start() throws InterruptedException {
+        long nanosStart = System.nanoTime();
         log.info("Starting Experiment! new'ing up AnnotationConfigApplicationContext.");
         AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext(Experiment.class);
         TestApp testApp = ctx.getBean(TestApp.class);
@@ -47,6 +48,6 @@ public class Experiment {
 
         ctx.destroy();
 
-        log.info("Exiting!");
+        log.info("Exiting! took "+((System.nanoTime() - nanosStart) / 1_000_000d)+" ms.");
     }
 }

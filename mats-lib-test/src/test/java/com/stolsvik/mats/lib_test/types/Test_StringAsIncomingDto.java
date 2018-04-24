@@ -29,7 +29,7 @@ public class Test_StringAsIncomingDto extends MatsBasicTest {
     @Test
     public void doTest() {
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+        matsRule.getMatsFactory().getInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(TERMINATOR)
@@ -40,6 +40,6 @@ public class Test_StringAsIncomingDto extends MatsBasicTest {
         // Empty State (not provided in invocation)
         Assert.assertEquals(new StateTO(), result.getState());
         // We specified String as incoming DTO, so we'll get the JSON of the request DTO directly.
-        Assert.assertEquals("{\"number\":42.0,\"string\":\"TheAnswer\"}", result.getData());
+        Assert.assertEquals("{\"number\":42.0,\"string\":\"TheAnswer\",\"multiplier\":0}", result.getData());
     }
 }

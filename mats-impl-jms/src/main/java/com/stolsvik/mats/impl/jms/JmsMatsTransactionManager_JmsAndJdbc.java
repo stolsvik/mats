@@ -10,7 +10,6 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.exceptions.MatsRuntimeException;
 import com.stolsvik.mats.util.MatsTxSqlConnection;
@@ -19,9 +18,7 @@ import com.stolsvik.mats.util.MatsTxSqlConnection.MatsSqlConnectionCreationExcep
 /**
  * Implementation of {@link JmsMatsTransactionManager} that in addition to the JMS transaction also handles a JDBC SQL
  * {@link Connection} (using only pure java, i.e. no Spring) for which it keeps transaction demarcation along with the
- * JMS transaction, by means of <a href=
- * "http://www.javaworld.com/article/2077963/open-source-tools/distributed-transactions-in-spring--with-and-without-xa.html?page=2">
- * <i>"Best Effort 1 Phase Commit"</i></a>:
+ * JMS transaction, by means of <i>"Best Effort 1 Phase Commit"</i>:
  * <ol>
  * <li><b>JMS transaction is entered</b> (a transactional JMS Connection is always within a transaction)
  * <li>JMS Message is retrieved.
@@ -41,21 +38,24 @@ import com.stolsvik.mats.util.MatsTxSqlConnection.MatsSqlConnectionCreationExcep
  * "http://www.javaworld.com/article/2077963/open-source-tools/distributed-transactions-in-spring--with-and-without-xa.html?page=2">
  * this article</a>. If this failure occurs, it will be caught and logged on ERROR level (by
  * {@link JmsMatsTransactionManager_JmsOnly}) - and then the Message Broker will probably try to redeliver the message.
- * Wise tips: Code idempotent! Handle double-deliveries!
+ * Also read the <a href="http://activemq.apache.org/should-i-use-xa.html">Should I use XA Transactions</a> from Apache
+ * Active MQ.
+ * <p>
+ * Wise tip when working with <i>Message Oriented Middleware</i>: Code idempotent! Handle double-deliveries!
  * <p>
  * The transactionally demarcated SQL Connection can be retrieved from the {@link MatsTxSqlConnection} utility class.
  * <p>
  * It requires a {@link JdbcConnectionSupplier} upon construction, in addition to the
- * {@link JmsMatsTransactionManager.JmsConnectionSupplier JmsConnectionSupplier}.
+ * {@link JmsConnectionSupplier JmsConnectionSupplier}.
  * <p>
  * The {@link JdbcConnectionSupplier} will be asked for a SQL Connection in any MatsStage's StageProcessor that requires
- * it: The creation of the SQL Connection is lazy in that it won't be retrieved (nor entered into transaction with),
+ * it: The fetching of the SQL Connection is lazy in that it won't be retrieved (nor entered into transaction with),
  * until it is actually requested by the user code by means of {@link MatsTxSqlConnection#getConnection()}.
  * <p>
  * The SQL Connection will be {@link Connection#close() closed} after each stage processing (after each transaction,
  * either committed or rollbacked) - if it was requested during the user code.
  * <p>
- * This implementation will not attempt at any Connection reuse (caching/pooling). It is up to the supplier to implement
+ * This implementation will not perform any Connection reuse (caching/pooling). It is up to the supplier to implement
  * any pooling, or make use of a pooled DataSource, if so desired. (Which definitely should be desired, due to the heavy
  * use of <i> "get new - use - commit/rollback - close"</i>.)
  *
@@ -127,8 +127,6 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                  * ----- Therefore, we're now IMPLICITLY *within* the SQL Transaction demarcation.
                  */
 
-                // Flag to check that we've handled all paths we know of.
-                boolean allPathsHandled = false;
                 try {
                     log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_stage)
                             + ", within JDBC SQL Transactional demarcation.");
@@ -139,18 +137,11 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                      * Transaction demarcation, and the outer JMS Transaction demarcation.
                      */
                     lambda.performWithinTransaction();
-
-                    // ProcessingLambda went OK: "Good path" is handled.
-                    allPathsHandled = true;
-                }
+               }
                 // Catch EVERYTHING that can come out of the try-block:
                 catch (MatsRefuseMessageException | RuntimeException | Error e) {
                     // ----- The user code had some error occur, or want to reject this message.
-
-                    // The ProcessngLambda raised some Exception, and this is the handling: "Bad path" is handled.
-                    allPathsHandled = true;
-
-                    // !!NOTE!!: The full Exception will be logged by super class when it does its rollback handling.
+                    // !!NOTE!!: The full Exception will be logged by outside JMS-trans class on JMS rollback handling.
                     log.error(LOG_PREFIX + "ROLLBACK SQL: " + e.getClass().getSimpleName() + " while processing "
                             + stageOrInit(_stage) + " (most probably from user code)."
                             + " Rolling back the SQL Connection.");
@@ -164,17 +155,22 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                     // We will now throw on the Exception, which will rollback the JMS Transaction.
                     throw e;
                 }
-                // :: Sanity check that we have handled all paths
-                finally {
-                    // ?: Are all paths handled?
-                    if (!allPathsHandled) {
-                        // -> No: This is a MATS coding error, the catch block above should have caught the Exception.
-                        String msg = "The " + stageOrInit(_stage)
-                                + " raised some Exception that should have been caught! This should never happen!";
-                        log.error(msg);
-                        commitOrRollbackThenCloseConnection(false, lazyConnectionSupplier.getAnyGottenConnection());
-                        throw new MatsBackendException(msg);
-                    }
+                catch (Throwable t) {
+                    // ----- This must have been a "sneaky throws"; Throwing an undeclared checked exception.
+                    // !!NOTE!!: The full Exception will be logged by outside JMS-trans class on JMS rollback handling.
+                    log.error(LOG_PREFIX + "ROLLBACK SQL: Got an undeclared checked exception " + t.getClass()
+                            .getSimpleName() + " while processing " + stageOrInit(_stage)
+                            + " (probably 'sneaky throws' of checked exception). Rolling back the SQL Connection.");
+                    /*
+                     * IFF the SQL Connection was fetched, we will now rollback (and close) it.
+                     */
+                    commitOrRollbackThenCloseConnection(false, lazyConnectionSupplier.getAnyGottenConnection());
+
+                    // ----- We're *outside* the SQL Transaction demarcation (rolled back).
+
+                    // We will now re-throw the Throwable, which will rollback the JMS Transaction.
+                    throw new MatsRuntimeException("Got a undeclared checked exception " + t.getClass().getSimpleName()
+                            + " while processing " + stageOrInit(_stage) + ".", t);
                 }
 
                 // ----- The ProcessingLambda went OK, no Exception was raised.
@@ -188,7 +184,6 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 // ----- We're now *outside* the SQL Transaction demarcation (committed).
 
                 // Return nicely, as the SQL Connection.commit() and .close() went OK.
-                return;
             });
         }
 
@@ -210,7 +205,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 }
                 else {
                     con.rollback();
-                    log.debug(LOG_PREFIX + "SQL Connection rolled back.");
+                    log.warn(LOG_PREFIX + "SQL Connection rolled back.");
                 }
             }
             catch (SQLException e) {

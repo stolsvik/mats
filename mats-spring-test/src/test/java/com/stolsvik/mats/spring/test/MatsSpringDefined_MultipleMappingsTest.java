@@ -14,7 +14,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
-import com.stolsvik.mats.spring.MatsTestContext.MatsTestInfrastructureConfiguration;
+import com.stolsvik.mats.spring.MatsSimpleTestContext.MatsTestInfrastructureConfiguration;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsSpringDefined_MultipleMappingsTest.MultipleMappingsConfiguration;
 import com.stolsvik.mats.test.MatsTestLatch;

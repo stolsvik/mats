@@ -24,13 +24,12 @@ public class TestApp {
     private MatsFactory _matsFactory;
 
     public void run() {
-        System.out.println("Hello " + _testBean.getHello());
-        System.out.println("Hello " + _beanPostProcessors);
+        System.out.println("BeanPostProcessors: " + _beanPostProcessors);
 
         SpringTestDataTO dto = new SpringTestDataTO(Math.PI, "Data");
         SpringTestStateTO sto = new SpringTestStateTO(256, "State");
         SpringTestStateTO requstSto = new SpringTestStateTO(3, "RequestState");
-        _matsFactory.getInitiator("Endre").initiate(
+        _matsFactory.getInitiator().initiate(
                 msg -> msg.traceId("TraceId")
                         .from("FromId")
                         .to(TestMatsEndpoint.ENDPOINT_ID + ".SingleWithState")

@@ -77,9 +77,13 @@ public interface JmsMatsTransactionManager {
          * {@link #getTransactionalJmsSession(boolean)}), perform the provided lambda, and then commit the transactions
          * (including the JMS {@link Session}).
          * <p>
-         * If <i>any</i> Exception occurs when executing the lambda, then the transactions should be rolled back - but
-         * if it is a {@link MatsRefuseMessageException}, then the implementation should also try to ensure that the
-         * underlying JMS Message is not redelivered (no more retries), but instead put on the DLQ right away.
+         * If <i>any</i> Exception occurs when executing the provided lambda, then the transactions should be rolled
+         * back - but if it is the declared special {@link MatsRefuseMessageException}, then the implementation should
+         * also try to ensure that the underlying JMS Message is not redelivered (no more retries), but instead put on
+         * the DLQ right away. <i>(Beware of "sneaky throws": The JVM bytecode doesn't care whether a method declares an
+         * exception or not: It is possible to throw a checked exception form a method that doesn't declare it in
+         * several different ways. Groovy is nasty here (as effectively everything is RuntimeException in Groovy world),
+         * and also google "sneakyThrows" for a way to do it using "pure java" that was invented with Generics.)</i>
          *
          * @param jmsSession
          *            the JMS Session upon which this transaction should run. Gotten from
@@ -95,17 +99,6 @@ public interface JmsMatsTransactionManager {
          * is closed. Should close relevant JMS Connections.
          */
         void close();
-    }
-
-    /**
-     * Abstracts away JMS Connection generation - useful if you need to provide username and password, or some other
-     * connection parameters a la for IBM MQ.
-     * <p>
-     * Otherwise, the lambda can be as simple as <code>(stage) -> _jmsConnectionFactory.createConnection()</code>.
-     */
-    @FunctionalInterface
-    interface JmsConnectionSupplier {
-        Connection createJmsConnection(JmsMatsStage<?, ?, ?, ?> stage) throws JMSException;
     }
 
     /**

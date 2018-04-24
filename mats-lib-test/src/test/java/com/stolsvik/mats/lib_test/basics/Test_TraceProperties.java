@@ -72,7 +72,7 @@ public class Test_TraceProperties extends MatsBasicTest {
     public void doTest() {
         DataTO dto = new DataTO(42, "TheAnswer");
         StateTO sto = new StateTO(420, 420.024);
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
+        matsRule.getMatsFactory().getInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)
@@ -89,7 +89,8 @@ public class Test_TraceProperties extends MatsBasicTest {
         // :: Assert all the properties when read from Service
         Assert.assertEquals("xyz", _stringProp_service);
         Assert.assertEquals(new DataTO(Math.E, "abc"), _objectProp_service);
-        Assert.assertEquals("{\"number\":2.718281828459045,\"string\":\"abc\"}", _objectPropAsString_service);
+        Assert.assertEquals("{\"number\":2.718281828459045,\"string\":\"abc\",\"multiplier\":0}",
+                _objectPropAsString_service);
 
         // :: Assert all the properties when read from Terminator, then also including the one set in Service
         Assert.assertEquals("xyz", _stringProp_terminator);

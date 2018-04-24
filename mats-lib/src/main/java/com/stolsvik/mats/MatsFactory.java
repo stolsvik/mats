@@ -4,6 +4,7 @@ import java.util.function.Consumer;
 
 import com.stolsvik.mats.MatsConfig.StartStoppable;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
+import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
@@ -12,7 +13,8 @@ import com.stolsvik.mats.MatsStage.StageConfig;
 
 /**
  * The start point for all interaction with MATS - you need to get hold of an instance of this interface to be able to
- * code MATS endpoints. This is an implementation specific feature (you might want a JMS-specific {@link MatsFactory},
+ * code MATS endpoints, and to perform initiations (i.e. send a message, perform a request, publish a message).
+ * This is an implementation specific feature (you might want a JMS-specific {@link MatsFactory},
  * backed by a ActiveMQ-specific JMS ConnectionFactory).
  * <p>
  * It is worth realizing that all of the methods {@link #staged(String, Class, Class, Consumer) staged(...config)};
@@ -56,7 +58,8 @@ public interface MatsFactory extends StartStoppable {
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
      *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
-     *            endpoint to get the message.
+     *            endpoint to get the message. Typical structure is <code>"OrderService.placeOrder"</code> for public
+     *            endpoints, or <code>"OrderService.private.validateOrder"</code> for private (app-internal) endpoints.
      * @param stateClass
      *            the class of the State DTO that will be sent along the stages.
      * @param replyClass
@@ -84,7 +87,8 @@ public interface MatsFactory extends StartStoppable {
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
      *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
-     *            endpoint to get the message.
+     *            endpoint to get the message. Typical structure is <code>"OrderService.placeOrder"</code> for public
+     *            endpoints, or <code>"OrderService.private.validateOrder"</code> for private (app-internal) endpoints.
      * @param incomingClass
      *            the class of the incoming (typically request) DTO.
      * @param replyClass
@@ -114,16 +118,33 @@ public interface MatsFactory extends StartStoppable {
      * "fire-and-forget" style {@link MatsInitiate#send(Object) invocation} to. The sole stage is supplied directly.
      * This type of endpoint cannot reply, as it has no-one to reply to (hence "terminator").
      * <p>
-     * Do note that this is just a convenience for a often-used scenario where an initiation goes out to some service
-     * (possibly recursing down into further services), and then the reply needs to be handled, and then the process is
-     * finished - this process-terminating endpoint is what is called a "Terminator". There is nothing hindering you in
-     * setting the reply-to endpointId for a request initiation to point to a multi-stage endpoint, and hence have the
-     * ability to do further request-replies on the reply from the initial request.
+     * Do note that this is just a convenience for the often-used scenario where an initiation requests out to some
+     * service, and then the reply needs to be handled - and with that the process is finished. That last endpoint which
+     * handles the reply is what is referred to as a terminator, in that it has nowhere to reply to. Note that there is
+     * nothing hindering you in setting the replyTo endpointId in a request initiation to point to a single-stage
+     * or multi-stage endpoint - however, any replies from those endpoints will just go void.
+     * <p>
+     * It is possible to {@link ProcessContext#initiate(InitiateLambda) initiate} from within a terminator, and one
+     * interesting scenario here is to do a {@link MatsInitiate#publish(Object) publish} to a
+     * {@link #subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) subscriptionTerminator}. The idea
+     * is then that you do the actual processing via a request, and upon the reply processing in the terminator, you
+     * update the app database with the updated information (e.g. "order is processed"), and then you publish an
+     * "update caches" message to all the nodes of the app, so that they all have the new state of the order in
+     * their caches (or, in a push-based GUI logic, you might want to update all users' view of that order). Note that
+     * you (as in the processing node) will also get that published message on your instance of the
+     * SubscriptionTerminator.
+     * <p>
+     * It is technically possible {@link ProcessContext#reply(Object) reply} from within a terminator - but it hard to
+     * envision many wise usage scenarios for this, as the stack at a terminator would probably be empty.
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
      *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
-     *            endpoint to get the message.
+     *            endpoint to get the message. Typical structure is <code>"OrderService.placeOrder"</code> for public
+     *            endpoints (which then is of a "fire-and-forget" style, since a terminator is not meant to reply),
+     *            or <code>"OrderService.terminator.validateOrder"</code> for private (app-internal) terminators that
+     *            is targeted by the {@link MatsInitiate#replyTo(String, Object) replyTo(endpointId,..)} invocation of
+     *            an initiation.
      * @param incomingClass
      *            the class of the incoming (typically reply) DTO.
      * @param stateClass
@@ -195,12 +216,10 @@ public interface MatsFactory extends StartStoppable {
      * will have an underlying backend connection attached to it - which also means that it needs to be closed for a
      * clean application shutdown.
      *
-     * @param initiatorId
-     *            a fictive "endpointId" representing the "initiating endpoint".
      * @return a {@link MatsInitiator}, on which messages can be {@link MatsInitiator#initiate(InitiateLambda)
      *         initiated}.
      */
-    MatsInitiator getInitiator(String initiatorId);
+    MatsInitiator getInitiator();
 
     /**
      * "Releases" any start-waiting endpoints, read up on {@link #stop}. Unless {@link #stop()} has been invoked first,
@@ -228,9 +247,6 @@ public interface MatsFactory extends StartStoppable {
      * Provides for a way to configure factory-wide elements and defaults.
      */
     interface FactoryConfig extends MatsConfig {
-        @Override
-        FactoryConfig setConcurrency(int concurrency);
-
         /**
          * @return the suggested key on which to store the "wire representation" if the underlying mechanism uses a Map,
          *         e.g. a {@code MapMessage} of JMS. Defaults to <code>"mats:trace"</code>.
