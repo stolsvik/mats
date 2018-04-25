@@ -3,15 +3,19 @@ package com.stolsvik.mats.serial;
 import java.util.List;
 
 /**
- * Interface-representation of the underlying "wire protocol" which Mats is running on. Which implementation of the wire
- * format is being employed is configured when creating the <code>MatsFactory</code>, and which formats are available
- * are dependent on the underlying transport (typically JMS).
+ * Together with the {@link MatsSerializer}, this interface describes one way to implement a wire-protocol for how Mats
+ * communicates. It is up to the implementation of the <code>MatsFactory</code> to implement a protocol of how the Mats
+ * API is transferred over the wire. This is one such implementation that can be used, which is employed by the default
+ * JMS implementation of Mats.
  * <p>
  * From the outset, there is one format (JSON serialization of the <code>MatsTrace_DefaultJson</code> class using
  * Jackson), and one transport (JMS). Notice that the serialization of the actual DTOs and STOs can be specified
- * independently, e.g. use GSON.
+ * independently, e.g. use GSON, or protobuf, or whatever can handle serialization to and from the DTOs and STOs being
+ * used.
  *
- * @param <Z> The type which STOs and DTOs are serialized into.
+ * @param <Z> The type which STOs and DTOs are serialized into. When employing JSON for the "outer" serialization of
+ *            MatsTrace, it does not make that much sense to use a binary (Z=byte[]) "inner" representation of the DTOs
+ *            and STOs, because JSON is terrible at serializing byte arrays.
  *
  * @author Endre Stølsvik - 2018-03-17 23:37, factored out from original from 2015 - http://endre.stolsvik.com
  */
@@ -23,14 +27,15 @@ public interface MatsTrace<Z> {
     String getTraceId();
 
     /**
-     * @return to which extent the Call history (with State) should be kept. The default is {@link KeepMatsTrace#COMPACT}.
+     * @return to which extent the Call history (with State) should be kept. The default is
+     *         {@link KeepMatsTrace#COMPACT}.
      */
     KeepMatsTrace getKeepTrace();
 
     /**
-     * Specifies how the MatsTrace will handle historic values that are present just for debugging.
-     * Notice the annoyance that this is effectively specified twice, once in the MATS API, and once here. That is
-     * better, IMHO, than this package depending on the MATS API only for that enum.
+     * Specifies how the MatsTrace will handle historic values that are present just for debugging. Notice the annoyance
+     * that this is effectively specified twice, once in the MATS API, and once here. That is better, IMHO, than this
+     * package depending on the MATS API only for that enum.
      */
     enum KeepMatsTrace {
         /**
@@ -54,13 +59,13 @@ public interface MatsTrace<Z> {
 
     /**
      * @return whether the message should be JMS-style "non-persistent", default is <code>false</code> (i.e. persistent,
-     * reliable).
+     *         reliable).
      */
     boolean isNonPersistent();
 
     /**
-     * @return whether the message should be prioritized in that a human is actively waiting for the reply, default
-     * is <code>false</code>.
+     * @return whether the message should be prioritized in that a human is actively waiting for the reply, default is
+     *         <code>false</code>.
      */
     boolean isInteractive();
 
@@ -68,7 +73,7 @@ public interface MatsTrace<Z> {
      * Can only be set once..
      */
     MatsTrace<Z> setDebugInfo(String initializingAppName, String initializingAppVersion, String initializingHost,
-                              String initiatorId, long initializedTimestamp, String debugInfo);
+            String initiatorId, long initializedTimestamp, String debugInfo);
 
     String getInitializingAppName();
 
@@ -81,7 +86,6 @@ public interface MatsTrace<Z> {
     long getInitializedTimestamp();
 
     String getDebugInfo();
-
 
     /**
      * Sets a trace property, refer to <code>ProcessContext.setTraceProperty(String, Object)</code>. Notice that on the
@@ -104,7 +108,6 @@ public interface MatsTrace<Z> {
      * @return the value of the property.
      */
     Z getTraceProperty(String propertyName);
-
 
     /**
      * Adds a {@link CallType#REQUEST REQUEST} Call, which is an invocation of a service where one expects a Reply from
@@ -156,8 +159,8 @@ public interface MatsTrace<Z> {
     /**
      * Adds a {@link CallType#NEXT NEXT} Call, which is a "downwards call" to the next stage in a multistage service, as
      * opposed to the normal request out to a service expecting a reply. The functionality is functionally identical to
-     * {@link #addSendCall(String, String, Z, List, Z) addSendCall(...)}, but has its own {@link CallType}
-     * enum {@link CallType#NEXT value}.
+     * {@link #addSendCall(String, String, Z, List, Z) addSendCall(...)}, but has its own {@link CallType} enum
+     * {@link CallType#NEXT value}.
      *
      * @param from
      *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
@@ -194,7 +197,6 @@ public interface MatsTrace<Z> {
      */
     MatsTrace<Z> addReplyCall(String from, String to, Z data, List<String> replyStack);
 
-
     Call<Z> getCurrentCall();
 
     Z getCurrentState();
@@ -217,7 +219,7 @@ public interface MatsTrace<Z> {
          * Can only be set once..
          */
         Call<Z> setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
-                             long calledTimestamp, String debugInfo);
+                long calledTimestamp, String debugInfo);
 
         String getCallingAppName();
 
@@ -228,7 +230,6 @@ public interface MatsTrace<Z> {
         long getCalledTimestamp();
 
         String getDebugInfo();
-
 
         CallType getType();
 

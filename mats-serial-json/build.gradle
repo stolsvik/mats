@@ -1,4 +1,4 @@
-// mats-util
+// mats-serial-json
 
 dependencies {
     compile project(":mats-serial")

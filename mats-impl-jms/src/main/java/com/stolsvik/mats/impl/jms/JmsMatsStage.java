@@ -343,7 +343,8 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                 String matsTraceMeta;
                                 try {
                                     matsTraceBytes = mapMessage.getBytes(factoryConfig.getMatsTraceKey());
-                                    matsTraceMeta = mapMessage.getString(factoryConfig.getMatsTraceKey() + ":meta");
+                                    matsTraceMeta = mapMessage.getString(factoryConfig.getMatsTraceKey()
+                                            + MatsSerializer.META_KEY_POSTFIX);
                                 }
                                 catch (JMSException e) {
                                     throw new MatsBackendException(

@@ -67,7 +67,8 @@ public interface JmsMatsStatics {
             MapMessage mm = jmsSession.createMapMessage();
             // Set the MatsTrace.
             mm.setBytes(factoryConfig.getMatsTraceKey(), matsTraceBytes);
-            mm.setString(factoryConfig.getMatsTraceKey() + ":meta", serializedMatsTrace.getMeta());
+            mm.setString(factoryConfig.getMatsTraceKey() + MatsSerializer.META_KEY_POSTFIX,
+                    serializedMatsTrace.getMeta());
 
             // :: Add the properties to the MapMessage
             for (Map.Entry<String, byte[]> entry : bytesCopied.entrySet()) {
