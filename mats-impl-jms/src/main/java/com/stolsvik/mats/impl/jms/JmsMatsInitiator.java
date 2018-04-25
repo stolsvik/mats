@@ -185,7 +185,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
                     // TODO: Add debug info!
                     .setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
                             HOSTNAME, _from, now, "Tralala!")
-                    .addRequestCall(_from, _to, ser.serializeObject(requestDto), Collections.singletonList(_replyTo),
+                    .addRequestCall(_from, _to, _replyTo, ser.serializeObject(requestDto),
                             ser.serializeObject(_replySto), ser.serializeObject(initialTargetSto));
             // TODO: Add debug info!
             matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(),
@@ -210,8 +210,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
                     // TODO: Add debug info!
                     .setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
                             HOSTNAME, _from, now, "Tralala!")
-                    .addSendCall(_from, _to, ser.serializeObject(messageDto), Collections.emptyList(),
-                            ser.serializeObject(initialTargetSto));
+                    .addSendCall(_from, _to, ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
             // TODO: Add debug info!
             matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
                     HOSTNAME, now, "Callalala!");
@@ -235,8 +234,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
                     // TODO: Add debug info!
                     .setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
                             HOSTNAME, _from, now, "Tralala!")
-                    .addSendCall(_from, _to, ser.serializeObject(messageDto), Collections.emptyList(),
-                            ser.serializeObject(initialTargetSto));
+                    .addSendCall(_from, _to, ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
             // TODO: Add debug info!
             matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
                     HOSTNAME, now, "Callalala!");

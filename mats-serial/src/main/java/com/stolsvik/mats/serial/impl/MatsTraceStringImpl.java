@@ -154,18 +154,23 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     @Override
-    public MatsTraceStringImpl addRequestCall(String from, String to, String data, List<String> replyStack,
+    public MatsTraceStringImpl addRequestCall(String from, String to, String replyTo, String data,
             String replyState,
             String initialState) {
+        List<String> replyStack = getCurrentStack();
         MatsTraceStringImpl clone = cloneForNewCall();
-        dropValuesOnCurrent();
-        clone.c.add(new CallImpl(CallType.REQUEST, from, to, data, replyStack));
         // Add the replyState - i.e. the state that is outgoing from the current call, destined for the reply.
-        // (The parameter replyStack includes the replyTo stage/endpointId for this call as the first element, subtract
-        // this.)
-        clone.ss.add(new StackStateImpl(replyStack.size() - 1, replyState));
+        // NOTE: This must be added BEFORE we add to the replyStack, since it is targeted to the stack frame below us!
+        clone.ss.add(new StackStateImpl(replyStack.size(), replyState));
+        // Add the stageId to replyTo to the stack
+        replyStack.add(replyTo);
+        // Prune the data and stack from current call if KeepMatsTrace says so.
+        dropValuesOnCurrent();
+        // Add the new Call
+        clone.c.add(new CallImpl(CallType.REQUEST, from, to, data, replyStack));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
+            // The stack is now one height higher, since we added the "replyTo" to it.
             clone.ss.add(new StackStateImpl(replyStack.size(), initialState));
         }
         // Prune the StackStates if KeepMatsTrace says so
@@ -174,10 +179,13 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     @Override
-    public MatsTraceStringImpl addSendCall(String from, String to, String data, List<String> replyStack,
-            String initialState) {
+    public MatsTraceStringImpl addSendCall(String from, String to, String data, String initialState) {
+        // For a send/next call, the stack does not change.
+        List<String> replyStack = getCurrentStack();
         MatsTraceStringImpl clone = cloneForNewCall();
+        // Prune the data and stack from current call if KeepMatsTrace says so.
         dropValuesOnCurrent();
+        // Add the new Call
         clone.c.add(new CallImpl(CallType.SEND, from, to, data, replyStack));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
@@ -189,12 +197,16 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     @Override
-    public MatsTraceStringImpl addNextCall(String from, String to, String data, List<String> replyStack, String state) {
+    public MatsTraceStringImpl addNextCall(String from, String to, String data, String state) {
         if (state == null) {
             throw new IllegalStateException("When adding next-call, state-data string should not be null.");
         }
+        // For a send/next call, the stack does not change.
+        List<String> replyStack = getCurrentStack();
         MatsTraceStringImpl clone = cloneForNewCall();
+        // Prune the data and stack from current call if KeepMatsTrace says so.
         dropValuesOnCurrent();
+        // Add the new Call
         clone.c.add(new CallImpl(CallType.NEXT, from, to, data, replyStack));
         // Add the state meant for the next stage
         clone.ss.add(new StackStateImpl(replyStack.size(), state));
@@ -204,13 +216,28 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     @Override
-    public MatsTraceStringImpl addReplyCall(String from, String to, String data, List<String> replyStack) {
+    public MatsTraceStringImpl addReplyCall(String from, String data) {
+        List<String> replyStack = getCurrentStack();
         MatsTraceStringImpl clone = cloneForNewCall();
+        // Prune the data and stack from current call if KeepMatsTrace says so.
         dropValuesOnCurrent();
+        // Pop the last element off the stack, since this is where we'll reply to, and the rest is the new stack.
+        String to = replyStack.remove(replyStack.size() - 1);
+        // Add the new Call
         clone.c.add(new CallImpl(CallType.REPLY, from, to, data, replyStack));
         // Prune the StackStates if KeepMatsTrace says so.
         clone.pruneUnnecessaryStackStates();
         return clone;
+    }
+
+    private List<String> getCurrentStack() {
+        CallImpl currentCall = getCurrentCall();
+        if (currentCall != null) {
+            // -> We have a current call, return its stack
+            return currentCall.getStack(); // This is a copy.
+        }
+        // E-> no current call, so empty stack.
+        return new ArrayList<>();
     }
 
     /**
@@ -268,6 +295,9 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     @Override
     public CallImpl getCurrentCall() {
         // Return last element
+        if (c.size() == 0) {
+            return null;
+        }
         return c.get(c.size() - 1);
     }
 

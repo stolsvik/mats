@@ -119,12 +119,11 @@ public interface MatsTrace<Z> {
      *            does not need the from specifier, as this is not where any replies go to.
      * @param to
      *            which endpoint that should get the request.
+     * @param replyTo
+     *            which endpoint that should get the reply from the requested endpoint.
      * @param data
      *            the request data, most often a JSON representing the Request Data Transfer Object that the requesting
      *            service expects to get.
-     * @param replyStack
-     *            the stack that the request shall use to decide who to reply to by popping the first element of the
-     *            list - that is, the first element of the list is who should get the reply for <i>this</i> request.
      * @param replyState
      *            the state data for the stageId that gets the reply to this request, that is, the state for the stageId
      *            that is at the first element of the replyStack. Most often a JSON representing the State Transfer
@@ -133,7 +132,7 @@ public interface MatsTrace<Z> {
      *            an optional feature, whereby the state can be set for the initial stage of the requested endpoint.
      *            Same stuff as replyState.
      */
-    MatsTrace<Z> addRequestCall(String from, String to, Z data, List<String> replyStack, Z replyState, Z initialState);
+    MatsTrace<Z> addRequestCall(String from, String to, String replyTo, Z data, Z replyState, Z initialState);
 
     /**
      * Adds a {@link Call.CallType#SEND SEND} Call, meaning a "request" which do not expect a Reply: Envision an
@@ -149,17 +148,15 @@ public interface MatsTrace<Z> {
      * @param data
      *            the request data, most often a JSON representing the Request Data Transfer Object that the receiving
      *            service expects to get.
-     * @param replyStack
-     *            for an SEND call, this would normally be an empty list.
      * @param initialState
      *            an optional feature, whereby the state can be set for the initial stage of the requested endpoint.
      */
-    MatsTrace<Z> addSendCall(String from, String to, Z data, List<String> replyStack, Z initialState);
+    MatsTrace<Z> addSendCall(String from, String to, Z data, Z initialState);
 
     /**
      * Adds a {@link Call.CallType#NEXT NEXT} Call, which is a "downwards call" to the next stage in a multistage
      * service, as opposed to the normal request out to a service expecting a reply. The functionality is functionally
-     * identical to {@link #addSendCall(String, String, Z, List, Z) addSendCall(...)}, but has its own
+     * identical to {@link #addSendCall(String, String, Z, Z) addSendCall(...)}, but has its own
      * {@link Call.CallType CallType} enum {@link Call.CallType#NEXT value}.
      *
      * @param from
@@ -170,32 +167,24 @@ public interface MatsTrace<Z> {
      * @param data
      *            the request data, most often a JSON representing the Request Data Transfer Object that the next stage
      *            expects to get.
-     * @param replyStack
-     *            for an NEXT call, this is the same stack as the current stage has.
      * @param state
      *            the state data for the next stage.
      */
-    MatsTrace<Z> addNextCall(String from, String to, Z data, List<String> replyStack, Z state);
+    MatsTrace<Z> addNextCall(String from, String to, Z data, Z state);
 
     /**
      * Adds a {@link Call.CallType#REPLY REPLY} Call, which happens when a requested service is finished with its
-     * processing and have some Reply to return. It then pops the stack (takes the first element of the stack), sets
-     * this as the "to" parameter, and provides the rest of the list as the "replyStack" parameter.
+     * processing and have some Reply to return. This method pops the stack (takes the last element) from the (previos)
+     * current call, sets this as the "to" parameter, and uses the rest of the list as the stack for the next Call.
      *
      * @param from
      *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
      *            does not need the from specifier, as this is not where any replies go to.
-     * @param to
-     *            which endpoint that should get the request - for a REPLY Call, this is obtained by popping the first
-     *            element of the stack.
      * @param data
      *            the request data, most often a JSON representing the Request Data Transfer Object that the requesting
      *            service expects to get.
-     * @param replyStack
-     *            for a REPLY call, this would normally be the rest of the list after the first element has been popped
-     *            of the stack.
      */
-    MatsTrace<Z> addReplyCall(String from, String to, Z data, List<String> replyStack);
+    MatsTrace<Z> addReplyCall(String from, Z data);
 
     /**
      * @return the {@link Call Call} which should be processed by the stage receiving this {@link MatsTrace} (which
@@ -260,10 +249,10 @@ public interface MatsTrace<Z> {
         }
 
         /**
-         * @return the stageId that sent this call - will most probably be <code>null</code> for any other Call than the
-         *         {@link MatsTrace#getCurrentCall()}, to conserve space in the MatsTrace. The rationale for this, is
-         *         that if those Calls are available, they are there for debug purposes only, and then you can use the
-         *         order of the Calls to see who is the caller: The previous Call's {@link #getTo() "to"} is the
+         * @return the stageId that sent this call - will most probably be the string "-nulled-" for any other Call than
+         *         the {@link MatsTrace#getCurrentCall()}, to conserve space in the MatsTrace. The rationale for this,
+         *         is that if those Calls are available, they are there for debug purposes only, and then you can use
+         *         the order of the Calls to see who is the caller: The previous Call's {@link #getTo() "to"} is the
          *         {@link #getFrom() "from"} of this Call.
          */
         String getFrom();
@@ -281,12 +270,13 @@ public interface MatsTrace<Z> {
         int getStackSize();
 
         /**
-         * @return a COPY of the stack - will most probably be a List with {@link #getStackSize()} elements containing
-         *         "-nulled-" for any other Call than the {@link MatsTrace#getCurrentCall()}, to conserve space in the
-         *         MatsTrace. The FIRST (i.e. position 0) element is the most recent, meaning that the next REPLY will
-         *         go here, while the LAST (i.e. position 'length() - 1') element is the earliest in the stack, i.e. the
-         *         stageId where the Terminator endpointId typically will reside (unless the initial call was a
-         *         {@link CallType#SEND SEND}, which means that you don't want a reply).
+         * @return a COPY of the stack (if you need the size, use {@link #getStackSize()}) - NOTICE: This will most
+         *         probably be a List with {@link #getStackSize()} elements containing "-nulled-" for any other Call
+         *         than the {@link MatsTrace#getCurrentCall()}, to conserve space in the MatsTrace. The LAST (i.e.
+         *         position 'size()-1') element is the most recent, meaning that the next REPLY will go here, while the
+         *         FIRST (i.e. position 0) element is the earliest in the stack, i.e. the stageId where the Terminator
+         *         endpointId typically will reside (unless the initial call was a {@link CallType#SEND SEND}, which
+         *         means that you don't want a reply).
          */
         List<String> getStack();
     }
