@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.TimeZone;
 
 import com.stolsvik.mats.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace.Call.CallType;
 
 /**
  * (Concrete class) Represents the protocol that the MATS endpoints (their stages) communicate with. This class is
@@ -52,7 +53,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private final boolean rt; // Interactive ... as in "Real Time".
 
     private List<CallImpl> c = new ArrayList<>(); // Calls. Not final due to clone-impl.
-    private List<StackState> ss = new ArrayList<>(); // StackStates. Not final due to clone-impl.
+    private List<StackStateImpl> ss = new ArrayList<>(); // StackStates. Not final due to clone-impl.
     private Map<String, String> tp = new LinkedHashMap<>(); // TraceProps. Not final due to clone-impl.
 
     public static MatsTrace<String> createNew(String traceId,
@@ -162,10 +163,10 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         // Add the replyState - i.e. the state that is outgoing from the current call, destined for the reply.
         // (The parameter replyStack includes the replyTo stage/endpointId for this call as the first element, subtract
         // this.)
-        clone.ss.add(new StackState(replyStack.size() - 1, replyState));
+        clone.ss.add(new StackStateImpl(replyStack.size() - 1, replyState));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
-            clone.ss.add(new StackState(replyStack.size(), initialState));
+            clone.ss.add(new StackStateImpl(replyStack.size(), initialState));
         }
         // Prune the StackStates if KeepMatsTrace says so
         clone.pruneUnnecessaryStackStates();
@@ -180,7 +181,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         clone.c.add(new CallImpl(CallType.SEND, from, to, data, replyStack));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
-            clone.ss.add(new StackState(replyStack.size(), initialState));
+            clone.ss.add(new StackStateImpl(replyStack.size(), initialState));
         }
         // Prune the StackStates if KeepMatsTrace says so.
         clone.pruneUnnecessaryStackStates();
@@ -196,7 +197,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         dropValuesOnCurrent();
         clone.c.add(new CallImpl(CallType.NEXT, from, to, data, replyStack));
         // Add the state meant for the next stage
-        clone.ss.add(new StackState(replyStack.size(), state));
+        clone.ss.add(new StackStateImpl(replyStack.size(), state));
         // Prune the StackStates if KeepMatsTrace says so.
         clone.pruneUnnecessaryStackStates();
         return clone;
@@ -237,27 +238,29 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         if ((kt == KeepMatsTrace.MINIMAL) || (kt == KeepMatsTrace.COMPACT)) {
             // -> Yes, so we'll drop the states we can.
             int currentPruneDepth = getCurrentCall().getStackSize();
+            pruneUnnecessaryStackStates(ss, currentPruneDepth);
+        }
+    }
 
-            Set<Integer> seen = new HashSet<>();
-            // Iterate over all elements from the most recent (which is the last) to the earliest (which is first).
-            for (ListIterator<StackState> it = ss.listIterator(ss.size()); it.hasPrevious();) {
-                StackState curr = it.previous();
-                // ?: Is this at a higher level than current stack height?
-                if (curr.getHeight() > currentPruneDepth) {
-                    // -> Yes, so won't ever be used.
-                    it.remove();
-                    seen.add(curr.getHeight());
-                    continue;
-                }
-                // ?: Have we seen this height before?
-                if (seen.contains(curr.getHeight())) {
-                    // -> Yes, so since we're traversing backwards, we have the most recent from this height.
-                    it.remove();
-                }
-                else {
-                    // -> No, so we've seen it now (delete any subsequent).
-                    seen.add(curr.getHeight());
-                }
+    private static void pruneUnnecessaryStackStates(List<StackStateImpl> stackStates, int currentPruneDepth) {
+        Set<Integer> seen = new HashSet<>();
+        // Iterate over all elements from the most recent (which is the last) to the earliest (which is first).
+        for (ListIterator<StackStateImpl> it = stackStates.listIterator(stackStates.size()); it.hasPrevious();) {
+            StackStateImpl curr = it.previous();
+            // ?: Is this at a higher level than current stack height?
+            if (curr.getHeight() > currentPruneDepth) {
+                // -> Yes, so won't ever be used.
+                it.remove();
+                continue;
+            }
+            // ?: Have we seen this height before?
+            if (seen.contains(curr.getHeight())) {
+                // -> Yes, so since we're traversing backwards, we have the most recent from this height.
+                it.remove();
+            }
+            else {
+                // -> No, so we've seen it now (delete any subsequent).
+                seen.add(curr.getHeight());
             }
         }
     }
@@ -269,9 +272,26 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     @Override
+    public List<Call<String>> getCallFlow() {
+        return new ArrayList<>(c);
+    }
+
+    @Override
     public String getCurrentState() {
         // Return the state for the current stack depth (which is the number of stack elements below this).
         return getState(getCurrentCall().getStack().size());
+    }
+
+    @Override
+    public List<StackState<String>> getStateFlow() {
+        return new ArrayList<>(ss);
+    }
+
+    @Override
+    public List<StackState<String>> getStateStack() {
+        List<StackStateImpl> stackStates = new ArrayList<>(ss);
+        pruneUnnecessaryStackStates(stackStates, getCurrentCall().getStackSize());
+        return new ArrayList<>(stackStates);
     }
 
     /**
@@ -294,7 +314,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
      */
     private String getState(int stackDepth) {
         for (int i = ss.size() - 1; i >= 0; i--) {
-            StackState stackState = ss.get(i);
+            StackStateImpl stackState = ss.get(i);
             // ?: Have we reached a lower depth than ourselves?
             if (stackDepth > stackState.getHeight()) {
                 // -> Yes, we're at a lower depth: The rest can not possibly be meant for us.
@@ -409,7 +429,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         }
 
         @Override
-        public CallType getType() {
+        public CallType getCallType() {
             return t;
         }
 
@@ -488,17 +508,17 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         }
     }
 
-    public static class StackState {
+    private static class StackStateImpl implements StackState<String> {
         private final int h; // depth.
         private final String s; // state.
 
         // Jackson JSON-lib needs a default constructor, but it can re-set finals.
-        private StackState() {
+        private StackStateImpl() {
             h = 0;
             s = null;
         }
 
-        public StackState(int height, String state) {
+        public StackStateImpl(int height, String state) {
             this.h = height;
             this.s = state;
         }
@@ -521,10 +541,13 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     public String toString() {
         StringBuilder buf = new StringBuilder();
         buf.append("MatsTrace : ")
-                .append(getCurrentCall().getType())
+                .append(getCurrentCall().getCallType())
                 .append(" #to:").append(getCurrentCall().getTo())
                 .append("  [traceId=").append(tid)
-                .append("]  KeepMatsTrace:").append(kt).append('\n');
+                .append("]  KeepMatsTrace:").append(kt)
+                .append("  NonPersistent:").append(np)
+                .append("  Interactive:").append(rt)
+                .append('\n');
         buf.append(" call#:\n");
         buf.append("    0    --- [Initiator]");
         if (an != null) {

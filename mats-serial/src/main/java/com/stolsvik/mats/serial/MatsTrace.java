@@ -110,9 +110,9 @@ public interface MatsTrace<Z> {
     Z getTraceProperty(String propertyName);
 
     /**
-     * Adds a {@link CallType#REQUEST REQUEST} Call, which is an invocation of a service where one expects a Reply from
-     * this service to go to a specified endpoint, typically the next stage in a multi-stage endpoint: Envision a normal
-     * invocation of some method that returns a value.
+     * Adds a {@link Call.CallType#REQUEST REQUEST} Call, which is an invocation of a service where one expects a Reply
+     * from this service to go to a specified endpoint, typically the next stage in a multi-stage endpoint: Envision a
+     * normal invocation of some method that returns a value.
      *
      * @param from
      *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
@@ -136,8 +136,8 @@ public interface MatsTrace<Z> {
     MatsTrace<Z> addRequestCall(String from, String to, Z data, List<String> replyStack, Z replyState, Z initialState);
 
     /**
-     * Adds a {@link CallType#SEND SEND} Call, meaning a "request" which do not expect a Reply: Envision an invocation
-     * of a void-method. Or an invocation of some method that returns the value, but where you invoke it as a
+     * Adds a {@link Call.CallType#SEND SEND} Call, meaning a "request" which do not expect a Reply: Envision an
+     * invocation of a void-method. Or an invocation of some method that returns the value, but where you invoke it as a
      * void-method (i.e. not storing the result, e.g. the method <code>map.remove("test")</code> returns the removed
      * value, but is often invoked without storing this.).
      *
@@ -157,10 +157,10 @@ public interface MatsTrace<Z> {
     MatsTrace<Z> addSendCall(String from, String to, Z data, List<String> replyStack, Z initialState);
 
     /**
-     * Adds a {@link CallType#NEXT NEXT} Call, which is a "downwards call" to the next stage in a multistage service, as
-     * opposed to the normal request out to a service expecting a reply. The functionality is functionally identical to
-     * {@link #addSendCall(String, String, Z, List, Z) addSendCall(...)}, but has its own {@link CallType} enum
-     * {@link CallType#NEXT value}.
+     * Adds a {@link Call.CallType#NEXT NEXT} Call, which is a "downwards call" to the next stage in a multistage
+     * service, as opposed to the normal request out to a service expecting a reply. The functionality is functionally
+     * identical to {@link #addSendCall(String, String, Z, List, Z) addSendCall(...)}, but has its own
+     * {@link Call.CallType CallType} enum {@link Call.CallType#NEXT value}.
      *
      * @param from
      *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
@@ -178,9 +178,9 @@ public interface MatsTrace<Z> {
     MatsTrace<Z> addNextCall(String from, String to, Z data, List<String> replyStack, Z state);
 
     /**
-     * Adds a {@link CallType#REPLY REPLY} Call, which happens when a requested service is finished with its processing
-     * and have some Reply to return. It then pops the stack (takes the first element of the stack), sets this as the
-     * "to" parameter, and provides the rest of the list as the "replyStack" parameter.
+     * Adds a {@link Call.CallType#REPLY REPLY} Call, which happens when a requested service is finished with its
+     * processing and have some Reply to return. It then pops the stack (takes the first element of the stack), sets
+     * this as the "to" parameter, and provides the rest of the list as the "replyStack" parameter.
      *
      * @param from
      *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
@@ -197,19 +197,35 @@ public interface MatsTrace<Z> {
      */
     MatsTrace<Z> addReplyCall(String from, String to, Z data, List<String> replyStack);
 
+    /**
+     * @return the {@link Call Call} which should be processed by the stage receiving this {@link MatsTrace} (which
+     *         should be the stageId specified in getCurrentCall().{@link Call#getTo() getTo()}).
+     */
     Call<Z> getCurrentCall();
 
+    /**
+     * @return the flow of calls, from the first REQUEST (or SEND), to the {@link #getCurrentCall() current call} -
+     *         unless {@link #getKeepTrace() KeepTrace} is MINIMAL, in which case only the current call is present in
+     *         the list.
+     */
+    List<Call<Z>> getCallFlow();
+
+    /**
+     * @return the state for the {@link #getCurrentCall()}.
+     */
     Z getCurrentState();
 
-    enum CallType {
-        REQUEST,
+    /**
+     * @return the stack of the states for the current stack: getCurrentCall().getStack().
+     */
+    List<StackState<String>> getStateStack();
 
-        SEND,
-
-        NEXT,
-
-        REPLY
-    }
+    /**
+     * @return the entire list of states as they have changed throughout the call flow. If {@link KeepMatsTrace} is
+     *         COMPACT or MINIMAL, then it will be a pure stack (as returned with {@link #getStateStack()}, with the
+     *         last element being the most recent stack frame.
+     */
+    List<StackState<Z>> getStateFlow();
 
     /**
      * Represents an immutable entry in the {@link MatsTrace}.
@@ -231,7 +247,17 @@ public interface MatsTrace<Z> {
 
         String getDebugInfo();
 
-        CallType getType();
+        CallType getCallType();
+
+        enum CallType {
+            REQUEST,
+
+            SEND,
+
+            NEXT,
+
+            REPLY
+        }
 
         /**
          * @return the stageId that sent this call - will most probably be <code>null</code> for any other Call than the
@@ -263,5 +289,14 @@ public interface MatsTrace<Z> {
          *         {@link CallType#SEND SEND}, which means that you don't want a reply).
          */
         List<String> getStack();
+    }
+
+    /**
+     * The State instances (of type Z), along with the depth of the stack the state relates to.
+     */
+    interface StackState<Z> {
+        int getHeight();
+
+        Z getState();
     }
 }
