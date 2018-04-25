@@ -275,8 +275,9 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
     }
 
 
-    static byte[] compress(byte[] data)  {
+    protected byte[] compress(byte[] data)  {
         // OPTIMIZE: Use Object Pool for compressor-instances with Deflater and byte array.
+        // This pool could possibly be a simple lock-free stack, if stack is empty, make a new instance.
         Deflater deflater = new Deflater();
         try {
             deflater.setInput(data);
@@ -302,8 +303,9 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
         }
     }
 
-    static byte[] decompress(byte[] data) {
+    protected byte[] decompress(byte[] data) {
         // OPTIMIZE: Use Object Pool for decompressor-instances with Inflater and byte array.
+        // This pool could possibly be a simple lock-free stack, if stack is empty, make a new instance.
         Inflater inflater = new Inflater();
         try {
             inflater.setInput(data);
