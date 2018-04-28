@@ -157,7 +157,7 @@ public interface MatsTrace<Z> {
      * Adds a {@link Call.CallType#NEXT NEXT} Call, which is a "downwards call" to the next stage in a multistage
      * service, as opposed to the normal request out to a service expecting a reply. The functionality is functionally
      * identical to {@link #addSendCall(String, String, Z, Z) addSendCall(...)}, but has its own
-     * {@link Call.CallType CallType} enum {@link Call.CallType#NEXT value}.
+     * {@link Call.CallType CallType} enum value {@link Call.CallType#NEXT NEXT}.
      *
      * @param from
      *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
@@ -174,7 +174,7 @@ public interface MatsTrace<Z> {
 
     /**
      * Adds a {@link Call.CallType#REPLY REPLY} Call, which happens when a requested service is finished with its
-     * processing and have some Reply to return. This method pops the stack (takes the last element) from the (previos)
+     * processing and have some Reply to return. This method pops the stack (takes the last element) from the (previous)
      * current call, sets this as the "to" parameter, and uses the rest of the list as the stack for the next Call.
      *
      * @param from
@@ -200,12 +200,14 @@ public interface MatsTrace<Z> {
     List<Call<Z>> getCallFlow();
 
     /**
-     * @return the state for the {@link #getCurrentCall()}.
+     * @return the state for the {@link #getCurrentCall()}, if any.
      */
     Z getCurrentState();
 
     /**
-     * @return the stack of the states for the current stack: getCurrentCall().getStack().
+     * @return the stack of the states for the current stack: getCurrentCall().getStack(). NOTICE: The index position in
+     *         this list has little to do with which stack level the state refers to. This must be gotten from
+     *         {@link StackState#getHeight()}.
      */
     List<StackState<String>> getStateStack();
 
@@ -282,11 +284,17 @@ public interface MatsTrace<Z> {
     }
 
     /**
-     * The State instances (of type Z), along with the depth of the stack the state relates to.
+     * The State instances (of type Z), along with the height of the stack the state relates to.
      */
     interface StackState<Z> {
+        /**
+         * @return which stack height this {@link #getState()} belongs to.
+         */
         int getHeight();
 
+        /**
+         * @return the state at stack height {@link #getHeight()}.
+         */
         Z getState();
     }
 }

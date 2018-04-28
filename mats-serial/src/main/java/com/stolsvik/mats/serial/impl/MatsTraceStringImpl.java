@@ -50,7 +50,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     private final KeepMatsTrace kt; // KeepMatsTrace.
     private final boolean np; // NonPersistent.
-    private final boolean rt; // Interactive ... as in "Real Time".
+    private final boolean ia; // Interactive.
 
     private List<CallImpl> c = new ArrayList<>(); // Calls. Not final due to clone-impl.
     private List<StackStateImpl> ss = new ArrayList<>(); // StackStates. Not final due to clone-impl.
@@ -80,7 +80,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
         kt = KeepMatsTrace.COMPACT;
         np = false;
-        rt = false;
+        ia = false;
     }
 
     private MatsTraceStringImpl(String traceId, KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive) {
@@ -88,7 +88,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
         this.kt = keepMatsTrace;
         this.np = nonPersistent;
-        this.rt = interactive;
+        this.ia = interactive;
     }
 
     // == NOTICE == Serialization and deserialization is an implementation specific feature.
@@ -140,7 +140,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     @Override
     public boolean isInteractive() {
-        return rt;
+        return ia;
     }
 
     @Override
@@ -576,7 +576,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                 .append("  [traceId=").append(tid)
                 .append("]  KeepMatsTrace:").append(kt)
                 .append("  NonPersistent:").append(np)
-                .append("  Interactive:").append(rt)
+                .append("  Interactive:").append(ia)
                 .append('\n');
         buf.append(" call#:\n");
         buf.append("    0    --- [Initiator]");
