@@ -115,7 +115,7 @@ public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
         // Wait for the DLQ
         MatsTrace dlqMatsTrace = matsRule.getDlqMessage(SERVICE);
         Assert.assertNotNull(dlqMatsTrace);
-        Assert.assertEquals(SERVICE, dlqMatsTrace.getCurrentCall().getTo());
+        Assert.assertEquals(SERVICE, dlqMatsTrace.getCurrentCall().getTo().getId());
 
         // Assert that the data inserted in SERVICE is NOT inserted!
         try {

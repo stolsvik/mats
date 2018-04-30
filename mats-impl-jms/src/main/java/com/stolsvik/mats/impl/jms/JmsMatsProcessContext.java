@@ -8,6 +8,8 @@ import javax.jms.MapMessage;
 import javax.jms.Session;
 
 import com.stolsvik.mats.serial.MatsTrace.Call;
+import com.stolsvik.mats.serial.MatsTrace.Call.Channel;
+import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -126,8 +128,10 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
 
         // :: Create next MatsTrace
         MatsSerializer<Z> matsSerializer = parentFactory.getMatsSerializer();
-        MatsTrace<Z> requestMatsTrace = _matsTrace.addRequestCall(_matsStage.getStageId(), endpointId,
-                _matsStage.getNextStageId(), matsSerializer.serializeObject(requestDto),
+        MatsTrace<Z> requestMatsTrace = _matsTrace.addRequestCall(_matsStage.getStageId(),
+                endpointId, MessagingModel.QUEUE,
+                _matsStage.getNextStageId(), MessagingModel.QUEUE,
+                matsSerializer.serializeObject(requestDto),
                 matsSerializer.serializeObject(_sto), null);
 
         // TODO: Add debug info!
@@ -135,19 +139,19 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                 HOSTNAME, System.currentTimeMillis(), "Callalala!");
 
         // Pack it off
-        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, requestMatsTrace,
-                _props, _binaries, _strings, endpointId, "REQUEST");
+        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), requestMatsTrace,
+                _props, _binaries, _strings, "REQUEST");
     }
 
     @Override
     public void reply(Object replyDto) {
         long nanosStart = System.nanoTime();
         // :: Short-circuit the reply (to no-op) if there is nothing on the stack to reply to.
-        List<String> stack = _matsTrace.getCurrentCall().getStack();
+        List<Channel> stack = _matsTrace.getCurrentCall().getStack();
         if (stack.size() == 0) {
             // This is OK, it is just like a normal java call where you do not use return value, e.g. map.put(k, v).
             log.info("Stage [" + _matsStage.getStageId() + " invoked context.reply(..), but there are no elements"
-                    + " on the stack, hence no one to reply to. Dropping message.");
+                    + " on the stack, hence no one to reply to, ignoring.");
             return;
         }
 
@@ -164,8 +168,8 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                 HOSTNAME, System.currentTimeMillis(), "Callalala!");
 
         // Pack it off
-        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, replyMatsTrace,
-                _props, _binaries, _strings, currentCall.getTo(), "REPLY");
+        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), replyMatsTrace,
+                _props, _binaries, _strings, "REPLY");
     }
 
     @Override
@@ -190,8 +194,8 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                 HOSTNAME, System.currentTimeMillis(), "Callalala!");
 
         // Pack it off
-        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), true, nextMatsTrace,
-                _props, _binaries, _strings, _matsStage.getNextStageId(), "NEXT");
+        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), nextMatsTrace,
+                _props, _binaries, _strings, "NEXT");
     }
 
     @Override

@@ -2,18 +2,21 @@ package com.stolsvik.mats.serial;
 
 import java.util.List;
 
+import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
+import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
+
 /**
  * Together with the {@link MatsSerializer}, this interface describes one way to implement a wire-protocol for how Mats
  * communicates. It is up to the implementation of the <code>MatsFactory</code> to implement a protocol of how the Mats
  * API is transferred over the wire. This is one such implementation that can be used, which is employed by the default
  * JMS implementation of Mats.
  * <p>
- * From the outset, there is one format (JSON serialization of the <code>MatsTrace_DefaultJson</code> class using
- * Jackson), and one transport (JMS). Notice that the serialization of the actual DTOs and STOs can be specified
- * independently, e.g. use GSON, or protobuf, or whatever can handle serialization to and from the DTOs and STOs being
- * used.
+ * From the outset, there is one format (JSON serialization of the {@link MatsTraceStringImpl} class using Jackson), and
+ * one transport (JMS MATS). Notice that the serialization of the actual DTOs and STOs can be specified independently,
+ * e.g. use GSON, or protobuf, or whatever can handle serialization to and from the DTOs and STOs being used.
  *
- * @param <Z> The type which STOs and DTOs are serialized into. When employing JSON for the "outer" serialization of
+ * @param <Z>
+ *            The type which STOs and DTOs are serialized into. When employing JSON for the "outer" serialization of
  *            MatsTrace, it does not make that much sense to use a binary (Z=byte[]) "inner" representation of the DTOs
  *            and STOs, because JSON is terrible at serializing byte arrays.
  *
@@ -119,8 +122,12 @@ public interface MatsTrace<Z> {
      *            does not need the from specifier, as this is not where any replies go to.
      * @param to
      *            which endpoint that should get the request.
+     * @param toMessagingModel
+     *            the {@link MessagingModel} of 'to'.
      * @param replyTo
      *            which endpoint that should get the reply from the requested endpoint.
+     * @param toMessagingModel
+     *            the {@link MessagingModel} of 'replyTo'.
      * @param data
      *            the request data, most often a JSON representing the Request Data Transfer Object that the requesting
      *            service expects to get.
@@ -132,7 +139,10 @@ public interface MatsTrace<Z> {
      *            an optional feature, whereby the state can be set for the initial stage of the requested endpoint.
      *            Same stuff as replyState.
      */
-    MatsTrace<Z> addRequestCall(String from, String to, String replyTo, Z data, Z replyState, Z initialState);
+    MatsTrace<Z> addRequestCall(String from,
+            String to, MessagingModel toMessagingModel,
+            String replyTo, MessagingModel replyToMessagingModel,
+            Z data, Z replyState, Z initialState);
 
     /**
      * Adds a {@link Call.CallType#SEND SEND} Call, meaning a "request" which do not expect a Reply: Envision an
@@ -145,19 +155,26 @@ public interface MatsTrace<Z> {
      *            does not need the from specifier, as this is not where any replies go to.
      * @param to
      *            which endpoint that should get the message.
+     * @param toMessagingModel
+     *            the {@link MessagingModel} of 'to'.
      * @param data
      *            the request data, most often a JSON representing the Request Data Transfer Object that the receiving
      *            service expects to get.
      * @param initialState
      *            an optional feature, whereby the state can be set for the initial stage of the requested endpoint.
      */
-    MatsTrace<Z> addSendCall(String from, String to, Z data, Z initialState);
+    MatsTrace<Z> addSendCall(String from,
+            String to, MessagingModel toMessagingModel,
+            Z data, Z initialState);
 
     /**
      * Adds a {@link Call.CallType#NEXT NEXT} Call, which is a "downwards call" to the next stage in a multistage
      * service, as opposed to the normal request out to a service expecting a reply. The functionality is functionally
-     * identical to {@link #addSendCall(String, String, Z, Z) addSendCall(...)}, but has its own
+     * identical to {@link #addSendCall(String, String, MessagingModel, Z, Z) addSendCall(...)}, but has its own
      * {@link Call.CallType CallType} enum value {@link Call.CallType#NEXT NEXT}.
+     * <p>
+     * Note: Cannot specify {@link MessagingModel} here, as one cannot fathom where that would make sense: It must be
+     * {@link MessagingModel#QUEUE QUEUE}.
      *
      * @param from
      *            which stageId this request is for. This is solely meant for monitoring and debugging - the protocol
@@ -200,6 +217,20 @@ public interface MatsTrace<Z> {
     List<Call<Z>> getCallFlow();
 
     /**
+     * Searches in the {@link #getStateFlow() 'State Flow'} from the back (most recent) for the first element that is at
+     * the current stack height, as defined by {@link #getCurrentCall()}.{@link Call#getStackHeight()}. If a more
+     * shallow stackDepth than the specified is encountered, or the list is exhausted without the Stack Height being
+     * found, the search is terminated with null.
+     * <p>
+     * The point of the 'State Flow' is the same as for the Call list: Monitoring and debugging, by keeping a history of
+     * all calls in the processing, along with the states that was present at each call point.
+     * <p>
+     * If "condensing" is on ({@link KeepMatsTrace#COMPACT COMPACT} or {@link KeepMatsTrace#MINIMAL MINIMAL}), the
+     * stack-list is - by the condensing algorithm - turned in to a pure stack (as available via
+     * {@link #getStateStack()}), with the StackState for the earliest stack element at position 0, while the latest
+     * (current) at end of list. The above-specified search algorithm still works, as it now will either find the
+     * element with the correct stack depth at the end of the list, or it is not there.
+     *
      * @return the state for the {@link #getCurrentCall()}, if any.
      */
     Z getCurrentState();
@@ -208,6 +239,7 @@ public interface MatsTrace<Z> {
      * @return the stack of the states for the current stack: getCurrentCall().getStack(). NOTICE: The index position in
      *         this list has little to do with which stack level the state refers to. This must be gotten from
      *         {@link StackState#getHeight()}.
+     * @see #getCurrentState() for more information on how the "State Flow" works.
      */
     List<StackState<String>> getStateStack();
 
@@ -215,6 +247,7 @@ public interface MatsTrace<Z> {
      * @return the entire list of states as they have changed throughout the call flow. If {@link KeepMatsTrace} is
      *         COMPACT or MINIMAL, then it will be a pure stack (as returned with {@link #getStateStack()}, with the
      *         last element being the most recent stack frame.
+     * @see #getCurrentState() for more information on how the "State Flow" works.
      */
     List<StackState<Z>> getStateFlow();
 
@@ -240,6 +273,9 @@ public interface MatsTrace<Z> {
 
         CallType getCallType();
 
+        /**
+         * Which type of Call this is.
+         */
         enum CallType {
             REQUEST,
 
@@ -259,7 +295,31 @@ public interface MatsTrace<Z> {
          */
         String getFrom();
 
-        String getTo();
+        /**
+         * @return the endpointId/stageId this Call concerns, wrapped in a {@link Channel} to also specify the
+         *         {@link MessagingModel} in use.
+         */
+        Channel getTo();
+
+        /**
+         * An encapsulation of the stageId/endpointId along with the {@link MessagingModel} the message should be
+         * delivered over.
+         */
+        interface Channel {
+            String getId();
+
+            MessagingModel getMessagingModel();
+        }
+
+        /**
+         * Specifies what type of Messaging Model a 'to' and 'replyTo' is to go over: Queue or Topic. Queue is the
+         * obvious choice for most traffic, but sometimes talking to all nodes in a cluster is of interest.
+         */
+        enum MessagingModel {
+            QUEUE,
+
+            TOPIC
+        }
 
         Z getData();
 
@@ -269,18 +329,18 @@ public interface MatsTrace<Z> {
          *         elements to REPLY to), while for the first {@link CallType#REQUEST REQUEST} from an initiator, the
          *         stack is of size 1 (the endpointId for the Terminator is the one element below this Call).
          */
-        int getStackSize();
+        int getStackHeight();
 
         /**
-         * @return a COPY of the stack (if you need the size, use {@link #getStackSize()}) - NOTICE: This will most
-         *         probably be a List with {@link #getStackSize()} elements containing "-nulled-" for any other Call
-         *         than the {@link MatsTrace#getCurrentCall()}, to conserve space in the MatsTrace. The LAST (i.e.
-         *         position 'size()-1') element is the most recent, meaning that the next REPLY will go here, while the
-         *         FIRST (i.e. position 0) element is the earliest in the stack, i.e. the stageId where the Terminator
-         *         endpointId typically will reside (unless the initial call was a {@link CallType#SEND SEND}, which
-         *         means that you don't want a reply).
+         * @return a COPY of the stack (if you need the height (i.e. size), use {@link #getStackHeight()}) - NOTICE:
+         *         This will most probably be a List with {@link #getStackHeight()} elements containing "-nulled-" for
+         *         any other Call than the {@link MatsTrace#getCurrentCall()}, to conserve space in the MatsTrace. The
+         *         LAST (i.e. position 'size()-1') element is the most recent, meaning that the next REPLY will go here,
+         *         while the FIRST (i.e. position 0) element is the earliest in the stack, i.e. the stageId where the
+         *         Terminator endpointId typically will reside (unless the initial call was a {@link CallType#SEND
+         *         SEND}, which means that you don't want a reply).
          */
-        List<String> getStack();
+        List<Channel> getStack();
     }
 
     /**

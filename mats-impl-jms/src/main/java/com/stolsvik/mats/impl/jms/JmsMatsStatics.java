@@ -12,6 +12,9 @@ import javax.jms.MapMessage;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 
+import com.stolsvik.mats.serial.MatsTrace.Call;
+import com.stolsvik.mats.serial.MatsTrace.Call.Channel;
+import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
 import org.slf4j.Logger;
 
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
@@ -31,9 +34,10 @@ public interface JmsMatsStatics {
      * if any part of sending throws.</b>
      */
     default <Z> void sendMatsMessage(Logger log, long nanosStart, Session jmsSession, JmsMatsFactory<Z> jmsMatsFactory,
-            boolean queue, MatsTrace<Z> matsTrace, HashMap<String, Object> props,
+            MatsTrace<Z> matsTrace, HashMap<String, Object> props,
             HashMap<String, byte[]> bytes, HashMap<String, String> strings,
-            String to, String what) {
+            String what) {
+        Channel toChannel = matsTrace.getCurrentCall().getTo();
         try {
             // :: Clone the bytes and strings Maps, and then clear the local Maps for any next message.
             // This could be done after the sending (the map shall be empty for every new message), but then if the
@@ -81,10 +85,11 @@ public interface JmsMatsStatics {
             long nanosProduced = System.nanoTime();
             double millisTotal = (nanosProduced - nanosStart) / 1_000_000d;
 
+
             // :: Create the JMS Queue or Topic.
-            Destination destination = queue
-                    ? jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + to)
-                    : jmsSession.createTopic(factoryConfig.getMatsDestinationPrefix() + to);
+            Destination destination = toChannel.getMessagingModel() == MessagingModel.QUEUE
+                    ? jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + toChannel.getId())
+                    : jmsSession.createTopic(factoryConfig.getMatsDestinationPrefix() + toChannel.getId());
 
             // Create JMS Producer
             // OPTIMIZE: Check how expensive this is (with the closing) - it could be cached.
@@ -105,7 +110,7 @@ public interface JmsMatsStatics {
                     + " B] - tot w/DTO&STO:[" + millisTotal + "], send:["+millisSent+" ms]");
         }
         catch (JMSException e) {
-            throw new MatsBackendException("Got problems sending [" + what + "] to [" + to + "] via JMS API.", e);
+            throw new MatsBackendException("Got problems sending [" + what + "] to [" + toChannel + "] via JMS API.", e);
         }
     }
 

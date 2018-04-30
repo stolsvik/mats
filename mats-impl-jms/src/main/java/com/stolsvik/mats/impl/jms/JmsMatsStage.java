@@ -358,7 +358,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
 
                                 // :: Current Call
                                 Call<Z> currentCall = matsTrace.getCurrentCall();
-                                if (!_stageId.equals(currentCall.getTo())) {
+                                if (!_stageId.equals(currentCall.getTo().getId())) {
                                     String msg = "The incoming MATS message is not to this Stage! this:[" + _stageId
                                             + "]," + " msg:[" + currentCall.getTo() + "]. Refusing this message!";
                                     log.error(LOG_PREFIX + msg + "\n" + mapMessage);

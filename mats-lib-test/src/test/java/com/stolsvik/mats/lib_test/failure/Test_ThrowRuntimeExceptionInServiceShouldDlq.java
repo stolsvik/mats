@@ -46,6 +46,6 @@ public class Test_ThrowRuntimeExceptionInServiceShouldDlq extends MatsDbTest {
         // Wait for the DLQ
         MatsTrace dlqMatsTrace = matsRule.getDlqMessage(SERVICE);
         Assert.assertNotNull(dlqMatsTrace);
-        Assert.assertEquals(SERVICE, dlqMatsTrace.getCurrentCall().getTo());
+        Assert.assertEquals(SERVICE, dlqMatsTrace.getCurrentCall().getTo().getId());
     }
 }
