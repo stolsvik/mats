@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
+import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 
 /**
  * Provides a way to get a {@link MatsInitiate} instance "from the outside" of MATS, i.e. from a synchronous context. On
@@ -175,6 +176,20 @@ public interface MatsInitiator extends Closeable {
          * @return the {@link MatsInitiate} for chaining.
          */
         MatsInitiate replyTo(String endpointId, Object replySto);
+
+        /**
+         * A "pub-sub" variant of {@link #replyTo(String, Object) replyTo}, where the reply will go to the specified
+         * endpointId which must be a
+         * {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
+         * SubscriptionTerminator}.
+         *
+         * @param endpointId
+         *            which MATS Endpoint the reply of the invoked Endpoint should go to.
+         * @param replySto
+         *            the object that should be provided as STO to the service which get the reply.
+         * @return the {@link MatsInitiate} for chaining.
+         */
+        MatsInitiate replyToSubscription(String endpointId, Object replySto);
 
         /**
          * Adds a property that will "stick" with the call flow from this call on out. Read more on

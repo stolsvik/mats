@@ -88,6 +88,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         private String _from;
         private String _to;
         private String _replyTo;
+        private boolean _replyToSubscription;
         private Object _replySto;
         private final LinkedHashMap<String, Object> _props = new LinkedHashMap<>();
         private final LinkedHashMap<String, byte[]> _binaries = new LinkedHashMap<>();
@@ -145,6 +146,15 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         public MatsInitiate replyTo(String endpointId, Object replySto) {
             _replyTo = endpointId;
             _replySto = replySto;
+            _replyToSubscription = false;
+            return this;
+        }
+
+        @Override
+        public MatsInitiate replyToSubscription(String endpointId, Object replySto) {
+            _replyTo = endpointId;
+            _replySto = replySto;
+            _replyToSubscription = true;
             return this;
         }
 
@@ -187,7 +197,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
                             HOSTNAME, _from, now, "Tralala!")
                     .addRequestCall(_from,
                             _to, MessagingModel.QUEUE,
-                            _replyTo, MessagingModel.QUEUE,
+                            _replyTo, (_replyToSubscription ? MessagingModel.TOPIC : MessagingModel.QUEUE),
                             ser.serializeObject(requestDto),
                             ser.serializeObject(_replySto),
                             ser.serializeObject(initialTargetSto));
