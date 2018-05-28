@@ -57,14 +57,21 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
             ProcessReturnLambda<I, S, R> processor);
 
     /**
-     * Starts the endpoint, invoking {@link MatsStage#start()} on any not-yet started stages (which should be all of
-     * them at application startup).
+     * Starts the endpoint, invoking {@link MatsStage#start()} on any not-yet started stages of the endpoint (which
+     * should be all of them at application startup).
      * <p>
      * If the {@link MatsFactory} is stopped ("closed") when this method is invoked, the {@link MatsStage}s will not
      * start until the factory is started.
      */
     @Override
     void start();
+
+    /**
+     * Waits till all stages of the endpoint has started, i.e. invokes {@link MatsStage#waitForStarted()} on all
+     * {@link MatsStage}s of the endpoint.
+     */
+    @Override
+    void waitForStarted();
 
     /**
      * Stops the endpoint, invoking {@link MatsStage#stop()} on all {@link MatsStage}s.
@@ -100,13 +107,11 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
     }
 
     /**
-     * A way for the process stage to communicate with the library, providing methods to invoke a request, send a reply
-     * (for multi-stage endpoints, this provides a way to do a "early return"), initiate a new message etc. Note that
-     * the MATS-implementations might provide for specializations of this class - if you choose to cast down to that,
-     * you tie into the implementation (e.g. JMS specific implementations might want to expose the underlying incoming
-     * and outgoing JMS {@code Message}s.)
+     * The part of {@link ProcessContext} that exposes the "getter" side of the context, which enables it to be exposed
+     * outside of the process lambda. It is effectively the "passive" parts of the context, i.e. not initiating new
+     * messages, setting properties etc. Look for usage in the "SynchronousAdapter" tool.
      */
-    interface ProcessContext<R> {
+    interface ProcessDetachedContext {
         /**
          * @return the {@link MatsInitiate#traceId(String) trace id} for the processed message.
          * @see MatsInitiate#traceId(String)
@@ -144,7 +149,7 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
          *            the key for which to retrieve a binary payload from the incoming message.
          * @return the requested byte array.
          * @see #getBytes(String)
-         * @see #addString(String, String)
+         * @see ProcessContext#addString(String, String)
          * @see #getString(String)
          */
         byte[] getBytes(String key);
@@ -154,11 +159,33 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
          *            the key for which to retrieve a String payload from the incoming message.
          * @return the requested String.
          * @see #getString(String)
-         * @see #addBytes(String, byte[])
+         * @see ProcessContext#addBytes(String, byte[])
          * @see #getBytes(String)
          */
         String getString(String key);
 
+        /**
+         * Retrieves the Mats Trace property with the specified name, deserializing the value to the specified
+         * class, using the active MATS serializer. Read more on {@link ProcessContext#setTraceProperty(String, Object)}.
+         *
+         * @param propertyName
+         *            the name of the Mats Trace property to retrieve.
+         * @param clazz
+         *            the class to which the value should be deserialized.
+         * @return the value of the Mats Trace property, deserialized as the specified class.
+         * @see ProcessContext#setTraceProperty(String, Object)
+         */
+        <T> T getTraceProperty(String propertyName, Class<T> clazz);
+    }
+
+    /**
+     * A way for the process stage to communicate with the library, providing methods to invoke a request, send a reply
+     * (for multi-stage endpoints, this provides a way to do a "early return"), initiate a new message etc. Note that
+     * the MATS-implementations might provide for specializations of this class - if you choose to cast down to that,
+     * you tie into the implementation (e.g. JMS specific implementations might want to expose the underlying incoming
+     * and outgoing JMS {@code Message}s.)
+     */
+    interface ProcessContext<R> extends ProcessDetachedContext {
         /**
          * Attaches a binary payload to the next outgoing message, being it a request or a reply. Note that for
          * initiations, you have the same method on the {@link MatsInitiate} instance.
@@ -212,19 +239,6 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
         void setTraceProperty(String propertyName, Object propertyValue);
 
         /**
-         * Retrieves the Mats Trace property with the specified name, deserializing the value to the specified
-         * class, using the active MATS serializer. Read more on {@link #setTraceProperty(String, Object)}.
-         *
-         * @param propertyName
-         *            the name of the Mats Trace property to retrieve.
-         * @param clazz
-         *            the class to which the value should be deserialized.
-         * @return the value of the Mats Trace property, deserialized as the specified class.
-         * @see #setTraceProperty(String, Object)
-         */
-        <T> T getTraceProperty(String propertyName, Class<T> clazz);
-
-        /**
          * Sends a request message, meaning that the specified endpoint will be invoked, with the reply-to endpointId
          * set to the next stage in the multi-stage endpoint. This will throw if the current process stage is a
          * terminator, single-stage endpoint or the last endpoint of a multi-stage endpoint, as there then is no next
@@ -268,7 +282,7 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
         /**
          * Initiates a new message out to an endpoint. This is effectively the same as invoking
          * {@link MatsInitiator#initiate(InitiateLambda lambda) the same method} on a {@link MatsInitiator} gotten via
-         * {@link MatsFactory#getInitiator()}, only that this way works within the transactional context of the
+         * {@link MatsFactory#createInitiator()}, only that this way works within the transactional context of the
          * {@link MatsStage} which this method is invoked within. Also, the traceId and from-endpointId is predefined,
          * but it is still recommended to set the traceId, as that will append the new string on the existing traceId,
          * making log tracking (e.g. when debugging) better.

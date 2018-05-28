@@ -29,7 +29,7 @@ public class Test_StringAsIncomingDto extends MatsBasicTest {
     @Test
     public void doTest() {
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(TERMINATOR)

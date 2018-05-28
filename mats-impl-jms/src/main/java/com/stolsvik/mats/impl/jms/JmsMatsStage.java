@@ -2,6 +2,7 @@ package com.stolsvik.mats.impl.jms;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 
 import javax.jms.Destination;
 import javax.jms.JMSException;
@@ -40,8 +41,8 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
     private final Class<I> _incomingMessageClass;
     private final ProcessLambda<I, S, R> _processLambda;
 
-    private final MatsSerializer<Z> _matsJsonSerializer;
     private final JmsMatsFactory<Z> _parentFactory;
+    private final MatsSerializer<Z> _matsJsonSerializer;
 
     private final JmsStageConfig _stageConfig = new JmsStageConfig();
 
@@ -87,11 +88,14 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
 
     private final List<StageProcessor> _stageProcessors = new CopyOnWriteArrayList<>();
 
+    private CountDownLatch _anyProcessorMadeConsumerLatch = new CountDownLatch(1);
+
     @Override
     public synchronized void start() {
         log.info(JmsMatsStatics.LOG_PREFIX + "     \\-  Starting Stage [" + id(_stageId, this) + "].");
         if (_stageProcessors.size() > 1) {
-            throw new IllegalStateException("Already started.");
+            log.info(JmsMatsStatics.LOG_PREFIX + "     \\-  ALREADY STARTED! [" + id(_stageId, this) + "].");
+            return;
         }
 
         _transactionContext = _parentFactory.getJmsMatsTransactionManager().getTransactionContext(this);
@@ -114,6 +118,16 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
 
         for (int i = 0; i < numberOfProcessors; i++) {
             _stageProcessors.add(new StageProcessor(i));
+        }
+    }
+
+    @Override
+    public void waitForStarted() {
+        try {
+            _anyProcessorMadeConsumerLatch.await();
+        }
+        catch (InterruptedException e) {
+            throw new IllegalStateException("Got interrupted while waitForStarted().", e);
         }
     }
 
@@ -176,13 +190,13 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
 
         private final int _processorNumber;
 
-        private volatile boolean _run = true; // Start off running.
+        private volatile boolean _processorRun = true; // Start off running.
 
         private volatile Thread _processorThread;
 
-        private Session _jmsSession;
+        private Session _processorJmsSession;
 
-        private volatile boolean _inReceive;
+        private volatile boolean _processorInReceive;
 
         StageProcessor(int processorNumber) {
             _processorNumber = processorNumber;
@@ -198,15 +212,15 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
          * First invoke this on all StageProcessors to block any new message receptions.
          */
         void setRunFlagFalse() {
-            _run = false;
+            _processorRun = false;
         }
 
         void stop(int gracefulWaitMillis) {
             // Start by setting the run-flag to false..
-            _run = false;
+            _processorRun = false;
             Session jmsSessionToClose;
             synchronized (this) {
-                jmsSessionToClose = _jmsSession;
+                jmsSessionToClose = _processorJmsSession;
             }
             /*
              * Trying to make very graceful: If we're in consumer.receive(), then close the Session, which makes the
@@ -229,7 +243,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
 
             boolean sessionClosed = false;
             // ?: Is thread currently waiting in consumer.receive()?
-            if (_inReceive) {
+            if (_processorInReceive) {
                 // -> Yes, waiting in receive(), so close session, thus making receive() return null.
                 log.info(LOG_PREFIX + id() + "-thread is waiting in consumer.receive(), so we'll close the JMS Session,"
                         + " thereby making the receive() call return null, and the thread will exit.");
@@ -288,7 +302,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
 
         private void runner() {
             // :: Outer run-loop, where we'll get a fresh JMS Session, Destination and MessageConsumer.
-            while (_run) {
+            while (_processorRun) {
                 try {
                     log.info(LOG_PREFIX + "Getting JMS Session, Destination and Consumer for stage [" + _stageId
                             + "].");
@@ -297,9 +311,9 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                         // :: "Publish" the new JMS Session.
                         synchronized (this) {
                             // ?: Check the run-flag one more time!
-                            if (_run) {
+                            if (_processorRun) {
                                 // -> Yes, we're good! "Publish" the new JMS Session.
-                                _jmsSession = newSession;
+                                _processorJmsSession = newSession;
                             }
                             else {
                                 // -> No, we're asked to exit.
@@ -311,15 +325,19 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                         }
                     }
                     FactoryConfig factoryConfig = _parentEndpoint.getParentFactory().getFactoryConfig();
-                    Destination destination = createJmsDestination(_jmsSession, factoryConfig);
-                    MessageConsumer jmsConsumer = _jmsSession.createConsumer(destination);
+                    Destination destination = createJmsDestination(_processorJmsSession, factoryConfig);
+                    MessageConsumer jmsConsumer = _processorJmsSession.createConsumer(destination);
+
+                    // We've established the consumer, and hence will start to receive messages and process them.
+                    // (Important for topics, where if we haven't established consumer, we won't get messages).
+                    _anyProcessorMadeConsumerLatch.countDown();
 
                     // :: Inner run-loop, where we'll use the JMS Session and MessageConsumer.
-                    while (_run) {
-                        _inReceive = true;
+                    while (_processorRun) {
+                        _processorInReceive = true;
                         log.info(LOG_PREFIX + "Going into JMS consumer.receive() for [" + destination + "].");
                         Message message = jmsConsumer.receive();
-                        _inReceive = false;
+                        _processorInReceive = false;
                         if (message == null) {
                             log.info(LOG_PREFIX + "!! Got null from JMS consumer.receive(), JMS Session"
                                     + " was probably closed due to shutdown. Looping to check run-flag.");
@@ -328,8 +346,9 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
 
                         // :: Perform the work inside the TransactionContext
                         try {
-                            _transactionContext.performWithinTransaction(_jmsSession, () -> {
+                            _transactionContext.performWithinTransaction(_processorJmsSession, () -> {
                                 long nanosStart = System.nanoTime();
+                                // Assert that this is indeed a JMS MapMessage.
                                 if (!(message instanceof MapMessage)) {
                                     String msg = "Got some JMS Message that is not instanceof MapMessage"
                                             + " - cannot be a MATS message! Refusing this message!";
@@ -358,6 +377,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
 
                                 // :: Current Call
                                 Call<Z> currentCall = matsTrace.getCurrentCall();
+                                // Assert that this is indeed a JMS Message meant for this Stage
                                 if (!_stageId.equals(currentCall.getTo().getId())) {
                                     String msg = "The incoming MATS message is not to this Stage! this:[" + _stageId
                                             + "]," + " msg:[" + currentCall.getTo() + "]. Refusing this message!";
@@ -388,7 +408,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                         + " ms]->MT - tot w/DTO&STO:[" + nanosTaken + " ms].");
 
                                 // :: Invoke the process lambda (stage processor).
-                                _processLambda.process(new JmsMatsProcessContext<>(JmsMatsStage.this, _jmsSession,
+                                _processLambda.process(new JmsMatsProcessContext<>(JmsMatsStage.this, _processorJmsSession,
                                         mapMessage, matsTrace, currentSto), incomingDto, currentSto);
                             });
                         }
@@ -403,7 +423,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                 catch (Throwable t) {
                     log.error(LOG_PREFIX + "Got " + t.getClass().getSimpleName() + ", closing JMS Session,"
                             + " looping to check run-flag.", t);
-                    closeJmsSession(_jmsSession);
+                    closeJmsSession(_processorJmsSession);
                     /*
                      * Doing a "chill-wait", so that if we're in a situation where this will tight-loop, we won't
                      * totally swamp both CPU and logs with meaninglessness.

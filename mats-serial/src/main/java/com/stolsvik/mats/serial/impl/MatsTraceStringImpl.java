@@ -157,6 +157,11 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     @Override
+    public Set<String> getTracePropertyKeys() {
+        return tp.keySet();
+    }
+
+    @Override
     public MatsTraceStringImpl addRequestCall(String from,
             String to, MessagingModel toMessagingModel,
             String replyTo, MessagingModel replyToMessagingModel,

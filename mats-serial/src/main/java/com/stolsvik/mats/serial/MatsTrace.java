@@ -1,6 +1,7 @@
 package com.stolsvik.mats.serial;
 
 import java.util.List;
+import java.util.Set;
 
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
 import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
@@ -92,25 +93,39 @@ public interface MatsTrace<Z> {
 
     /**
      * Sets a trace property, refer to <code>ProcessContext.setTraceProperty(String, Object)</code>. Notice that on the
-     * MatsTrace-side, the value must be a String.
+     * MatsTrace-side, the value must be of type {@code Z}.
      *
      * @param propertyName
      *            the name of the property.
      * @param propertyValue
      *            the value of the property.
+     *
+     * @see #getTracePropertyKeys()
+     * @see #getTraceProperty(String)
      */
     void setTraceProperty(String propertyName, Z propertyValue);
 
     /**
      * Retrieves a property value set by {@link #setTraceProperty(String, Z)}, refer to
-     * <code>ProcessContext.getTraceProperty(String, Class)</code>. Notice that on the MatsTrace-side, the value is a
-     * String.
+     * <code>ProcessContext.getTraceProperty(String, Class)</code>. Notice that on the MatsTrace-side, the value is of
+     * type {@code Z}.
      *
      * @param propertyName
      *            the name of the property to retrieve.
      * @return the value of the property.
+     *
+     * @see #setTraceProperty(String, Object)
+     * @see #getTracePropertyKeys()
      */
     Z getTraceProperty(String propertyName);
+
+    /**
+     * @return the set of keys containing {@link #getTraceProperty(String) trace properties}.
+     *
+     * @see #getTraceProperty(String)
+     * @see #setTraceProperty(String, Object)
+     */
+    Set<String> getTracePropertyKeys();
 
     /**
      * Adds a {@link Call.CallType#REQUEST REQUEST} Call, which is an invocation of a service where one expects a Reply

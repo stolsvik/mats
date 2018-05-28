@@ -46,7 +46,7 @@ public class Test_SendAlongStateWithRequest extends MatsBasicTest {
     public void doTest() {
         StateTO initialTargetSto = new StateTO(420, 420.024);
         DataTO requestDto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)

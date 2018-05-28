@@ -113,6 +113,11 @@ public class JmsMatsEndpoint<S, R, Z> implements MatsEndpoint<S, R> {
     }
 
     @Override
+    public void waitForStarted() {
+        _stages.forEach(JmsMatsStage::waitForStarted);
+    }
+
+    @Override
     public void stop() {
         _stages.forEach(JmsMatsStage::stop);
     }

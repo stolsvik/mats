@@ -40,7 +40,7 @@ public interface MatsInitiator extends Closeable {
      * You must have access to an instance of this interface to initiate a MATS process.
      * <p>
      * To initiate a message "from the outside", i.e. from synchronous application code, get it by invoking
-     * {@link MatsFactory#getInitiator()}, and then {@link MatsInitiator#initiate(InitiateLambda)} on that.
+     * {@link MatsFactory#createInitiator()}, and then {@link MatsInitiator#initiate(InitiateLambda)} on that.
      * <p>
      * To initiate a new message "from the inside", i.e. while already inside a {@link MatsStage processing stage} of an
      * endpoint, get it by invoking {@link ProcessContext#initiate(InitiateLambda)}.
@@ -54,7 +54,7 @@ public interface MatsInitiator extends Closeable {
          * unique, at least to a degree where it is <u>very</u> unlikely that you will have two identical traceIds
          * within a couple of years.
          * <p>
-         * Since this is very important when doing distributed (and asynchronous) architectures, it is mandatory.
+         * Since this is very important when doing distributed and asynchronous architectures, it is mandatory.
          * <p>
          * The traceId follows a MATS processing from the initiation until it is finished, usually in a Terminator.
          * <p>
@@ -67,7 +67,7 @@ public interface MatsInitiator extends Closeable {
          * "Web.placeOrder[cid:43512][cart:xa4ru5285fej]qz7apy9". From this example TraceId we could infer that it
          * originated at the <i>Web system</i>, it regards <i>Placing an order</i> for <i>Customer Id 43512</i>, it
          * regards the <i>Shopping Cart Id xa4ru5285fej</i>, and it contains some uniqueness ('qz7apy9') generated at
-         * the origination, so that even if the customer managed to click three times on the "place order" button for
+         * the initiating, so that even if the customer managed to click three times on the "place order" button for
          * the same cart, you would still be able to separate the resulting three different Mats call flows.
          * <p>
          * (For the default implementation "JMS Mats", the Trace Id is set on the {@link MDC} of the SLF4J logging
@@ -134,7 +134,10 @@ public interface MatsInitiator extends Closeable {
          * concurrency} or the number of nodes running the problematic endpoint or stage (or just code it to be
          * faster!).
          * <p>
-         * It will often make sense to set both this flag, and the {@link #nonPersistent()}, at the same time.
+         * It will often make sense to set both this flag, and the {@link #nonPersistent()}, at the same time. E.g. when
+         * you need to show the account balance for a customer: It both needs to skip past any bulk/batch set of such
+         * requests (since a human is literally waiting for the result), but it is also a "pure GET"-style request, not
+         * altering state whatsoever, so it can also be set to non-persistent.
          *
          * @return the {@link MatsInitiate} for chaining.
          */

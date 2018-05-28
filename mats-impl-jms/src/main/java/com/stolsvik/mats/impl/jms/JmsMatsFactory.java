@@ -46,7 +46,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     private final String _appVersion;
     private final JmsMatsTransactionManager _jmsMatsTransactionManager;
     private final MatsSerializer<Z> _matsSerializer;
-    private final JmsMatsFactoryConfig _factoryConfig = new JmsMatsFactoryConfig();
+    private final JmsMatsFactoryConfig _factoryConfig;
 
     private JmsMatsFactory(String appName, String appVersion,
             JmsMatsTransactionManager jmsMatsTransactionManager,
@@ -55,21 +55,18 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         _appVersion = appVersion;
         _jmsMatsTransactionManager = jmsMatsTransactionManager;
         _matsSerializer = matsSerializer;
+        _factoryConfig = new JmsMatsFactoryConfig();
         log.info(LOG_PREFIX + "Created [" + id(this) + "].");
     }
 
     /**
-     * @return the name of the application that employs (JMS) MATS, set at Factory construction time.
+     * Sets the JMS destination prefix, which will be employed by all queues and topics, (obviously) both for sending
+     * and listeing.
+     *
+     * @param destinationPrefix the JMS queue and topic destination prefix - defaults to "mats:".
      */
-    public String getAppName() {
-        return _appName;
-    }
-
-    /**
-     * @return the version string of the application that employs (JMS) MATS, set at Factory construction time.
-     */
-    public String getAppVersion() {
-        return _appVersion;
+    public void setMatsDestinationPrefix(String destinationPrefix) {
+        _factoryConfig._matsDestinationPrefix = destinationPrefix;
     }
 
     public JmsMatsTransactionManager getJmsMatsTransactionManager() {
@@ -190,7 +187,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public MatsInitiator getInitiator() {
+    public MatsInitiator createInitiator() {
         JmsMatsInitiator<Z> initiator = new JmsMatsInitiator<>(this,
                 _jmsMatsTransactionManager.getTransactionContext(null));
         _createdInitiators.add(initiator);
@@ -199,8 +196,12 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     @Override
     public void start() {
-        // TODO Auto-generated method stub
+        // TODO Make the "delayed start" functionality.
+    }
 
+    @Override
+    public void waitForStarted() {
+        _createdEndpoints.forEach(MatsEndpoint::waitForStarted);
     }
 
     @Override
@@ -227,6 +228,8 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     private class JmsMatsFactoryConfig implements FactoryConfig {
 
         private int _concurrency;
+
+        private String _matsDestinationPrefix = "mats:";
 
         @Override
         public FactoryConfig setConcurrency(int numberOfThreads) {
@@ -255,6 +258,21 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
                 }
             }
             return false;
+        }
+
+        @Override
+        public String getAppName() {
+            return _appName;
+        }
+
+        @Override
+        public String getAppVersion() {
+            return _appVersion;
+        }
+
+        @Override
+        public String getMatsDestinationPrefix() {
+            return _matsDestinationPrefix;
         }
     }
 }

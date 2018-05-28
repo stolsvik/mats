@@ -61,7 +61,7 @@ public class Test_MutilStageNext extends MatsBasicTest {
     public void doTest() {
         StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)

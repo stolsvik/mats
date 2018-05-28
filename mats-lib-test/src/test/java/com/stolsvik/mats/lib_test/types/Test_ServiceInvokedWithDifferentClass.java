@@ -62,7 +62,7 @@ public class Test_ServiceInvokedWithDifferentClass extends MatsBasicTest {
     public void doTest() {
         DifferentDTO dto = new DifferentDTO(16, "Sixteen", "ThatOtherThing");
         StateTO sto = new StateTO(256, 5.12);
-        matsRule.getMatsFactory().getInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)

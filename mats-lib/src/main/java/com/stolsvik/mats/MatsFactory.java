@@ -5,6 +5,7 @@ import java.util.function.Consumer;
 import com.stolsvik.mats.MatsConfig.StartStoppable;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
+import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
@@ -13,9 +14,9 @@ import com.stolsvik.mats.MatsStage.StageConfig;
 
 /**
  * The start point for all interaction with MATS - you need to get hold of an instance of this interface to be able to
- * code MATS endpoints, and to perform initiations (i.e. send a message, perform a request, publish a message).
- * This is an implementation specific feature (you might want a JMS-specific {@link MatsFactory},
- * backed by a ActiveMQ-specific JMS ConnectionFactory).
+ * code MATS endpoints, and to perform initiations (i.e. send a message, perform a request, publish a message). This is
+ * an implementation specific feature (you might want a JMS-specific {@link MatsFactory}, backed by a ActiveMQ-specific
+ * JMS ConnectionFactory).
  * <p>
  * It is worth realizing that all of the methods {@link #staged(String, Class, Class, Consumer) staged(...config)};
  * {@link #single(String, Class, Class, ProcessSingleLambda) single(...)} and
@@ -28,11 +29,26 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  * {@link #subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) subscriptionTerminator(...)} and
  * {@link #subscriptionTerminator(String, Class, Class, Consumer, Consumer, ProcessTerminatorLambda)
  * subscriptionTerminator(...Consumers)}, as they have different semantics, read the JavaDoc).</i>
+ * <p>
+ * Regarding order of the Incoming Message, State and Reply Message parameters, which can be a bit annoying to remember
+ * when creating endpoints, and when writing {@link ProcessLambda process lambdas}: They are always ordered like this:
+ * <b>I, S, R</b>, i.e. Incoming, State, Reply.<br/>
+ * Examples:
+ * <ul>
+ * <li>In a Terminator, you have an incoming message, and state (which the initiator set) - a terminator doesn't reply.
+ * The params of the {@link #terminator(String, Class, Class, ProcessTerminatorLambda) terminator}-method of MatsFactory
+ * is thus [EndpointId, Incoming Class, State Class, process lambda]. The lambda params of the terminator will be:
+ * [Context, Incoming, State]</li>
+ * <li>For a SingleStage endpoint, you will have incoming message, and reply message - there is no state, since that is
+ * an object that traverses between the stages in a multi-stage endpoint, and this endpoint is just a single stage. The
+ * params of the {@link #single(String, Class, Class, ProcessSingleLambda)} single stage}-method of MatsFactory is thus
+ * [EndpointId, Incoming Class, Reply Class, process lambda]. The lambda params will then be: [Context, Incoming] - the
+ * reply type is the the return type of the process lambda.</li>
+ * </ul>
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
 public interface MatsFactory extends StartStoppable {
-
     /**
      * @return the {@link FactoryConfig} on which to configure the factory, e.g. defaults for concurrency.
      */
@@ -209,17 +225,19 @@ public interface MatsFactory extends StartStoppable {
             ProcessTerminatorLambda<I, S> processor);
 
     /**
-     * The way to start a MATS process: Get hold of a {@link MatsInitiator}, and fire off messages!
+     * Creates a new Initiator from which to initiate new Mats processes, i.e. send a message from "outside of Mats" to
+     * a Mats endpoint - <b>NOTICE: This is an active object that carries backend connection(s), therefore you are not
+     * supposed to create one instance per message you send!</b>
      * <p>
-     * <b>Notice: You are <em>not</em> supposed to get one instance of {@link MatsInitiator} per message you need to
-     * send - rather either just one for the entire application, or for each component:</b> The {@code MatsInitiator}
-     * will have an underlying backend connection attached to it - which also means that it needs to be closed for a
-     * clean application shutdown.
+     * <b>Observe: You are <em>not</em> supposed to create one instance of {@link MatsInitiator} per message you need to
+     * send - rather either create one for the entire application, or e.g. for each component:</b> The
+     * {@code MatsInitiator} will have underlying backend connection(s) attached to it - which also means that it needs
+     * to be {@link MatsInitiator#close() closed} for a clean application shutdown.
      *
      * @return a {@link MatsInitiator}, on which messages can be {@link MatsInitiator#initiate(InitiateLambda)
      *         initiated}.
      */
-    MatsInitiator getInitiator();
+    MatsInitiator createInitiator();
 
     /**
      * "Releases" any start-waiting endpoints, read up on {@link #stop}. Unless {@link #stop()} has been invoked first,
@@ -227,6 +245,13 @@ public interface MatsFactory extends StartStoppable {
      */
     @Override
     void start();
+
+    /**
+     * Waits until all endpoints are started, i.e. runs {@link MatsEndpoint#waitForStarted()} on all the endpoints
+     * started from this factory.
+     */
+    @Override
+    void waitForStarted();
 
     /**
      * Stops the factory, which will invoke {@link MatsEndpoint#stop()} on all the endpoints, and
@@ -262,5 +287,15 @@ public interface MatsFactory extends StartStoppable {
         default String getMatsDestinationPrefix() {
             return "mats:";
         }
+
+        /**
+         * @return the name of the application that employs MATS, set at MatsFactory construction time.
+         */
+        String getAppName();
+
+        /**
+         * @return the version string of the application that employs MATS, set at MatsFactory construction time.
+         */
+        String getAppVersion();
     }
 }

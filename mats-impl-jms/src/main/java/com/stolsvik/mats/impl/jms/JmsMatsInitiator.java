@@ -1,6 +1,7 @@
 package com.stolsvik.mats.impl.jms;
 
 import java.util.LinkedHashMap;
+import java.util.Map;
 
 import javax.jms.JMSException;
 import javax.jms.Session;
@@ -70,19 +71,24 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
             _jmsSession = jmsSession;
         }
 
-        private String _existingTraceId;
+        private MatsTrace<Z> _existingMatsTrace;
 
-        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, Session jmsSession, String existingTraceId, String fromStageId) {
+        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, Session jmsSession, MatsTrace<Z> existingMatsTrace,
+                        Map<String, Object> propsSetInStage) {
             _parentFactory = parentFactory;
             _jmsSession = jmsSession;
 
-            _existingTraceId = existingTraceId;
+            _existingMatsTrace = existingMatsTrace;
+            // Set the intial traceId, if the user chooses to not set it
+            _traceId = existingMatsTrace.getTraceId();
+            _from = existingMatsTrace.getCurrentCall().getFrom();
 
-            _from = fromStageId;
+            // Copy over the properties which so far has been set in the stage (before this message is initiated).
+            _props.putAll(propsSetInStage);
         }
 
         private String _traceId;
-        private KeepMatsTrace _keepTace;
+        private KeepMatsTrace _keepTrace;
         private boolean _nonPersistent;
         private boolean _interactive;
         private String _from;
@@ -97,20 +103,20 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         @Override
         public MatsInitiate traceId(String traceId) {
             // ?: If we're an initiation from within a stage, append the traceId to the existing traceId, else set.
-            _traceId = (_existingTraceId != null ? _existingTraceId + '|' + traceId : traceId);
+            _traceId = (_existingMatsTrace != null ? _existingMatsTrace.getTraceId() + '|' + traceId : traceId);
             return this;
         }
 
         @Override
         public MatsInitiate keepTrace(KeepTrace keepTrace) {
             if (keepTrace == KeepTrace.MINIMAL) {
-                _keepTace = KeepMatsTrace.MINIMAL;
+                _keepTrace = KeepMatsTrace.MINIMAL;
             }
             else if (keepTrace == KeepTrace.COMPACT) {
-                _keepTace = KeepMatsTrace.COMPACT;
+                _keepTrace = KeepMatsTrace.COMPACT;
             }
             else if (keepTrace == KeepTrace.FULL) {
-                _keepTace = KeepMatsTrace.FULL;
+                _keepTrace = KeepMatsTrace.FULL;
             }
             else {
                 throw new IllegalArgumentException("Unknown KeepTrace enum ["+keepTrace+"].");
@@ -191,9 +197,10 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
             }
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             long now = System.currentTimeMillis();
-            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
+            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTrace, _nonPersistent, _interactive)
                     // TODO: Add debug info!
-                    .setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
+                    .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                            _parentFactory.getFactoryConfig().getAppVersion(),
                             HOSTNAME, _from, now, "Tralala!")
                     .addRequestCall(_from,
                             _to, MessagingModel.QUEUE,
@@ -201,8 +208,12 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
                             ser.serializeObject(requestDto),
                             ser.serializeObject(_replySto),
                             ser.serializeObject(initialTargetSto));
+
+            copyOverAnyExistingTraceProperties(matsTrace);
+
             // TODO: Add debug info!
-            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(),
+            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                    _parentFactory.getFactoryConfig().getAppVersion(),
                     HOSTNAME, now, "Callalala!");
 
             sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, matsTrace, _props, _binaries, _strings,
@@ -220,15 +231,20 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
             checkCommon("All of 'traceId', 'from' and 'to' must be set when send(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             long now = System.currentTimeMillis();
-            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
+            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTrace, _nonPersistent, _interactive)
                     // TODO: Add debug info!
-                    .setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
+                    .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                            _parentFactory.getFactoryConfig().getAppVersion(),
                             HOSTNAME, _from, now, "Tralala!")
                     .addSendCall(_from,
                             _to, MessagingModel.QUEUE,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
+
+            copyOverAnyExistingTraceProperties(matsTrace);
+
             // TODO: Add debug info!
-            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
+            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                    _parentFactory.getFactoryConfig().getAppVersion(),
                     HOSTNAME, now, "Callalala!");
 
             sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, matsTrace, _props, _binaries, _strings,
@@ -246,19 +262,34 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
             checkCommon("All of 'traceId', 'from' and 'to' must be set when publish(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             long now = System.currentTimeMillis();
-            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTace, _nonPersistent, _interactive)
+            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTrace, _nonPersistent, _interactive)
                     // TODO: Add debug info!
-                    .setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
+                    .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                            _parentFactory.getFactoryConfig().getAppVersion(),
                             HOSTNAME, _from, now, "Tralala!")
                     .addSendCall(_from,
                             _to, MessagingModel.TOPIC,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
+
+            copyOverAnyExistingTraceProperties(matsTrace);
+
             // TODO: Add debug info!
-            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getAppName(), _parentFactory.getAppVersion(), 
+            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                    _parentFactory.getFactoryConfig().getAppVersion(),
                     HOSTNAME, now, "Callalala!");
 
             sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, matsTrace, _props, _binaries, _strings,
                     "new PUBLISH");
+        }
+
+        private void copyOverAnyExistingTraceProperties(MatsTrace<Z> matsTrace) {
+            // ?: Do we have an existing MatsTrace (implying that we are being initiated within a Stage)
+            if (_existingMatsTrace != null) {
+                // -> Yes, so copy over existing Trace Properties
+                for (String key : _existingMatsTrace.getTracePropertyKeys()) {
+                    matsTrace.setTraceProperty(key, _existingMatsTrace.getTraceProperty(key));
+                }
+            }
         }
 
         private void checkCommon(String msg) {

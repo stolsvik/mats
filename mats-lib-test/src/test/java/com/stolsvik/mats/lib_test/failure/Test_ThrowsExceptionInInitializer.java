@@ -36,7 +36,7 @@ public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
      */
     @Test(expected = TestRuntimeException.class)
     public void exceptionInInitiationShouldPropagateOut() {
-        matsRule.getMatsFactory().getInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiate(
                 (msg) -> {
                     throw new TestRuntimeException("Should propagate all the way out.");
                 });
@@ -75,7 +75,7 @@ public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
     private void sendMessageToTerminator(boolean throwInInitiation) {
         DataTO dto = new DataTO(42, "TheAnswer");
         try {
-            matsRule.getMatsFactory().getInitiator().initiate(
+            matsRule.getMatsFactory().createInitiator().initiate(
                     (msg) -> {
                         msg.traceId(randomId())
                                 .from(INITIATOR)

@@ -116,7 +116,7 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                 .getParentEndpoint().getParentFactory().getMatsSerializer();
         Z value = _matsTrace.getTraceProperty(propertyName);
         if (value == null) {
-            throw new IllegalArgumentException("No value for property named [" + propertyName + "].");
+            return null;
         }
         return matsSerializer.deserializeObject(value, clazz);
     }
@@ -135,7 +135,8 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                 matsSerializer.serializeObject(_sto), null);
 
         // TODO: Add debug info!
-        requestMatsTrace.getCurrentCall().setDebugInfo(parentFactory.getAppName(), parentFactory.getAppVersion(),
+        requestMatsTrace.getCurrentCall().setDebugInfo(parentFactory.getFactoryConfig().getAppName(),
+                parentFactory.getFactoryConfig().getAppVersion(),
                 HOSTNAME, System.currentTimeMillis(), "Callalala!");
 
         // Pack it off
@@ -164,7 +165,8 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
 
         // TODO: Add debug info!
         Call<Z> currentCall = replyMatsTrace.getCurrentCall();
-        currentCall.setDebugInfo(parentFactory.getAppName(), parentFactory.getAppVersion(),
+        currentCall.setDebugInfo(parentFactory.getFactoryConfig().getAppName(),
+                parentFactory.getFactoryConfig().getAppVersion(),
                 HOSTNAME, System.currentTimeMillis(), "Callalala!");
 
         // Pack it off
@@ -190,7 +192,8 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                 matsSerializer.serializeObject(incomingDto), matsSerializer.serializeObject(_sto));
 
         // TODO: Add debug info!
-        nextMatsTrace.getCurrentCall().setDebugInfo(parentFactory.getAppName(), parentFactory.getAppVersion(),
+        nextMatsTrace.getCurrentCall().setDebugInfo(parentFactory.getFactoryConfig().getAppName(),
+                parentFactory.getFactoryConfig().getAppVersion(),
                 HOSTNAME, System.currentTimeMillis(), "Callalala!");
 
         // Pack it off
@@ -200,7 +203,7 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
 
     @Override
     public void initiate(InitiateLambda lambda) {
-        lambda.initiate(new JmsMatsInitiate<>(_matsStage.getParentEndpoint().getParentFactory(), _jmsSession,
-                _matsTrace.getTraceId(), _matsStage.getStageId()));
+        lambda.initiate(new JmsMatsInitiate<>(_matsStage.getParentEndpoint().getParentFactory(),
+                _jmsSession, _matsTrace, _props));
     }
 }

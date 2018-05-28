@@ -139,12 +139,26 @@ public class Test_ComplexLargeMultiStage extends MatsBasicTest {
     }
 
     @Test
-    public void doTest() {
+    public void testWithKeepTraceMINIMAL() {
+        doTest(KeepTrace.MINIMAL);
+    }
+
+    @Test
+    public void testWithKeepTraceCOMPACT() {
+        doTest(KeepTrace.COMPACT);
+    }
+
+    @Test
+    public void testWithKeepTraceFULL() {
+        doTest(KeepTrace.FULL);
+    }
+
+    private void doTest(KeepTrace keepTrace) {
         StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiate(
                 (msg) -> msg.traceId(randomId())
-                        .keepTrace(KeepTrace.COMPACT)
+                        .keepTrace(keepTrace)
                         .from(INITIATOR)
                         .to(SERVICE)
                         .replyTo(TERMINATOR, sto)
@@ -161,12 +175,12 @@ public class Test_ComplexLargeMultiStage extends MatsBasicTest {
                 * 8 * 2
                 * 9 * 2
                 * 5, dto.string
-                        + ":MidCall1" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
-                        + ":MidCall2" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
-                        + ":LeafCall1" + ":FromLeafService"
-                        + ":LeafCall2" + ":FromLeafService"
-                        + ":MidCall3" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
-                        + ":MidCall4" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
-                        + ":FromMasterService"), result.getData());
+                + ":MidCall1" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
+                + ":MidCall2" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
+                + ":LeafCall1" + ":FromLeafService"
+                + ":LeafCall2" + ":FromLeafService"
+                + ":MidCall3" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
+                + ":MidCall4" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
+                + ":FromMasterService"), result.getData());
     }
 }
