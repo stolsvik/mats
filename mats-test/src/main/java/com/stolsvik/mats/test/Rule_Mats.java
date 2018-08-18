@@ -239,7 +239,7 @@ public class Rule_Mats extends ExternalResource {
     /**
      * @return the default {@link MatsInitiator} from this JUnit Rule.
      */
-    public synchronized MatsInitiator getInitiator() {
+    public synchronized MatsInitiator getMatsInitiator() {
         if (_matsInitiator == null) {
             _matsInitiator = getMatsFactory().createInitiator();
         }

@@ -4,4 +4,6 @@ dependencies {
     compile project(":mats-lib")
     
     compile 'com.fasterxml.jackson.core:jackson-databind:2.6.+'
+
+    testCompile project(':mats-lib-test')
 }

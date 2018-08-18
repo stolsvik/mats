@@ -519,11 +519,11 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             return new String(new char[getStackHeight()]).replace("\0", ": ");
         }
 
-        private String fromStackData() {
+        private String fromStackData(boolean printNullData) {
             return "#from:" + (an != null ? an : "") + (av != null ? "[" + av + "]" : "")
                     + (h != null ? "@" + h : "") + (f != null ? ':' + f : "")
                     + (s != null ? ", #stack:" + s : "")
-                    + (d != null ? ", #data:" + d : "");
+                    + (((d != null) || printNullData) ? ", #data:" + d : "");
         }
 
         @Override
@@ -534,14 +534,14 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                             ZonedDateTime.ofInstant(Instant.ofEpochMilli(ts), TimeZone.getDefault().toZoneId())) + " -"
                             : "")
                     + " #to:" + to
-                    + ", " + fromStackData();
+                    + ", " + fromStackData(false);
         }
 
         private String spaces(int length) {
             return new String(new char[length]).replace("\0", " ");
         }
 
-        public String toStringFromMatsTrace(long startTimestamp, int maxStackSize, int maxToStageIdLength) {
+        public String toStringFromMatsTrace(long startTimestamp, int maxStackSize, int maxToStageIdLength, boolean printNulLData) {
             String toType = (ts != 0 ? String.format("%4d", (ts - startTimestamp)) + "ms " : " - ")
                     + indent()
                     + t;
@@ -552,7 +552,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             int numMaxIncludingToStageId = 7 + numMaxIncludingCallType + maxToStageIdLength;
             return toTo
                     + spaces(numMaxIncludingToStageId - toTo.length())
-                    + fromStackData();
+                    + fromStackData(printNulLData);
         }
     }
 
@@ -630,6 +630,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder();
+
+        // === HEADER ===
         buf.append("MatsTrace : ")
                 .append(getCurrentCall().getCallType())
                 .append(" #to:").append(getCurrentCall().getTo())
@@ -638,6 +640,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                 .append("  NonPersistent:").append(np)
                 .append("  Interactive:").append(ia)
                 .append('\n');
+
+        // === "INITIATOR CALL" ===
         buf.append(" call#:\n");
         buf.append("    0    --- [Initiator]");
         if (an != null) {
@@ -662,10 +666,16 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         int maxToStageIdLength = c.stream()
                 .mapToInt(c -> c.getTo().toString().length())
                 .max().orElse(0);
+
+        // === ACTUAL CALLS ===
+
         for (int i = 0; i < c.size(); i++) {
-            buf.append(String.format("   %2d %s\n", i + 1, c.get(i).toStringFromMatsTrace(ts, maxStackSize,
-                    maxToStageIdLength)));
+            boolean printNullData = (kt == KeepMatsTrace.FULL) || (i == (c.size() - 1));
+            buf.append(String.format("   %2d %s\n", i + 1,
+                    c.get(i).toStringFromMatsTrace(ts, maxStackSize, maxToStageIdLength, printNullData)));
         }
+
+        // === STATES ===
         buf.append(" states:\n");
         for (int i = 0; i < ss.size(); i++) {
             buf.append(String.format("   %2d %s", i, ss.get(i)));

@@ -201,7 +201,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
                     // TODO: Add debug info!
                     .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                             _parentFactory.getFactoryConfig().getAppVersion(),
-                            HOSTNAME, _from, now, "Tralala!")
+                            _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!")
                     .addRequestCall(_from,
                             _to, MessagingModel.QUEUE,
                             _replyTo, (_replyToSubscription ? MessagingModel.TOPIC : MessagingModel.QUEUE),
@@ -214,7 +214,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
             // TODO: Add debug info!
             matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                     _parentFactory.getFactoryConfig().getAppVersion(),
-                    HOSTNAME, now, "Callalala!");
+                    _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
 
             sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, matsTrace, _props, _binaries, _strings,
                     "new REQUEST");
@@ -235,7 +235,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
                     // TODO: Add debug info!
                     .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                             _parentFactory.getFactoryConfig().getAppVersion(),
-                            HOSTNAME, _from, now, "Tralala!")
+                            _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!")
                     .addSendCall(_from,
                             _to, MessagingModel.QUEUE,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
@@ -245,7 +245,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
             // TODO: Add debug info!
             matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                     _parentFactory.getFactoryConfig().getAppVersion(),
-                    HOSTNAME, now, "Callalala!");
+                    _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
 
             sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, matsTrace, _props, _binaries, _strings,
                     "new SEND");
@@ -266,7 +266,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
                     // TODO: Add debug info!
                     .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                             _parentFactory.getFactoryConfig().getAppVersion(),
-                            HOSTNAME, _from, now, "Tralala!")
+                            _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!")
                     .addSendCall(_from,
                             _to, MessagingModel.TOPIC,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
@@ -276,7 +276,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
             // TODO: Add debug info!
             matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                     _parentFactory.getFactoryConfig().getAppVersion(),
-                    HOSTNAME, now, "Callalala!");
+                    _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
 
             sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, matsTrace, _props, _binaries, _strings,
                     "new PUBLISH");

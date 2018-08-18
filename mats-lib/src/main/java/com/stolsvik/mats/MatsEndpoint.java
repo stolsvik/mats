@@ -111,7 +111,7 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
      * outside of the process lambda. It is effectively the "passive" parts of the context, i.e. not initiating new
      * messages, setting properties etc. Look for usage in the "SynchronousAdapter" tool.
      */
-    interface ProcessDetachedContext {
+    interface DetachedProcessContext {
         /**
          * @return the {@link MatsInitiate#traceId(String) trace id} for the processed message.
          * @see MatsInitiate#traceId(String)
@@ -185,7 +185,7 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
      * you tie into the implementation (e.g. JMS specific implementations might want to expose the underlying incoming
      * and outgoing JMS {@code Message}s.)
      */
-    interface ProcessContext<R> extends ProcessDetachedContext {
+    interface ProcessContext<R> extends DetachedProcessContext {
         /**
          * Attaches a binary payload to the next outgoing message, being it a request or a reply. Note that for
          * initiations, you have the same method on the {@link MatsInitiate} instance.

@@ -1,11 +1,10 @@
 package com.stolsvik.mats.lib_test;
 
-import java.util.UUID;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.test.MatsTestLatch;
+import com.stolsvik.mats.util.RandomString;
 
 /**
  * Common top-level class for the Mats JUnit tests - use the extensions {@link MatsBasicTest} and {@link MatsDbTest}
@@ -27,11 +26,11 @@ public class _MatsTestBase {
     protected MatsTestLatch matsTestLatch = new MatsTestLatch();
 
     /**
-     * @return a random UUID string, to be used for traceIds when testing - <b>ALWAYS use a semantically meaningful,
+     * @return a random string of length 8 for testing - <b>BUT PLEASE NOTE!! ALWAYS use a semantically meaningful,
      *         globally unique Id as traceId in production code!</b>
      */
     protected String randomId() {
-        return UUID.randomUUID().toString();
+        return RandomString.randomString(8);
     }
 
     /**

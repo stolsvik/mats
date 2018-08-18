@@ -137,7 +137,7 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
         // TODO: Add debug info!
         requestMatsTrace.getCurrentCall().setDebugInfo(parentFactory.getFactoryConfig().getAppName(),
                 parentFactory.getFactoryConfig().getAppVersion(),
-                HOSTNAME, System.currentTimeMillis(), "Callalala!");
+                parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), "Callalala!");
 
         // Pack it off
         sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), requestMatsTrace,
@@ -167,7 +167,7 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
         Call<Z> currentCall = replyMatsTrace.getCurrentCall();
         currentCall.setDebugInfo(parentFactory.getFactoryConfig().getAppName(),
                 parentFactory.getFactoryConfig().getAppVersion(),
-                HOSTNAME, System.currentTimeMillis(), "Callalala!");
+                parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), "Callalala!");
 
         // Pack it off
         sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), replyMatsTrace,
@@ -194,7 +194,7 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
         // TODO: Add debug info!
         nextMatsTrace.getCurrentCall().setDebugInfo(parentFactory.getFactoryConfig().getAppName(),
                 parentFactory.getFactoryConfig().getAppVersion(),
-                HOSTNAME, System.currentTimeMillis(), "Callalala!");
+                parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), "Callalala!");
 
         // Pack it off
         sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), nextMatsTrace,

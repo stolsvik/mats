@@ -77,7 +77,7 @@ public class ATest_AbstractConcurrency extends MatsBasicTest {
 
         // :: Assert the processed data
         for (int i = 0; i < CONCURRENCY_TEST; i++) {
-            DataTO dto = _map.get(Integer.valueOf(i));
+            DataTO dto = _map.get(i);
             Assert.assertEquals(i * expectedMultiple, dto.number, 0);
             Assert.assertEquals(expectedString + i, dto.string);
         }

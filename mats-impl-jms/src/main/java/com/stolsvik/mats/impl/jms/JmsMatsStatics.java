@@ -29,6 +29,8 @@ public interface JmsMatsStatics {
 
     String THREAD_PREFIX = "MATS:";
 
+    String TRACE_ID_KEY = "traceId";
+
     /**
      * Common sending method - handles commonalities. <b>Notice that the bytes- and Strings-Maps come back cleared, even
      * if any part of sending throws.</b>
@@ -128,23 +130,4 @@ public interface JmsMatsStatics {
         }
         return "Initiation";
     }
-
-    static String getHostname_internal() {
-        try (BufferedInputStream in = new BufferedInputStream(Runtime.getRuntime().exec("hostname").getInputStream())) {
-            byte[] b = new byte[256];
-            int readBytes = in.read(b, 0, b.length);
-            // Using platform default charset, which probably is exactly what we want in this one specific case.
-            return new String(b, 0, readBytes).trim();
-        }
-        catch (Throwable t) {
-            try {
-                return InetAddress.getLocalHost().getHostName();
-            }
-            catch (UnknownHostException e) {
-                return "<cannot resolve>";
-            }
-        }
-    }
-
-    String HOSTNAME = getHostname_internal();
 }

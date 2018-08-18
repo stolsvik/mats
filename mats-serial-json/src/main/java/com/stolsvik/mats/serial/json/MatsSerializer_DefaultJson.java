@@ -17,6 +17,9 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
@@ -31,12 +34,17 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  * {@link #deserializeObject(String, Class)}: For the serialize-method, if the value is a String, it is returned
  * directly ("serialized as-is"), while when deserialized and the requested class is String, the supplied "json" String
  * argument is returned directly. This enables an endpoint to receive any type of value if it specifies String.class as
- * expected DTO, as it'll just get the JSON document itself - and thus effectively acts as a Java method taking Object.
+ * expected DTO, as it'll just get the JSON document itself - however, since JSON is not a very specified format
+ * (notably lacking specifications of how dates and times are serialized), if this is utilized to do deserialization within the
+ * endpoint itself (i.e. using this feature as if taking "Object" and then "casting" to some expected type), the
+ * endpoint becomes very specific to this implementation of the MatsSerializer (look in the source!),
+ * and definitely looses the ability to use a very different serializer, possibly binary (e.g. Google's Protobuf).
  * <p>
  * The Jackson {@link ObjectMapper} is configured to only handle fields (think "data struct"), i.e. not use setters or getters;
  * and to only include non-null fields; and upon deserialization to ignore properties from the JSON that has no field in
  * the class to be deserialized into (both to enable the modification of DTOs on the client side by removing fields
- * that aren't used in that client scenario, and to handle <i>widening conversions<i> for incoming DTOs):
+ * that aren't used in that client scenario, and to handle <i>widening conversions<i> for incoming DTOs), and to use
+ * string serialization for dates (and handle the JSR310 new dates):
  * <p>
  * <pre>
  * ObjectMapper mapper = new ObjectMapper();
@@ -44,6 +52,9 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  * mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
  * mapper.setSerializationInclusion(Include.NON_NULL);
  * mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+ * mapper.registerModule(new JavaTimeModule());
+ * mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
+ * mapper.registerModule(new Jdk8Module());
  * </pre>
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
@@ -56,10 +67,26 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
 
     public MatsSerializer_DefaultJson() {
         ObjectMapper mapper = new ObjectMapper();
+
+        // Read and write any access modifier fields (e.g. private)
         mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
         mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
+
+        // Drop nulls
         mapper.setSerializationInclusion(Include.NON_NULL);
+
+        // If props are in JSON that aren't in Java DTO, do nof fail.
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        // Write e.g. Dates as "1975-03-11" instead of timestamp, and instead of array-of-ints [1975, 3, 11].
+        // Uses ISO8601 with milliseconds and timezone (if present).
+        mapper.registerModule(new JavaTimeModule());
+        mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
+
+        // Handle Optional, OptionalLong, OptionalDouble
+        mapper.registerModule(new Jdk8Module());
+
+        // Make specific Reader and Writer for MatsTraceStringImpl (thus possibly caching class structure?)
         _matsTraceJson_Reader = mapper.readerFor(MatsTraceStringImpl.class);
         _matsTraceJson_Writer = mapper.writerFor(MatsTraceStringImpl.class);
         _objectMapper = mapper;

@@ -1,5 +1,8 @@
 package com.stolsvik.mats.impl.jms;
 
+import java.io.BufferedInputStream;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -58,6 +61,25 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         _factoryConfig = new JmsMatsFactoryConfig();
         log.info(LOG_PREFIX + "Created [" + id(this) + "].");
     }
+
+    private static String getHostname_internal() {
+        try (BufferedInputStream in = new BufferedInputStream(Runtime.getRuntime().exec("hostname").getInputStream())) {
+            byte[] b = new byte[256];
+            int readBytes = in.read(b, 0, b.length);
+            // Using platform default charset, which probably is exactly what we want in this one specific case.
+            return new String(b, 0, readBytes).trim();
+        }
+        catch (Throwable t) {
+            try {
+                return InetAddress.getLocalHost().getHostName();
+            }
+            catch (UnknownHostException e) {
+                return "_cannot_find_hostname_";
+            }
+        }
+    }
+
+    private String __hostname = getHostname_internal();
 
     /**
      * Sets the JMS destination prefix, which will be employed by all queues and topics, (obviously) both for sending
@@ -268,6 +290,11 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         @Override
         public String getAppVersion() {
             return _appVersion;
+        }
+
+        @Override
+        public String getNodename() {
+            return __hostname;
         }
 
         @Override

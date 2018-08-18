@@ -297,5 +297,16 @@ public interface MatsFactory extends StartStoppable {
          * @return the version string of the application that employs MATS, set at MatsFactory construction time.
          */
         String getAppVersion();
+
+        /**
+         * Returns a node-specific idenitifier, that is, a name which is different between different instances of the same
+         * app running of different nodes. This can be used to make node-specific topics, which are nice when you
+         * need a message to return to the node that sent it, due to some synchronous process waiting for the message
+         * (which entirely defeats the Messaging Oriented Middleware Architecture, but sometimes you need a solution..).
+         * This is used in the SynchronousAdapter tool.
+         *
+         * @return the nodename, which by default is the hostname which the application is running on.
+         */
+        String getNodename();
     }
 }

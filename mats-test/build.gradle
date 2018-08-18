@@ -14,7 +14,7 @@ dependencies {
     compile 'com.h2database:h2:1.4.+'
 
     // TODO: Preliminary dep on ActiveMQ BROKER, to have a JMS backend to communicate with
-    compile 'org.apache.activemq:activemq-broker:'+activeMqVersion
+    compile "org.apache.activemq:activemq-broker:$activeMqVersion"
 
     // The JUnit library
     compile 'junit:junit:4.+'

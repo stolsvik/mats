@@ -13,7 +13,7 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  * JMS implementation of Mats.
  * <p>
  * From the outset, there is one format (JSON serialization of the {@link MatsTraceStringImpl} class using Jackson), and
- * one transport (JMS MATS). Notice that the serialization of the actual DTOs and STOs can be specified independently,
+ * one transport (JMS MATS). Notice that the serialization of the actual DTOs and STOs can be handled independently,
  * e.g. use GSON, or protobuf, or whatever can handle serialization to and from the DTOs and STOs being used.
  *
  * @param <Z>

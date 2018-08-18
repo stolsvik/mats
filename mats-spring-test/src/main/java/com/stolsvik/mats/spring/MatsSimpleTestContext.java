@@ -86,7 +86,7 @@ public @interface MatsSimpleTestContext {
 
         @Bean
         protected MatsInitiator testMatsInitiator(Rule_Mats rule_Mats) {
-            return rule_Mats.getInitiator();
+            return rule_Mats.getMatsInitiator();
         }
 
         @Bean
