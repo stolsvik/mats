@@ -51,7 +51,7 @@ public class Test_MatsSynchronousAdapterTimeouts extends MatsBasicTest {
             CompletableFuture<Reply<DataTO>> future = synchronousAdapter.futureRequest(75, randomId(),
                     INITIATOR, SERVICE, dto, (msg) -> {});
 
-            // This timeout will be sent by the SynchronousAdapter, since the future was created with a too short
+            // This timeout is raised by the SynchronousAdapter, since the future was created with a too short
             // timeout for the service to complete. The timeout-thread inside the SynchronousAdapter will thus
             // complete this future exceptionally, i.e. ExecutionException.
             thrown.expect(ExecutionException.class);
@@ -76,7 +76,7 @@ public class Test_MatsSynchronousAdapterTimeouts extends MatsBasicTest {
             CompletableFuture<Reply<DataTO>> future = synchronousAdapter.futureRequest(2000, randomId(),
                     INITIATOR, SERVICE, dto, (msg) -> {});
 
-            // This timeout will sent "synchronously" by the future.get() call itself, since it specified a too short
+            // This timeout is raised "synchronously" by the future.get() call itself, since it specified a too short
             // wait for the service to answer (the SynchronousAdapter waits 2 seconds, so that is sufficient). Since
             // it is the get()-call itself that throws, a TimeoutException will be raised.
             thrown.expect(TimeoutException.class);

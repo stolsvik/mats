@@ -57,7 +57,7 @@ import com.stolsvik.mats.util.MatsTxSqlConnection.MatsSqlConnectionCreationExcep
  * <p>
  * This implementation will not perform any Connection reuse (caching/pooling). It is up to the supplier to implement
  * any pooling, or make use of a pooled DataSource, if so desired. (Which definitely should be desired, due to the heavy
- * use of <i> "get new - use - commit/rollback - close"</i>.)
+ * use of <i>"get new - use - commit/rollback - close"</i>.)
  *
  * @author Endre Stølsvik - 2015-12-06 - http://endre.stolsvik.com
  */

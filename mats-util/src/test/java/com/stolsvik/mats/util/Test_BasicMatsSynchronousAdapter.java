@@ -70,6 +70,8 @@ public class Test_BasicMatsSynchronousAdapter extends MatsBasicTest {
             Reply<DataTO> result = future.get(1, TimeUnit.SECONDS);
 
             Assert.assertNull(result.getReply());
+
+            log.info("Got the reply from the Future - the latency was " + result.getLatencyMillis() + " milliseconds");
         }
     }
 
