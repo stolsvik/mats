@@ -6,27 +6,31 @@ import java.util.Map;
 import javax.jms.JMSException;
 import javax.jms.Session;
 
-import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
-import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.exceptions.MatsBackendException;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
 import com.stolsvik.mats.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
+import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
 
-class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
+class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsInitiator.class);
 
     private final JmsMatsFactory<Z> _parentFactory;
+    private final JmsMatsJmsSessionHandler _jmsMatsJmsSessionHandler;
     private final TransactionContext _transactionContext;
 
-    public JmsMatsInitiator(JmsMatsFactory<Z> parentFactory, TransactionContext transactionalContext) {
+    public JmsMatsInitiator(JmsMatsFactory<Z> parentFactory, JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler,
+            JmsMatsTransactionManager jmsMatsTransactionManager) {
         _parentFactory = parentFactory;
-        _transactionContext = transactionalContext;
+        _jmsMatsJmsSessionHandler = jmsMatsJmsSessionHandler;
+        _transactionContext = jmsMatsTransactionManager.getTransactionContext(this);
     }
 
     @Override
@@ -36,28 +40,28 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         // as well as being able to "open" again after close? What about introspection/monitoring/instrumenting -
         // that is, "turn off" a MatsInitiator: Either hang requsts, or probably more interesting, fail them. And
         // that would be nice to use "close()" for: As long as it is closed, it can't be used. Need to evaluate.
-        Session jmsSession = _transactionContext.getTransactionalJmsSession(false);
+        JmsSessionHolder jmsSessionHolder = _jmsMatsJmsSessionHandler.getSessionHolder(this);
         try {
-            _transactionContext.performWithinTransaction(jmsSession, () -> lambda.initiate(
-                    new JmsMatsInitiate<>(_parentFactory, jmsSession)));
+            _transactionContext.doTransaction(jmsSessionHolder.getSession(), () -> lambda.initiate(
+                    new JmsMatsInitiate<>(_parentFactory, jmsSessionHolder.getSession())));
         }
         catch (JMSException e) {
             throw new MatsBackendException("Problems committing when performing MATS initiation via JMS API", e);
         }
         finally {
-            try {
-                jmsSession.close();
-            }
-            catch (JMSException e) {
-                // Since the session should already have been committed, rollbacked, or whatever, we will just log this.
-                log.warn(LOG_PREFIX + "Got JMSException when trying to close session used for MATS initiation.", e);
-            }
+            jmsSessionHolder.closeOrReturn();
         }
     }
 
     @Override
     public void close() {
-        _transactionContext.close();
+        // TODO: Implement close semantics: Close all Sessions in any pool, and close Connection(s).
+    }
+
+    @Override
+    public JmsMatsStage<?, ?, ?, ?> getStage() {
+        // There is no stage, and contract is to return null.
+        return null;
     }
 
     static class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
@@ -74,7 +78,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
         private MatsTrace<Z> _existingMatsTrace;
 
         JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, Session jmsSession, MatsTrace<Z> existingMatsTrace,
-                        Map<String, Object> propsSetInStage) {
+                Map<String, Object> propsSetInStage) {
             _parentFactory = parentFactory;
             _jmsSession = jmsSession;
 
@@ -119,7 +123,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsStatics {
                 _keepTrace = KeepMatsTrace.FULL;
             }
             else {
-                throw new IllegalArgumentException("Unknown KeepTrace enum ["+keepTrace+"].");
+                throw new IllegalArgumentException("Unknown KeepTrace enum [" + keepTrace + "].");
             }
             return this;
         }

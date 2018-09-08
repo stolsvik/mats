@@ -101,9 +101,16 @@ public class JmsMatsEndpoint<S, R, Z> implements MatsEndpoint<S, R> {
                     // Replying with the returned value.
                     processContext.reply(replyDto);
                 });
-        // Since this is the last stage, we'll start it now.
-        start();
+        // Since this is the last stage, we'll finish the setup.
+        finishSetup();
         return stage;
+    }
+
+    @Override
+    public void finishSetup() {
+        if (! _parentFactory.isHoldEndpointsUntilFactoryIsStarted()) {
+            start();
+        }
     }
 
     @Override

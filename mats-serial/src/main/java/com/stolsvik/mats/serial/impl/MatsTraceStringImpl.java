@@ -116,6 +116,10 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         return h;
     }
 
+
+    /**
+     * @return the "from" of the initiation.
+     */
     @Override
     public String getInitiatorId() {
         return iid;

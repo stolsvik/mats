@@ -1,0 +1,136 @@
+package com.stolsvik.mats.impl.jms;
+
+import javax.jms.Connection;
+import javax.jms.JMSException;
+import javax.jms.Session;
+
+import com.stolsvik.mats.MatsInitiator;
+import com.stolsvik.mats.exceptions.MatsBackendException;
+import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
+
+/**
+ * Interface for implementing JMS Connection and JMS Session handling. This can implement both different connection
+ * sharing mechanisms, and should implement some kind of Session pooling for initiators. It can also implement logic for
+ * "is this connection up?" mechanisms, to close the gap whereby a JMS Connection is in a bad state but the application
+ * has not noticed this yet.
+ * <p>
+ * The reason for session pooling for initiators is that a JMS Session can only be used for one thread, and since
+ * initiators are shared throughout the code base, one initiator might be used by several threads at the same time.
+ */
+public interface JmsMatsJmsSessionProvider {
+
+    /**
+     * @param txContextKey
+     *            the "key" for which the Session Context is gotten - either a stage processor or initiator.
+     * @return a {@link JmsMatsJmsSessionContext} bound to the provided key - which the session provider can map to
+     *         underlying connections as it sees fit.
+     */
+    JmsMatsJmsSessionContext getJmsMatsSessionContext(JmsMatsTxContextKey txContextKey);
+
+    /**
+     * Will be provided to {@link JmsMatsTransactionManager#getTransactionContext(JmsMatsTxContextKey)} to let it have a
+     * key from which to decide which level it shall do JMS Connection sharing on (from which to make Sessions). Notice
+     * that it is used both for {@link JmsMatsStageProcessor StageProcessors} (in which case {@link #getStage()} returns
+     * the stage), and for {@link JmsMatsInitiator Initiators} (in which case said method returns {@code null}).
+     * <p>
+     * For reference: In the JCA spec, it is specified that one JMS Connection is used per one JMS Session. This will
+     * here mean that for each {@link JmsMatsTxContextKey}, there shall be a unique JMS Connection (i.e. each
+     * StageProcessor has its own Connection). It does makes some sense, though, that JMS Connections at least are
+     * shared for all StageProcessors for a Stage - or even for all StageProcessors for all Stages of an Endpoint.
+     * However, sharing one Connection for the entire application (i.e. for all endpoints in the JVM) might be a bit too
+     * heavy burden for a single JMS Connection.
+     * <p>
+     * Note that for {@link JmsMatsInitiator initators}, one key needs to provide several Sessions - this because an
+     * initiator will be shared between threads. This e.g. happens when a Servlet Container employs an initiator (or
+     * indirectly employs an initiator, through "MatsSynchronousAdapter"): Several HTTP Threads can concurrently access
+     * the initiator, and one JMS Session can only be used by a single thread. Thus, when
+     * {@link JmsMatsJmsSessionContext#leaseTransactionalSession()} is invoked, it shall always return a different JMS
+     * Session, even though that {@link JmsMatsTxContextKey} has already gotten one. The JMS Session will be returned
+     * back via {@link JmsMatsJmsSessionHolder#releaseSession()}, {@link JmsMatsJmsSessionHolder#closeSession()} or
+     * {@link JmsMatsJmsSessionHolder#sessionCrashed(Throwable)}.
+     */
+    interface JmsMatsTxContextKey {
+        JmsMatsStage<?, ?, ?, ?> getStage();
+    }
+
+    /**
+     * Bound to a {@link JmsMatsTxContextKey}.
+     */
+    interface JmsMatsJmsSessionContext {
+        /**
+         * @return a <b>Transactional</b> JMS Session ({@link JmsMatsJmsSessionHolder}), gotten from the pool, or newly
+         *         created.
+         * @throws JMSException
+         *             if having problems with getting a JMS Connection.
+         */
+        JmsMatsJmsSessionHolder leaseTransactionalSession() throws JMSException;
+
+        /**
+         * Invoked when an initiator is {@link MatsInitiator#close()}'ed.
+         */
+        void closeAllSessionsInPool();
+
+    }
+
+    /**
+     * A "sidecar object" for the JMS Session, so that additional stuff can be bound to it.
+     */
+    interface JmsMatsJmsSessionHolder {
+        /**
+         * Will be invoked before committing any resources other than the JMS Session - this is to tighten the gap
+         * between typically the DB commit and the JMS commit: Before the DB is committed, an invocation to this method
+         * is performed. If this goes OK, then the DB is committed and then the JMS Session is committed.
+         * <p>
+         * If the connection to the server is not OK, the method shall throw a {@link MatsBackendException}.
+         *
+         * @param tryHard
+         *            if {@code true}, the check should include some kind of round-trip to the server, e.g. send (and
+         *            ensure that it is sent, e.g. commit) a message to a topic without consumers.
+         */
+        void isConnectionLive(boolean tryHard) throws MatsBackendException;
+
+        /**
+         * @return the JMS Session. It will be the same instance every time.
+         */
+        Session getSession();
+
+        /**
+         * Releases a Session back to the pool. This is really only relevant for initiators, as a stage (processor) will
+         * keep the session until it stops (in which case it invokes {@link #closeSession()}), or the session fails (in
+         * which case it invokes {@link #sessionCrashed(Throwable)}).
+         */
+        void releaseSession();
+
+        /**
+         * Closes a Session, thus not sending it back to the pool. This is employed when an endpoint (not initiator) is
+         * stopped (For initiators, the closeAllSessionsInPool() will be invoked). If this is the last session created
+         * from the connection from which this session was created (i.e. there are no outstanding session on the
+         * connection), the connection shall be closed and ditched.
+         */
+        void closeSession();
+
+        /**
+         * Notifies that a Session raised some exception - probably due to some connectivity issues experienced as a
+         * JMSException while interacting with the JMS API, or because the
+         * {@link JmsMatsJmsSessionHolder#isConnectionLive(boolean)} method raised {@link MatsBackendException}.
+         * <p>
+         * This should close and ditch the Session, and the JMS Connection too: Closing all other sessions to this
+         * connection, so that the processors and initiators come back by {@link #closeSession() closing} their
+         * sessions, and subsequently {@link JmsMatsJmsSessionContext#leaseTransactionalSession() asking for a new}.
+         */
+        void sessionCrashed(Throwable t);
+    }
+
+    /**
+     * Utility interface for implementors: Abstracts away JMS Connection generation - useful if you need to provide
+     * username and password, or some other connection parameters a la for IBM MQ.
+     * <p>
+     * Otherwise, the lambda can be as simple as
+     * <code>(txContextKey) -> _jmsConnectionFactory.createConnection()</code>.
+     */
+    @FunctionalInterface
+    interface JmsConnectionSupplier {
+        Connection createJmsConnection(JmsMatsTxContextKey txContextKey) throws JMSException;
+    }
+
+}

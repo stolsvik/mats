@@ -57,11 +57,21 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
             ProcessReturnLambda<I, S, R> processor);
 
     /**
+     * Should be invoked when all stages has been added. Will automatically be invoked by invocation of
+     * {@link #lastStage(Class, ProcessReturnLambda)}, which again implies that it will be invoked when creating
+     * {@link MatsFactory#single(String, Class, Class, ProcessSingleLambda) single-stage endpoints} and
+     * {@link MatsFactory#terminator(String, Class, Class, ProcessTerminatorLambda) terminators} and
+     * {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) subscription
+     * terminators}.
+     * <p>
+     * This will invoke {@link #start()} on the endpoint, <b>unless</b>
+     * {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} has been invoked prior to creating the endpoint.
+     */
+    void finishSetup();
+
+    /**
      * Starts the endpoint, invoking {@link MatsStage#start()} on any not-yet started stages of the endpoint (which
      * should be all of them at application startup).
-     * <p>
-     * If the {@link MatsFactory} is stopped ("closed") when this method is invoked, the {@link MatsStage}s will not
-     * start until the factory is started.
      */
     @Override
     void start();
@@ -165,8 +175,8 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
         String getString(String key);
 
         /**
-         * Retrieves the Mats Trace property with the specified name, deserializing the value to the specified
-         * class, using the active MATS serializer. Read more on {@link ProcessContext#setTraceProperty(String, Object)}.
+         * Retrieves the Mats Trace property with the specified name, deserializing the value to the specified class,
+         * using the active MATS serializer. Read more on {@link ProcessContext#setTraceProperty(String, Object)}.
          *
          * @param propertyName
          *            the name of the Mats Trace property to retrieve.
@@ -215,12 +225,12 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
         void addString(String key, String payload);
 
         /**
-         * Adds a property that will "stick" with the Mats Trace from this call on out. Note that for
-         * initiations, you have the same method on the {@link MatsInitiate} instance. The functionality effectively
-         * acts like a {@link ThreadLocal} when compared to normal java method invocations: If the Initiator adds it,
-         * all subsequent stages will see it, on any stack level, including the terminator. If a stage in a service
-         * nested some levels down in the stack adds it, it will be present in all subsequent stages including all the
-         * way up to the Terminator.
+         * Adds a property that will "stick" with the Mats Trace from this call on out. Note that for initiations, you
+         * have the same method on the {@link MatsInitiate} instance. The functionality effectively acts like a
+         * {@link ThreadLocal} when compared to normal java method invocations: If the Initiator adds it, all subsequent
+         * stages will see it, on any stack level, including the terminator. If a stage in a service nested some levels
+         * down in the stack adds it, it will be present in all subsequent stages including all the way up to the
+         * Terminator.
          * <p>
          * Possible use cases: You can for example "sneak along" some property meant for Service X through an invocation
          * of intermediate Service A (which subsequently calls Service X), where the signature (DTO) of the intermediate
@@ -303,8 +313,8 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
     }
 
     /**
-     * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} that makes it possible to do a
-     * "return replyDto" at the end of the stage, which is just a convenient way to invoke
+     * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} that makes it possible to do a "return
+     * replyDto" at the end of the stage, which is just a convenient way to invoke
      * {@link MatsEndpoint.ProcessContext#reply(Object)}. Used for the last process stage of a multistage endpoint.
      */
     @FunctionalInterface

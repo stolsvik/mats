@@ -45,12 +45,10 @@ import com.stolsvik.mats.util.MatsTxSqlConnection.MatsSqlConnectionCreationExcep
  * <p>
  * The transactionally demarcated SQL Connection can be retrieved from the {@link MatsTxSqlConnection} utility class.
  * <p>
- * It requires a {@link JdbcConnectionSupplier} upon construction, in addition to the
- * {@link JmsConnectionSupplier JmsConnectionSupplier}.
- * <p>
- * The {@link JdbcConnectionSupplier} will be asked for a SQL Connection in any MatsStage's StageProcessor that requires
- * it: The fetching of the SQL Connection is lazy in that it won't be retrieved (nor entered into transaction with),
- * until it is actually requested by the user code by means of {@link MatsTxSqlConnection#getConnection()}.
+ * It requires a {@link JdbcConnectionSupplier} upon construction. The {@link JdbcConnectionSupplier} will be asked for
+ * a SQL Connection in any MatsStage's StageProcessor that requires it: The fetching of the SQL Connection is lazy in
+ * that it won't be retrieved (nor entered into transaction with), until it is actually requested by the user code by
+ * means of {@link MatsTxSqlConnection#getConnection()}.
  * <p>
  * The SQL Connection will be {@link Connection#close() closed} after each stage processing (after each transaction,
  * either committed or rollbacked) - if it was requested during the user code.
@@ -69,29 +67,29 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
      * Connection properties, for example set the {@link java.sql.Connection#setTransactionIsolation(int) Transaction
      * Isolation Level}.
      * <p>
-     * Otherwise, the lambda can be as simple as <code>(stage) -> dataSource.getConnection()</code>.
+     * Otherwise, the lambda can be as simple as <code>(txContextKey) -> dataSource.getConnection()</code>.
      */
     @FunctionalInterface
     public interface JdbcConnectionSupplier {
-        Connection createJdbcConnection(JmsMatsStage<?, ?, ?, ?> stage) throws SQLException;
+        Connection createJdbcConnection(JmsMatsTxContextKey txContextKey) throws SQLException;
     }
 
     private final JdbcConnectionSupplier _jdbcConnectionSupplier;
 
-    public static JmsMatsTransactionManager_JmsAndJdbc create(JmsConnectionSupplier jmsConnectionSupplier,
+    public static JmsMatsTransactionManager_JmsAndJdbc create(
             JdbcConnectionSupplier jdbcConnectionSupplier) {
-        return new JmsMatsTransactionManager_JmsAndJdbc(jmsConnectionSupplier, jdbcConnectionSupplier);
+        return new JmsMatsTransactionManager_JmsAndJdbc(jdbcConnectionSupplier);
     }
 
-    protected JmsMatsTransactionManager_JmsAndJdbc(JmsConnectionSupplier jmsConnectionSupplier,
+    protected JmsMatsTransactionManager_JmsAndJdbc(
             JdbcConnectionSupplier jdbcConnectionSupplier) {
-        super(jmsConnectionSupplier);
+        super();
         _jdbcConnectionSupplier = jdbcConnectionSupplier;
     }
 
     @Override
-    public TransactionContext getTransactionContext(JmsMatsStage<?, ?, ?, ?> stage) {
-        return new TransactionalContext_JmsAndJdbc(createJmsConnection(stage), _jdbcConnectionSupplier, stage);
+    public TransactionContext getTransactionContext(JmsMatsTxContextKey txContextKey) {
+        return new TransactionalContext_JmsAndJdbc(_jdbcConnectionSupplier, txContextKey);
     }
 
     /**
@@ -100,23 +98,21 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
      */
     public static class TransactionalContext_JmsAndJdbc extends TransactionalContext_JmsOnly {
         private final JdbcConnectionSupplier _jdbcConnectionSupplier;
-        private final JmsMatsStage<?, ?, ?, ?> _stage;
 
-        public TransactionalContext_JmsAndJdbc(javax.jms.Connection jmsConnection,
-                JdbcConnectionSupplier jdbcConnectionSupplier, JmsMatsStage<?, ?, ?, ?> stage) {
-            super(jmsConnection, stage);
+        public TransactionalContext_JmsAndJdbc(
+                JdbcConnectionSupplier jdbcConnectionSupplier, JmsMatsTxContextKey txContextKey) {
+            super(txContextKey);
             _jdbcConnectionSupplier = jdbcConnectionSupplier;
-            _stage = stage;
         }
 
         @Override
-        public void performWithinTransaction(Session jmsSession, ProcessingLambda lambda) throws JMSException {
+        public void doTransaction(Session jmsSession, ProcessingLambda lambda) throws JMSException {
             // :: First make the potential Connection available
             LazyJdbcConnectionSupplier lazyConnectionSupplier = new LazyJdbcConnectionSupplier();
             MatsTxSqlConnection.setThreadLocalConnectionSupplier(lazyConnectionSupplier);
 
             // :: We invoke the "outer" transaction, which is the JMS transaction.
-            super.performWithinTransaction(jmsSession, () -> {
+            super.doTransaction(jmsSession, () -> {
                 // ----- We're *within* the JMS Transaction demarcation.
 
                 /*
@@ -128,7 +124,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                  */
 
                 try {
-                    log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_stage)
+                    log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_txContextKey)
                             + ", within JDBC SQL Transactional demarcation.");
                     /*
                      * Invoking the provided ProcessingLambda, which typically will be the actual user code (albeit
@@ -137,13 +133,13 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                      * Transaction demarcation, and the outer JMS Transaction demarcation.
                      */
                     lambda.performWithinTransaction();
-               }
+                }
                 // Catch EVERYTHING that can come out of the try-block:
                 catch (MatsRefuseMessageException | RuntimeException | Error e) {
                     // ----- The user code had some error occur, or want to reject this message.
                     // !!NOTE!!: The full Exception will be logged by outside JMS-trans class on JMS rollback handling.
                     log.error(LOG_PREFIX + "ROLLBACK SQL: " + e.getClass().getSimpleName() + " while processing "
-                            + stageOrInit(_stage) + " (most probably from user code)."
+                            + stageOrInit(_txContextKey) + " (most probably from user code)."
                             + " Rolling back the SQL Connection.");
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
@@ -159,7 +155,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                     // ----- This must have been a "sneaky throws"; Throwing an undeclared checked exception.
                     // !!NOTE!!: The full Exception will be logged by outside JMS-trans class on JMS rollback handling.
                     log.error(LOG_PREFIX + "ROLLBACK SQL: Got an undeclared checked exception " + t.getClass()
-                            .getSimpleName() + " while processing " + stageOrInit(_stage)
+                            .getSimpleName() + " while processing " + stageOrInit(_txContextKey)
                             + " (probably 'sneaky throws' of checked exception). Rolling back the SQL Connection.");
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
@@ -170,7 +166,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
                     // We will now re-throw the Throwable, which will rollback the JMS Transaction.
                     throw new MatsRuntimeException("Got a undeclared checked exception " + t.getClass().getSimpleName()
-                            + " while processing " + stageOrInit(_stage) + ".", t);
+                            + " while processing " + stageOrInit(_txContextKey) + ".", t);
                 }
 
                 // ----- The ProcessingLambda went OK, no Exception was raised.
@@ -210,7 +206,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
             }
             catch (SQLException e) {
                 throw new MatsSqlCommitOrRollbackFailedException("Could not " + (commit ? "commit" : "rollback")
-                        + " SQL Connection [" + con + "] - for stage [" + _stage + "].", e);
+                        + " SQL Connection [" + con + "] - for stage [" + _txContextKey + "].", e);
             }
             // :: Close
             try {
@@ -220,7 +216,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
             catch (SQLException e) {
                 throw new MatsSqlConnectionCloseFailedException("After performing " + (commit ? "commit"
                         : "rollback") + " on SQL Connection [" + con
-                        + "], we tried to close it but that threw - for stage [" + _stage + "].", e);
+                        + "], we tried to close it but that threw - for stage [" + _txContextKey + "].", e);
             }
         }
 
@@ -255,11 +251,11 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 // This shall only be done on one thread: The whole point is its ThreadLocal-ness - No concurrency.
                 if (_gottenConnection == null) {
                     try {
-                        _gottenConnection = _jdbcConnectionSupplier.createJdbcConnection(_stage);
+                        _gottenConnection = _jdbcConnectionSupplier.createJdbcConnection(_txContextKey);
                     }
                     catch (SQLException e) {
                         throw new MatsSqlConnectionCreationException("Could not get SQL Connection from ["
-                                + _jdbcConnectionSupplier + "] for [" + _stage + "].", e);
+                                + _jdbcConnectionSupplier + "] for [" + _txContextKey + "].", e);
                     }
                     try {
                         _gottenConnection.setAutoCommit(false);
@@ -273,7 +269,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                                     + " to close that Connection, we got a new SQLException. Ignoring.", closeE);
                         }
                         throw new MatsSqlConnectionCreationException("Could not set AutoCommit to false on the"
-                                + " SQL Connection [" + _gottenConnection + "] for [" + _stage + "].", e);
+                                + " SQL Connection [" + _gottenConnection + "] for [" + _txContextKey + "].", e);
                     }
                 }
                 return _gottenConnection;

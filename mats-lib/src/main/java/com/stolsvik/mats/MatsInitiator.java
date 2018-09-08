@@ -7,6 +7,7 @@ import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
+import com.stolsvik.mats.exceptions.MatsConnectionException;
 
 /**
  * Provides a way to get a {@link MatsInitiate} instance "from the outside" of MATS, i.e. from a synchronous context. On
@@ -22,8 +23,10 @@ public interface MatsInitiator extends Closeable {
      *
      * @param lambda
      *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
+     * @throws MatsConnectionException
+     *             if the Mats implementation cannot connect to the underlying message queue.
      */
-    void initiate(InitiateLambda lambda);
+    void initiate(InitiateLambda lambda) throws MatsConnectionException;
 
     @FunctionalInterface
     interface InitiateLambda {
@@ -67,8 +70,8 @@ public interface MatsInitiator extends Closeable {
          * "Web.placeOrder[cid:43512][cart:xa4ru5285fej]qz7apy9". From this example TraceId we could infer that it
          * originated at the <i>Web system</i>, it regards <i>Placing an order</i> for <i>Customer Id 43512</i>, it
          * regards the <i>Shopping Cart Id xa4ru5285fej</i>, and it contains some uniqueness ('qz7apy9') generated at
-         * the initiating, so that even if the customer managed to click three times on the "place order" button for
-         * the same cart, you would still be able to separate the resulting three different Mats call flows.
+         * the initiating, so that even if the customer managed to click three times on the "place order" button for the
+         * same cart, you would still be able to separate the resulting three different Mats call flows.
          * <p>
          * (For the default implementation "JMS Mats", the Trace Id is set on the {@link MDC} of the SLF4J logging
          * system, using the key "traceId". Since this implementation logs a few lines per handled message, in addition
@@ -106,9 +109,9 @@ public interface MatsInitiator extends Closeable {
          * persistent message would be DLQed if it failed to be delivered to an endpoint. This can severely impact
          * monitoring and to a degree debugging.)
          * <p>
-         * This is only usable for "pure GET"-style requests <i>without any state changes along the flow</i>, i.e.
-         * "AccountService.getBalances", for display to an end user. If such a message is lost, the world won't go
-         * under.
+         * <b>This is only usable for "pure GET"-style requests <i>without <u>any</u> state changes along the flow</i>,
+         * i.e. "AccountService.getBalances", for display to an end user.</b> If such a message is lost, the world won't
+         * go under.
          * <p>
          * The upshot here is that non-persistent messaging typically is blazingly fast, as the messages will not have
          * to (transactionally) be stored in non-volatile storage. It is therefore wise to actually employ this feature

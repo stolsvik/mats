@@ -91,10 +91,10 @@ public interface MatsFactory extends StartStoppable {
             Consumer<? super EndpointConfig<S, R>> endpointConfigLambda);
 
     /**
-     * Sets up a {@link MatsEndpoint} that just contains one stage, useful for simple
-     * "request the full person data for this/these personId(s)" scenarios. This sole stage is supplied directly, using
-     * a specialization of the processor lambda which does not have state (as there is only one stage, there is no other
-     * stage to pass state to), but which can return the reply by simply returning it on exit from the lambda.
+     * Sets up a {@link MatsEndpoint} that just contains one stage, useful for simple "request the full person data for
+     * this/these personId(s)" scenarios. This sole stage is supplied directly, using a specialization of the processor
+     * lambda which does not have state (as there is only one stage, there is no other stage to pass state to), but
+     * which can return the reply by simply returning it on exit from the lambda.
      * <p>
      * Do note that this is just a convenience for the often-used scenario where for example a request will just be
      * looked up in the backing data store, and replied directly, using only one stage, not needing any multi-stage
@@ -137,18 +137,17 @@ public interface MatsFactory extends StartStoppable {
      * Do note that this is just a convenience for the often-used scenario where an initiation requests out to some
      * service, and then the reply needs to be handled - and with that the process is finished. That last endpoint which
      * handles the reply is what is referred to as a terminator, in that it has nowhere to reply to. Note that there is
-     * nothing hindering you in setting the replyTo endpointId in a request initiation to point to a single-stage
-     * or multi-stage endpoint - however, any replies from those endpoints will just go void.
+     * nothing hindering you in setting the replyTo endpointId in a request initiation to point to a single-stage or
+     * multi-stage endpoint - however, any replies from those endpoints will just go void.
      * <p>
      * It is possible to {@link ProcessContext#initiate(InitiateLambda) initiate} from within a terminator, and one
      * interesting scenario here is to do a {@link MatsInitiate#publish(Object) publish} to a
      * {@link #subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) subscriptionTerminator}. The idea
      * is then that you do the actual processing via a request, and upon the reply processing in the terminator, you
-     * update the app database with the updated information (e.g. "order is processed"), and then you publish an
-     * "update caches" message to all the nodes of the app, so that they all have the new state of the order in
-     * their caches (or, in a push-based GUI logic, you might want to update all users' view of that order). Note that
-     * you (as in the processing node) will also get that published message on your instance of the
-     * SubscriptionTerminator.
+     * update the app database with the updated information (e.g. "order is processed"), and then you publish an "update
+     * caches" message to all the nodes of the app, so that they all have the new state of the order in their caches
+     * (or, in a push-based GUI logic, you might want to update all users' view of that order). Note that you (as in the
+     * processing node) will also get that published message on your instance of the SubscriptionTerminator.
      * <p>
      * It is technically possible {@link ProcessContext#reply(Object) reply} from within a terminator - but it hard to
      * envision many wise usage scenarios for this, as the stack at a terminator would probably be empty.
@@ -157,10 +156,10 @@ public interface MatsFactory extends StartStoppable {
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
      *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
      *            endpoint to get the message. Typical structure is <code>"OrderService.placeOrder"</code> for public
-     *            endpoints (which then is of a "fire-and-forget" style, since a terminator is not meant to reply),
-     *            or <code>"OrderService.terminator.validateOrder"</code> for private (app-internal) terminators that
-     *            is targeted by the {@link MatsInitiate#replyTo(String, Object) replyTo(endpointId,..)} invocation of
-     *            an initiation.
+     *            endpoints (which then is of a "fire-and-forget" style, since a terminator is not meant to reply), or
+     *            <code>"OrderService.terminator.validateOrder"</code> for private (app-internal) terminators that is
+     *            targeted by the {@link MatsInitiate#replyTo(String, Object) replyTo(endpointId,..)} invocation of an
+     *            initiation.
      * @param incomingClass
      *            the class of the incoming (typically reply) DTO.
      * @param stateClass
@@ -177,8 +176,8 @@ public interface MatsFactory extends StartStoppable {
             ProcessTerminatorLambda<I, S> processor);
 
     /**
-     * Variation of {@link #terminator(String, Class, Class, ProcessTerminatorLambda)} that can be configured
-     * "on the fly".
+     * Variation of {@link #terminator(String, Class, Class, ProcessTerminatorLambda)} that can be configured "on the
+     * fly".
      */
     <I, S> MatsEndpoint<S, Void> terminator(String endpointId,
             Class<I> incomingClass,
@@ -240,11 +239,23 @@ public interface MatsFactory extends StartStoppable {
     MatsInitiator createInitiator();
 
     /**
-     * "Releases" any start-waiting endpoints, read up on {@link #stop}. Unless {@link #stop()} has been invoked first,
-     * this method has no effect.
+     * Starts all endpoints that has been created by this factory, by invoking {@link MatsEndpoint#start()} on them.
+     * <p>
+     * Subsequently clears the {@link #holdEndpointsUntilFactoryIsStarted()}-flag.
      */
     @Override
     void start();
+
+    /**
+     * <b>If this method is invoked before any endpoint is created, the endpoints will not start even though
+     * {@link MatsEndpoint#finishSetup()} is invoked on them, but will wait till {@link #start()} is invoked on the
+     * factory.</b> This feature should be employed in most setups where the MATS endpoints might use other services
+     * whose order of creation and initialization are difficult to fully control, e.g. typically in an IoC container
+     * like Spring: Set all stuff up, where order is not of importance, and <i>then</i> fire up the endpoints. If this
+     * is not done, the endpoints might start consuming messages off of the MQ (there might already be messages waiting
+     * when the service boots), and thus invoke other services that are not yet fully up.
+     */
+    void holdEndpointsUntilFactoryIsStarted();
 
     /**
      * Waits until all endpoints are started, i.e. runs {@link MatsEndpoint#waitForStarted()} on all the endpoints
@@ -254,16 +265,11 @@ public interface MatsFactory extends StartStoppable {
     void waitForStarted();
 
     /**
-     * Stops the factory, which will invoke {@link MatsEndpoint#stop()} on all the endpoints, and
-     * {@link MatsInitiator#close()} on all initiators, that has been created by it. Meant for application shutdown.
+     * Stops all endpoints and initiators, by invoking {@link MatsEndpoint#stop()} on all the endpoints, and
+     * {@link MatsInitiator#close()} on all initiators that has been created by this factory. They can be started again
+     * individually, or all at once by invoking {@link #start()}
      * <p>
-     * <b>However, if this is invoked before any endpoint is created, the endpoints will not start even though
-     * {@link MatsEndpoint#start()} is invoked on them, but will wait till {@link #start()} is invoked on the
-     * factory.</b> This feature should be employed in most setups where the MATS endpoints might use other services
-     * whose order of creation and initialization are difficult to fully control, e.g. typically in an IoC container
-     * like Spring: Set all stuff up, where order is not of importance, and <i>then</i> fire up the endpoints. If this
-     * is not done, the endpoints might start consuming messages off of the MQ (there might already be messages waiting
-     * when the service boots), and thus invoke other services that are not yet fully up.
+     * Should be invoked at application shutdown.
      */
     @Override
     void stop();
@@ -282,10 +288,10 @@ public interface MatsFactory extends StartStoppable {
 
         /**
          * @return the suggested prefix for the messaging system's queues and topics that MATS uses. Defaults to
-         *         <code>"mats:"</code>.
+         *         <code>"mats."</code>.
          */
         default String getMatsDestinationPrefix() {
-            return "mats:";
+            return "mats.";
         }
 
         /**
@@ -299,13 +305,13 @@ public interface MatsFactory extends StartStoppable {
         String getAppVersion();
 
         /**
-         * Returns a node-specific idenitifier, that is, a name which is different between different instances of the same
-         * app running of different nodes. This can be used to make node-specific topics, which are nice when you
+         * Returns a node-specific idenitifier, that is, a name which is different between different instances of the
+         * same app running of different nodes. This can be used to make node-specific topics, which are nice when you
          * need a message to return to the node that sent it, due to some synchronous process waiting for the message
          * (which entirely defeats the Messaging Oriented Middleware Architecture, but sometimes you need a solution..).
          * This is used in the SynchronousAdapter tool.
          *
-         * @return the nodename, which by default is the hostname which the application is running on.
+         * @return the nodename, which by default should be the hostname which the application is running on.
          */
         String getNodename();
     }

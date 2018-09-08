@@ -17,7 +17,6 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage.StageConfig;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly.JmsConnectionSupplier;
 import com.stolsvik.mats.serial.MatsSerializer;
 
 public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
@@ -25,37 +24,41 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsFactory.class);
 
     public static <Z> JmsMatsFactory<Z> createMatsFactory_JmsOnlyTransactions(String appName, String appVersion,
-            JmsConnectionSupplier jmsConnectionSupplier,
+            JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler,
             MatsSerializer<Z> matsSerializer) {
-        return createMatsFactory(appName, appVersion, JmsMatsTransactionManager_JmsOnly.create(jmsConnectionSupplier),
-                matsSerializer);
+        return createMatsFactory(appName, appVersion, jmsMatsJmsSessionHandler,
+                JmsMatsTransactionManager_JmsOnly.create(), matsSerializer);
     }
 
     public static <Z> JmsMatsFactory<Z> createMatsFactory_JmsAndJdbcTransactions(String appName, String appVersion,
-            JmsConnectionSupplier jmsConnectionSupplier,
-            JdbcConnectionSupplier jdbcConnectionSupplier,
+            JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler, JdbcConnectionSupplier jdbcConnectionSupplier,
             MatsSerializer<Z> matsSerializer) {
-        return createMatsFactory(appName, appVersion, JmsMatsTransactionManager_JmsAndJdbc.create(jmsConnectionSupplier,
-                jdbcConnectionSupplier), matsSerializer);
+        return createMatsFactory(appName, appVersion, jmsMatsJmsSessionHandler,
+                JmsMatsTransactionManager_JmsAndJdbc.create(jdbcConnectionSupplier), matsSerializer);
     }
 
     public static <Z> JmsMatsFactory<Z> createMatsFactory(String appName, String appVersion,
+            JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler,
             JmsMatsTransactionManager jmsMatsTransactionManager,
             MatsSerializer<Z> matsSerializer) {
-        return new JmsMatsFactory<>(appName, appVersion, jmsMatsTransactionManager, matsSerializer);
+        return new JmsMatsFactory<>(appName, appVersion, jmsMatsJmsSessionHandler, jmsMatsTransactionManager,
+                matsSerializer);
     }
 
     private final String _appName;
     private final String _appVersion;
+    private final JmsMatsJmsSessionHandler _jmsMatsJmsSessionHandler;
     private final JmsMatsTransactionManager _jmsMatsTransactionManager;
     private final MatsSerializer<Z> _matsSerializer;
     private final JmsMatsFactoryConfig _factoryConfig;
 
     private JmsMatsFactory(String appName, String appVersion,
+            JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler,
             JmsMatsTransactionManager jmsMatsTransactionManager,
             MatsSerializer<Z> matsSerializer) {
         _appName = appName;
         _appVersion = appVersion;
+        _jmsMatsJmsSessionHandler = jmsMatsJmsSessionHandler;
         _jmsMatsTransactionManager = jmsMatsTransactionManager;
         _matsSerializer = matsSerializer;
         _factoryConfig = new JmsMatsFactoryConfig();
@@ -83,12 +86,18 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     /**
      * Sets the JMS destination prefix, which will be employed by all queues and topics, (obviously) both for sending
-     * and listeing.
+     * and listening.
      *
-     * @param destinationPrefix the JMS queue and topic destination prefix - defaults to "mats:".
+     * @param destinationPrefix
+     *            the JMS queue and topic destination prefix - defaults to "mats.".
      */
-    public void setMatsDestinationPrefix(String destinationPrefix) {
+    public JmsMatsFactory<Z> setMatsDestinationPrefix(String destinationPrefix) {
         _factoryConfig._matsDestinationPrefix = destinationPrefix;
+        return this;
+    }
+
+    public JmsMatsJmsSessionHandler getJmsMatsJmsSessionHandler() {
+        return _jmsMatsJmsSessionHandler;
     }
 
     public JmsMatsTransactionManager getJmsMatsTransactionManager() {
@@ -198,6 +207,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         _createdEndpoints.add(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
         // :: Wrap the ProcessTerminatorLambda in a single lastStage-ProcessReturnLambda
+        // TODO: Use stage, and then finishSetup() instead - so that we don't have to return null?
         endpoint.lastStage(incomingClass, stageConfigLambda,
                 (processContext, incomingDto, state) -> {
                     // This is just a direct forward - there is no difference from a ProcessReturnLambda ...
@@ -211,14 +221,34 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     @Override
     public MatsInitiator createInitiator() {
         JmsMatsInitiator<Z> initiator = new JmsMatsInitiator<>(this,
-                _jmsMatsTransactionManager.getTransactionContext(null));
+                _jmsMatsJmsSessionHandler, _jmsMatsTransactionManager);
         _createdInitiators.add(initiator);
         return initiator;
     }
 
     @Override
     public void start() {
-        // TODO Make the "delayed start" functionality.
+        log.info(LOG_PREFIX + "Starting [" + id(this) + "], thus starting all created endpoints.");
+        for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
+            try {
+                endpoint.start();
+            }
+            catch (Throwable t) {
+                log.warn("Got some throwable when starting endpoint [" + endpoint + "].", t);
+            }
+        }
+        _holdEndpointsUntilFactoryIsStarted = false;
+    }
+
+    private volatile boolean _holdEndpointsUntilFactoryIsStarted;
+
+    @Override
+    public void holdEndpointsUntilFactoryIsStarted() {
+        _holdEndpointsUntilFactoryIsStarted = true;
+    }
+
+    public boolean isHoldEndpointsUntilFactoryIsStarted() {
+        return _holdEndpointsUntilFactoryIsStarted;
     }
 
     @Override
@@ -228,13 +258,14 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     @Override
     public void stop() {
-        log.info(LOG_PREFIX + "Closing [" + id(this) + "], thus closing all created endpoints and initiators.");
+        log.info(LOG_PREFIX + "Stopping [" + id(this)
+                + "], thus starting/closing all created endpoints and initiators.");
         for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
             try {
                 endpoint.stop();
             }
             catch (Throwable t) {
-                log.warn("Got some throwable when closing endpoint [" + endpoint + "].", t);
+                log.warn("Got some throwable when stopping endpoint [" + endpoint + "].", t);
             }
         }
         for (MatsInitiator initiator : _createdInitiators) {
@@ -251,7 +282,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
         private int _concurrency;
 
-        private String _matsDestinationPrefix = "mats:";
+        private String _matsDestinationPrefix = "mats.";
 
         @Override
         public FactoryConfig setConcurrency(int numberOfThreads) {

@@ -1,6 +1,5 @@
 package com.stolsvik.mats.impl.jms;
 
-import javax.jms.Connection;
 import javax.jms.JMSException;
 import javax.jms.Session;
 
@@ -8,10 +7,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.exceptions.MatsBackendException;
-import com.stolsvik.mats.exceptions.MatsConnectionException;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.exceptions.MatsRuntimeException;
-import com.stolsvik.mats.impl.jms.JmsMatsStage.StageProcessor;
+import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
 
 /**
  * Implementation of {@link JmsMatsTransactionManager} handling only JMS (getting Connections, and creating Sessions),
@@ -20,55 +18,25 @@ import com.stolsvik.mats.impl.jms.JmsMatsStage.StageProcessor;
  * <p>
  * This {@link JmsMatsTransactionManager} (currently) creates a new JMS Connection per invocation to
  * {@link #getTransactionContext(JmsMatsStage)}, implying that each {@link JmsMatsStage} and each
- * {@link JmsMatsInitiator} gets its own JMS Connection, while each {@link StageProcessor} of a stage shares the stage's
- * JMS Connection (due to it invoking {@link TransactionalContext_JmsOnly#getTransactionalJmsSession(boolean)}).
+ * {@link JmsMatsInitiator} gets its own JMS Connection, while each {@link JmsMatsStageProcessor} of a stage shares the
+ * stage's JMS Connection (due to it invoking {@link TransactionalContext_JmsOnly#getTransactionalJmsSession(boolean)}).
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionManager, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsTransactionManager_JmsOnly.class);
 
-    /**
-     * Abstracts away JMS Connection generation - useful if you need to provide username and password, or some other
-     * connection parameters a la for IBM MQ.
-     * <p>
-     * Otherwise, the lambda can be as simple as <code>(stage) -> _jmsConnectionFactory.createConnection()</code>.
-     */
-    @FunctionalInterface
-    public interface JmsConnectionSupplier {
-        Connection createJmsConnection(JmsMatsStage<?, ?, ?, ?> stage) throws JMSException;
+    public static JmsMatsTransactionManager create() {
+        return new JmsMatsTransactionManager_JmsOnly();
     }
 
-    private final JmsConnectionSupplier _jmsConnectionSupplier;
-
-    public static JmsMatsTransactionManager create(JmsConnectionSupplier jmsConnectionSupplier) {
-        return new JmsMatsTransactionManager_JmsOnly(jmsConnectionSupplier);
-    }
-
-    protected JmsMatsTransactionManager_JmsOnly(JmsConnectionSupplier jmsConnectionSupplier) {
-        _jmsConnectionSupplier = jmsConnectionSupplier;
+    protected JmsMatsTransactionManager_JmsOnly() {
+        /* hide; use factory method */
     }
 
     @Override
-    public TransactionContext getTransactionContext(JmsMatsStage<?, ?, ?, ?> stage) {
-        return new TransactionalContext_JmsOnly(createJmsConnection(stage), stage);
-    }
-
-    /**
-     * @return a new JMS {@link Connection}, this method can be overridden - Remember to
-     *         {@link Connection#start() start} the JMS Connection!
-     */
-    protected Connection createJmsConnection(JmsMatsStage<?, ?, ?, ?> stage) {
-        try {
-            Connection jmsConnection = _jmsConnectionSupplier.createJmsConnection(stage);
-            // Starting it right away, as that could potentially also give "connection establishment" JMSExceptions
-            jmsConnection.start();
-            return jmsConnection;
-        }
-        catch (JMSException e) {
-            throw new MatsConnectionException("Got a JMS Exception when trying to createConnection()"
-                    + " on the JmsConnectionSupplier [" + _jmsConnectionSupplier + "].", e);
-        }
+    public TransactionContext getTransactionContext(JmsMatsTxContextKey txContextKey) {
+        return new TransactionalContext_JmsOnly(txContextKey);
     }
 
     /**
@@ -77,36 +45,23 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
      */
     public static class TransactionalContext_JmsOnly implements TransactionContext, JmsMatsStatics {
 
-        private final Connection _jmsConnection;
-        private final JmsMatsStage<?, ?, ?, ?> _stage;
+        protected final JmsMatsTxContextKey _txContextKey;
 
-        public TransactionalContext_JmsOnly(Connection jmsConnection, JmsMatsStage<?, ?, ?, ?> stage) {
-            _jmsConnection = jmsConnection;
-            _stage = stage;
+        public TransactionalContext_JmsOnly(JmsMatsTxContextKey txContextKey) {
+            _txContextKey = txContextKey;
         }
 
         @Override
-        public Session getTransactionalJmsSession(boolean canBlock) {
-            try {
-                return _jmsConnection.createSession(true, 0);
-            }
-            catch (JMSException e) {
-                throw new MatsBackendException("Got a JMS Exception when trying to createSession(true, 0)"
-                        + " on the JMS Connection [" + _jmsConnection + "].", e);
-            }
-        }
-
-        @Override
-        public void performWithinTransaction(Session jmsSession, ProcessingLambda lambda) throws JMSException {
+        public void doTransaction(Session jmsSession, ProcessingLambda lambda) throws JMSException {
 
             /*
-             * We're always within a JMS transaction (as that is the nature of the JMS API when in transactional modus).
+             * We're always within a JMS transaction (as that is the nature of the JMS API when in transactional mode).
              *
              * -- Therefore, we're now *within* the JMS Transaction demarcation.
              */
 
             try {
-                log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_stage)
+                log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_txContextKey)
                         + ", within JMS Transactional demarcation.");
                 /*
                  * Invoking the provided ProcessingLambda, which typically will be the actual user code (albeit wrapped
@@ -126,28 +81,27 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                  * provide such a mechanism).
                  */
                 log.error(LOG_PREFIX + "ROLLBACK JMS: Got a " + MatsRefuseMessageException.class.getSimpleName() +
-                        " while processing " + stageOrInit(_stage) + " (most probably from the user code)."
+                        " while transacting " + stageOrInit(_txContextKey) + " (most probably from the user code)."
                         + " Rolling back the JMS transaction - trying to ensure that it goes directly to DLQ.", e);
-                // TODO: Make ActiveMQ directly to DLQ stuff
-                rollback(jmsSession, e);
+                JmsMatsActiveMQSpecifics.instaDlq(jmsSession, () -> rollback(jmsSession, e));
                 // Return nicely, going into .receive() again.
                 return;
             }
             catch (MatsBackendException e) {
                 /*
-                 * This denotes that the ProcessContext (the JMS Mats implementation - i.e. us) has had problems doing
-                 * JMS stuff. The JMSException will be wrapped in this MatsBackendException as the MATS API is
+                 * This denotes that the JmsMatsProcessContext (the JMS Mats implementation - i.e. us) has had problems
+                 * doing JMS stuff. The JMSException will be wrapped in this MatsBackendException as the MATS API is
                  * implementation agnostic, and there is no mention of the JMS API in it. This might happen on any of
                  * the JMS interaction points, i.e. on initiate, or within a stage when requesting, replying, or adding
                  * binaries or strings. Sending this on to the outside catch block, as this means that we have an
                  * unstable JMS context.
                  */
                 log.error(LOG_PREFIX + "ROLLBACK JMS: Got a " + MatsBackendException.class.getSimpleName()
-                        + " while processing " + stageOrInit(_stage)
+                        + " while transacting " + stageOrInit(_txContextKey)
                         + ", indicating that the MATS JMS implementation had problems performing"
                         + " some operation. Rolling back JMS Session, throwing on to get new JMS Connection.", e);
                 rollback(jmsSession, e);
-                // Throwing out, since the JMS Exception most probably is unstable.
+                // Throwing out, since the JMS Connection most probably is unstable.
                 throw e;
             }
             catch (RuntimeException | Error e) {
@@ -155,8 +109,8 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                  * Should only be user code, as errors from "ourselves" (the JMS MATS impl) should throw
                  * MatsBackendException, and are caught earlier (see above).
                  */
-                log.error(LOG_PREFIX + "ROLLBACK JMS: " + e.getClass().getSimpleName() + " while processing "
-                        + stageOrInit(_stage) + " (should only be from user code)."
+                log.error(LOG_PREFIX + "ROLLBACK JMS: " + e.getClass().getSimpleName() + " while transacting "
+                        + stageOrInit(_txContextKey) + " (should only be from user code)."
                         + " Rolling back the JMS session.", e);
                 rollback(jmsSession, e);
                 // Throw on, so that if this is in an initiate-call, it will percolate all the way out.
@@ -167,14 +121,14 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 /*
                  * This must have been a "sneaky throws"; Throwing of an undeclared checked exception.
                  */
-                log.error(LOG_PREFIX + "ROLLBACK JMS: " + t.getClass().getSimpleName() + " while processing "
-                        + stageOrInit(_stage) + " (probably 'sneaky throws' of checked exception)."
+                log.error(LOG_PREFIX + "ROLLBACK JMS: " + t.getClass().getSimpleName() + " while transacting "
+                        + stageOrInit(_txContextKey) + " (probably 'sneaky throws' of checked exception)."
                         + " Rolling back the JMS session.", t);
                 rollback(jmsSession, t);
                 // Throw on, so that if this is in an initiate-call, it will percolate all the way out.
                 // (Inside JmsMatsStage, RuntimeExceptions won't recreate the JMS Connection..)
                 throw new MatsRuntimeException("Got a undeclared checked exception " + t.getClass().getSimpleName()
-                        + " while processing " + stageOrInit(_stage) + ".", t);
+                        + " while transacting " + stageOrInit(_txContextKey) + ".", t);
             }
 
             // ----- The ProcessingLambda went OK, no Exception was raised.
@@ -204,8 +158,8 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 /*
                  * This certainly calls for reestablishing the JMS Session, so throw out.
                  */
-                throw new MatsBackendException("VERY BAD! After finished MatsStage Processing Lambda,"
-                        + " we could not commit JMS Session!", t);
+                throw new MatsBackendException("VERY BAD! After finished transacting " + stageOrInit(_txContextKey)
+                        + ", we could not commit JMS Session!", t);
             }
 
             // -> The JMS Session nicely committed.
@@ -228,20 +182,6 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 throw new MatsBackendException("When trying to rollback JMS Session due to a "
                         + t.getClass().getSimpleName()
                         + ", we got some Exception. The JMS Session certainly seems unstable.", rollbackT);
-            }
-        }
-
-        @Override
-        public void close() {
-            Connection jmsConnection = _jmsConnection;
-            if (jmsConnection != null) {
-                try {
-                    jmsConnection.close();
-                }
-                catch (Throwable t) {
-                    log.error(LOG_PREFIX + "Got some unexpected exception when trying to close JMS Connection ["
-                            + jmsConnection + "].", t);
-                }
             }
         }
     }

@@ -12,6 +12,8 @@ import javax.jms.MapMessage;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 
+import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.serial.MatsTrace.Call;
 import com.stolsvik.mats.serial.MatsTrace.Call.Channel;
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
@@ -124,9 +126,9 @@ public interface JmsMatsStatics {
         return obj.getClass().getSimpleName() + '@' + Integer.toHexString(System.identityHashCode(obj));
     }
 
-    default String stageOrInit(JmsMatsStage<?, ?, ?, ?> stage) {
-        if (stage != null) {
-            return "Stage [" + stage.toString() + "]";
+    default String stageOrInit(JmsMatsTxContextKey txContextKey) {
+        if (txContextKey.getStage() != null) {
+            return "StageProcessor for [" + txContextKey.getStage() + "]";
         }
         return "Initiation";
     }
