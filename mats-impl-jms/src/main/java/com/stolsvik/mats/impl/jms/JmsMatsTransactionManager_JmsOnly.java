@@ -3,6 +3,7 @@ package com.stolsvik.mats.impl.jms;
 import javax.jms.JMSException;
 import javax.jms.Session;
 
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,13 +53,15 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
         }
 
         @Override
-        public void doTransaction(Session jmsSession, ProcessingLambda lambda) throws JMSException {
+        public void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda) throws JMSException {
 
             /*
              * We're always within a JMS transaction (as that is the nature of the JMS API when in transactional mode).
              *
              * -- Therefore, we're now *within* the JMS Transaction demarcation.
              */
+
+            Session jmsSession = jmsSessionHolder.getSession();
 
             try {
                 log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_txContextKey)

@@ -8,6 +8,7 @@ import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.exceptions.MatsConnectionException;
 import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
 
 /**
@@ -82,8 +83,7 @@ public interface JmsMatsTransactionManager {
          * exception or not: It is possible to throw a checked exception form a method that doesn't declare it in
          * several different ways. Groovy is nasty here (as effectively everything is RuntimeException in Groovy world),
          * and also google "sneakyThrows" for a way to do it using "pure java" that was invented with Generics.)</i>
-         *
-         * @param jmsSession
+         *  @param jmsSessionHolder
          *            the JMS Session upon which this transaction should run. Gotten from
          *            {@link JmsMatsJmsSessionHandler#getSessionHolder(JmsMatsStageProcessor)} or
          *            {@link JmsMatsJmsSessionHandler#getSessionHolder(JmsMatsInitiator)}.
@@ -91,7 +91,7 @@ public interface JmsMatsTransactionManager {
          *            the stuff that shall be done within transaction, i.e. the {@link MatsStage} or the
          *            {@link MatsInitiator}.
          */
-        void doTransaction(Session jmsSession, ProcessingLambda lambda) throws JMSException;
+        void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda) throws JMSException;
     }
 
     /**

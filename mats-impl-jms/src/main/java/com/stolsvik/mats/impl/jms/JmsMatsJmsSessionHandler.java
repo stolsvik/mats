@@ -20,7 +20,8 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 public interface JmsMatsJmsSessionHandler {
 
     /**
-     * Should be invoked every time an Initiator wants to send a message.
+     * Should be invoked every time an Initiator wants to send a message - it will be returned after the message(s) is
+     * sent.
      * 
      * @param initiator
      *            the initiator in question.
@@ -36,7 +37,7 @@ public interface JmsMatsJmsSessionHandler {
     JmsSessionHolder getSessionHolder(JmsMatsInitiator<?> initiator) throws MatsBackendException;
 
     /**
-     * Will be invoked before the StageProcessor goes into its consumer loop - it will be returned once the Stage is
+     * Will be invoked before the StageProcessor goes into its consumer loop - it will be closed once the Stage is
      * stopped, or if the Session "crashes", i.e. a method on Session or some downstream API throws an Exception.
      * 
      * @param processor
@@ -55,17 +56,35 @@ public interface JmsMatsJmsSessionHandler {
      */
     interface JmsSessionHolder {
         /**
-         * Will be invoked before committing any resources other than the JMS Session - this is to tighten the gap
-         * between typically the DB commit and the JMS commit: Before the DB is committed, an invocation to this method
-         * is performed. If this goes OK, then the DB is committed and then the JMS Session is committed.
-         * <p>
-         * If the connection to the server is not OK, the method shall throw a {@link MatsBackendException}.
+         * Shall be invoked at these points:
+         * <ol>
+         * <li>(For StageProcessors) Before going into MessageConsumer.receive() - in which case
+         * {@link #closeOrReturn()} shall be invoked, and then a new SessionHolder shall be fetched. [This is to be able
+         * to signal to the StageProcessor that the underlying Connection might have become unstable - start
+         * afresh]</li>
+         * <li>(For StageProcessors) After exiting from MessageConsumer.receive() - in which case rollback shall be
+         * performed, {@link #closeOrReturn()} shall be invoked, and then a new SessionHolder shall be fetched. [This is
+         * to be able to signal to the StageProcessor that the underlying Connection might have become unstable - start
+         * afresh] (NOTICE: The return from receive() shall first be checked for null - which is returned when the
+         * Consumer, Session or Connection is closed).</li>
+         * <li>(For StageProcessors and Initiators) Before committing any resources other than the JMS Session - in
+         * which case rollback shall be performed, {@link #closeOrReturn()} shall be invoked, and then a new
+         * SessionHolder shall be fetched. [This is to tighten the gap between typically the DB commit and the JMS
+         * commit: Before the DB is committed, an invocation to this method is performed. If this goes OK, then the DB
+         * is committed and then the JMS Session is committed.]</li>
+         * </ol>
+         * TODO: Probably not: "If the connection to the server is not OK, the method shall throw a
+         * {@link MatsBackendException}." TODO: How will the concurrency between the consumer.receive()-call and
+         * session.close()-call be? Register a "SessionShouldComeHomeListener" from the StageProcessor, which will be
+         * invoked if another session calls crashed() (but first set "isSessionStillActive=false") - which does a "soft
+         * stop()", "encouraging" a session.close()
          *
          * @param tryHard
-         *            if {@code true}, the check should include some kind of round-trip to the server, e.g. send (and
-         *            ensure that it is sent, e.g. commit) a message to a topic without consumers.
+         *            TODO: Probably not: if {@code true}, the check should include some kind of round-trip to the
+         *            server, e.g. send (and ensure that it is sent, e.g. commit) a message to a topic without
+         *            consumers.
          */
-        void isConnectionLive(boolean tryHard) throws MatsBackendException;
+        void isSessionStillActive(boolean tryHard) throws MatsBackendException;
 
         /**
          * @return the JMS Session. It will be the same instance every time.
@@ -81,11 +100,17 @@ public interface JmsMatsJmsSessionHandler {
         /**
          * Notifies that a Session (or "downstream" consumer or producer) raised some exception - probably due to some
          * connectivity issues experienced as a JMSException while interacting with the JMS API, or because the
-         * {@link JmsSessionHolder#isConnectionLive(boolean)} method raised {@link MatsBackendException}.
+         * {@link JmsSessionHolder#isSessionStillActive(boolean)} method raised {@link MatsBackendException}.
          * <p>
-         * This should close and ditch the Session, and the JMS Connection too: Closing all other sessions to this
-         * connection, so that the processors and initiators come back by {@link #closeSession() closing} their
-         * sessions, and subsequently {@link JmsMatsJmsSessionContext#leaseTransactionalSession() asking for a new}.
+         * This should close and ditch the Session, then the SessionHandler should (semantically) mark the underlying
+         * Connection as broken, and then then get all other "leasers" to come back with their sessions (close or
+         * crash), so that the Connection can be closed. The leasers should then get a new session by
+         * {@link JmsMatsJmsSessionHandler#getSessionHolder(JmsMatsStageProcessor)}, which will be based on a fresh
+         * Connection.
+         * <p>
+         * NOTE: If a session comes back with "crashed", but it has already been "revoked" by the SessionHandler du to
+         * another crash, this invocation should probably be equivalent to {@link #closeOrReturn()}, i.e. "come home as
+         * agreed upon, whatever the state you are in".
          */
         void crashed(Throwable t);
     }

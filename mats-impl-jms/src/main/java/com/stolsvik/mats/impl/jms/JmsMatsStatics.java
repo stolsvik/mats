@@ -96,9 +96,15 @@ public interface JmsMatsStatics {
                     : jmsSession.createTopic(factoryConfig.getMatsDestinationPrefix() + toChannel.getId());
 
             // Create JMS Producer
-            // OPTIMIZE: Check how expensive this is (with the closing) - it could be cached.
+            // TODO : OPTIMIZE: Check how expensive this is (with the closing) - it could be cached - particularly easy
+            // with the JmsSessionHolder
             MessageProducer producer = jmsSession.createProducer(destination);
 
+            // TODO : OPTIMIZE: Use "asynchronous sends", i.e. register completion listeners (catch exceptions) and
+            // close at the end.
+            // NOTICE: One may createProducer with "null" as argument, instead supplying destination in send()..
+            // IDEA: have asyncSend() on JmsSessionHolder, which lazy-creates a non-specific producer, registering
+            // an onCompletionListener that collects a list of Exceptions upon jmsSessionHolder.closeProducer()..
             producer.send(mm);
             producer.close();
 

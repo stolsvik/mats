@@ -5,8 +5,8 @@ import java.sql.SQLException;
 import java.util.function.Supplier;
 
 import javax.jms.JMSException;
-import javax.jms.Session;
 
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -106,13 +106,13 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
         }
 
         @Override
-        public void doTransaction(Session jmsSession, ProcessingLambda lambda) throws JMSException {
+        public void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda) throws JMSException {
             // :: First make the potential Connection available
             LazyJdbcConnectionSupplier lazyConnectionSupplier = new LazyJdbcConnectionSupplier();
             MatsTxSqlConnection.setThreadLocalConnectionSupplier(lazyConnectionSupplier);
 
             // :: We invoke the "outer" transaction, which is the JMS transaction.
-            super.doTransaction(jmsSession, () -> {
+            super.doTransaction(jmsSessionHolder, () -> {
                 // ----- We're *within* the JMS Transaction demarcation.
 
                 /*

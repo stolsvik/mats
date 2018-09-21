@@ -2,6 +2,7 @@ package com.stolsvik.mats.util;
 
 import java.util.HashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,12 +36,22 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
         return new MatsSynchronousAdapter<>(matsFactory, matsInitiator, returnEndpointPrefix, replyClass);
     }
 
+    /**
+     * Reply class which will be returned from the {@link CompletableFuture} returned by
+     * {@link #futureRequest(int, String, String, String, Object, InitiateLambda) futureRequest(...)}, which contains
+     * the reply from the requested service, the {@link DetachedProcessContext} from the internal Stow stage which can
+     * be used to access message-attached bytes or strings, and the number of millis between the request and the message
+     * reply being received.
+     * 
+     * @param <R>
+     *            the reply type.
+     */
     public static class Reply<R> {
         private final DetachedProcessContext _processContext;
         private final R _reply;
-        private final double _latency;
+        private final int _latency;
 
-        Reply(DetachedProcessContext processContext, R reply, double latency) {
+        Reply(DetachedProcessContext processContext, R reply, int latency) {
             _reply = reply;
             _processContext = processContext;
             _latency = latency;
@@ -54,7 +65,7 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
             return _processContext;
         }
 
-        public double getLatencyMillis() {
+        public int getLatencyMillis() {
             return _latency;
         }
     }
@@ -98,7 +109,7 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
                         return;
                     }
                     // E-> Yes, promise is still present, so complete it.
-                    double latency = (System.nanoTime() - promise._startNanos) / 1_000_000d;
+                    int latency = (int) (System.currentTimeMillis() - promise._startMillis);
                     promise._future.complete(new Reply<>(context, reply, latency));
 
                     if (log.isDebugEnabled())
@@ -118,7 +129,7 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
         synchronized (_outstandingPromises) {
             // Set the TimeoutThread to exit
             _runTimeoutThread = false;
-            // Cancel all Futures
+            // Cancel all Futures (effectively completes with CancellationException)
             _outstandingPromises.values().forEach(waitingPromise -> waitingPromise._future.cancel(true));
             // Clear the Map (all are cancelled!)
             _outstandingPromises.clear();
@@ -189,6 +200,13 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
         log.info("Timeout Thread for MatsSynchronousAdapter [" + _completingSubscriptionEndpointId + "] shut down.");
     }
 
+    /**
+     * A waiting promise will be {@link CompletableFuture#completeExceptionally(Throwable) completed execptionally} by
+     * the internal timeout-thread if the timeout given in
+     * {@link #futureRequest(int, String, String, String, Object, InitiateLambda) futureRequest(...)} is hit. If a
+     * completableFuture.get() is waiting, it will receive a {@link ExecutionException}, with this
+     * {@link MatsFutureTimeoutException} as cause.
+     */
     public static class MatsFutureTimeoutException extends Exception {
         MatsFutureTimeoutException(String message) {
             super(message);
@@ -202,17 +220,17 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
      *            how long time, in milliseconds, before the CompletableFuture completes exceptionally with a
      *            {@link MatsFutureTimeoutException}.
      * @param traceId
-     *            The tradeId for the request and resulting call flow - read guidelines for TraceIds in MATS API.
+     *            The traceId for the request and resulting call flow - read guidelines for TraceIds in MATS API.
      * @param from
      *            who this is "from" - i.e. a virtual/synthetic endpointId that describes who is sending the request -
      *            for debugging and call tracing.
      * @param to
-     *            the endpointId that should get the request
+     *            the endpointId that should get the request.
      * @param requestDto
-     *            the request object that should be sent to the requested endpoint
+     *            the request object that should be sent to the requested endpoint.
      * @param messageCustomizer
      *            provides a way to customize the initiation, e.g. call {@link MatsInitiate#interactive()
-     *            MatsInitiate.interactive()}.
+     *            msg.interactive()}.
      *
      * @return a {@link CompletableFuture} which completes with a {@link Reply} instance, containing both the actual
      *         reply, and a {@link DetachedProcessContext} from which to retrieve meta information, "sticky properties",
@@ -257,21 +275,26 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
     }
 
     /**
-     * Variant of {@link #futureRequest(int, String, String, String, Object, InitiateLambda) futureRequest(...)} that
-     * sets the {@link MatsInitiate#interactive() interactive} and {@link MatsInitiate#nonPersistent()} flags.
+     * "GET"-variant of {@link #futureRequest(int, String, String, String, Object, InitiateLambda) futureRequest(...)}
+     * that sets the {@link MatsInitiate#interactive() interactive} and {@link MatsInitiate#nonPersistent()} flags.
+     * <p>
+     * It is suitable for e.g. non-state-changing GET-style REST-endpoints that needs to hook into the Mats-system to
+     * get some values for the return to the HTTP call: It should be fast (forget the commits to MQ backing store, i.e.
+     * non-persistent) and be prioritized, since there is a human waiting (interactive-prioritization), and there is no
+     * worries if the call sometimes (albeit very seldom) disappears (result of non-persistent).
      *
      * @param timeoutMillis
      *            how long time, in milliseconds, before the CompletableFuture completes exceptionally with a
      *            {@link MatsFutureTimeoutException}.
      * @param traceId
-     *            The tradeId for the request and resulting call flow - read guidelines for TraceIds in MATS API.
+     *            The traceId for the request and resulting call flow - read guidelines for TraceIds in MATS API.
      * @param from
      *            who this is "from" - i.e. a virtual/synthetic endpointId that describes who is sending the request -
      *            for debugging and call tracing.
      * @param to
-     *            the endpointId that should get the request
+     *            the endpointId that should get the request.
      * @param requestDto
-     *            the request object that should be sent to the requested endpoint
+     *            the request object that should be sent to the requested endpoint.
      *
      * @return a {@link CompletableFuture} which completes with a {@link Reply} instance, containing both the actual
      *         reply, and a {@link DetachedProcessContext} from which to retrieve meta information, "sticky properties",
@@ -286,21 +309,26 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
     }
 
     /**
-     * Variant of {@link #interactiveNonPersistentRequest(int, String, String, String, Object)
+     * "GET"-variant of {@link #interactiveNonPersistentRequest(int, String, String, String, Object)
      * interactiveNonPersistentRequest(...)} that in addition to setting the the {@link MatsInitiate#interactive()
-     * interactive} and {@link MatsInitiate#nonPersistent()} flag, also specifies the timeout of 5 seconds - which is
+     * interactive} and {@link MatsInitiate#nonPersistent()} flag, also specifies a timeout of 5 seconds - which is
      * <i>way</i> more than what you should aim for wrt. the latencies of your services! (Less than 100 ms should be a
      * goal).
-     *
+     * <p>
+     * It is suitable for e.g. non-state-changing GET-style REST-endpoints that needs to hook into the Mats-system to
+     * get some values for the return to the HTTP call: It should be fast (forget the commits to MQ backing store, i.e.
+     * non-persistent) and be prioritized, since there is a human waiting (interactive-prioritization), and there is no
+     * worries if the call sometimes (albeit very seldom) disappears (result of non-persistent).
+     * 
      * @param traceId
-     *            The tradeId for the request and resulting call flow - read guidelines for TraceIds in MATS API.
+     *            The traceId for the request and resulting call flow - read guidelines for TraceIds in MATS API.
      * @param from
      *            who this is "from" - i.e. a virtual/synthetic endpointId that describes who is sending the request -
      *            for debugging and call tracing.
      * @param to
-     *            the endpointId that should get the request
+     *            the endpointId that should get the request.
      * @param requestDto
-     *            the request object that should be sent to the requested endpoint
+     *            the request object that should be sent to the requested endpoint.
      *
      * @return a {@link CompletableFuture} which completes with a {@link Reply} instance, containing both the actual
      *         reply, and a {@link DetachedProcessContext} from which to retrieve meta information, "sticky properties",
@@ -318,7 +346,7 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
         private final CompletableFuture<Reply<R>> _future;
         private final String _fromId;
         private final String _traceId;
-        private final long _startNanos = System.nanoTime();
+        private final long _startMillis = System.currentTimeMillis();
         private final int _timeoutMillis;
         private final long _timeoutAt;
 

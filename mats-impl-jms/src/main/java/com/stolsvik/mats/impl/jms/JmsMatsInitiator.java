@@ -42,7 +42,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         // that would be nice to use "close()" for: As long as it is closed, it can't be used. Need to evaluate.
         JmsSessionHolder jmsSessionHolder = _jmsMatsJmsSessionHandler.getSessionHolder(this);
         try {
-            _transactionContext.doTransaction(jmsSessionHolder.getSession(), () -> lambda.initiate(
+            _transactionContext.doTransaction(jmsSessionHolder, () -> lambda.initiate(
                     new JmsMatsInitiate<>(_parentFactory, jmsSessionHolder.getSession())));
         }
         catch (JMSException e) {
