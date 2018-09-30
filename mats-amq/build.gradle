@@ -5,7 +5,7 @@ dependencies {
     compile 'org.apache.activemq:activemq-broker:'+activeMqVersion
     
     // Logback, for both the project and 
-    compile 'ch.qos.logback:logback-classic:1.1.+'
+    compile 'ch.qos.logback:logback-classic:1.2.+'
     
 
     // H2 Database, to put the log lines into

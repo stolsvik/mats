@@ -4,8 +4,8 @@ dependencies {
     compile project(":mats-test")
     compile project(":mats-spring")
 
-    compile 'org.springframework:spring-test:4.3.+'
+    compile 'org.springframework:spring-test:5.1.+'
 
     testCompile 'org.slf4j:log4j-over-slf4j:1.7.+'
-    testCompile 'ch.qos.logback:logback-classic:1.1.+'
+    testCompile 'ch.qos.logback:logback-classic:1.2.+'
 }
