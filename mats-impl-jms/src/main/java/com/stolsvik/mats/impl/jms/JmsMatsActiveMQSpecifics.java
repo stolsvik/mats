@@ -3,8 +3,7 @@ package com.stolsvik.mats.impl.jms;
 import javax.jms.Connection;
 import javax.jms.Session;
 
-import com.stolsvik.mats.exceptions.MatsBackendException;
-import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 
 /**
  * Some small specifics if ActiveMQ is the JMS Implementation.
@@ -24,14 +23,14 @@ public class JmsMatsActiveMQSpecifics {
         /* TODO: implement */
     }
 
-    public static boolean isConnectionLive(Connection jmsConnection) throws MatsBackendException {
+    public static boolean isConnectionLive(Connection jmsConnection) throws JmsMatsJmsException {
         /* TODO: implement */
         // ActiveMQConnection.is[Closed|Closing|TransportFailed]
-        // throw new MatsBackendException("What was wrong") if any of these are not ok.
+        // throw new JmsMatsJmsException("What was wrong") if any of these are not ok.
         return true;
     }
 
-    public static void instaDlq(Session session, Runnable runnable) {
+    public static void instaDlq(Session session, JmsMatsJmsExceptionThrowingRunnable runnable) throws JmsMatsJmsException {
         // NOTE: On ActiveMQSession, we have this method:
         // /**
         // * Sets the redelivery policy used when messages are redelivered
@@ -40,6 +39,11 @@ public class JmsMatsActiveMQSpecifics {
         // this.redeliveryPolicy = redeliveryPolicy;
         // }
         /* TODO: implement */
+    }
+
+    @FunctionalInterface
+    interface JmsMatsJmsExceptionThrowingRunnable {
+        void run() throws JmsMatsJmsException;
     }
 
 }

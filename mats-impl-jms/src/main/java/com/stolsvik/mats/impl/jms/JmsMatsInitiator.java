@@ -1,16 +1,17 @@
 package com.stolsvik.mats.impl.jms;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import javax.jms.JMSException;
-import javax.jms.Session;
 
+import com.stolsvik.mats.exceptions.MatsRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
@@ -28,6 +29,11 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
     public JmsMatsInitiator(JmsMatsFactory<Z> parentFactory, JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler,
             JmsMatsTransactionManager jmsMatsTransactionManager) {
+        // NOTICE! Due to multi-threading, whereby one Initiator might be used "globally" for e.g. a Servlet Container
+        // having 200 threads, we cannot fetch a sole Session for the Initiator to be used for all initiations (as
+        // it might be used concurrently by all the 200 Servlet Container threads). Thus, each initiation needs to
+        // get hold of its own Session. However, the Sessions should be pooled.
+
         _parentFactory = parentFactory;
         _jmsMatsJmsSessionHandler = jmsMatsJmsSessionHandler;
         _transactionContext = jmsMatsTransactionManager.getTransactionContext(this);
@@ -35,21 +41,40 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
     @Override
     public void initiate(InitiateLambda lambda) {
-        // TODO / OPTIMIZE: Do not create JMS Session for every initiation.
+        // NOTICE! Due to multi-threading, whereby one Initiator might be used "globally" for e.g. a Servlet Container
+        // having 200 threads, we cannot fetch a sole Session for the Initiator to be used for all initiations (as
+        // it might be used concurrently by all the 200 Servlet Container threads). Thus, each initiation needs to
+        // get hold of its own Session. However, the Sessions should be pooled.
+
         // TODO / OPTIMIZE: Consider doing lazy init for TransactionContext too
         // as well as being able to "open" again after close? What about introspection/monitoring/instrumenting -
         // that is, "turn off" a MatsInitiator: Either hang requsts, or probably more interesting, fail them. And
         // that would be nice to use "close()" for: As long as it is closed, it can't be used. Need to evaluate.
-        JmsSessionHolder jmsSessionHolder = _jmsMatsJmsSessionHandler.getSessionHolder(this);
+
+        long nanosStart = System.nanoTime();
+        JmsSessionHolder jmsSessionHolder;
         try {
-            _transactionContext.doTransaction(jmsSessionHolder, () -> lambda.initiate(
-                    new JmsMatsInitiate<>(_parentFactory, jmsSessionHolder.getSession())));
+            jmsSessionHolder = _jmsMatsJmsSessionHandler.getSessionHolder(this);
         }
-        catch (JMSException e) {
-            throw new MatsBackendException("Problems committing when performing MATS initiation via JMS API", e);
+        catch (JmsMatsJmsException e) {
+            // TODO: Pick a better Exception to throw here.
+            throw new MatsRuntimeException("Damn it.", e);
         }
-        finally {
-            jmsSessionHolder.closeOrReturn();
+        try {
+            _transactionContext.doTransaction(jmsSessionHolder, () -> {
+                List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
+                lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend));
+                sendMatsMessages(log, nanosStart, jmsSessionHolder.getSession(), _parentFactory, messagesToSend);
+            });
+            jmsSessionHolder.release();
+        }
+        catch (JmsMatsJmsException e) {
+            // Catch any MatsBackendExceptions, as that indicates that there was a problem with JMS - so we should
+            // "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
+            jmsSessionHolder.crashed(e);
+            // .. then throw on.
+            // TODO: Do retries if it fails!
+            throw new MatsRuntimeException("Damn it.", e);
         }
     }
 
@@ -64,26 +89,32 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         return null;
     }
 
+    @Override
+    public JmsMatsFactory<Z> getFactory() {
+        return _parentFactory;
+    }
+
     static class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
         private static final Logger log = LoggerFactory.getLogger(JmsMatsInitiate.class);
 
         private final JmsMatsFactory<Z> _parentFactory;
-        private final Session _jmsSession;
+        private final List<JmsMatsMessage<Z>> _messagesToSend;
 
-        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, Session jmsSession) {
+        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend) {
             _parentFactory = parentFactory;
-            _jmsSession = jmsSession;
+            _messagesToSend = messagesToSend;
         }
 
         private MatsTrace<Z> _existingMatsTrace;
 
-        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, Session jmsSession, MatsTrace<Z> existingMatsTrace,
-                Map<String, Object> propsSetInStage) {
+        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
+                MatsTrace<Z> existingMatsTrace, Map<String, Object> propsSetInStage) {
             _parentFactory = parentFactory;
-            _jmsSession = jmsSession;
+            _messagesToSend = messagesToSend;
 
             _existingMatsTrace = existingMatsTrace;
-            // Set the intial traceId, if the user chooses to not set it
+
+            // Set the initial traceId, if the user chooses to not set it
             _traceId = existingMatsTrace.getTraceId();
             _from = existingMatsTrace.getCurrentCall().getFrom();
 
@@ -220,8 +251,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     _parentFactory.getFactoryConfig().getAppVersion(),
                     _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
 
-            sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, matsTrace, _props, _binaries, _strings,
-                    "new REQUEST");
+            // Produce the new REQUEST JmsMatsMessage to send
+            JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory, matsTrace, _props, _binaries, _strings, "new REQUEST");
+            _messagesToSend.add(request);
         }
 
         @Override
@@ -251,8 +283,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     _parentFactory.getFactoryConfig().getAppVersion(),
                     _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
 
-            sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, matsTrace, _props, _binaries, _strings,
-                    "new SEND");
+            // Produce the new SEND JmsMatsMessage to send
+            JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory, matsTrace, _props, _binaries, _strings, "new SEND");
+            _messagesToSend.add(request);
         }
 
         @Override
@@ -282,8 +315,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     _parentFactory.getFactoryConfig().getAppVersion(),
                     _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
 
-            sendMatsMessage(log, nanosStart, _jmsSession, _parentFactory, matsTrace, _props, _binaries, _strings,
-                    "new PUBLISH");
+            // Produce the new PUBLISH JmsMatsMessage to send
+            JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory, matsTrace, _props, _binaries, _strings, "new PUBLISH");
+            _messagesToSend.add(request);
         }
 
         private void copyOverAnyExistingTraceProperties(MatsTrace<Z> matsTrace) {

@@ -95,7 +95,7 @@ public interface MatsInitiator extends Closeable {
          * underlying protocol should retain.
          * <p>
          * <b>This is solely meant for debugging.</b> The resulting kept trace would typically be visible in a
-         * "toString()" of the {@link ProcessContext}.
+         * "toString()" of the {@link ProcessContext} - or in an external (e.g. Brokerside) debugging/tracing system.
          *
          * @return the {@link MatsInitiate} for chaining.
          */
@@ -122,12 +122,13 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate nonPersistent();
 
         /**
-         * <b>Prioritize this message!</b> Hint to the underlying implementation that a human is actually waiting for
-         * the result of a request, and that the flow therefore should be prioritized. This status will be kept through
-         * the entire flow, so that all messages in the flow are prioritized. This makes it possible to use the same
-         * "AccountService.getBalances" service both for the Web Application that the user facing GUI are employing, and
-         * the batch processing of a ton of orders. Without such a feature, the interactive usage could be backlogged by
-         * the batch process, while if the interactive flag is set, it will bypass the backlog of "ordinary" messages.
+         * <b>Prioritize this message & flow!</b> Hint to the underlying implementation that a human is actually waiting
+         * for the result of a request, and that the flow therefore should be prioritized. This status will be kept
+         * through the entire flow, so that all messages in the flow are prioritized. This makes it possible to use the
+         * same "AccountService.getBalances" service both for the Web Application that the user facing GUI are
+         * employing, and the batch processing of a ton of orders. Without such a feature, the interactive usage could
+         * be backlogged by the batch process, while if the interactive flag is set, it will bypass the backlog of
+         * "ordinary" messages.
          * <p>
          * This implies that MATS defines two levels of prioritization: "Ordinary" and "Interactive". Most processing
          * should employ the default, i.e. "Ordinary", while places where <i><u>a human is actually waiting for the
@@ -223,7 +224,7 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate addBytes(String key, byte[] payload);
 
         /**
-         * Adds a String payload to the endpoint, e.g. a XML document.
+         * Adds a String payload to the endpoint, e.g. a XML, JSON or CSV document.
          * <p>
          * The rationale for having this is to not have to encode a largish string document inside the JSON structure
          * that carries the Request DTO.

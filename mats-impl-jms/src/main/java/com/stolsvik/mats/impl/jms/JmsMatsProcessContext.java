@@ -3,23 +3,18 @@ package com.stolsvik.mats.impl.jms;
 import java.util.LinkedHashMap;
 import java.util.List;
 
-import javax.jms.JMSException;
-import javax.jms.MapMessage;
-import javax.jms.Session;
-
-import com.stolsvik.mats.serial.MatsTrace.Call;
-import com.stolsvik.mats.serial.MatsTrace.Call.Channel;
-import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.serial.MatsTrace;
-import com.stolsvik.mats.exceptions.MatsBackendException;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
 import com.stolsvik.mats.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace.Call;
+import com.stolsvik.mats.serial.MatsTrace.Call.Channel;
+import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
 
 /**
  * The JMS MATS implementation of {@link ProcessContext}. Instantiated for each incoming JMS message that is processed,
@@ -32,23 +27,26 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
     private static final Logger log = LoggerFactory.getLogger(JmsMatsProcessContext.class);
 
     private final JmsMatsStage<?, ?, R, Z> _matsStage;
-    private final Session _jmsSession;
-    private final MapMessage _mapMessage;
     private final MatsTrace<Z> _matsTrace;
+    private final LinkedHashMap<String, byte[]> _incomingBinaries;
+    private final LinkedHashMap<String, String> _incomingStrings;
     private final S _sto;
+    private final List<JmsMatsMessage<Z>> _messagesToSend;
 
-    JmsMatsProcessContext(JmsMatsStage<?, ?, R, Z> matsStage, Session jmsSession, MapMessage mapMessage,
+    JmsMatsProcessContext(JmsMatsStage<?, ?, R, Z> matsStage, LinkedHashMap<String, byte[]> incomingBinaries,
+            LinkedHashMap<String, String> incomingStrings, List<JmsMatsMessage<Z>> messagesToSend,
             MatsTrace<Z> matsTrace, S sto) {
         _matsStage = matsStage;
-        _jmsSession = jmsSession;
-        _mapMessage = mapMessage;
         _matsTrace = matsTrace;
+        _incomingBinaries = incomingBinaries;
+        _incomingStrings = incomingStrings;
         _sto = sto;
+        _messagesToSend = messagesToSend;
     }
 
-    private final LinkedHashMap<String, Object> _props = new LinkedHashMap<>();
-    private final LinkedHashMap<String, byte[]> _binaries = new LinkedHashMap<>();
-    private final LinkedHashMap<String, String> _strings = new LinkedHashMap<>();
+    private final LinkedHashMap<String, Object> _outgoingProps = new LinkedHashMap<>();
+    private final LinkedHashMap<String, byte[]> _outgoingBinaries = new LinkedHashMap<>();
+    private final LinkedHashMap<String, String> _outgoingStrings = new LinkedHashMap<>();
 
     @Override
     public String getStageId() {
@@ -77,37 +75,27 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
 
     @Override
     public byte[] getBytes(String key) {
-        try {
-            return _mapMessage.getBytes(key);
-        }
-        catch (JMSException e) {
-            throw new MatsBackendException("Got JMS problems when trying to context.getBinary(\"" + key + "\").", e);
-        }
+        return _incomingBinaries.get(key);
     }
 
     @Override
     public String getString(String key) {
-        try {
-            return _mapMessage.getString(key);
-        }
-        catch (JMSException e) {
-            throw new MatsBackendException("Got JMS problems when trying to context.getString(\"" + key + "\").", e);
-        }
+        return _incomingStrings.get(key);
     }
 
     @Override
     public void addBytes(String key, byte[] payload) {
-        _binaries.put(key, payload);
+        _outgoingBinaries.put(key, payload);
     }
 
     @Override
     public void addString(String key, String payload) {
-        _strings.put(key, payload);
+        _outgoingStrings.put(key, payload);
     }
 
     @Override
     public void setTraceProperty(String propertyName, Object propertyValue) {
-        _props.put(propertyName, propertyValue);
+        _outgoingProps.put(propertyName, propertyValue);
     }
 
     @Override
@@ -139,9 +127,10 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                 parentFactory.getFactoryConfig().getAppVersion(),
                 parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), "Callalala!");
 
-        // Pack it off
-        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), requestMatsTrace,
-                _props, _binaries, _strings, "REQUEST");
+        // Produce the REQUEST JmsMatsMessage to send
+        JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _matsStage.getParentEndpoint()
+                .getParentFactory(), requestMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "REQUEST");
+        _messagesToSend.add(request);
     }
 
     @Override
@@ -169,9 +158,10 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                 parentFactory.getFactoryConfig().getAppVersion(),
                 parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), "Callalala!");
 
-        // Pack it off
-        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), replyMatsTrace,
-                _props, _binaries, _strings, "REPLY");
+        // Produce the REPLY JmsMatsMessage to send
+        JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _matsStage.getParentEndpoint()
+                .getParentFactory(), replyMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "REPLY");
+        _messagesToSend.add(request);
     }
 
     @Override
@@ -196,14 +186,15 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
                 parentFactory.getFactoryConfig().getAppVersion(),
                 parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), "Callalala!");
 
-        // Pack it off
-        sendMatsMessage(log, nanosStart, _jmsSession, _matsStage.getParentEndpoint().getParentFactory(), nextMatsTrace,
-                _props, _binaries, _strings, "NEXT");
+        // Produce the NEXT JmsMatsMessage to send
+        JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _matsStage.getParentEndpoint()
+                .getParentFactory(), nextMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "NEXT");
+        _messagesToSend.add(request);
     }
 
     @Override
     public void initiate(InitiateLambda lambda) {
         lambda.initiate(new JmsMatsInitiate<>(_matsStage.getParentEndpoint().getParentFactory(),
-                _jmsSession, _matsTrace, _props));
+                _messagesToSend, _matsTrace, _outgoingProps));
     }
 }

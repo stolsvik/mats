@@ -4,14 +4,12 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.function.Supplier;
 
-import javax.jms.JMSException;
-
-import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.exceptions.MatsRuntimeException;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.util.MatsTxSqlConnection;
 import com.stolsvik.mats.util.MatsTxSqlConnection.MatsSqlConnectionCreationException;
 
@@ -106,7 +104,8 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
         }
 
         @Override
-        public void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda) throws JMSException {
+        public void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda)
+                throws JmsMatsJmsException {
             // :: First make the potential Connection available
             LazyJdbcConnectionSupplier lazyConnectionSupplier = new LazyJdbcConnectionSupplier();
             MatsTxSqlConnection.setThreadLocalConnectionSupplier(lazyConnectionSupplier);
@@ -197,11 +196,11 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
             try {
                 if (commit) {
                     con.commit();
-                    log.debug(LOG_PREFIX + "SQL Connection committed.");
+                    log.debug(LOG_PREFIX + "Committed SQL Connection [" + con + "].");
                 }
                 else {
                     con.rollback();
-                    log.warn(LOG_PREFIX + "SQL Connection rolled back.");
+                    log.warn(LOG_PREFIX + "Rolled Back SQL Connection [" + con + "].");
                 }
             }
             catch (SQLException e) {
@@ -211,12 +210,13 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
             // :: Close
             try {
                 con.close();
-                log.debug(LOG_PREFIX + "SQL Connection closed.");
+                log.debug(LOG_PREFIX + "Closed SQL Connection [" + con + "].");
             }
             catch (SQLException e) {
-                throw new MatsSqlConnectionCloseFailedException("After performing " + (commit ? "commit"
+                log.warn("After performing " + (commit ? "commit"
                         : "rollback") + " on SQL Connection [" + con
-                        + "], we tried to close it but that threw - for stage [" + _txContextKey + "].", e);
+                        + "], we tried to close it but that raised an exception - for stage [" + _txContextKey
+                        + "]. Will ignore this, since the operation should have gone through.", e);
             }
         }
 
@@ -225,15 +225,6 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
          */
         public static final class MatsSqlCommitOrRollbackFailedException extends MatsRuntimeException {
             public MatsSqlCommitOrRollbackFailedException(String message, Throwable cause) {
-                super(message, cause);
-            }
-        }
-
-        /**
-         * Raised if connection.close() throws upon finishing with the connection.
-         */
-        public static final class MatsSqlConnectionCloseFailedException extends MatsRuntimeException {
-            public MatsSqlConnectionCloseFailedException(String message, Throwable cause) {
                 super(message, cause);
             }
         }

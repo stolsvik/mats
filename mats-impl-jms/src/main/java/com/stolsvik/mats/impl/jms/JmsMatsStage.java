@@ -1,5 +1,8 @@
 package com.stolsvik.mats.impl.jms;
 
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -15,11 +18,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsConfig;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.exceptions.MatsBackendException;
-import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
@@ -194,7 +196,8 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
             _processorNumber = processorNumber;
             _processorThread = new Thread(this::runner, THREAD_PREFIX + _jmsMatsStage._stageId + " " + id());
             _processorThread.start();
-            _transactionContext = _jmsMatsStage._parentFactory.getJmsMatsTransactionManager().getTransactionContext(this);
+            _transactionContext = _jmsMatsStage._parentFactory.getJmsMatsTransactionManager().getTransactionContext(
+                    this);
         }
 
         private JmsSessionHolder _processorJmsSessionHolder;
@@ -206,6 +209,11 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
         @Override
         public JmsMatsStage<?, ?, ?, ?> getStage() {
             return _jmsMatsStage;
+        }
+
+        @Override
+        public JmsMatsFactory<Z> getFactory() {
+            return _jmsMatsStage.getParentEndpoint().getParentFactory();
         }
 
         private String idThread() {
@@ -244,7 +252,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                 // The Thread is started in the constructor.
                 // Thus, if it is not alive, there is NO possibility that it is starting, or about to be started.
                 log.info(LOG_PREFIX + idThread() + "has already exited, so just close JMS Session.");
-                jmsSessionHolderToClose.closeOrReturn();
+                jmsSessionHolderToClose.close();
                 // Finished!
                 return;
             }
@@ -256,7 +264,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                 // -> Yes, waiting in receive(), so close session, thus making receive() return null.
                 log.info(LOG_PREFIX + idThread() + "is waiting in consumer.receive(), so we'll close the JMS Session,"
                         + " thereby making the receive() call return null, and the thread will exit.");
-                jmsSessionHolderToClose.closeOrReturn();
+                jmsSessionHolderToClose.close();
                 sessionClosed = true;
             }
             else {
@@ -295,7 +303,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
             // ?: Have we already closed the session?
             if (!sessionClosed) {
                 // -> No, so do it now.
-                jmsSessionHolderToClose.closeOrReturn();
+                jmsSessionHolderToClose.close();
             }
         }
 
@@ -321,17 +329,17 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                         // :: "Publish" the new JMS Session.
                         synchronized (this) {
                             // ?: Check the run-flag one more time!
-                            if (_processorRun) {
-                                // -> Yes, we're good! "Publish" the new JMS Session.
-                                _processorJmsSessionHolder = newJmsSessionHolder;
-                            }
-                            else {
+                            if (!_processorRun) {
                                 // -> No, we're asked to exit.
                                 // NOTICE! Since this JMS Session has not been "published" outside yet, we'll have to
                                 // close it directly.
-                                newJmsSessionHolder.closeOrReturn();
+                                newJmsSessionHolder.close();
                                 // Break out of run-loop.
                                 break;
+                            }
+                            else {
+                                // -> Yes, we're good! "Publish" the new JMS Session.
+                                _processorJmsSessionHolder = newJmsSessionHolder;
                             }
                         }
                     }
@@ -348,6 +356,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                     // :: Inner run-loop, where we'll use the JMS Session and MessageConsumer.
                     while (_processorRun) {
                         _processorInReceive = true;
+                        // :: GET NEW MESSAGE!! THIS IS THE MESSAGE PUMP!
                         Message message;
                         try {
                             log.info(LOG_PREFIX + "Going into JMS consumer.receive() for [" + destination + "].");
@@ -362,6 +371,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                             continue;
                         }
                         // TODO: Check for sessionHolder.isStillOk-thingy.
+                        _processorJmsSessionHolder.isSessionStillActive();
                         // TODO: Make registration of "some other session crashed" scenario.
 
                         // :: Perform the work inside the TransactionContext
@@ -376,6 +386,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                     throw new MatsRefuseMessageException(msg);
                                 }
 
+                                // ----- This is a MapMessage
                                 MapMessage mapMessage = (MapMessage) message;
 
                                 byte[] matsTraceBytes;
@@ -386,13 +397,13 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                             + MatsSerializer.META_KEY_POSTFIX);
                                 }
                                 catch (JMSException e) {
-                                    throw new MatsBackendException(
-                                            "Got JMSException when doing mapMessage.getString(..). Pretty crazy.", e);
+                                    throw new JmsMatsJmsException("Got JMSException when getting the MatsTrace"
+                                            + " from the MapMessage by using mapMessage.get[Bytes|String](..)."
+                                            + " Pretty crazy.", e);
                                 }
 
                                 DeserializedMatsTrace<Z> matsTraceDeserialized = _jmsMatsStage._matsJsonSerializer
                                         .deserializeMatsTrace(matsTraceBytes, matsTraceMeta);
-
                                 MatsTrace<Z> matsTrace = matsTraceDeserialized.getMatsTrace();
 
                                 // :: Current Call
@@ -430,9 +441,42 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                         + matsTraceDeserialized.getMillisDeserialization()
                                         + " ms]->MT - tot w/DTO&STO:[" + nanosTaken + " ms].");
 
-                                // :: Invoke the process lambda (stage processor).
+                                List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
+
+                                // :: Getting the 'sideloads', byte-arrays and Strings from the MapMessage.
+                                LinkedHashMap<String, byte[]> incomingBinaries = new LinkedHashMap<>();
+                                LinkedHashMap<String, String> incomingStrings = new LinkedHashMap<>();
+                                try {
+                                    @SuppressWarnings("unchecked")
+                                    Enumeration<String> mapNames = (Enumeration<String>) mapMessage.getMapNames();
+                                    while (mapNames.hasMoreElements()) {
+                                        String name = mapNames.nextElement();
+                                        Object object = mapMessage.getObject(name);
+                                        if (object instanceof byte[]) {
+                                            incomingBinaries.put(name, (byte[]) object);
+                                        }
+                                        else if (object instanceof String) {
+                                            incomingStrings.put(name, (String) object);
+                                        }
+                                        else {
+                                            log.warn("Got some object in the MapMessage to [" + _jmsMatsStage._stageId
+                                                    + "] which is neither byte[] nor String - which should not happen"
+                                                    + " - Ignoring.");
+                                        }
+                                    }
+                                }
+                                catch (JMSException e) {
+                                    throw new JmsMatsJmsException("Got JMSException when getting 'sideloads'"
+                                            + " from the MapMessage by using mapMessage.get[Bytes|String](..)."
+                                            + " Pretty crazy.", e);
+                                }
+
+                                // :: Invoke the process lambda (the actual user code).
                                 _jmsMatsStage._processLambda.process(new JmsMatsProcessContext<>(_jmsMatsStage,
-                                        jmsSession, mapMessage, matsTrace, currentSto), incomingDto, currentSto);
+                                        incomingBinaries, incomingStrings, messagesToSend, matsTrace, currentSto),
+                                        incomingDto, currentSto);
+
+                                sendMatsMessages(log, nanosStart, jmsSession, getFactory(), messagesToSend);
                             });
                         }
                         catch (RuntimeException e) {
@@ -440,11 +484,12 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                     + "] when processing " + stageOrInit(this)
                                     + ", which shall have been handled by the MATS TransactionManager (rollback)."
                                     + " Looping to fetch next message.");
+                            // No more to do, so loop. Notice that this code is not involved in initiations..
                         }
                     } // End inner run loop
                 }
-                catch (JMSException | RuntimeException t) {
-                    log.warn(LOG_PREFIX + "Got " + t.getClass().getSimpleName() + ", closing JMS Session,"
+                catch (JmsMatsJmsException | JMSException | RuntimeException t) {
+                    log.warn(LOG_PREFIX + "Got " + t.getClass().getSimpleName() + ", crashing JmsSessionHolder,"
                             + " looping to check run-flag.", t);
                     _processorJmsSessionHolder.crashed(t);
                     /*

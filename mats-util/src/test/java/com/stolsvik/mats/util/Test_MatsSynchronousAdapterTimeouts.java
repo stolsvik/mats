@@ -11,7 +11,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.util.MatsSynchronousAdapter.Reply;

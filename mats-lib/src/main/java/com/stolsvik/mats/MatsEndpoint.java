@@ -7,7 +7,6 @@ import com.stolsvik.mats.MatsConfig.StartStoppable;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsStage.StageConfig;
-import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
 
 /**
  * Represents a MATS Endpoint.
@@ -343,5 +342,23 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
     @FunctionalInterface
     interface ProcessTerminatorLambda<I, S> {
         void process(ProcessContext<Void> processContext, I incomingDto, S state) throws MatsRefuseMessageException;
+    }
+
+    /**
+     * Can be thrown by any of the {@link ProcessLambda}s of the {@link MatsStage}s to denote that it would prefer this
+     * message to be instantly put on a <i>Dead Letter Queue</i>. This is just advisory - the message might still be
+     * presented a number of times to the {@link MatsStage} in question (i.e. for the backend-configured number of retries,
+     * e.g. default 1 delivery + 5 redeliveries for ActiveMQ).
+     *
+     * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
+     */
+    class MatsRefuseMessageException extends Exception {
+        public MatsRefuseMessageException(String message, Throwable cause) {
+            super(message, cause);
+        }
+
+        public MatsRefuseMessageException(String message) {
+            super(message);
+        }
     }
 }

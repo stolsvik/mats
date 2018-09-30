@@ -25,7 +25,7 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.serial.MatsTrace;
-import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.serial.MatsSerializer;

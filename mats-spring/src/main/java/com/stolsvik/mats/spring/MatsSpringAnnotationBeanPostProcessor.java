@@ -35,7 +35,7 @@ import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.exceptions.MatsRuntimeException;
 import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
 import com.stolsvik.mats.spring.MatsStaged.MatsStageds;

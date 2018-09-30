@@ -1,26 +1,21 @@
 package com.stolsvik.mats.impl.jms;
 
-import javax.jms.JMSException;
 import javax.jms.Session;
 
-import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.stolsvik.mats.exceptions.MatsBackendException;
-import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.exceptions.MatsRuntimeException;
-import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 
 /**
  * Implementation of {@link JmsMatsTransactionManager} handling only JMS (getting Connections, and creating Sessions),
  * doing all transactional handling "native", i.e. using only the JMS API (as opposed to e.g. using Spring and its
  * transaction managers).
  * <p>
- * This {@link JmsMatsTransactionManager} (currently) creates a new JMS Connection per invocation to
- * {@link #getTransactionContext(JmsMatsStage)}, implying that each {@link JmsMatsStage} and each
- * {@link JmsMatsInitiator} gets its own JMS Connection, while each {@link JmsMatsStageProcessor} of a stage shares the
- * stage's JMS Connection (due to it invoking {@link TransactionalContext_JmsOnly#getTransactionalJmsSession(boolean)}).
+ * The JMS Connection and Session handling is performed in calling code, where the resulting {@link JmsSessionHolder} is
+ * provided to the {@link TransactionalContext_JmsOnly#doTransaction(JmsSessionHolder, ProcessingLambda)}.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
@@ -53,7 +48,8 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
         }
 
         @Override
-        public void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda) throws JMSException {
+        public void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda)
+                throws JmsMatsJmsException {
 
             /*
              * We're always within a JMS transaction (as that is the nature of the JMS API when in transactional mode).
@@ -67,10 +63,8 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_txContextKey)
                         + ", within JMS Transactional demarcation.");
                 /*
-                 * Invoking the provided ProcessingLambda, which typically will be the actual user code (albeit wrapped
-                 * with some minor code from the JmsMatsStage to parse the MapMessage, deserialize the MatsTrace, and
-                 * fetch the state etc.), which will now be inside both the inner (implicit) SQL Transaction
-                 * demarcation, and the outer JMS Transaction demarcation.
+                 * Invoking the provided ProcessingLambda, which typically will be SQL Transaction demarcation - which
+                 * then again invokes the user-lambda (but which will be wrapped again by some JmsMatsStage processing).
                  */
                 lambda.performWithinTransaction();
             }
@@ -90,16 +84,14 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 // Return nicely, going into .receive() again.
                 return;
             }
-            catch (MatsBackendException e) {
+            catch (JmsMatsJmsException e) {
                 /*
                  * This denotes that the JmsMatsProcessContext (the JMS Mats implementation - i.e. us) has had problems
-                 * doing JMS stuff. The JMSException will be wrapped in this MatsBackendException as the MATS API is
-                 * implementation agnostic, and there is no mention of the JMS API in it. This might happen on any of
-                 * the JMS interaction points, i.e. on initiate, or within a stage when requesting, replying, or adding
-                 * binaries or strings. Sending this on to the outside catch block, as this means that we have an
+                 * doing JMS stuff. This shall currently only happen in the JmsMatsStage when accessing the contents of
+                 * the received [Map]Message. Sending this on to the outside catch block, as this means that we have an
                  * unstable JMS context.
                  */
-                log.error(LOG_PREFIX + "ROLLBACK JMS: Got a " + MatsBackendException.class.getSimpleName()
+                log.error(LOG_PREFIX + "ROLLBACK JMS: Got a " + JmsMatsJmsException.class.getSimpleName()
                         + " while transacting " + stageOrInit(_txContextKey)
                         + ", indicating that the MATS JMS implementation had problems performing"
                         + " some operation. Rolling back JMS Session, throwing on to get new JMS Connection.", e);
@@ -110,7 +102,7 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
             catch (RuntimeException | Error e) {
                 /*
                  * Should only be user code, as errors from "ourselves" (the JMS MATS impl) should throw
-                 * MatsBackendException, and are caught earlier (see above).
+                 * JmsMatsJmsException, and are caught earlier (see above).
                  */
                 log.error(LOG_PREFIX + "ROLLBACK JMS: " + e.getClass().getSimpleName() + " while transacting "
                         + stageOrInit(_txContextKey) + " (should only be from user code)."
@@ -161,7 +153,7 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 /*
                  * This certainly calls for reestablishing the JMS Session, so throw out.
                  */
-                throw new MatsBackendException("VERY BAD! After finished transacting " + stageOrInit(_txContextKey)
+                throw new JmsMatsJmsException("VERY BAD! After finished transacting " + stageOrInit(_txContextKey)
                         + ", we could not commit JMS Session!", t);
             }
 
@@ -169,23 +161,24 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
             log.debug(LOG_PREFIX + "JMS Session committed.");
         }
 
-        private void rollback(Session jmsSession, Throwable t) {
-            try {
-                jmsSession.rollback();
-                // -> The JMS Session rolled nicely back.
-                log.warn(LOG_PREFIX + "JMS Session rolled back.");
-            }
-            catch (Throwable rollbackT) {
-                /*
-                 * Could not roll back. This certainly indicates that we have some problem with the JMS Session, and
-                 * we'll throw it out so that we start a new JMS Session.
-                 *
-                 * However, it is not that bad, as the JMS Message Broker probably will redeliver anyway.
-                 */
-                throw new MatsBackendException("When trying to rollback JMS Session due to a "
-                        + t.getClass().getSimpleName()
-                        + ", we got some Exception. The JMS Session certainly seems unstable.", rollbackT);
-            }
+    }
+
+    static void rollback(Session jmsSession, Throwable t) throws JmsMatsJmsException {
+        try {
+            jmsSession.rollback();
+            // -> The JMS Session rolled nicely back.
+            log.warn(LOG_PREFIX + "JMS Session rolled back.");
+        }
+        catch (Throwable rollbackT) {
+            /*
+             * Could not roll back. This certainly indicates that we have some problem with the JMS Session, and
+             * we'll throw it out so that we start a new JMS Session.
+             *
+             * However, it is not that bad, as the JMS Message Broker probably will redeliver anyway.
+             */
+            throw new JmsMatsJmsException("When trying to rollback JMS Session due to a "
+                    + t.getClass().getSimpleName()
+                    + ", we got some Exception. The JMS Session certainly seems unstable.", rollbackT);
         }
     }
 }

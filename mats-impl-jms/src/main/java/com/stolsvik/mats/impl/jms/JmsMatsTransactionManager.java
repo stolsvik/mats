@@ -1,13 +1,12 @@
 package com.stolsvik.mats.impl.jms;
 
 import javax.jms.ConnectionFactory;
-import javax.jms.JMSException;
 import javax.jms.Session;
 
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.exceptions.MatsConnectionException;
-import com.stolsvik.mats.exceptions.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
 
@@ -39,7 +38,15 @@ public interface JmsMatsTransactionManager {
      * for all endpoints in the JVM) might be a bit too heavy burden for a single JMS Connection.
      */
     interface JmsMatsTxContextKey {
+        /**
+         * @return "this" if this is a StageProcessor, <code>null</code> if an Initiator.
+         */
         JmsMatsStage<?, ?, ?, ?> getStage();
+
+        /**
+         * @return the {@link JmsMatsFactory} of the StageProcessor or Initiator (never <code>null</code>).
+         */
+        JmsMatsFactory<?> getFactory();
     }
 
     /**
@@ -91,7 +98,7 @@ public interface JmsMatsTransactionManager {
          *            the stuff that shall be done within transaction, i.e. the {@link MatsStage} or the
          *            {@link MatsInitiator}.
          */
-        void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda) throws JMSException;
+        void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda) throws JmsMatsJmsException;
     }
 
     /**
@@ -100,6 +107,6 @@ public interface JmsMatsTransactionManager {
      */
     @FunctionalInterface
     interface ProcessingLambda {
-        void performWithinTransaction() throws MatsRefuseMessageException;
+        void performWithinTransaction() throws JmsMatsJmsException, MatsRefuseMessageException;
     }
 }
