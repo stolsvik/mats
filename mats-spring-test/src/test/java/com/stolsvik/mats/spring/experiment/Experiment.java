@@ -46,7 +46,7 @@ public class Experiment {
             log.error("Got some Exception when running app.", t);
         }
 
-        ctx.destroy();
+        ctx.close();
 
         log.info("Exiting! took "+((System.nanoTime() - nanosStart) / 1_000_000d)+" ms.");
     }
