@@ -7,7 +7,7 @@ buildscript {
 
 // The Gradle Wrapper generation task.
 task wrapper(type: Wrapper) {
-    gradleVersion = "4.6"
+    gradleVersion = "4.10.2"
     // Use "-all"-version of distribution, since IntelliJ works better then..
     distributionUrl = "http://services.gradle.org/distributions/gradle-${gradleVersion}-all.zip"
 }
