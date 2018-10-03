@@ -7,7 +7,6 @@ import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
-import com.stolsvik.mats.exceptions.MatsConnectionException;
 
 /**
  * Provides a way to get a {@link MatsInitiate} instance "from the outside" of MATS, i.e. from a synchronous context. On
@@ -23,10 +22,127 @@ public interface MatsInitiator extends Closeable {
      *
      * @param lambda
      *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
-     * @throws MatsConnectionException
-     *             if the Mats implementation cannot connect to the underlying message queue.
+     * @throws MatsBackendException
+     *             if the Mats implementation cannot connect to the underlying message broker, or are having problems
+     *             interacting with it.
+     * @throws MatsMessageSendException
+     *             if the Mats implementation cannot send the messages after it has executed the initiation lambda and
+     *             committed external resources - please read the JavaDoc of that class.
      */
-    void initiate(InitiateLambda lambda) throws MatsConnectionException;
+    void initiate(InitiateLambda lambda) throws MatsBackendException, MatsMessageSendException;
+
+    /**
+     * Initiates a new message (request or invocation) out to an endpoint - where the two error conditions are raised as
+     * unchecked exceptions (But please understand the implications of {@link MatsBackendRuntimeException}).
+     *
+     * @param lambda
+     *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
+     * @throws MatsBackendRuntimeException
+     *             if the Mats implementation cannot connect to the underlying message queue.
+     * @throws MatsMessageSendRuntimeException
+     *             if the Mats implementation cannot send the messages after it has executed the initiation lambda and
+     *             committed external resources - please read the JavaDoc of {@link MatsMessageSendException}.
+     */
+    void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
+            MatsMessageSendRuntimeException;
+
+    /**
+     * Will be thrown by the {@link MatsInitiator#initiate(InitiateLambda)}-method if it is not possible at this time to
+     * establish a connection to the underlying messaging system (e.g. to ActiveMQ if used in JMS implementation with
+     * ActiveMQ as JMS Message Broker), or if there was any other kind of problems interacting with the it. Do note that
+     * in all cases of this exception, any other external resource (typically database) will not have been committed -
+     * unlike if you get the {@link MatsMessageSendException}.
+     */
+    class MatsBackendException extends Exception {
+        public MatsBackendException(String message) {
+            super(message);
+        }
+
+        public MatsBackendException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * Will be thrown by the {@link MatsInitiator#initiate(InitiateLambda)}-method if Mats fails to send the messages
+     * after the {@link InitiateLambda} has been run, any external resource (typically DB) has been committed, <b>and
+     * then</b> some situation occurs that makes it impossible to send out messages. <i>(Some developers might recognize
+     * this as the <i>"VERY BAD!-initiation"</i> situation)</i>.
+     * <p>
+     * This is a rare, but unfortunate situation, but which is hard to guard completely against, in particular in the
+     * "Best Effort 1-Phase Commit" paradigm that the current Mats implementations runs on. What it means, is that if
+     * you e.g. in the initiate-lambda did some "job allocation" logic on a table in a database, and based on that
+     * allocation sent out e.g. 5 messages, the job allocation will now have happened, but the messages have not been
+     * sent. The result is that in the database, you will see those jobs as executed, but in reality the downstream
+     * endpoints never started working on them.
+     * <p>
+     * This situation can to a degree be alleviated if you catch this exception, and then de-allocate the jobs in the
+     * database again. However, since bad things often happen in clusters, you might not be able to do the de-allocation
+     * either (due to the database having failed at the same instant). A way to at least catch when this happens, is to
+     * first set those jobs to a status like "ALLOCATED" (along with a column with a timestamp of when they were
+     * allocated), and then in the terminator endpoint (which you specify in the initiation), you set the status to
+     * "DONE". Assuming that in normal conditions such jobs should always be processed in seconds, you can now make some
+     * health check that scans the table for rows which have been in the "ALLOCATED" status for e.g. 15 minutes: Such
+     * rows are very suspicious, and should be checked up by humans.
+     * <p>
+     * Please do note that this should, in a somewhat stable operations environment, happen extremely seldom: What needs
+     * to occur for this to happen, is that between the commit of the database, and the commit of the message broker,
+     * the message broker goes down. Given that a check for broker liveliness is performed right before the database
+     * commit, that timeslot is very tight. But to make the most robust systems that can monitor themselves, you should
+     * consider employing a handling as outlined above.
+     * <p>
+     * PS: Best effort 1PC: Two transactions are opened: one for the message broker, and one for the database. The
+     * database is committed first (as that has many more failure scenarios than the message systems, e.g. data or code
+     * problems giving unique constraint violations, and spurious stuff like MS SQL's deadlock victim, etc) - and then
+     * the message queue is committed. The only reason for the message broker to not handle a commit is basically that
+     * you've had connectivity issues or that it has crashed.
+     * <p>
+     * Notice that it has been decided to not let this exception extend the {@link MatsBackendException}, even though it
+     * is definitely a backend problem. The reason is that it in all situations where that exception is raised, the
+     * other resources have not been committed yet, as opposed to situations where this exception is raised. Luckily, in
+     * this time and age, we have multi-exception catch blocks if you want to handle both the same.
+     */
+    class MatsMessageSendException extends Exception {
+        public MatsMessageSendException(String message) {
+            super(message);
+        }
+
+        public MatsMessageSendException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * Unchecked variant of the {@link MatsBackendException}, thrown from the {@link #initiateUnchecked(InitiateLambda)}
+     * variant of initiate().
+     *
+     * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
+     */
+    class MatsBackendRuntimeException extends RuntimeException {
+        public MatsBackendRuntimeException(String message) {
+            super(message);
+        }
+
+        public MatsBackendRuntimeException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * Unchecked variant of the {@link MatsMessageSendException}, thrown from the
+     * {@link #initiateUnchecked(InitiateLambda)} variant of initiate().
+     *
+     * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
+     */
+    class MatsMessageSendRuntimeException extends RuntimeException {
+        public MatsMessageSendRuntimeException(String message) {
+            super(message);
+        }
+
+        public MatsMessageSendRuntimeException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
 
     @FunctionalInterface
     interface InitiateLambda {
@@ -61,12 +177,12 @@ public interface MatsInitiator extends Closeable {
          * <p>
          * The traceId follows a MATS processing from the initiation until it is finished, usually in a Terminator.
          * <p>
-         * It is highly suggested to use small, dense, information rich Trace Ids. Sticking in an UUID as Trace Id
-         * certainly fulfils the uniqueness-requirement, but it is a crappy solution, as it by itself does not give any
-         * hint of source, cause, relevant entities, or goal. <i>(It isn't even dense for the uniqueness an UUID gives,
-         * which also is way above the required uniqueness unless you handle billions of such messages per minute. A
-         * random alphanum (a-z,0-9) and much smaller string would give plenty enough uniqueness).</i> The following
-         * would be a much better Trace Id, which follows some scheme that could be system wide:
+         * <b>It is highly suggested to use small, dense, information rich Trace Ids.</b> Sticking in an UUID as Trace
+         * Id certainly fulfils the uniqueness-requirement, but it is a crappy solution, as it by itself does not give
+         * any hint of source, cause, relevant entities, or goal. <i>(It isn't even dense for the uniqueness an UUID
+         * gives, which also is way above the required uniqueness unless you handle billions of such messages per
+         * minute. A random alphanum (a-z,0-9) and much smaller string would give plenty enough uniqueness).</i> The
+         * following would be a much better Trace Id, which follows some scheme that could be system wide:
          * "Web.placeOrder[cid:43512][cart:xa4ru5285fej]qz7apy9". From this example TraceId we could infer that it
          * originated at the <i>Web system</i>, it regards <i>Placing an order</i> for <i>Customer Id 43512</i>, it
          * regards the <i>Shopping Cart Id xa4ru5285fej</i>, and it contains some uniqueness ('qz7apy9') generated at

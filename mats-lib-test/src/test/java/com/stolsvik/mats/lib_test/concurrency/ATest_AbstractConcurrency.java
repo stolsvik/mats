@@ -24,7 +24,7 @@ public class ATest_AbstractConcurrency extends MatsBasicTest {
 
     protected static final int CONCURRENCY_TEST = 8;
 
-    protected static final int PROCESSING_TIME = 500;
+    protected static final int PROCESSING_TIME = 300;
 
     private CountDownLatch _latch = new CountDownLatch(CONCURRENCY_TEST);
 
@@ -52,7 +52,7 @@ public class ATest_AbstractConcurrency extends MatsBasicTest {
 
         // .. Now fire off the messages.
         DataTO[] requests = new DataTO[CONCURRENCY_TEST];
-        matsRule.getMatsFactory().createInitiator().initiate((msg) -> {
+        matsRule.getMatsFactory().createInitiator().initiateUnchecked((msg) -> {
             for (int i = 0; i < CONCURRENCY_TEST; i++) {
                 DataTO dto = new DataTO(i, "TheAnswer");
                 StateTO sto = new StateTO(i, i);

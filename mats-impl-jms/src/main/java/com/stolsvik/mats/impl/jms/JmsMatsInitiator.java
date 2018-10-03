@@ -5,16 +5,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.jms.JMSException;
-
-import com.stolsvik.mats.exceptions.MatsRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsInitiator;
+import com.stolsvik.mats.exceptions.MatsRuntimeException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly.JmsMatsMessageSendException;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
@@ -40,7 +39,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
     }
 
     @Override
-    public void initiate(InitiateLambda lambda) {
+    public void initiate(InitiateLambda lambda) throws MatsBackendException, MatsMessageSendException {
         // NOTICE! Due to multi-threading, whereby one Initiator might be used "globally" for e.g. a Servlet Container
         // having 200 threads, we cannot fetch a sole Session for the Initiator to be used for all initiations (as
         // it might be used concurrently by all the 200 Servlet Container threads). Thus, each initiation needs to
@@ -57,8 +56,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             jmsSessionHolder = _jmsMatsJmsSessionHandler.getSessionHolder(this);
         }
         catch (JmsMatsJmsException e) {
-            // TODO: Pick a better Exception to throw here.
-            throw new MatsRuntimeException("Damn it.", e);
+            throw new MatsBackendException("Damn it.", e);
         }
         try {
             _transactionContext.doTransaction(jmsSessionHolder, () -> {
@@ -68,13 +66,35 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             });
             jmsSessionHolder.release();
         }
+        catch (JmsMatsMessageSendException e) {
+            // Catch any JmsMatsJmsException, as that indicates that there was a problem with JMS - so we should
+            // "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
+            jmsSessionHolder.crashed(e);
+            // This is a special variant of JmsMatsJmsException which is the "VERY BAD!" scenario.
+            // TODO: Do retries if it fails!
+            throw new MatsMessageSendException("Evidently got problems sending out the message after having run the"
+                    + " process lambda and potentially committed other resources, typically database.", e);
+        }
         catch (JmsMatsJmsException e) {
             // Catch any MatsBackendExceptions, as that indicates that there was a problem with JMS - so we should
             // "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
             jmsSessionHolder.crashed(e);
-            // .. then throw on.
-            // TODO: Do retries if it fails!
+            // .. then throw on. This is
             throw new MatsRuntimeException("Damn it.", e);
+        }
+    }
+
+    @Override
+    public void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
+            MatsMessageSendRuntimeException {
+        try {
+            initiate(lambda);
+        }
+        catch (MatsBackendException e) {
+            throw new MatsBackendRuntimeException("Wrapping the MatsBackendException in a unchecked variant", e);
+        }
+        catch (MatsMessageSendException e) {
+            throw new MatsBackendRuntimeException("Wrapping the MatsMessageSendException in a unchecked variant", e);
         }
     }
 
@@ -252,7 +272,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
 
             // Produce the new REQUEST JmsMatsMessage to send
-            JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory, matsTrace, _props, _binaries, _strings, "new REQUEST");
+            JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory, matsTrace, _props,
+                    _binaries, _strings, "new REQUEST");
             _messagesToSend.add(request);
         }
 
@@ -284,7 +305,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
 
             // Produce the new SEND JmsMatsMessage to send
-            JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory, matsTrace, _props, _binaries, _strings, "new SEND");
+            JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory, matsTrace, _props,
+                    _binaries, _strings, "new SEND");
             _messagesToSend.add(request);
         }
 
@@ -316,7 +338,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
 
             // Produce the new PUBLISH JmsMatsMessage to send
-            JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory, matsTrace, _props, _binaries, _strings, "new PUBLISH");
+            JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory, matsTrace, _props,
+                    _binaries, _strings, "new PUBLISH");
             _messagesToSend.add(request);
         }
 

@@ -54,7 +54,7 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
     public void matchTypes() {
         DataTO dto = new DataTO(Math.PI, "TheAnswer_1");
         StateTO sto = new StateTO(420, 420.024);
-        matsRule.getMatsFactory().createInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE + MATCH_TYPES)
@@ -74,7 +74,7 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
     public void wideTypes() {
         DataTO dto = new DataTO(Math.E, "TheAnswer_2");
         StateTO sto = new StateTO(420, 420.024);
-        matsRule.getMatsFactory().createInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE + WIDE_TYPES)

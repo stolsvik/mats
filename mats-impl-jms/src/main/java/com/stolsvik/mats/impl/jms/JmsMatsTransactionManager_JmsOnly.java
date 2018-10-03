@@ -2,6 +2,7 @@ package com.stolsvik.mats.impl.jms;
 
 import javax.jms.Session;
 
+import com.stolsvik.mats.MatsInitiator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,8 +89,8 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 /*
                  * This denotes that the JmsMatsProcessContext (the JMS Mats implementation - i.e. us) has had problems
                  * doing JMS stuff. This shall currently only happen in the JmsMatsStage when accessing the contents of
-                 * the received [Map]Message. Sending this on to the outside catch block, as this means that we have an
-                 * unstable JMS context.
+                 * the received [Map]Message, and sending out new messages. Sending this on to the outside catch block,
+                 * as this means that we have an unstable JMS context.
                  */
                 log.error(LOG_PREFIX + "ROLLBACK JMS: Got a " + JmsMatsJmsException.class.getSimpleName()
                         + " while transacting " + stageOrInit(_txContextKey)
@@ -153,14 +154,22 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 /*
                  * This certainly calls for reestablishing the JMS Session, so throw out.
                  */
-                throw new JmsMatsJmsException("VERY BAD! After finished transacting " + stageOrInit(_txContextKey)
+                throw new JmsMatsMessageSendException("VERY BAD! After finished transacting " + stageOrInit(_txContextKey)
                         + ", we could not commit JMS Session!", t);
             }
 
             // -> The JMS Session nicely committed.
             log.debug(LOG_PREFIX + "JMS Session committed.");
         }
+    }
 
+    /**
+     * Corresponds to the {@link MatsInitiator.MatsMessageSendException}.
+     */
+    static class JmsMatsMessageSendException extends JmsMatsJmsException {
+        JmsMatsMessageSendException(String msg, Throwable cause) {
+            super(msg, cause);
+        }
     }
 
     static void rollback(Session jmsSession, Throwable t) throws JmsMatsJmsException {
@@ -171,8 +180,8 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
         }
         catch (Throwable rollbackT) {
             /*
-             * Could not roll back. This certainly indicates that we have some problem with the JMS Session, and
-             * we'll throw it out so that we start a new JMS Session.
+             * Could not roll back. This certainly indicates that we have some problem with the JMS Session, and we'll
+             * throw it out so that we start a new JMS Session.
              *
              * However, it is not that bad, as the JMS Message Broker probably will redeliver anyway.
              */

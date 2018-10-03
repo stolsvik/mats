@@ -74,8 +74,8 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
         }
 
         @Override
-        public boolean isSessionStillActive() throws JmsMatsJmsException {
-            return false;
+        public void isSessionOk() throws JmsMatsJmsException {
+            JmsMatsActiveMQSpecifics.isConnectionLive(_jmsConnection);
         }
 
         @Override

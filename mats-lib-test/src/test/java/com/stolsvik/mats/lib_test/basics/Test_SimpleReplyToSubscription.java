@@ -47,7 +47,7 @@ public class Test_SimpleReplyToSubscription extends MatsBasicTest {
     public void doTest() {
         DataTO dto = new DataTO(1337, "Elite");
         StateTO sto = new StateTO(999, 333.333);
-        matsRule.getMatsFactory().createInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)

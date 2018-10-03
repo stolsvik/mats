@@ -170,6 +170,9 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
                 // ----- The ProcessingLambda went OK, no Exception was raised.
 
+                // Check whether Session/Connection is ok before committing DB (per contract with JmsSessionHolder).
+                jmsSessionHolder.isSessionOk();
+
                 log.debug(LOG_PREFIX + "COMMIT SQL: ProcessingLambda finished, committing SQL Connection.");
                 /*
                  * IFF the SQL Connection was fetched, we will now commit (and close) it.
@@ -179,6 +182,8 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 // ----- We're now *outside* the SQL Transaction demarcation (committed).
 
                 // Return nicely, as the SQL Connection.commit() and .close() went OK.
+
+                // When exiting, the JMS transaction will be committed.
             });
         }
 

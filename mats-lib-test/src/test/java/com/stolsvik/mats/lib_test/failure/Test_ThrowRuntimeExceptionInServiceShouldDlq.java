@@ -36,7 +36,7 @@ public class Test_ThrowRuntimeExceptionInServiceShouldDlq extends MatsDbTest {
     public void doTest() {
         DataTO dto = new DataTO(42, "TheAnswer");
         StateTO sto = new StateTO(420, 420.024);
-        matsRule.getMatsFactory().createInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)

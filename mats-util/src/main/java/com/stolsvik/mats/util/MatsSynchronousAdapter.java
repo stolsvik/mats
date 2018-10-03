@@ -257,7 +257,7 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
         }
 
         // Create the request.
-        _matsInitiator.initiate(msg -> {
+        _matsInitiator.initiateUnchecked(msg -> {
             // Set up the message
             msg.traceId(traceId)
                     .to(to)

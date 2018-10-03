@@ -23,11 +23,11 @@ public class JmsMatsActiveMQSpecifics {
         /* TODO: implement */
     }
 
-    public static boolean isConnectionLive(Connection jmsConnection) throws JmsMatsJmsException {
+    public static void isConnectionLive(Connection jmsConnection) throws JmsMatsJmsException {
         /* TODO: implement */
         // ActiveMQConnection.is[Closed|Closing|TransportFailed]
         // throw new JmsMatsJmsException("What was wrong") if any of these are not ok.
-        return true;
+        return; // OK (throw if not).
     }
 
     public static void instaDlq(Session session, JmsMatsJmsExceptionThrowingRunnable runnable) throws JmsMatsJmsException {

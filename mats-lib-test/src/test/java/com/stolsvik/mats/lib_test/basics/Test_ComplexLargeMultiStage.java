@@ -156,7 +156,7 @@ public class Test_ComplexLargeMultiStage extends MatsBasicTest {
     private void doTest(KeepTrace keepTrace) {
         StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().createInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
                 (msg) -> msg.traceId(randomId())
                         .keepTrace(keepTrace)
                         .from(INITIATOR)

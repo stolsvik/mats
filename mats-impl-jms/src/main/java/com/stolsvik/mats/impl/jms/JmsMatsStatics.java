@@ -138,6 +138,7 @@ public interface JmsMatsStatics {
     default <Z> void sendMatsMessages(Logger log, long nanosStart, Session jmsSession, JmsMatsFactory<Z> jmsMatsFactory,
             List<JmsMatsMessage<Z>> messagesToSend) throws JmsMatsJmsException {
 
+        if (log.isDebugEnabled()) log.debug("Sending [" + messagesToSend.size() + "] messages.");
         // Create MessageProducer w/o specific Destination (will be given in .send(..))
         MessageProducer messageProducer;
         long nanosStartCreateProducer = System.nanoTime();

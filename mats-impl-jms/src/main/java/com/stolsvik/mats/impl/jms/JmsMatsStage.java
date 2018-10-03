@@ -184,23 +184,23 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
      * Package access so that it can be referred to from JavaDoc.
      */
     static class JmsMatsStageProcessor<I, S, R, Z> implements JmsMatsStatics, JmsMatsTxContextKey {
-        private volatile boolean _processorRun = true; // Start off running.
-
-        private JmsMatsStage<I, S, R, Z> _jmsMatsStage;
+        private final JmsMatsStage<I, S, R, Z> _jmsMatsStage;
         private final int _processorNumber;
-        private volatile Thread _processorThread;
-        private TransactionContext _transactionContext;
+        private final Thread _processorThread;
+        private final TransactionContext _transactionContext;
 
         JmsMatsStageProcessor(JmsMatsStage<I, S, R, Z> jmsMatsStage, int processorNumber) {
             _jmsMatsStage = jmsMatsStage;
             _processorNumber = processorNumber;
             _processorThread = new Thread(this::runner, THREAD_PREFIX + _jmsMatsStage._stageId + " " + id());
             _processorThread.start();
-            _transactionContext = _jmsMatsStage._parentFactory.getJmsMatsTransactionManager().getTransactionContext(
-                    this);
+            _transactionContext = _jmsMatsStage._parentFactory
+                    .getJmsMatsTransactionManager().getTransactionContext(this);
         }
 
-        private JmsSessionHolder _processorJmsSessionHolder;
+        private volatile boolean _runFlag = true; // Start off running.
+
+        private JmsSessionHolder _jmsSessionHolder;
 
         private String id() {
             return id("StageProcessor#" + _processorNumber, this);
@@ -216,25 +216,23 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
             return _jmsMatsStage.getParentEndpoint().getParentFactory();
         }
 
-        private String idThread() {
-            return id() + "";
-        }
-
         /**
          * Upon Stage stop: First invoke this on all StageProcessors to block any new message receptions.
          */
         void setRunFlagFalse() {
-            _processorRun = false;
+            _runFlag = false;
         }
 
         private volatile boolean _processorInReceive;
 
         void stop(int gracefulWaitMillis) {
             // Start by setting the run-flag to false..
-            _processorRun = false;
+            _runFlag = false;
+            // Fetch the JmsSessionHolder to close, so that if we're in a race, we won't change references while
+            // doing stop-stuff.
             JmsSessionHolder jmsSessionHolderToClose;
             synchronized (this) {
-                jmsSessionHolderToClose = _processorJmsSessionHolder;
+                jmsSessionHolderToClose = _jmsSessionHolder;
             }
             /*
              * Trying to make very graceful: If we're in consumer.receive(), then close the Session, which makes the
@@ -251,7 +249,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                 // JavaDoc isAlive(): "A thread is alive if it has been started and has not yet died."
                 // The Thread is started in the constructor.
                 // Thus, if it is not alive, there is NO possibility that it is starting, or about to be started.
-                log.info(LOG_PREFIX + idThread() + "has already exited, so just close JMS Session.");
+                log.info(LOG_PREFIX + id() + " has already exited, so just close JMS Session.");
                 jmsSessionHolderToClose.close();
                 // Finished!
                 return;
@@ -262,27 +260,27 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
             // ?: Is thread currently waiting in consumer.receive()?
             if (_processorInReceive) {
                 // -> Yes, waiting in receive(), so close session, thus making receive() return null.
-                log.info(LOG_PREFIX + idThread() + "is waiting in consumer.receive(), so we'll close the JMS Session,"
+                log.info(LOG_PREFIX + id() + " is waiting in consumer.receive(), so we'll close the JMS Session,"
                         + " thereby making the receive() call return null, and the thread will exit.");
                 jmsSessionHolderToClose.close();
                 sessionClosed = true;
             }
             else {
                 // -> No, not in receive()
-                log.info(LOG_PREFIX + idThread() + "is NOT waiting in consumer.receive(), so we assume it is out"
+                log.info(LOG_PREFIX + id() + " is NOT waiting in consumer.receive(), so we assume it is out"
                         + " doing work, and will come back and see the run-flag being false, thus exit.");
             }
 
-            log.info(LOG_PREFIX + "Waiting for " + idThread() + "to exit.");
+            log.info(LOG_PREFIX + "Waiting for " + id() + " to exit.");
             joinProcessorThread(gracefulWaitMillis);
             // ?: Did the thread exit?
             if (!_processorThread.isAlive()) {
                 // -> Yes, thread exited.
-                log.info(LOG_PREFIX + idThread() + "exited nicely.");
+                log.info(LOG_PREFIX + id() + " exited nicely.");
             }
             else {
                 // -> No, thread did not exit within graceful wait period.
-                log.warn(LOG_PREFIX + idThread() + "DID NOT exit after " + gracefulWaitMillis
+                log.warn(LOG_PREFIX + id() + " DID NOT exit after " + gracefulWaitMillis
                         + "ms, so interrupt it and wait some more.");
                 // -> No, so interrupt it from whatever it is doing.
                 _processorThread.interrupt();
@@ -291,10 +289,10 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                 // ?: Did the thread exit now? (Log only)
                 if (!_processorThread.isAlive()) {
                     // -> Yes, thread exited.
-                    log.info(LOG_PREFIX + idThread() + "exited after being interrupted.");
+                    log.info(LOG_PREFIX + id() + " exited after being interrupted.");
                 }
                 else {
-                    log.warn(LOG_PREFIX + idThread() + "DID NOT exit even after being interrupted."
+                    log.warn(LOG_PREFIX + id() + " DID NOT exit even after being interrupted."
                             + " Giving up, closing JMS Session.");
                 }
                 // ----- At this point, if the thread has not exited, we'll just close the JMS Session and pray.
@@ -312,14 +310,14 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                 _processorThread.join(gracefulWaitMillis);
             }
             catch (InterruptedException e) {
-                log.warn(LOG_PREFIX + "Got InterruptedException when waiting for " + idThread() + "to join."
+                log.warn(LOG_PREFIX + "Got InterruptedException when waiting for " + id() + " to join."
                         + " Dropping out.");
             }
         }
 
         private void runner() {
-            // :: Outer run-loop, where we'll get a fresh JMS Session, Destination and MessageConsumer.
-            while (_processorRun) {
+            // :: OUTER RUN-LOOP, where we'll get a fresh JMS Session, Destination and MessageConsumer.
+            while (_runFlag) {
                 try {
                     log.info(LOG_PREFIX + "Getting JMS Session, Destination and Consumer for stage ["
                             + _jmsMatsStage._stageId + "].");
@@ -329,7 +327,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                         // :: "Publish" the new JMS Session.
                         synchronized (this) {
                             // ?: Check the run-flag one more time!
-                            if (!_processorRun) {
+                            if (!_runFlag) {
                                 // -> No, we're asked to exit.
                                 // NOTICE! Since this JMS Session has not been "published" outside yet, we'll have to
                                 // close it directly.
@@ -339,11 +337,11 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                             }
                             else {
                                 // -> Yes, we're good! "Publish" the new JMS Session.
-                                _processorJmsSessionHolder = newJmsSessionHolder;
+                                _jmsSessionHolder = newJmsSessionHolder;
                             }
                         }
                     }
-                    Session jmsSession = _processorJmsSessionHolder.getSession();
+                    Session jmsSession = _jmsSessionHolder.getSession();
                     FactoryConfig factoryConfig = _jmsMatsStage._parentEndpoint.getParentFactory().getFactoryConfig();
                     Destination destination = createJmsDestination(jmsSession, factoryConfig);
                     MessageConsumer jmsConsumer = jmsSession.createConsumer(destination);
@@ -353,9 +351,11 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                     // TODO: Handle ability to stop with subsequent re-start of endpoint.
                     _jmsMatsStage._anyProcessorMadeConsumerLatch.countDown();
 
-                    // :: Inner run-loop, where we'll use the JMS Session and MessageConsumer.
-                    while (_processorRun) {
+                    // :: INNER RUN-LOOP, where we'll use the JMS Session and MessageConsumer.
+                    while (_runFlag) {
                         _processorInReceive = true;
+                        // Check whether Session/Connection is ok (per contract with JmsSessionHolder)
+                        _jmsSessionHolder.isSessionOk();
                         // :: GET NEW MESSAGE!! THIS IS THE MESSAGE PUMP!
                         Message message;
                         try {
@@ -370,13 +370,12 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                     + " was probably closed due to shutdown. Looping to check run-flag.");
                             continue;
                         }
-                        // TODO: Check for sessionHolder.isStillOk-thingy.
-                        _processorJmsSessionHolder.isSessionStillActive();
-                        // TODO: Make registration of "some other session crashed" scenario.
+                        // Check whether Session/Connection is still ok (per contract with JmsSessionHolder)
+                        _jmsSessionHolder.isSessionOk();
 
                         // :: Perform the work inside the TransactionContext
                         try {
-                            _transactionContext.doTransaction(_processorJmsSessionHolder, () -> {
+                            _transactionContext.doTransaction(_jmsSessionHolder, () -> {
                                 long nanosStart = System.nanoTime();
                                 // Assert that this is indeed a JMS MapMessage.
                                 if (!(message instanceof MapMessage)) {
@@ -486,12 +485,12 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                     + " Looping to fetch next message.");
                             // No more to do, so loop. Notice that this code is not involved in initiations..
                         }
-                    } // End inner run loop
+                    } // End: INNER RUN-LOOP
                 }
                 catch (JmsMatsJmsException | JMSException | RuntimeException t) {
                     log.warn(LOG_PREFIX + "Got " + t.getClass().getSimpleName() + ", crashing JmsSessionHolder,"
                             + " looping to check run-flag.", t);
-                    _processorJmsSessionHolder.crashed(t);
+                    _jmsSessionHolder.crashed(t);
                     /*
                      * Doing a "chill-wait", so that if we're in a situation where this will tight-loop, we won't
                      * totally swamp both CPU and logs with meaninglessness.
@@ -505,8 +504,8 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                 + " Looping to check run-flag.");
                     }
                 }
-            } // End outer run loop
-            log.info(LOG_PREFIX + idThread() + "asked to exit, and that we do! Bye.");
+            } // END: OUTER RUN-LOOP
+            log.info(LOG_PREFIX + id() + " asked to exit, and that we do! Bye.");
         }
 
         private Destination createJmsDestination(Session jmsSession, FactoryConfig factoryConfig) throws JMSException {

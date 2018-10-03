@@ -138,7 +138,7 @@ public class MatsSpringDefined_StagedEndpoint {
     public void testStaged() {
         SpringTestDataTO dto = new SpringTestDataTO(13, "Request");
         SpringTestStateTO sto = new SpringTestStateTO(5, "two");
-        _matsInitiator.initiate(init -> {
+        _matsInitiator.initiateUnchecked(init -> {
             init.traceId("test_trace_id:" + Math.random())
                     .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + MULTI)
@@ -156,7 +156,7 @@ public class MatsSpringDefined_StagedEndpoint {
     public void testStagedWithConfig() {
         SpringTestDataTO dto = new SpringTestDataTO(27, "Request-config");
         SpringTestStateTO sto = new SpringTestStateTO(9, "nine");
-        _matsInitiator.initiate(init -> {
+        _matsInitiator.initiateUnchecked(init -> {
             init.traceId("test_trace_id:" + Math.random())
                     .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + MULTI_WITH_CONFIG)
@@ -173,7 +173,7 @@ public class MatsSpringDefined_StagedEndpoint {
     @Test
     public void testSingleUsingStagedAndVoidVoid() {
         SpringTestDataTO dto = new SpringTestDataTO(42, "SingleVoidVoid");
-        _matsInitiator.initiate(init -> {
+        _matsInitiator.initiateUnchecked(init -> {
             init.traceId("test_trace_id:" + Math.random())
                     .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + SINGLE_VOID_VOID)

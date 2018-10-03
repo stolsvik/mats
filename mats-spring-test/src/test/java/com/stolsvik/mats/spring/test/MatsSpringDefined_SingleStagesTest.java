@@ -188,7 +188,7 @@ public class MatsSpringDefined_SingleStagesTest {
 
     private void doTest(String epId, SpringTestDataTO dto, SpringTestStateTO requestSto) {
         SpringTestStateTO sto = new SpringTestStateTO(256, "State");
-        _matsInitiator.initiate(
+        _matsInitiator.initiateUnchecked(
                 init -> {
                     init.traceId("test_trace_id" + epId)
                             .from("FromId" + epId)

@@ -29,7 +29,7 @@ public class TestApp {
         SpringTestDataTO dto = new SpringTestDataTO(Math.PI, "Data");
         SpringTestStateTO sto = new SpringTestStateTO(256, "State");
         SpringTestStateTO requstSto = new SpringTestStateTO(3, "RequestState");
-        _matsFactory.createInitiator().initiate(
+        _matsFactory.createInitiator().initiateUnchecked(
                 msg -> msg.traceId("TraceId")
                         .from("FromId")
                         .to(TestMatsEndpoint.ENDPOINT_ID + ".SingleWithState")

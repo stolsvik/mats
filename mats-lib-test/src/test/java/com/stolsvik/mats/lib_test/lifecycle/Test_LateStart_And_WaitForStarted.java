@@ -30,7 +30,7 @@ public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
     @Test
     public void doTest() throws InterruptedException {
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().createInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(TERMINATOR)

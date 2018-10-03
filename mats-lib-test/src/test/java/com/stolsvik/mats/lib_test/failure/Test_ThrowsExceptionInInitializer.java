@@ -23,7 +23,7 @@ import com.stolsvik.mats.lib_test.StateTO;
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
-    private static int WAIT_MILLIS = 500;
+    private static int WAIT_MILLIS = 200;
 
     @Before
     public void setupTerminator() {
@@ -36,7 +36,7 @@ public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
      */
     @Test(expected = TestRuntimeException.class)
     public void exceptionInInitiationShouldPropagateOut() {
-        matsRule.getMatsFactory().createInitiator().initiate(
+        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
                 (msg) -> {
                     throw new TestRuntimeException("Should propagate all the way out.");
                 });
@@ -75,7 +75,7 @@ public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
     private void sendMessageToTerminator(boolean throwInInitiation) {
         DataTO dto = new DataTO(42, "TheAnswer");
         try {
-            matsRule.getMatsFactory().createInitiator().initiate(
+            matsRule.getMatsFactory().createInitiator().initiateUnchecked(
                     (msg) -> {
                         msg.traceId(randomId())
                                 .from(INITIATOR)

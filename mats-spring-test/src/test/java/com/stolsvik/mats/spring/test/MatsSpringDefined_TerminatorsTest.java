@@ -169,7 +169,7 @@ public class MatsSpringDefined_TerminatorsTest {
     }
 
     private void doTest(String epId, SpringTestDataTO dto, SpringTestStateTO requestSto) {
-        _matsInitiator.initiate(
+        _matsInitiator.initiateUnchecked(
                 init -> {
                     init.traceId("test_trace_id" + epId)
                             .from("FromId" + epId)

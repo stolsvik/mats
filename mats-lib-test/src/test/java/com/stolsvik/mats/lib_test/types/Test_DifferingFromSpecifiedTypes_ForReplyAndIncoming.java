@@ -74,7 +74,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
         // Specifies that Service shall reply with SubDataDto (more specific reply DTO than specified)
         DataTO dto = new DataTO(Math.E, "SubDataTO");
         StateTO sto = new StateTO(420, 420.024);
-        _initiator.initiate((msg) -> msg.traceId(randomId())
+        _initiator.initiateUnchecked((msg) -> msg.traceId(randomId())
                 .from(INITIATOR)
                 .to(SERVICE)
                 .replyTo(TERMINATOR + ".SubDataTO", sto)
@@ -92,7 +92,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
         // Specifies that Service shall reply with SubDataDto (more specific reply DTO than specified)
         DataTO dto = new DataTO(Math.PI, "SubDataTO");
         StateTO sto = new StateTO(420, 420.024);
-        _initiator.initiate((msg) -> msg.traceId(randomId())
+        _initiator.initiateUnchecked((msg) -> msg.traceId(randomId())
                 .from(INITIATOR)
                 .to(SERVICE)
                 .replyTo(TERMINATOR + ".DataTO", sto)
@@ -109,7 +109,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
         // Specifies that Service shall reply with DataDto (the DTO it specifies it will reply with)
         DataTO dto = new DataTO(Math.E * Math.PI, "DataTO");
         StateTO sto = new StateTO(420, 420.024);
-        _initiator.initiate((msg) -> msg.traceId(randomId())
+        _initiator.initiateUnchecked((msg) -> msg.traceId(randomId())
                 .from(INITIATOR)
                 .to(SERVICE)
                 .replyTo(TERMINATOR + ".SubDataTO", sto)

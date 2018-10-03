@@ -5,7 +5,7 @@ import javax.jms.Session;
 
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.exceptions.MatsConnectionException;
+import com.stolsvik.mats.MatsInitiator.MatsBackendRuntimeException;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
@@ -56,7 +56,7 @@ public interface JmsMatsTransactionManager {
      * {@link TransactionContext#getTransactionalJmsSession(boolean)} is invoked per {@link JmsMatsStageProcessor}.
      * <p>
      * This invocation should create the JMS Connection, and any problems creating it should raise a
-     * {@link MatsConnectionException} - which is considered fatal. Any reconnect-logic is assumed to be found in the
+     * {@link MatsBackendRuntimeException} - which is considered fatal. Any reconnect-logic is assumed to be found in the
      * JMS implementation's {@link ConnectionFactory} - but handling retry even in face of DNS lookup or authentication
      * failures could conceivably be implemented. Note that in this case this method must nevertheless return a
      * {@link TransactionContext}, but where the the creation of the JMS Connection is deferred to the

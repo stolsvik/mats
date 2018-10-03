@@ -64,7 +64,7 @@ public class MatsSpringDefined_MultipleMappingsTest {
     public void single1_terminator1() {
         SpringTestDataTO dto = new SpringTestDataTO(2, "five");
         SpringTestStateTO sto = new SpringTestStateTO(5, "two");
-        _matsInitiator.initiate(init -> {
+        _matsInitiator.initiateUnchecked(init -> {
             init.traceId("test_trace_id:" + Math.random())
                     .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + SINGLE1)
@@ -82,7 +82,7 @@ public class MatsSpringDefined_MultipleMappingsTest {
     public void single2_terminator2() {
         SpringTestDataTO dto = new SpringTestDataTO(6, "six");
         SpringTestStateTO sto = new SpringTestStateTO(7, "seven");
-        _matsInitiator.initiate(init -> {
+        _matsInitiator.initiateUnchecked(init -> {
             init.traceId("test_trace_id:" + Math.random())
                     .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + SINGLE2)

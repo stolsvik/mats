@@ -130,7 +130,7 @@ public class Rule_Mats extends ExternalResource {
         _amqClient = new ActiveMQConnectionFactory(brokerUrl);
         RedeliveryPolicy redeliveryPolicy = _amqClient.getRedeliveryPolicy();
         // :: Only try redelivery once, since the unit tests does not need any more to prove that they work.
-        redeliveryPolicy.setInitialRedeliveryDelay(500);
+        redeliveryPolicy.setInitialRedeliveryDelay(100);
         redeliveryPolicy.setUseExponentialBackOff(false);
         redeliveryPolicy.setMaximumRedeliveries(1);
 
