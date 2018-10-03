@@ -24,7 +24,7 @@ public class ATest_AbstractConcurrency extends MatsBasicTest {
 
     protected static final int CONCURRENCY_TEST = 8;
 
-    protected static final int PROCESSING_TIME = 400;
+    protected static final int PROCESSING_TIME = 500;
 
     private CountDownLatch _latch = new CountDownLatch(CONCURRENCY_TEST);
 
