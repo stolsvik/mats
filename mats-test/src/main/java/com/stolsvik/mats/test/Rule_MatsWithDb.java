@@ -9,6 +9,7 @@ import java.sql.Statement;
 import javax.jms.ConnectionFactory;
 import javax.sql.DataSource;
 
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +17,6 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler;
-import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Simple;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
 import com.stolsvik.mats.serial.MatsSerializer;
 
@@ -70,7 +70,7 @@ public class Rule_MatsWithDb extends Rule_Mats {
         // Create the JMS and JDBC TransactionManager-backed JMS MatsFactory.
         return JmsMatsFactory.createMatsFactory_JmsAndJdbcTransactions(this.getClass().getSimpleName(),
                 "*testing*",
-                new JmsMatsJmsSessionHandler_Simple((s) -> jmsConnectionFactory.createConnection()),
+                new JmsMatsJmsSessionHandler_Pooling((s) -> jmsConnectionFactory.createConnection()),
                 (s) -> _dataSource.getConnection(), _matsSerializer);
     }
 

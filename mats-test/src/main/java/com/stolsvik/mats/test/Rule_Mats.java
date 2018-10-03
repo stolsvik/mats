@@ -9,7 +9,7 @@ import javax.jms.MessageConsumer;
 import javax.jms.Queue;
 import javax.jms.Session;
 
-import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Simple;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import org.apache.activemq.ActiveMQConnectionFactory;
 import org.apache.activemq.RedeliveryPolicy;
 import org.apache.activemq.broker.BrokerService;
@@ -150,7 +150,7 @@ public class Rule_Mats extends ExternalResource {
                                             ConnectionFactory connectionFactory) {
         return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(this.getClass().getSimpleName(),
                 "*testing*",
-                new JmsMatsJmsSessionHandler_Simple((s) -> connectionFactory.createConnection()),
+                new JmsMatsJmsSessionHandler_Pooling((s) -> connectionFactory.createConnection()),
                 _matsSerializer);
     }
 
