@@ -157,9 +157,10 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
          * @param key
          *            the key for which to retrieve a binary payload from the incoming message.
          * @return the requested byte array.
-         * @see #getBytes(String)
-         * @see ProcessContext#addString(String, String)
+         *
+         * @see ProcessContext#addBytes(String, byte[])
          * @see #getString(String)
+         * @see #getTraceProperty(String, Class)
          */
         byte[] getBytes(String key);
 
@@ -167,9 +168,10 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
          * @param key
          *            the key for which to retrieve a String payload from the incoming message.
          * @return the requested String.
-         * @see #getString(String)
-         * @see ProcessContext#addBytes(String, byte[])
+         *
+         * @see ProcessContext#addString(String, String)
          * @see #getBytes(String)
+         * @see #getTraceProperty(String, Class)
          */
         String getString(String key);
 
@@ -244,6 +246,8 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
          * @param propertyValue
          *            the value of the property, which will be serialized using the active MATS serializer.
          * @see #getTraceProperty(String, Class)
+         * @see #addString(String, String)
+         * @see #addBytes(String, byte[])
          */
         void setTraceProperty(String propertyName, Object propertyValue);
 
