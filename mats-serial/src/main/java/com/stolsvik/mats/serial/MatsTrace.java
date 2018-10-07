@@ -256,7 +256,7 @@ public interface MatsTrace<Z> {
      *         {@link StackState#getHeight()}.
      * @see #getCurrentState() for more information on how the "State Flow" works.
      */
-    List<StackState<String>> getStateStack();
+    List<StackState<Z>> getStateStack();
 
     /**
      * @return the entire list of states as they have changed throughout the call flow. If {@link KeepMatsTrace} is
