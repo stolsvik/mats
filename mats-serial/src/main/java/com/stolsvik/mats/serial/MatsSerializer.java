@@ -14,7 +14,8 @@ import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
  * It is worth pointing out that <i>all</i> the communicating parties needs to be using the same serialization
  * mechanism, as this constitute the "wire-representation" of the protocol that {@link MatsTrace} represents.
  *
- * @param <Z> The type which STOs and DTOs are serialized into. When employing JSON for the "outer" serialization of
+ * @param <Z>
+ *            The type which STOs and DTOs are serialized into. When employing JSON for the "outer" serialization of
  *            MatsTrace, it does not make that much sense to use a binary (Z=byte[]) "inner" representation of the DTOs
  *            and STOs, because JSON is terrible at serializing byte arrays.
  *
@@ -72,8 +73,9 @@ public interface MatsSerializer<Z> {
         byte[] getMatsTraceBytes();
 
         /**
-         * @return the "meta" information about this serialization - describes which compression algorithm is in use, if
-         *         any.
+         * @return the "meta" information about this serialization (think "envelope" in network protocol terms) -
+         *         currently describes which compression algorithm is in use, or if it is uncompressed. Needs to be
+         *         provided back to the {@link #deserializeMatsTrace(byte[], String) deserialization} method.
          * @see #META_KEY_POSTFIX
          */
         String getMeta();
