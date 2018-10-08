@@ -22,6 +22,21 @@ import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
  * @author Endre Stølsvik - 2015-07-22 - http://endre.stolsvik.com
  */
 public interface MatsSerializer<Z> {
+
+    /**
+     * Whether this implementation of MatsSerializer handles the specified {@link SerializedMatsTrace#getMeta() "meta"}.
+     * <p>
+     * This feature can at some point be used to configure up a bunch of serializers, whereby the one that handles the
+     * incoming format gets the job to deserialize it into a MatsTrace. One can then also migrate to a newer version in
+     * a two (three)-step fashion: First make a revision-change that includes the new serializer version, but still
+     * employs the old for serialization. Then, when all parties are upgraded to the new config, you make a new revision
+     * or minor change that changes the config to employ the new serializer for serialization. Then, when all parties
+     * are up on this version, you can potentially make a third version that removes the old serializer.
+     */
+    default boolean handlesMeta(String meta) {
+        return false;
+    }
+
     /**
      * Used when initiating a new MATS processing. Since the {@link MatsTrace} implementation is dependent on the
      * serialization mechanism in use, we need a way provided by the serializer to instantiate new instances of the

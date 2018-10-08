@@ -26,8 +26,8 @@ import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
 import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
 
 /**
- * Implementation of {@link MatsSerializer} that employs <a href="https://github.com/FasterXML/jackson">Jackson
- * JSON library</a> for serialization and deserialization, and compress and decompress using {@link Deflater} and
+ * Implementation of {@link MatsSerializer} that employs <a href="https://github.com/FasterXML/jackson">Jackson JSON
+ * library</a> for serialization and deserialization, and compress and decompress using {@link Deflater} and
  * {@link Inflater}.
  * <p>
  * Notice that there is a special case for Strings for {@link #serializeObject(Object)} and
@@ -35,17 +35,18 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  * directly ("serialized as-is"), while when deserialized and the requested class is String, the supplied "json" String
  * argument is returned directly. This enables an endpoint to receive any type of value if it specifies String.class as
  * expected DTO, as it'll just get the JSON document itself - however, since JSON is not a very specified format
- * (notably lacking specifications of how dates and times are serialized), if this is utilized to do deserialization within the
- * endpoint itself (i.e. using this feature as if taking "Object" and then "casting" to some expected type), the
- * endpoint becomes very specific to this implementation of the MatsSerializer (look in the source!),
- * and definitely looses the ability to use a very different serializer, possibly binary (e.g. Google's Protobuf).
+ * (notably lacking specifications of how dates and times are serialized), if this is utilized to do deserialization
+ * within the endpoint itself (i.e. using this feature as if taking "Object" and then "casting" to some expected type),
+ * the endpoint becomes very specific to this implementation of the MatsSerializer (look in the source!), and definitely
+ * looses the ability to use a very different serializer, possibly binary (e.g. Google's Protobuf).
  * <p>
- * The Jackson {@link ObjectMapper} is configured to only handle fields (think "data struct"), i.e. not use setters or getters;
- * and to only include non-null fields; and upon deserialization to ignore properties from the JSON that has no field in
- * the class to be deserialized into (both to enable the modification of DTOs on the client side by removing fields
- * that aren't used in that client scenario, and to handle <i>widening conversions<i> for incoming DTOs), and to use
- * string serialization for dates (and handle the JSR310 new dates):
+ * The Jackson {@link ObjectMapper} is configured to only handle fields (think "data struct"), i.e. not use setters or
+ * getters; and to only include non-null fields; and upon deserialization to ignore properties from the JSON that has no
+ * field in the class to be deserialized into (both to enable the modification of DTOs on the client side by removing
+ * fields that aren't used in that client scenario, and to handle <i>widening conversions<i> for incoming DTOs), and to
+ * use string serialization for dates (and handle the JSR310 new dates):
  * <p>
+ * 
  * <pre>
  * ObjectMapper mapper = new ObjectMapper();
  * mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
@@ -60,6 +61,8 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
+
+    public static String IDENTIFICATION = "MatsTrace_JSON_v1";
 
     private final ObjectMapper _objectMapper;
     private final ObjectReader _matsTraceJson_Reader;
@@ -93,7 +96,14 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
     }
 
     @Override
-    public MatsTrace<String> createNewMatsTrace(String traceId, KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive) {
+    public boolean handlesMeta(String meta) {
+        // If it is the old "plain" or "deflate", then we handle it, as well as if it is the new "MatsTrace_JSON_v1".
+        return COMPRESS_DEFLATE.equals(meta) | COMPRESS_PLAIN.equals(meta) | meta.startsWith(IDENTIFICATION);
+    }
+
+    @Override
+    public MatsTrace<String> createNewMatsTrace(String traceId, KeepMatsTrace keepMatsTrace, boolean nonPersistent,
+            boolean interactive) {
         return MatsTraceStringImpl.createNew(traceId, keepMatsTrace, nonPersistent, interactive);
     }
 
@@ -123,7 +133,8 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
                 meta = COMPRESS_PLAIN;
             }
 
-            return new SerializedMatsTraceImpl(compressedBytes, meta, serializedBytes.length, serializationMillis, compressionMillis);
+            return new SerializedMatsTraceImpl(compressedBytes, meta, serializedBytes.length, serializationMillis,
+                    compressionMillis);
         }
         catch (JsonProcessingException e) {
             throw new SerializationException("Couldn't serialize MatsTrace, which is crazy!\n" + matsTrace, e);
@@ -137,7 +148,8 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
         private final double _millisSerialization;
         private final double _millisCompression;
 
-        public SerializedMatsTraceImpl(byte[] matsTraceBytes, String meta, int sizeUncompressed, double millisSerialization, double millisCompression) {
+        public SerializedMatsTraceImpl(byte[] matsTraceBytes, String meta, int sizeUncompressed,
+                double millisSerialization, double millisCompression) {
             _matsTraceBytes = matsTraceBytes;
             _meta = meta;
             _sizeUncompressed = sizeUncompressed;
@@ -180,6 +192,15 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
             byte[] decompressedBytes;
             double decompressionMillis = 0;
             long nanosAfterDecompression;
+
+            // ?: Is there a colon in the meta string?
+            if (meta.indexOf(':') != -1) {
+                // -> Yes, there is. This is the identification-meta, so chop off everything before it.
+                // NOTICE: It is currently not added as prefix, as another implementation of the Mats-concepts are using
+                // an older version of MatsSerializer, which does not include it.
+                meta = meta.substring(meta.indexOf(':') + 1);
+            }
+
             if (meta.startsWith(COMPRESS_DEFLATE)) {
                 // -> Compressed, so decompress it
                 decompressedBytes = decompress(matsTraceBytes);
@@ -197,7 +218,8 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
 
             MatsTrace<String> matsTrace = _matsTraceJson_Reader.readValue(decompressedBytes);
             double deserializationMillis = (System.nanoTime() - nanosAfterDecompression) / 1_000_000d;
-            return new DeserializedMatsTraceImpl(matsTrace, decompressedBytes.length, deserializationMillis, decompressionMillis);
+            return new DeserializedMatsTraceImpl(matsTrace, decompressedBytes.length, deserializationMillis,
+                    decompressionMillis);
         }
         catch (IOException e) {
             throw new SerializationException("Couldn't deserialize MatsTrace from given JSON, which is crazy!\n"
@@ -211,7 +233,8 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
         private final double _millisDeserialization;
         private final double _millisDecompression;
 
-        public DeserializedMatsTraceImpl(MatsTrace<String> matsTrace, int sizeUncompressed, double millisDeserialization, double millisDecompression) {
+        public DeserializedMatsTraceImpl(MatsTrace<String> matsTrace, int sizeUncompressed,
+                double millisDeserialization, double millisDecompression) {
             _matsTrace = matsTrace;
             _sizeUncompressed = sizeUncompressed;
             _millisDeserialization = millisDeserialization;
@@ -301,8 +324,7 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
         }
     }
 
-
-    protected byte[] compress(byte[] data)  {
+    protected byte[] compress(byte[] data) {
         // OPTIMIZE: Use Object Pool for compressor-instances with Deflater and byte array.
         // This pool could possibly be a simple lock-free stack, if stack is empty, make a new instance.
         Deflater deflater = new Deflater();
