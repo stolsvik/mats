@@ -73,8 +73,8 @@ public class Test_TraceProperties extends MatsBasicTest {
 
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     // Get the String prop
                     _stringProp_terminator = context.getTraceProperty("stringProp", String.class);
                     // Get the Object prop
@@ -91,8 +91,8 @@ public class Test_TraceProperties extends MatsBasicTest {
 
     @Before
     public void setupTerminatorForMessageInitiatedWithinService() {
-        matsRule.getMatsFactory().terminator(TERMINATOR_FOR_MESSAGE_INITIATED_WITHIN_SERVICE, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR_FOR_MESSAGE_INITIATED_WITHIN_SERVICE, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     // Get the String prop
                     _stringProp_terminator_initiatedWithinService = context.getTraceProperty("stringProp", String.class);
                     // Get the Object prop

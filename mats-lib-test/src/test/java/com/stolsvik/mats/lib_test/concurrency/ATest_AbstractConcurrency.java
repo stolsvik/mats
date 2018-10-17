@@ -32,7 +32,7 @@ public class ATest_AbstractConcurrency extends MatsBasicTest {
 
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class, (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class, (context, sto, dto) -> {
             _map.put(Integer.valueOf(sto.number1), dto);
             _latch.countDown();
         });

@@ -26,14 +26,14 @@ public class JmsMatsProcessContext<S, R, Z> implements ProcessContext<R>, JmsMat
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsProcessContext.class);
 
-    private final JmsMatsStage<?, ?, R, Z> _matsStage;
+    private final JmsMatsStage<R, ?, ?, Z> _matsStage;
     private final MatsTrace<Z> _matsTrace;
     private final LinkedHashMap<String, byte[]> _incomingBinaries;
     private final LinkedHashMap<String, String> _incomingStrings;
     private final S _sto;
     private final List<JmsMatsMessage<Z>> _messagesToSend;
 
-    JmsMatsProcessContext(JmsMatsStage<?, ?, R, Z> matsStage, LinkedHashMap<String, byte[]> incomingBinaries,
+    JmsMatsProcessContext(JmsMatsStage<R, ?, ?, Z> matsStage, LinkedHashMap<String, byte[]> incomingBinaries,
             LinkedHashMap<String, String> incomingStrings, List<JmsMatsMessage<Z>> messagesToSend,
             MatsTrace<Z> matsTrace, S sto) {
         _matsStage = matsStage;

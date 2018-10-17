@@ -249,8 +249,8 @@ public class MatsSpringAnnotationBeanPostProcessor implements
         if (replyType.getName().equals("void")) {
             // -> Yes, void return: Setup Terminator.
             typeEndpoint = "Terminator";
-            matsFactory.terminator(matsMapping.endpointId(), dtoType, stoType,
-                    (processContext, incomingDto, state) -> {
+            matsFactory.terminator(matsMapping.endpointId(), stoType, dtoType,
+                    (processContext, state, incomingDto) -> {
                         invokeMatsMappingMethod(matsMapping, method, bean,
                                 paramsLength, processContextParamF,
                                 processContext, dtoParamF,
@@ -263,8 +263,8 @@ public class MatsSpringAnnotationBeanPostProcessor implements
             if (stoParamF != -1) {
                 // -> Yes, so then we need to hack together a "single" endpoint out of a staged with single lastStage.
                 typeEndpoint = "Single w/State";
-                MatsEndpoint<?, ?> ep = matsFactory.staged(matsMapping.endpointId(), stoType, replyType);
-                ep.lastStage(dtoType, (processContext, incomingDto, state) -> {
+                MatsEndpoint<?, ?> ep = matsFactory.staged(matsMapping.endpointId(), replyType, stoType);
+                ep.lastStage(dtoType, (processContext, state, incomingDto) -> {
                     Object reply = invokeMatsMappingMethod(matsMapping, method, bean,
                             paramsLength, processContextParamF,
                             processContext, dtoParamF,
@@ -275,7 +275,7 @@ public class MatsSpringAnnotationBeanPostProcessor implements
             else {
                 // -> No state parameter, so use the proper Single endpoint.
                 typeEndpoint = "Single";
-                matsFactory.single(matsMapping.endpointId(), dtoType, replyType,
+                matsFactory.single(matsMapping.endpointId(), replyType, dtoType,
                         (processContext, incomingDto) -> {
                             Object reply = invokeMatsMappingMethod(matsMapping, method, bean,
                                     paramsLength, processContextParamF,
@@ -416,8 +416,8 @@ public class MatsSpringAnnotationBeanPostProcessor implements
 
         // :: Invoke the @MatsStaged-annotated staged endpoint setup method
 
-        MatsEndpoint<?, ?> endpoint = matsFactory.staged(matsStaged.endpointId(), matsStaged.state(), matsStaged
-                .reply());
+        MatsEndpoint<?, ?> endpoint = matsFactory.staged(matsStaged.endpointId(), matsStaged
+                .reply(), matsStaged.state());
 
         // Invoke the @MatsStaged-annotated setup method
         Object[] args = new Object[paramsLength];

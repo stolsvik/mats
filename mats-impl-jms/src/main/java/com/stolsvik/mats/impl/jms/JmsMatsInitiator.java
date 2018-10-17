@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.exceptions.MatsRuntimeException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
@@ -67,8 +66,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             jmsSessionHolder.release();
         }
         catch (JmsMatsMessageSendException e) {
-            // Catch any JmsMatsJmsException, as that indicates that there was a problem with JMS - so we should
-            // "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
+            // JmsMatsMessageSendException is a JmsMatsJmsException, and that indicates that there was a problem with
+            // JMS - so we should "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
             jmsSessionHolder.crashed(e);
             // This is a special variant of JmsMatsJmsException which is the "VERY BAD!" scenario.
             // TODO: Do retries if it fails!
@@ -76,11 +75,11 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     + " process lambda and potentially committed other resources, typically database.", e);
         }
         catch (JmsMatsJmsException e) {
-            // Catch any MatsBackendExceptions, as that indicates that there was a problem with JMS - so we should
+            // Catch any JmsMatsJmsException, as that indicates that there was a problem with JMS - so we should
             // "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
             jmsSessionHolder.crashed(e);
             // .. then throw on. This is
-            throw new MatsRuntimeException("Damn it.", e);
+            throw new MatsBackendException("Damn it.", e);
         }
     }
 
@@ -90,11 +89,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         try {
             initiate(lambda);
         }
-        catch (MatsBackendException e) {
-            throw new MatsBackendRuntimeException("Wrapping the MatsBackendException in a unchecked variant", e);
-        }
-        catch (MatsMessageSendException e) {
-            throw new MatsBackendRuntimeException("Wrapping the MatsMessageSendException in a unchecked variant", e);
+        catch (MatsMessageSendException | MatsBackendException e) {
+            throw new MatsBackendRuntimeException("Wrapping " + e.getClass().getSimpleName()
+                    + " in a unchecked variant", e);
         }
     }
 

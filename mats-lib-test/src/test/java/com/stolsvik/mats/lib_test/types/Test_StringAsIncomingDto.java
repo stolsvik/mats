@@ -19,8 +19,8 @@ public class Test_StringAsIncomingDto extends MatsBasicTest {
     @Before
     public void setupTerminator() {
         // Specifies String as incoming DTO class
-        matsRule.getMatsFactory().terminator(TERMINATOR, String.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, String.class,
+                (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(dto, sto);
                 });

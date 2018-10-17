@@ -13,12 +13,12 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
-public interface MatsEndpoint<S, R> extends StartStoppable {
+public interface MatsEndpoint<R, S> extends StartStoppable {
 
     /**
      * @return the config for this endpoint. If endpoint is not yet started, you may invoke mutators on it.
      */
-    EndpointConfig<S, R> getEndpointConfig();
+    EndpointConfig<R, S> getEndpointConfig();
 
     /**
      * Adds a new stage to a multi-stage endpoint.
@@ -28,13 +28,13 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
      * @param processor
      *            the lambda that will be invoked when messages arrive in the corresponding queue.
      */
-    <I> MatsStage<I, S, R> stage(Class<I> incomingClass, ProcessLambda<I, S, R> processor);
+    <I> MatsStage<R, S, I> stage(Class<I> incomingClass, ProcessLambda<R, S, I> processor);
 
     /**
      * Variation of {@link #stage(Class, ProcessLambda)} that can be configured "on the fly".
      */
-    <I> MatsStage<I, S, R> stage(Class<I> incomingClass, Consumer<? super StageConfig<I, S, R>> stageConfigLambda,
-            ProcessLambda<I, S, R> processor);
+    <I> MatsStage<R, S, I> stage(Class<I> incomingClass, Consumer<? super StageConfig<R, S, I>> stageConfigLambda,
+            ProcessLambda<R, S, I> processor);
 
     /**
      * Adds the last stage to a multi-stage endpoint, which also starts the endpoint. Note that the last-stage concept
@@ -47,13 +47,13 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
      * @param processor
      *            the lambda that will be invoked when messages arrive in the corresponding queue.
      */
-    <I> MatsStage<I, S, R> lastStage(Class<I> incomingClass, ProcessReturnLambda<I, S, R> processor);
+    <I> MatsStage<R, S, I> lastStage(Class<I> incomingClass, ProcessReturnLambda<R, S, I> processor);
 
     /**
      * Variation of {@link #lastStage(Class, ProcessReturnLambda)} that can be configured "on the fly".
      */
-    <I> MatsStage<I, S, R> lastStage(Class<I> incomingClass, Consumer<? super StageConfig<I, S, R>> stageConfigLambda,
-            ProcessReturnLambda<I, S, R> processor);
+    <I> MatsStage<R, S, I> lastStage(Class<I> incomingClass, Consumer<? super StageConfig<R, S, I>> stageConfigLambda,
+            ProcessReturnLambda<R, S, I> processor);
 
     /**
      * Should be invoked when all stages has been added. Will automatically be invoked by invocation of
@@ -91,7 +91,7 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
     /**
      * Provides for both configuring the endpoint (before it is started), and introspecting the configuration.
      */
-    interface EndpointConfig<S, R> extends MatsConfig {
+    interface EndpointConfig<R, S> extends MatsConfig {
         /**
          * @return the class expected for incoming messages to this endpoint (decided by the first {@link MatsStage}).
          */
@@ -112,7 +112,7 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
          *         the order in which the stages will be invoked. For single-staged endpoints and terminators, this list
          *         is of size 1.
          */
-        List<MatsStage<?, S, R>> getStages();
+        List<MatsStage<R, S, ?>> getStages();
     }
 
     /**
@@ -311,8 +311,8 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
      * context, state and incoming message DTO.
      */
     @FunctionalInterface
-    interface ProcessLambda<I, S, R> {
-        void process(ProcessContext<R> processContext, I incomingDto, S state) throws MatsRefuseMessageException;
+    interface ProcessLambda<R, S, I> {
+        void process(ProcessContext<R> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
     }
 
     /**
@@ -321,8 +321,8 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
      * {@link MatsEndpoint.ProcessContext#reply(Object)}. Used for the last process stage of a multistage endpoint.
      */
     @FunctionalInterface
-    interface ProcessReturnLambda<I, S, R> {
-        R process(ProcessContext<R> processContext, I incomingDto, S state) throws MatsRefuseMessageException;
+    interface ProcessReturnLambda<R, S, I> {
+        R process(ProcessContext<R> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
     }
 
     /**
@@ -335,7 +335,7 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
      * need to code it up yourself by making a multi-stage and then just adding a single lastStage.
      */
     @FunctionalInterface
-    interface ProcessSingleLambda<I, R> {
+    interface ProcessSingleLambda<R, I> {
         R process(ProcessContext<R> processContext, I incomingDto) throws MatsRefuseMessageException;
     }
 
@@ -344,8 +344,8 @@ public interface MatsEndpoint<S, R> extends StartStoppable {
      * terminator endpoints. It has state, as the initiator typically have state that it wants the terminator to get.
      */
     @FunctionalInterface
-    interface ProcessTerminatorLambda<I, S> {
-        void process(ProcessContext<Void> processContext, I incomingDto, S state) throws MatsRefuseMessageException;
+    interface ProcessTerminatorLambda<S, I> {
+        void process(ProcessContext<Void> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
     }
 
     /**

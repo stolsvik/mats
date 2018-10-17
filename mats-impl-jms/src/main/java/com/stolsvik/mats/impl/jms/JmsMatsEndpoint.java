@@ -18,7 +18,7 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class JmsMatsEndpoint<S, R, Z> implements MatsEndpoint<S, R> {
+public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S> {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsEndpoint.class);
 
@@ -51,26 +51,26 @@ public class JmsMatsEndpoint<S, R, Z> implements MatsEndpoint<S, R> {
         return _stateClass;
     }
 
-    private List<JmsMatsStage<?, S, R, Z>> _stages = new CopyOnWriteArrayList<>();
+    private List<JmsMatsStage<R, S, ?, Z>> _stages = new CopyOnWriteArrayList<>();
 
     @Override
-    public EndpointConfig<S, R> getEndpointConfig() {
+    public EndpointConfig<R, S> getEndpointConfig() {
         return _endpointConfig;
     }
 
     @Override
-    public <I> MatsStage<I, S, R> stage(Class<I> incomingClass, ProcessLambda<I, S, R> processor) {
+    public <I> MatsStage<R, S, I> stage(Class<I> incomingClass, ProcessLambda<R, S, I> processor) {
         return stage(incomingClass, MatsFactory.NO_CONFIG, processor);
     }
 
     @Override
-    public <I> MatsStage<I, S, R> stage(Class<I> incomingClass,
-            Consumer<? super StageConfig<I, S, R>> stageConfigLambda,
-            ProcessLambda<I, S, R> processor) {
+    public <I> MatsStage<R, S, I> stage(Class<I> incomingClass,
+            Consumer<? super StageConfig<R, S, I>> stageConfigLambda,
+            ProcessLambda<R, S, I> processor) {
         // TODO: Refuse adding stages if already started, or if lastStage is added.
         // Make stageId, which is the endpointId for the first, then endpointId.stage1, stage2 etc.
         String stageId = _stages.size() == 0 ? _endpointId : _endpointId + ".stage" + (_stages.size());
-        JmsMatsStage<I, S, R, Z> stage = new JmsMatsStage<>(this, stageId, _queue,
+        JmsMatsStage<R, S, I, Z> stage = new JmsMatsStage<>(this, stageId, _queue,
                 incomingClass, _stateClass, processor);
         // :: Set this next stage's Id on the previous stage, unless we're first, in which case there is no previous.
         if (_stages.size() > 0) {
@@ -79,25 +79,25 @@ public class JmsMatsEndpoint<S, R, Z> implements MatsEndpoint<S, R> {
         _stages.add(stage);
         stageConfigLambda.accept(stage.getStageConfig());
         @SuppressWarnings("unchecked")
-        MatsStage<I, S, R> matsStage = stage;
+        MatsStage<R, S, I> matsStage = stage;
         return matsStage;
     }
 
     @Override
-    public <I> MatsStage<I, S, R> lastStage(Class<I> incomingClass, ProcessReturnLambda<I, S, R> processor) {
+    public <I> MatsStage<R, S, I> lastStage(Class<I> incomingClass, ProcessReturnLambda<R, S, I> processor) {
         return lastStage(incomingClass, MatsFactory.NO_CONFIG, processor);
     }
 
     @Override
-    public <I> MatsStage<I, S, R> lastStage(Class<I> incomingClass,
-            Consumer<? super StageConfig<I, S, R>> stageConfigLambda,
-            com.stolsvik.mats.MatsEndpoint.ProcessReturnLambda<I, S, R> processor) {
+    public <I> MatsStage<R, S, I> lastStage(Class<I> incomingClass,
+            Consumer<? super StageConfig<R, S, I>> stageConfigLambda,
+            com.stolsvik.mats.MatsEndpoint.ProcessReturnLambda<R, S, I> processor) {
         // TODO: Refuse adding stages if already started, or if lastStage is added.
         // :: Wrap a standard ProcessLambda around the ProcessReturnLambda, performing the return-reply convenience.
-        MatsStage<I, S, R> stage = stage(incomingClass, stageConfigLambda,
-                (processContext, incomingDto, state) -> {
+        MatsStage<R, S, I> stage = stage(incomingClass, stageConfigLambda,
+                (processContext, state, incomingDto) -> {
                     // Invoke the ProcessReturnLambda, holding on to the returned value from it.
-                    R replyDto = processor.process(processContext, incomingDto, state);
+                    R replyDto = processor.process(processContext, state, incomingDto);
                     // Replying with the returned value.
                     processContext.reply(replyDto);
                 });
@@ -129,7 +129,7 @@ public class JmsMatsEndpoint<S, R, Z> implements MatsEndpoint<S, R> {
         _stages.forEach(JmsMatsStage::stop);
     }
 
-    private class JmsEndpointConfig implements EndpointConfig<S, R> {
+    private class JmsEndpointConfig implements EndpointConfig<R, S> {
         private int _concurrency;
 
         @Override
@@ -153,7 +153,7 @@ public class JmsMatsEndpoint<S, R, Z> implements MatsEndpoint<S, R> {
 
         @Override
         public boolean isRunning() {
-            for (JmsMatsStage<?, S, R, Z> stage : _stages) {
+            for (JmsMatsStage<R, S, ?, Z> stage : _stages) {
                 if (stage.getStageConfig().isRunning()) {
                     return true;
                 }
@@ -178,9 +178,9 @@ public class JmsMatsEndpoint<S, R, Z> implements MatsEndpoint<S, R> {
 
         @Override
         @SuppressWarnings("unchecked")
-        public List<MatsStage<?, S, R>> getStages() {
+        public List<MatsStage<R, S, ?>> getStages() {
             // Hack to have the compiler shut up.
-            return (List<MatsStage<?, S, R>>) (List<?>) _stages;
+            return (List<MatsStage<R, S, ?>>) (List<?>) _stages;
         }
     }
 }

@@ -30,13 +30,13 @@ public class Test_SimplePublishSubscribe extends MatsBasicTest {
 
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     log.debug("SUBSCRIPTION TERMINATOR 1 MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(dto, sto);
                 });
-        matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     log.debug("SUBSCRIPTION TERMINATOR 2 MatsTrace:\n" + context.toString());
                     matsTestLatch2.resolve(dto, sto);
                 });

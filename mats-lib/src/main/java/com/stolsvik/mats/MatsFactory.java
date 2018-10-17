@@ -30,19 +30,23 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  * {@link #subscriptionTerminator(String, Class, Class, Consumer, Consumer, ProcessTerminatorLambda)
  * subscriptionTerminator(...Consumers)}, as they have different semantics, read the JavaDoc).</i>
  * <p>
- * Regarding order of the Incoming Message, State and Reply Message parameters, which can be a bit annoying to remember
- * when creating endpoints, and when writing {@link ProcessLambda process lambdas}: They are always ordered like this:
- * <b>I, S, R</b>, i.e. Incoming, State, Reply.<br/>
+ * Regarding order of the Reply Message, State and Incoming Message, which can be a bit annoying to remember when
+ * creating endpoints, and when writing {@link ProcessLambda process lambdas}: They are always ordered like this: <b>R,
+ * S, I</b>, i.e. <i>Reply, State, Incoming</i>. This is to resemble a method signature having the implicit {@code this}
+ * (or {@code self}) reference as the first argument: {@code ReturnType methodName(this, arguments)}. Thus, if you
+ * remember that Mats is created to enable you to write messaging oriented endpoints that <i>look like</i> they are
+ * methods, then it might stick! The process lambda thus has args (context, state, incomingMsg), unless it lacks state.
+ * Even if it lacks state, the context is always first, and the incoming message is always last.<br/>
  * Examples:
  * <ul>
  * <li>In a Terminator, you have an incoming message, and state (which the initiator set) - a terminator doesn't reply.
  * The params of the {@link #terminator(String, Class, Class, ProcessTerminatorLambda) terminator}-method of MatsFactory
- * is thus [EndpointId, Incoming Class, State Class, process lambda]. The lambda params of the terminator will be:
- * [Context, Incoming, State]</li>
+ * is thus [EndpointId, State Class, Incoming Class, process lambda]. The lambda params of the terminator will be:
+ * [Context, State, Incoming]</li>
  * <li>For a SingleStage endpoint, you will have incoming message, and reply message - there is no state, since that is
  * an object that traverses between the stages in a multi-stage endpoint, and this endpoint is just a single stage. The
  * params of the {@link #single(String, Class, Class, ProcessSingleLambda)} single stage}-method of MatsFactory is thus
- * [EndpointId, Incoming Class, Reply Class, process lambda]. The lambda params will then be: [Context, Incoming] - the
+ * [EndpointId, Reply Class, Incoming Class, process lambda]. The lambda params will then be: [Context, Incoming] - the
  * reply type is the the return type of the process lambda.</li>
  * </ul>
  *
@@ -76,19 +80,19 @@ public interface MatsFactory extends StartStoppable {
      *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
      *            endpoint to get the message. Typical structure is <code>"OrderService.placeOrder"</code> for public
      *            endpoints, or <code>"OrderService.private.validateOrder"</code> for private (app-internal) endpoints.
-     * @param stateClass
-     *            the class of the State DTO that will be sent along the stages.
      * @param replyClass
      *            the class that this endpoint shall return.
+     * @param stateClass
+     *            the class of the State DTO that will be sent along the stages.
      * @return the {@link MatsEndpoint} on which to add stages.
      */
-    <S, R> MatsEndpoint<S, R> staged(String endpointId, Class<S> stateClass, Class<R> replyClass);
+    <R, S> MatsEndpoint<R, S> staged(String endpointId, Class<R> replyClass, Class<S> stateClass);
 
     /**
      * Variation of {@link #staged(String, Class, Class)} that can be configured "on the fly".
      */
-    <S, R> MatsEndpoint<S, R> staged(String endpointId, Class<S> stateClass, Class<R> replyClass,
-            Consumer<? super EndpointConfig<S, R>> endpointConfigLambda);
+    <R, S> MatsEndpoint<R, S> staged(String endpointId, Class<R> replyClass, Class<S> stateClass,
+            Consumer<? super EndpointConfig<R, S>> endpointConfigLambda);
 
     /**
      * Sets up a {@link MatsEndpoint} that just contains one stage, useful for simple "request the full person data for
@@ -105,28 +109,28 @@ public interface MatsFactory extends StartStoppable {
      *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
      *            endpoint to get the message. Typical structure is <code>"OrderService.placeOrder"</code> for public
      *            endpoints, or <code>"OrderService.private.validateOrder"</code> for private (app-internal) endpoints.
-     * @param incomingClass
-     *            the class of the incoming (typically request) DTO.
      * @param replyClass
      *            the class that this endpoint shall return.
+     * @param incomingClass
+     *            the class of the incoming (typically request) DTO.
      * @param processor
      *            the {@link MatsStage stage} that will be invoked to process the incoming message.
      * @return the {@link MatsEndpoint}, but you should not add any stages to it, as the sole stage is already added.
      */
-    <I, R> MatsEndpoint<Void, R> single(String endpointId,
-            Class<I> incomingClass,
+    <R, I> MatsEndpoint<R, Void> single(String endpointId,
             Class<R> replyClass,
-            ProcessSingleLambda<I, R> processor);
+            Class<I> incomingClass,
+            ProcessSingleLambda<R, I> processor);
 
     /**
      * Variation of {@link #single(String, Class, Class, ProcessSingleLambda)} that can be configured "on the fly".
      */
-    <I, R> MatsEndpoint<Void, R> single(String endpointId,
-            Class<I> incomingClass,
+    <R, I> MatsEndpoint<R, Void> single(String endpointId,
             Class<R> replyClass,
-            Consumer<? super EndpointConfig<Void, R>> endpointConfigLambda,
-            Consumer<? super StageConfig<I, Void, R>> stageConfigLambda,
-            ProcessSingleLambda<I, R> processor);
+            Class<I> incomingClass,
+            Consumer<? super EndpointConfig<R, Void>> endpointConfigLambda,
+            Consumer<? super StageConfig<R, Void, I>> stageConfigLambda,
+            ProcessSingleLambda<R, I> processor);
 
     /**
      * Sets up a {@link MatsEndpoint} that contains a single stage that typically will be the reply-to endpointId for a
@@ -160,31 +164,31 @@ public interface MatsFactory extends StartStoppable {
      *            <code>"OrderService.terminator.validateOrder"</code> for private (app-internal) terminators that is
      *            targeted by the {@link MatsInitiate#replyTo(String, Object) replyTo(endpointId,..)} invocation of an
      *            initiation.
-     * @param incomingClass
-     *            the class of the incoming (typically reply) DTO.
      * @param stateClass
      *            the class of the State DTO that will may be provided by the
      *            {@link MatsInitiate#request(Object, Object) request initiation} (or that was sent along with the
      *            {@link MatsInitiate#send(Object, Object) invocation}).
+     * @param incomingClass
+     *            the class of the incoming (typically reply) DTO.
      * @param processor
      *            the {@link MatsStage stage} that will be invoked to process the incoming message.
      * @return the {@link MatsEndpoint}, but you should not add any stages to it, as the sole stage is already added.
      */
-    <I, S> MatsEndpoint<S, Void> terminator(String endpointId,
-            Class<I> incomingClass,
+    <S, I> MatsEndpoint<Void, S> terminator(String endpointId,
             Class<S> stateClass,
-            ProcessTerminatorLambda<I, S> processor);
+            Class<I> incomingClass,
+            ProcessTerminatorLambda<S, I> processor);
 
     /**
      * Variation of {@link #terminator(String, Class, Class, ProcessTerminatorLambda)} that can be configured "on the
      * fly".
      */
-    <I, S> MatsEndpoint<S, Void> terminator(String endpointId,
-            Class<I> incomingClass,
+    <S, I> MatsEndpoint<Void, S> terminator(String endpointId,
             Class<S> stateClass,
-            Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
-            Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
-            ProcessTerminatorLambda<I, S> processor);
+            Class<I> incomingClass,
+            Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
+            Consumer<? super StageConfig<Void, S, I>> stageConfigLambda,
+            ProcessTerminatorLambda<S, I> processor);
 
     /**
      * Special kind of terminator that, in JMS-style terms, subscribes to a topic instead of listening to a queue (i.e.
@@ -201,27 +205,31 @@ public interface MatsFactory extends StartStoppable {
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
      *            {@link MatsInitiate#to(String)} or {@link MatsInitiate#replyTo(String, Object)} methods for this
      *            endpoint to get the message.
-     * @param incomingClass
-     *            the class of the incoming (typically reply) DTO.
      * @param stateClass
      *            the class of the State DTO that will may be provided by the
      *            {@link MatsInitiate#request(Object, Object) request initiation} (or that was sent along with the
      *            {@link MatsInitiate#send(Object, Object) invocation}).
+     * @param incomingClass
+     *            the class of the incoming (typically reply) DTO.
      * @param processor
      *            the {@link MatsStage stage} that will be invoked to process the incoming message.
      * @return the {@link MatsEndpoint}, but you should not add any stages to it, as the sole stage is already added.
      */
-    <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
-            ProcessTerminatorLambda<I, S> processor);
+    <S, I> MatsEndpoint<Void, S> subscriptionTerminator(String endpointId,
+            Class<S> stateClass,
+            Class<I> incomingClass,
+            ProcessTerminatorLambda<S, I> processor);
 
     /**
      * Variation of {@link #subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)} that can be
      * configured "on the fly", <b>but notice that the concurrency of a SubscriptionTerminator is always 1</b>.
      */
-    <I, S> MatsEndpoint<S, Void> subscriptionTerminator(String endpointId, Class<I> incomingClass, Class<S> stateClass,
-            Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
-            Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
-            ProcessTerminatorLambda<I, S> processor);
+    <S, I> MatsEndpoint<Void, S> subscriptionTerminator(String endpointId,
+            Class<S> stateClass,
+            Class<I> incomingClass,
+            Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
+            Consumer<? super StageConfig<Void, S, I>> stageConfigLambda,
+            ProcessTerminatorLambda<S, I> processor);
 
     /**
      * Creates a new Initiator from which to initiate new Mats processes, i.e. send a message from "outside of Mats" to

@@ -35,23 +35,23 @@ import com.stolsvik.mats.serial.MatsTrace.Call;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStatics {
+public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsStage.class);
 
-    private final JmsMatsEndpoint<S, R, Z> _parentEndpoint;
+    private final JmsMatsEndpoint<R, S, Z> _parentEndpoint;
     private final String _stageId;
     private final boolean _queue;
     private final Class<S> _stateClass;
     private final Class<I> _incomingMessageClass;
-    private final ProcessLambda<I, S, R> _processLambda;
+    private final ProcessLambda<R, S, I> _processLambda;
 
     private final JmsMatsFactory<Z> _parentFactory;
     private final MatsSerializer<Z> _matsJsonSerializer;
 
     private final JmsStageConfig _stageConfig = new JmsStageConfig();
 
-    public JmsMatsStage(JmsMatsEndpoint<S, R, Z> parentEndpoint, String stageId, boolean queue,
-            Class<I> incomingMessageClass, Class<S> stateClass, ProcessLambda<I, S, R> processLambda) {
+    public JmsMatsStage(JmsMatsEndpoint<R, S, Z> parentEndpoint, String stageId, boolean queue,
+            Class<I> incomingMessageClass, Class<S> stateClass, ProcessLambda<R, S, I> processLambda) {
         _parentEndpoint = parentEndpoint;
         _stageId = stageId;
         _queue = queue;
@@ -66,7 +66,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
     }
 
     @Override
-    public StageConfig<I, S, R> getStageConfig() {
+    public StageConfig<R, S, I> getStageConfig() {
         return _stageConfig;
     }
 
@@ -80,7 +80,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
         return _nextStageId;
     }
 
-    JmsMatsEndpoint<S, R, Z> getParentEndpoint() {
+    JmsMatsEndpoint<R, S, Z> getParentEndpoint() {
         return _parentEndpoint;
     }
 
@@ -88,7 +88,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
         return _stageId;
     }
 
-    private final List<JmsMatsStageProcessor<I, S, R, Z>> _stageProcessors = new CopyOnWriteArrayList<>();
+    private final List<JmsMatsStageProcessor<R, S, I, Z>> _stageProcessors = new CopyOnWriteArrayList<>();
     private CountDownLatch _anyProcessorMadeConsumerLatch = new CountDownLatch(1);
 
     @Override
@@ -139,7 +139,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
         _stageProcessors.clear();
     }
 
-    private class JmsStageConfig implements StageConfig<I, S, R> {
+    private class JmsStageConfig implements StageConfig<R, S, I> {
         private int _concurrency;
 
         @Override
@@ -183,13 +183,13 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
      * <p>
      * Package access so that it can be referred to from JavaDoc.
      */
-    static class JmsMatsStageProcessor<I, S, R, Z> implements JmsMatsStatics, JmsMatsTxContextKey {
-        private final JmsMatsStage<I, S, R, Z> _jmsMatsStage;
+    static class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxContextKey {
+        private final JmsMatsStage<R, S, I, Z> _jmsMatsStage;
         private final int _processorNumber;
         private final Thread _processorThread;
         private final TransactionContext _transactionContext;
 
-        JmsMatsStageProcessor(JmsMatsStage<I, S, R, Z> jmsMatsStage, int processorNumber) {
+        JmsMatsStageProcessor(JmsMatsStage<R, S, I, Z> jmsMatsStage, int processorNumber) {
             _jmsMatsStage = jmsMatsStage;
             _processorNumber = processorNumber;
             _processorThread = new Thread(this::runner, THREAD_PREFIX + _jmsMatsStage._stageId + " " + id());
@@ -473,7 +473,7 @@ public class JmsMatsStage<I, S, R, Z> implements MatsStage<I, S, R>, JmsMatsStat
                                 // :: Invoke the process lambda (the actual user code).
                                 _jmsMatsStage._processLambda.process(new JmsMatsProcessContext<>(_jmsMatsStage,
                                         incomingBinaries, incomingStrings, messagesToSend, matsTrace, currentSto),
-                                        incomingDto, currentSto);
+                                        currentSto, incomingDto);
 
                                 sendMatsMessages(log, nanosStart, jmsSession, getFactory(), messagesToSend);
                             });

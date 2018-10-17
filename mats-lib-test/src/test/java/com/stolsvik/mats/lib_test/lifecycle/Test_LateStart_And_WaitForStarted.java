@@ -14,14 +14,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
-    private MatsEndpoint<StateTO, Void> _ep;
+    private MatsEndpoint<Void, StateTO> _ep;
     private CountDownLatch _waitThreadStarted = new CountDownLatch(1);
     private CountDownLatch _waitedForStartupFinished = new CountDownLatch(1);
 
     @Before
     public void setupButDontStartTerminator() {
-        _ep = matsRule.getMatsFactory().staged(TERMINATOR, StateTO.class, Void.class);
-        _ep.stage(DataTO.class, (context, dto, sto) -> {
+        _ep = matsRule.getMatsFactory().staged(TERMINATOR, Void.class, StateTO.class);
+        _ep.stage(DataTO.class, (context, sto, dto) -> {
             log.debug("Stage:\n" + context.toString());
             matsTestLatch.resolve(dto, sto);
         });

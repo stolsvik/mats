@@ -40,8 +40,8 @@ public class Test_SimpleDbTest extends MatsDbTest {
 
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(dto, sto);
                 });

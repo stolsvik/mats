@@ -45,8 +45,8 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
     @Before
     public void setupTerminator_DataDto() {
         // Expecting/Deserializing into the base/parent ("wide") type:
-        matsRule.getMatsFactory().terminator(TERMINATOR + ".DataTO", DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR + ".DataTO", StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(dto, sto);
                 });
@@ -55,8 +55,8 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
     @Before
     public void setupTerminator_SubDataDto() {
         // Expecting/Deserializing into the child ("narrow"/"specific") type:
-        matsRule.getMatsFactory().terminator(TERMINATOR + ".SubDataTO", SubDataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR + ".SubDataTO", StateTO.class, SubDataTO.class,
+                (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(dto, sto);
                 });

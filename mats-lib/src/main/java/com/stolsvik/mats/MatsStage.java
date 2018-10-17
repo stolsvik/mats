@@ -10,12 +10,12 @@ import com.stolsvik.mats.MatsConfig.StartStoppable;
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
-public interface MatsStage<I, S, R> extends StartStoppable {
+public interface MatsStage<R, S, I> extends StartStoppable {
 
     /**
      * @return the {@link StageConfig} for this stage.
      */
-    StageConfig<I, S, R> getStageConfig();
+    StageConfig<R, S, I> getStageConfig();
 
     /**
      * Starts this stage, thereby firing up the queue processing using a set of threads, the number decided by the
@@ -48,7 +48,7 @@ public interface MatsStage<I, S, R> extends StartStoppable {
     /**
      * Provides for both configuring the stage (before it is started), and introspecting the configuration.
      */
-    interface StageConfig<I, S, R> extends MatsConfig {
+    interface StageConfig<R, S, I> extends MatsConfig {
         /**
          * @return the class expected for incoming messages to this process stage.
          */

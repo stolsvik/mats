@@ -42,20 +42,20 @@ public class MatsSpringDefined_StagedEndpoint {
          * Sets up a multi-staged endpoint using the @MatsStaged facility.
          */
         @MatsStaged(endpointId = ENDPOINT_ID + MULTI, state = SpringTestStateTO.class, reply = SpringTestDataTO.class)
-        public void springMatsStagedEndpoint(MatsEndpoint<SpringTestStateTO, SpringTestDataTO> ep) {
-            ep.stage(SpringTestDataTO.class, (context, dto, sto) -> {
+        public void springMatsStagedEndpoint(MatsEndpoint<SpringTestDataTO, SpringTestStateTO> ep) {
+            ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(0, null), sto);
                 sto.number = Integer.MAX_VALUE;
                 sto.string = "some state";
                 context.request(ENDPOINT_ID + LEAF, dto);
             });
-            ep.stage(SpringTestDataTO.class, (context, dto, sto) -> {
+            ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(Integer.MAX_VALUE, "some state"), sto);
                 sto.number = Integer.MIN_VALUE;
                 sto.string = "new state";
                 context.next(new SpringTestDataTO(dto.number * 3, dto.string + ":Nexted"));
             });
-            ep.lastStage(SpringTestDataTO.class, (context, dto, sto) -> {
+            ep.lastStage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(Integer.MIN_VALUE, "new state"), sto);
                 return new SpringTestDataTO(dto.number * 5, dto.string + ":FromStaged");
             });
@@ -66,24 +66,24 @@ public class MatsSpringDefined_StagedEndpoint {
          */
         @MatsStaged(endpointId = ENDPOINT_ID
                 + MULTI_WITH_CONFIG, state = SpringTestStateTO.class, reply = SpringTestDataTO.class)
-        public void springMatsStagedEndpointWithConfig(EndpointConfig<SpringTestStateTO, SpringTestDataTO> config,
-                MatsEndpoint<SpringTestStateTO, SpringTestDataTO> ep) {
+        public void springMatsStagedEndpointWithConfig(EndpointConfig<SpringTestDataTO, SpringTestStateTO> config,
+                MatsEndpoint<SpringTestDataTO, SpringTestStateTO> ep) {
             // Just invoke something on the config instance to check that it is sane
             Assert.assertEquals(1, config.getConcurrency());
             // Set up the stages
-            ep.stage(SpringTestDataTO.class, (context, dto, sto) -> {
+            ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(0, null), sto);
                 sto.number = Integer.MAX_VALUE;
                 sto.string = "some state";
                 context.request(ENDPOINT_ID + LEAF, dto);
             });
-            ep.stage(SpringTestDataTO.class, (context, dto, sto) -> {
+            ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(Integer.MAX_VALUE, "some state"), sto);
                 sto.number = Integer.MIN_VALUE;
                 sto.string = "new state";
                 context.next(new SpringTestDataTO(dto.number * 7, dto.string + ":Nexted"));
             });
-            ep.lastStage(SpringTestDataTO.class, (context, dto, sto) -> {
+            ep.lastStage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(Integer.MIN_VALUE, "new state"), sto);
                 return new SpringTestDataTO(dto.number * 11, dto.string + ":FromStagedWithConfig");
             });
@@ -98,7 +98,7 @@ public class MatsSpringDefined_StagedEndpoint {
             // Just invoke something on the config instance to check that it is sane
             Assert.assertEquals(1, config.getConcurrency());
             // Set up the stages
-            ep.stage(SpringTestDataTO.class, (context, dto, sto) -> {
+            ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 // Void state class should lead to null state.
                 Assert.assertNull(sto);
                 // Resolve directly

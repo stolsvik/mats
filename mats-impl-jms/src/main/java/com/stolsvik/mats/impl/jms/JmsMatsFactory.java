@@ -117,39 +117,37 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public <S, R> JmsMatsEndpoint<S, R, Z> staged(String endpointId, Class<S> stateClass, Class<R> replyClass) {
-        return staged(endpointId, stateClass, replyClass, NO_CONFIG);
+    public <R, S> JmsMatsEndpoint<R, S, Z> staged(String endpointId, Class<R> replyClass, Class<S> stateClass) {
+        return staged(endpointId, replyClass, stateClass, NO_CONFIG);
     }
 
     @Override
-    public <S, R> JmsMatsEndpoint<S, R, Z> staged(String endpointId, Class<S> stateClass, Class<R> replyClass,
-            Consumer<? super EndpointConfig<S, R>> endpointConfigLambda) {
-        JmsMatsEndpoint<S, R, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, stateClass, replyClass);
+    public <R, S> JmsMatsEndpoint<R, S, Z> staged(String endpointId, Class<R> replyClass, Class<S> stateClass,
+            Consumer<? super EndpointConfig<R, S>> endpointConfigLambda) {
+        JmsMatsEndpoint<R, S, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, stateClass, replyClass);
         _createdEndpoints.add(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
         return endpoint;
     }
 
     @Override
-    public <I, R> MatsEndpoint<Void, R> single(String endpointId,
-            Class<I> incomingClass,
-            Class<R> replyClass,
-            ProcessSingleLambda<I, R> processor) {
-        return single(endpointId, incomingClass, replyClass, NO_CONFIG, NO_CONFIG, processor);
+    public <R, I> MatsEndpoint<R, Void> single(String endpointId,
+            Class<R> replyClass, Class<I> incomingClass,
+            ProcessSingleLambda<R, I> processor) {
+        return single(endpointId, replyClass, incomingClass, NO_CONFIG, NO_CONFIG, processor);
     }
 
     @Override
-    public <I, R> JmsMatsEndpoint<Void, R, Z> single(String endpointId,
-            Class<I> incomingClass,
-            Class<R> replyClass,
-            Consumer<? super EndpointConfig<Void, R>> endpointConfigLambda,
-            Consumer<? super StageConfig<I, Void, R>> stageConfigLambda,
-            ProcessSingleLambda<I, R> processor) {
+    public <R, I> JmsMatsEndpoint<R, Void, Z> single(String endpointId,
+            Class<R> replyClass, Class<I> incomingClass,
+            Consumer<? super EndpointConfig<R, Void>> endpointConfigLambda,
+            Consumer<? super StageConfig<R, Void, I>> stageConfigLambda,
+            ProcessSingleLambda<R, I> processor) {
         // Get a normal Staged Endpoint
-        JmsMatsEndpoint<Void, R, Z> endpoint = staged(endpointId, Void.class, replyClass, endpointConfigLambda);
+        JmsMatsEndpoint<R, Void, Z> endpoint = staged(endpointId, replyClass, Void.class, endpointConfigLambda);
         // :: Wrap the ProcessSingleLambda in a single lastStage-ProcessReturnLambda
         endpoint.lastStage(incomingClass, stageConfigLambda,
-                (processContext, incomingDto, state) -> {
+                (processContext, state, incomingDto) -> {
                     // This is just a direct forward - albeit a single stage has no state.
                     return processor.process(processContext, incomingDto);
                 });
@@ -157,37 +155,35 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public <I, S> JmsMatsEndpoint<S, Void, Z> terminator(String endpointId,
-            Class<I> incomingClass,
-            Class<S> stateClass,
-            ProcessTerminatorLambda<I, S> processor) {
+    public <S, I> JmsMatsEndpoint<Void, S, Z> terminator(String endpointId,
+            Class<S> stateClass, Class<I> incomingClass,
+            ProcessTerminatorLambda<S, I> processor) {
         return terminator(true, endpointId, incomingClass, stateClass, NO_CONFIG, NO_CONFIG, processor);
     }
 
     @Override
-    public <I, S> JmsMatsEndpoint<S, Void, Z> terminator(String endpointId,
-            Class<I> incomingClass,
-            Class<S> stateClass,
-            Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
-            Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
-            ProcessTerminatorLambda<I, S> processor) {
+    public <S, I> JmsMatsEndpoint<Void, S, Z> terminator(String endpointId,
+            Class<S> stateClass, Class<I> incomingClass,
+            Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
+            Consumer<? super StageConfig<Void, S, I>> stageConfigLambda,
+            ProcessTerminatorLambda<S, I> processor) {
         return terminator(true, endpointId, incomingClass, stateClass, endpointConfigLambda, stageConfigLambda,
                 processor);
     }
 
     @Override
-    public <I, S> JmsMatsEndpoint<S, Void, Z> subscriptionTerminator(String endpointId, Class<I> incomingClass,
-            Class<S> stateClass,
-            ProcessTerminatorLambda<I, S> processor) {
+    public <S, I> JmsMatsEndpoint<Void, S, Z> subscriptionTerminator(String endpointId, Class<S> stateClass,
+            Class<I> incomingClass,
+            ProcessTerminatorLambda<S, I> processor) {
         return terminator(false, endpointId, incomingClass, stateClass, NO_CONFIG, NO_CONFIG, processor);
     }
 
     @Override
-    public <I, S> JmsMatsEndpoint<S, Void, Z> subscriptionTerminator(String endpointId, Class<I> incomingClass,
-            Class<S> stateClass,
-            Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
-            Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
-            ProcessTerminatorLambda<I, S> processor) {
+    public <S, I> JmsMatsEndpoint<Void, S, Z> subscriptionTerminator(String endpointId, Class<S> stateClass,
+            Class<I> incomingClass,
+            Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
+            Consumer<? super StageConfig<Void, S, I>> stageConfigLambda,
+            ProcessTerminatorLambda<S, I> processor) {
         return terminator(false, endpointId, incomingClass, stateClass, endpointConfigLambda, stageConfigLambda,
                 processor);
     }
@@ -195,23 +191,23 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     /**
      * INTERNAL method, since terminator(...) and subscriptionTerminator(...) are near identical.
      */
-    private <S, I> JmsMatsEndpoint<S, Void, Z> terminator(boolean queue, String endpointId,
+    private <S, I> JmsMatsEndpoint<Void, S, Z> terminator(boolean queue, String endpointId,
             Class<I> incomingClass,
             Class<S> stateClass,
-            Consumer<? super EndpointConfig<S, Void>> endpointConfigLambda,
-            Consumer<? super StageConfig<I, S, Void>> stageConfigLambda,
-            ProcessTerminatorLambda<I, S> processor) {
+            Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
+            Consumer<? super StageConfig<Void, S, I>> stageConfigLambda,
+            ProcessTerminatorLambda<S, I> processor) {
         // Need to create the JmsMatsEndpoint ourselves, since we need to set the queue-parameter.
-        JmsMatsEndpoint<S, Void, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, queue, stateClass,
+        JmsMatsEndpoint<Void, S, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, queue, stateClass,
                 Void.class);
         _createdEndpoints.add(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
         // :: Wrap the ProcessTerminatorLambda in a single lastStage-ProcessReturnLambda
         // TODO: Use stage, and then finishSetup() instead - so that we don't have to return null?
         endpoint.lastStage(incomingClass, stageConfigLambda,
-                (processContext, incomingDto, state) -> {
+                (processContext, state, incomingDto) -> {
                     // This is just a direct forward - there is no difference from a ProcessReturnLambda ...
-                    processor.process(processContext, incomingDto, state);
+                    processor.process(processContext, state, incomingDto);
                     // ... except we have no reply (Void reply type).
                     return null;
                 });

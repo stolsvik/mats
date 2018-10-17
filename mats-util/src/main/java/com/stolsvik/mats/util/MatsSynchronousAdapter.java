@@ -72,7 +72,7 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
 
     private final MatsInitiator _matsInitiator;
     private final String _completingSubscriptionEndpointId;
-    private final MatsEndpoint<String, Void> _completingSubscriptionTerminator;
+    private final MatsEndpoint<Void, String> _completingSubscriptionTerminator;
 
     private MatsSynchronousAdapter(MatsFactory matsFactory, MatsInitiator matsInitiator, String returnEndpointIdPrefix,
             Class<R> replyClass) {
@@ -89,8 +89,8 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
 
         // :: Create the SubscriptionTerminator that will complete futures.
         _completingSubscriptionTerminator = matsFactory.subscriptionTerminator(_completingSubscriptionEndpointId,
-                replyClass, String.class,
-                (context, reply, correlationId) -> {
+                String.class, replyClass,
+                (context, correlationId, reply) -> {
                     // Find and remove the Future's promise, using the state String which acts as Correlation Id.
                     WaitingPromise<R> promise;
                     synchronized (_outstandingPromises) {

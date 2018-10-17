@@ -46,15 +46,15 @@ public class Test_MultiLevelMultiStage extends MatsBasicTest {
 
     @Before
     public void setupMidMultiStagedService() {
-        MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE + ".Mid", StateTO.class,
-                DataTO.class);
-        ep.stage(DataTO.class, (context, dto, sto) -> {
+        MatsEndpoint<DataTO, StateTO> ep = matsRule.getMatsFactory().staged(SERVICE + ".Mid", DataTO.class, StateTO.class
+        );
+        ep.stage(DataTO.class, (context, sto, dto) -> {
             Assert.assertEquals(new StateTO(0, 0), sto);
             sto.number1 = 10;
             sto.number2 = Math.PI;
             context.request(SERVICE + ".Leaf", dto);
         });
-        ep.lastStage(DataTO.class, (context, dto, sto) -> {
+        ep.lastStage(DataTO.class, (context, sto, dto) -> {
             Assert.assertEquals(new StateTO(10, Math.PI), sto);
             return new DataTO(dto.number * 3, dto.string + ":FromMidService");
         });
@@ -62,20 +62,20 @@ public class Test_MultiLevelMultiStage extends MatsBasicTest {
 
     @Before
     public void setupMasterMultiStagedService() {
-        MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE, StateTO.class, DataTO.class);
-        ep.stage(DataTO.class, (context, dto, sto) -> {
+        MatsEndpoint<DataTO, StateTO> ep = matsRule.getMatsFactory().staged(SERVICE, DataTO.class, StateTO.class);
+        ep.stage(DataTO.class, (context, sto, dto) -> {
             Assert.assertEquals(new StateTO(0, 0), sto);
             sto.number1 = Integer.MAX_VALUE;
             sto.number2 = Math.E;
             context.request(SERVICE + ".Mid", dto);
         });
-        ep.stage(DataTO.class, (context, dto, sto) -> {
+        ep.stage(DataTO.class, (context, sto, dto) -> {
             Assert.assertEquals(new StateTO(Integer.MAX_VALUE, Math.E), sto);
             sto.number1 = Integer.MIN_VALUE;
             sto.number2 = Math.E * 2;
             context.request(SERVICE + ".Leaf", dto);
         });
-        ep.lastStage(DataTO.class, (context, dto, sto) -> {
+        ep.lastStage(DataTO.class, (context, sto, dto) -> {
             Assert.assertEquals(new StateTO(Integer.MIN_VALUE, Math.E * 2), sto);
             return new DataTO(dto.number * 5, dto.string + ":FromMasterService");
         });
@@ -83,8 +83,8 @@ public class Test_MultiLevelMultiStage extends MatsBasicTest {
 
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(dto, sto);
                 });

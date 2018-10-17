@@ -30,7 +30,7 @@ public class Test_ConcurrencyPerStage extends ATest_AbstractConcurrency {
     @Before
     public void setupService() {
         // :: Configuring endpoint to use 4 as concurrency.
-        MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE, StateTO.class, DataTO.class,
+        MatsEndpoint<DataTO, StateTO> ep = matsRule.getMatsFactory().staged(SERVICE, DataTO.class, StateTO.class,
                 (endpointConfig) -> {
                     endpointConfig.setConcurrency(CONCURRENCY_TEST / 2);
                 });
@@ -39,14 +39,14 @@ public class Test_ConcurrencyPerStage extends ATest_AbstractConcurrency {
                 (stageConfig) -> {
                     stageConfig.setConcurrency(CONCURRENCY_TEST);
                 } ,
-                (context, dto, state) -> {
+                (context, state, dto) -> {
                     // Emulate some lengthy processing...
                     takeNap(PROCESSING_TIME / 2); // Half of total
                     context.next(new DataTO(dto.number * 2, dto.string + ":InitialStage"));
                 });
         // :: This stage uses the Endpoint's configured concurrency of 4.
         ep.lastStage(DataTO.class,
-                (context, dto, state) -> {
+                (context, state, dto) -> {
                     // Emulate some lengthy processing...
                     takeNap(PROCESSING_TIME / (2 * 2)); // Half of total, and half number of procs of CONCURRENCY_TEST
                     return new DataTO(dto.number * 3, dto.string + ":FromService:" + ((int) dto.number / 2));

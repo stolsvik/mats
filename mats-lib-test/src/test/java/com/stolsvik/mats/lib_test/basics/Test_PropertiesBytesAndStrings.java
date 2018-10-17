@@ -28,8 +28,8 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
     @Before
     public void setupMultiStageService() {
-        MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE, StateTO.class, DataTO.class);
-        ep.stage(DataTO.class, (context, dto, sto) -> {
+        MatsEndpoint<DataTO, StateTO> ep = matsRule.getMatsFactory().staged(SERVICE, DataTO.class, StateTO.class);
+        ep.stage(DataTO.class, (context, sto, dto) -> {
             Assert.assertEquals(new StateTO(0, 0), sto);
             sto.number1 = Integer.MAX_VALUE;
             sto.number2 = Math.E;
@@ -42,7 +42,7 @@ public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
 
             context.next(new DataTO(dto.number * 2, dto.string + ":InitialStage"));
         });
-        ep.lastStage(DataTO.class, (context, dto, sto) -> {
+        ep.lastStage(DataTO.class, (context, sto, dto) -> {
             Assert.assertEquals(new StateTO(Integer.MAX_VALUE, Math.E), sto);
 
             byte[] bytes = context.getBytes("bytes");
@@ -57,8 +57,8 @@ public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
 
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     _bytes = context.getBytes("bytes");
                     _string = context.getString("string");

@@ -35,8 +35,8 @@ public class Test_SimpleReplyToSubscription extends MatsBasicTest {
 
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR + "_Subscription", DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR + "_Subscription", StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     log.debug("SUBSCRIPTION TERMINATOR MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(dto, sto);
                 });

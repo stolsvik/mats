@@ -56,20 +56,20 @@ public class Test_InitiateWithinStage extends MatsBasicTest {
 
     @Before
     public void setupTerminators() {
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     log.debug("Normal TERMINATOR MatsTrace:\n" + context.toString());
                     _traceId = context.getTraceId();
                     matsTestLatch.resolve(dto, sto);
                 });
-        matsRule.getMatsFactory().terminator(TERMINATOR + "_stageInit1", DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR + "_stageInit1", StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     log.debug("StageInit1 TERMINATOR MatsTrace:\n" + context.toString());
                     _traceId_stageInit1 = context.getTraceId();
                     matsTestLatch_stageInit1.resolve(dto, sto);
                 });
-        matsRule.getMatsFactory().terminator(TERMINATOR + "_stageInit2", DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
+        matsRule.getMatsFactory().terminator(TERMINATOR + "_stageInit2", StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
                     log.debug("StageInit2 TERMINATOR MatsTrace:\n" + context.toString());
                     _traceId_stageInit2 = context.getTraceId();
                     matsTestLatch_stageInit2.resolve(dto, sto);
