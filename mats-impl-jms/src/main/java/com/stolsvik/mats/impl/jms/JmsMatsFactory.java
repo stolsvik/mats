@@ -62,7 +62,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         _jmsMatsTransactionManager = jmsMatsTransactionManager;
         _matsSerializer = matsSerializer;
         _factoryConfig = new JmsMatsFactoryConfig();
-        log.info(LOG_PREFIX + "Created [" + id(this) + "].");
+        log.info(LOG_PREFIX + "Created [" + idThis() + "].");
     }
 
     private static String getHostname_internal() {
@@ -228,7 +228,10 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     @Override
     public void start() {
-        log.info(LOG_PREFIX + "Starting [" + id(this) + "], thus starting all created endpoints.");
+        log.info(LOG_PREFIX + "Starting [" + idThis() + "], thus starting all created endpoints.");
+        // First setting the "hold" to false, so if any subsequent endpoints are added, they will auto-start.
+        _holdEndpointsUntilFactoryIsStarted = false;
+        // :: Now start all the already configured endpoints
         for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
             try {
                 endpoint.start();
@@ -237,7 +240,6 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
                 log.warn("Got some throwable when starting endpoint [" + endpoint + "].", t);
             }
         }
-        _holdEndpointsUntilFactoryIsStarted = false;
     }
 
     private volatile boolean _holdEndpointsUntilFactoryIsStarted;
@@ -258,7 +260,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     @Override
     public void stop() {
-        log.info(LOG_PREFIX + "Stopping [" + id(this)
+        log.info(LOG_PREFIX + "Stopping [" + idThis()
                 + "], thus starting/closing all created endpoints and initiators.");
         for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
             try {
