@@ -23,9 +23,6 @@ public interface MatsStage<R, S, I> extends StartStoppable {
      * <p>
      * Will generally be invoked implicitly by {@link MatsEndpoint#start()}. The only reason for calling this should be
      * if its corresponding {@link #stop()} method has been invoked to stop processing.
-     * <p>
-     * If the parent {@link MatsFactory} is stopped when this method is invoked, this endpoint will not start until the
-     * factory is started.
      */
     @Override
     void start();

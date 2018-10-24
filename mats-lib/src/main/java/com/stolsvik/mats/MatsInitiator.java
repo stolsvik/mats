@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
+import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 
 /**
@@ -38,13 +39,50 @@ public interface MatsInitiator extends Closeable {
      * @param lambda
      *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
      * @throws MatsBackendRuntimeException
-     *             if the Mats implementation cannot connect to the underlying message queue.
+     *             if the Mats implementation cannot connect to the underlying message broker, or are having problems
+     *             interacting with it.
      * @throws MatsMessageSendRuntimeException
      *             if the Mats implementation cannot send the messages after it has executed the initiation lambda and
      *             committed external resources - please read the JavaDoc of {@link MatsMessageSendException}.
      */
     void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
             MatsMessageSendRuntimeException;
+
+    /**
+     * Unstashes a Mats Flow that have been previously {@link ProcessContext#stash() stashed}. To be able to deserialize
+     * the stashed bytes to instances provided to the supplied {@link ProcessLambda}, you need to provide the classes of
+     * the original stage's Reply, State and Incoming objects.
+     *
+     * @param stash
+     *            the stashed bytes which now should be unstashed
+     * @param replyClass
+     *            the class which the original stage originally would reply with.
+     * @param stateClass
+     *            the class which used for state in the original stage (endpoint) - or Void.class if none.
+     * @param incomingClass
+     *            the class which the original stage gets as incoming DTO.
+     * @param lambda
+     *            the stage lambda which should now be executed instead of the original stage lambda where stash was
+     *            invoked.
+     * @param <R>
+     *            type of the ReplyClass
+     * @param <S>
+     *            type of the StateClass
+     * @param <I>
+     *            type of the IncomingClass
+     *
+     * @throws MatsBackendException
+     *             if the Mats implementation cannot connect to the underlying message broker, or are having problems
+     *             interacting with it.
+     * @throws MatsMessageSendException
+     *             if the Mats implementation cannot send the messages after it has executed the initiation lambda and
+     *             committed external resources - please read the JavaDoc of that class.
+     */
+    <R, S, I> void unstash(byte[] stash,
+            Class<R> replyClass,
+            Class<S> stateClass,
+            Class<I> incomingClass,
+            ProcessLambda<R, S, I> lambda) throws MatsBackendException, MatsMessageSendException;
 
     /**
      * Will be thrown by the {@link MatsInitiator#initiate(InitiateLambda)}-method if it is not possible at this time to
@@ -72,18 +110,19 @@ public interface MatsInitiator extends Closeable {
      * This is a rare, but unfortunate situation, but which is hard to guard completely against, in particular in the
      * "Best Effort 1-Phase Commit" paradigm that the current Mats implementations runs on. What it means, is that if
      * you e.g. in the initiate-lambda did some "job allocation" logic on a table in a database, and based on that
-     * allocation sent out e.g. 5 messages, the job allocation will now have happened, but the messages have not been
-     * sent. The result is that in the database, you will see those jobs as executed, but in reality the downstream
-     * endpoints never started working on them.
+     * allocation sent out e.g. 5 messages, the job <i>allocation</i> will now have happened, but the <i>messages have
+     * not been sent</i>. The result is that in the database, you will see those jobs as executed, but in reality the
+     * downstream endpoints never started working on them.
      * <p>
      * This situation can to a degree be alleviated if you catch this exception, and then use a <i>compensating
      * transaction</i> to de-allocate the jobs in the database again. However, since bad things often happen in
      * clusters, you might not be able to do the de-allocation either (due to the database having failed at the same
      * instant). A way to at least catch when this happens, is to first set those jobs to a status like "ALLOCATED"
      * (along with a column with a timestamp of when they were allocated), and then in the terminator endpoint (which
-     * you specify in the initiation), you set the status to "DONE". Assuming that in normal conditions such jobs should
-     * always be processed in seconds, you can now make some health check that scans the table for rows which have been
-     * in the "ALLOCATED" status for e.g. 15 minutes: Such rows are very suspicious, and should be checked up by humans.
+     * you specify in the initiation), you set the status to "DONE". (You could also, right after the initiation
+     * finishes without exception, set the status to "SENT"). Assuming that in normal conditions such jobs should always
+     * be processed in seconds, you can now make some health check that scans the table for rows which have been in the
+     * "ALLOCATED" status for e.g. 15 minutes: Such rows are very suspicious, and should be checked up by humans.
      * <p>
      * Please note that this should, in a somewhat stable operations environment, happen extremely seldom: What needs to
      * occur for this to happen, is that between the commit of the database, and the commit of the message broker, the
@@ -92,9 +131,9 @@ public interface MatsInitiator extends Closeable {
      * employing a handling as outlined above.
      * <p>
      * PS: Best effort 1PC: Two transactions are opened: one for the message broker, and one for the database. The
-     * business logic and possibly database reads and changes are performed. The database is committed first (as that
+     * business logic and possibly database reads and changes are performed. The database is committed first, as that
      * has many more failure scenarios than the message systems, e.g. data or code problems giving integrity constraint
-     * violations, and spurious stuff like MS SQL's deadlock victim, etc) - and then the message queue is committed. The
+     * violations, and spurious stuff like MS SQL's deadlock victim, etc. Then the message queue is committed, as the
      * only reason for the message broker to not handle a commit is basically that you've had infrastructure problems
      * like connectivity issues or that the broker has crashed.
      * <p>
@@ -117,8 +156,6 @@ public interface MatsInitiator extends Closeable {
     /**
      * Unchecked variant of the {@link MatsBackendException}, thrown from the {@link #initiateUnchecked(InitiateLambda)}
      * variant of initiate().
-     *
-     * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
      */
     class MatsBackendRuntimeException extends RuntimeException {
         public MatsBackendRuntimeException(String message) {
@@ -133,8 +170,6 @@ public interface MatsInitiator extends Closeable {
     /**
      * Unchecked variant of the {@link MatsMessageSendException}, thrown from the
      * {@link #initiateUnchecked(InitiateLambda)} variant of initiate().
-     *
-     * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
      */
     class MatsMessageSendRuntimeException extends RuntimeException {
         public MatsMessageSendRuntimeException(String message) {
@@ -179,10 +214,10 @@ public interface MatsInitiator extends Closeable {
          * <p>
          * The traceId follows a MATS processing from the initiation until it is finished, usually in a Terminator.
          * <p>
-         * <b>It is highly suggested to use small, dense, information rich Trace Ids.</b> Sticking in an UUID as Trace
-         * Id certainly fulfils the uniqueness-requirement, but it is a crappy solution, as it by itself does not give
-         * any hint of source, cause, relevant entities, or goal. <i>(It isn't even dense for the uniqueness an UUID
-         * gives, which also is way above the required uniqueness unless you handle billions of such messages per
+         * <b>It is strongly recommended to use small, dense, information rich Trace Ids.</b> Sticking in an UUID as
+         * Trace Id certainly fulfils the uniqueness-requirement, but it is a crappy solution, as it by itself does not
+         * give any hint of source, cause, relevant entities, or goal. <i>(It isn't even dense for the uniqueness an
+         * UUID gives, which also is way above the required uniqueness unless you handle billions of such messages per
          * minute. A random alphanum (a-z,0-9) and much smaller string would give plenty enough uniqueness).</i> The
          * following would be a much better Trace Id, which follows some scheme that could be system wide:
          * "Web.placeOrder[cid:43512][cart:xa4ru5285fej]qz7apy9". From this example TraceId we could infer that it
@@ -251,10 +286,11 @@ public interface MatsInitiator extends Closeable {
          * This implies that MATS defines two levels of prioritization: "Ordinary" and "Interactive". Most processing
          * should employ the default, i.e. "Ordinary", while places where <i><u>a human is actually waiting for the
          * reply</u></i> should employ the fast-lane, i.e. "Interactive". It is important here to not abuse this
-         * feature, or else it will loose its value: If any batches are going to slow, nothing will be gained by setting
-         * the interactive flag - instead use higher parallelism, by increasing {@link MatsConfig#setConcurrency(int)
-         * concurrency} or the number of nodes running the problematic endpoint or stage (or just code it to be
-         * faster!).
+         * feature, or else it will loose its value: If batches are going too slow, nothing will be gained by setting
+         * the interactive flag except destroying the entire point of this feature. Instead use higher parallelism: By
+         * increasing {@link MatsConfig#setConcurrency(int) concurrency}, or the number of nodes, running the
+         * problematic endpoint or stage; increase the speed and/or throughput of external systems like the database; or
+         * somehow just code the whole thing to be faster!
          * <p>
          * It will often make sense to set both this flag, and the {@link #nonPersistent()}, at the same time. E.g. when
          * you need to show the account balance for a customer: It both needs to skip past any bulk/batch set of such

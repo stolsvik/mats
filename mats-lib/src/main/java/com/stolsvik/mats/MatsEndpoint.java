@@ -9,7 +9,7 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsStage.StageConfig;
 
 /**
- * Represents a MATS Endpoint.
+ * Represents a MATS Endpoint - you create instances from the {@link MatsFactory} (or use the Spring integration).
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
@@ -21,7 +21,9 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
     EndpointConfig<R, S> getEndpointConfig();
 
     /**
-     * Adds a new stage to a multi-stage endpoint.
+     * Adds a new stage to a multi-stage endpoint. If this is the last stage of a multi-stage endpoint, you must invoke
+     * {@link #finishSetup()} afterwards - or you could instead use the {@link #lastStage(Class, ProcessReturnLambda)}
+     * variant which does this automatically.
      *
      * @param <I>
      *            the type of the incoming DTO. The very first stage's incoming DTO is the endpoint's incoming DTO.
@@ -37,10 +39,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
             ProcessLambda<R, S, I> processor);
 
     /**
-     * Adds the last stage to a multi-stage endpoint, which also starts the endpoint. Note that the last-stage concept
-     * is just a convenience that lets the developer reply from the endpoint with a <code>return replyDTO</code>
-     * statement - you may just as well add a standard stage, and invoke the {@link ProcessContext#reply(Object)} method
-     * (and remember to start it, as that is then obviously not done automatically).
+     * Adds the last stage to a multi-stage endpoint, which also {@link #finishSetup() finishes setup} of the endpoint.
+     * Note that the last-stage concept is just a convenience that lets the developer reply from the endpoint with a
+     * <code>return replyDTO</code> statement - you may just as well add a standard stage, and invoke the
+     * {@link ProcessContext#reply(Object)} method. Note: If using a normal stage as the last stage, you must remember
+     * to invoke {@link #finishSetup()} afterwards, as that is then not done automatically.
      *
      * @param <I>
      *            the type of the incoming DTO. The very first stage's incoming DTO is the endpoint's incoming DTO.
@@ -93,9 +96,9 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      */
     interface EndpointConfig<R, S> extends MatsConfig {
         /**
-         * @return the class expected for incoming messages to this endpoint (decided by the first {@link MatsStage}).
+         * @return the class that will be sent as reply for this endpoint.
          */
-        Class<?> getIncomingMessageClass();
+        Class<R> getReplyClass();
 
         /**
          * @return the class used for the endpoint's state.
@@ -103,9 +106,9 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         Class<S> getStateClass();
 
         /**
-         * @return the class that will be sent as reply for this endpoint.
+         * @return the class expected for incoming messages to this endpoint (decided by the first {@link MatsStage}).
          */
-        Class<R> getReplyClass();
+        Class<?> getIncomingMessageClass();
 
         /**
          * @return a List of {@link MatsStage}s, representing all the stages of the endpoint. The order is the same as
@@ -118,7 +121,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
     /**
      * The part of {@link ProcessContext} that exposes the "getter" side of the context, which enables it to be exposed
      * outside of the process lambda. It is effectively the "passive" parts of the context, i.e. not initiating new
-     * messages, setting properties etc. Look for usage in the "SynchronousAdapter" tool.
+     * messages, setting properties etc. Look for usage in the "SynchronousAdapter" tool in the tools-lib.
      */
     interface DetachedProcessContext {
         /**
@@ -252,6 +255,84 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         void setTraceProperty(String propertyName, Object propertyValue);
 
         /**
+         * Returns a binary representation of the current Mats flow's incoming execution point, which can be
+         * {@link MatsInitiator#unstash(byte[], Class, Class, Class, ProcessLambda) unstashed} again at a later time
+         * using the {@link MatsInitiator}, thereby providing a simplistic "continuation" feature in Mats. You will have
+         * to find storage for these bytes yourself - an obvious place is the co-transactional database that the stage
+         * typically has available. This feature gives the ability to "pause" the current Mats flow, and later restore
+         * the execution from where it left off, probably with some new information that have been gathered in the
+         * meantime. This can typically relieve the Mats Stage Processing thread from having to wait for another
+         * service's execution (whose execution must then be handled by some other thread). This could be a longer
+         * running process, or a process whose execution time is variable, maybe residing on a Mats-external service
+         * structure: E.g. some REST service that sometimes lags, or sometimes is down in smaller periods. Or a service
+         * on a different Message Broker. Once this "Mats external" processing has finished, that thread can invoke
+         * {@link MatsInitiator#unstash(byte[], Class, Class, Class, ProcessLambda) unstash(stashBytes,...)} to get the
+         * Mats flow going again. Notice that functionally, the unstash-operation is a kind of initiation, only that
+         * this type of initiation doesn't start a <i>new</i> Mats flow, rather <i>continuing an existing flow</i>.
+         * <p>
+         * <b>Notice that this feature should not typically be used to "park" a Mats flow for days.</b> One might have a
+         * situation where a part of an order flow potentially needs manual handling, e.g. validating a person's
+         * identity if this has not been validated before. It might (should!) be tempting to employ the stash function
+         * then: Stash the Mats flow in a database. Make a GUI where the ID-validation can be performed by some
+         * employee. When the ID is either accepted or denied, you unstash the Mats flow with the result, getting a very
+         * nice continuous mats flow for new orders which is identical whether or not ID validation needs to be
+         * performed. However, if this ID-validation process can take days or weeks to execute, it will be a poor
+         * candidate for the stash-feature. The reason is that embedded within the execution context which you get a
+         * binary serialization of, there might be several serialized <i>state</i> representations of the endpoints
+         * laying upstream of this call flow. When you "freeze" these by invoking stash, you have immediately made a
+         * potential future deserialization-crash if you change the code of those upstream endpoints (which quite
+         * probably resides in different code bases than the one employing the stash feature), specifically changes of
+         * the state classes they employ: When you deploy these code changes while having multiple flows frozen in
+         * stashes, you will have a problem when they are later unstashed and the Mats flow returns to those endpoints
+         * whose state classes won't deserialize back anymore. It is worth noting that you always have these problems
+         * when doing deploys where the state classes of Mats endpoints change - it is just that usually, there won't be
+         * any, and at least not many, such flows in execution at the precise deploy moment (and also, that changing the
+         * state classes are in practice really not that frequent). However, by stashing over days, instead of a normal
+         * Mats flow that take seconds, you massively increase the time window in which such deserialization problems
+         * can occur. You at least have to consider this if employing the stash-functionality.
+         * <p>
+         * <b>Note about data and metadata which should be stored along with the stash-bytes:</b> You only get a binary
+         * serialized incoming execution context in return from this method (which includes the incoming message,
+         * incoming state, the execution stack and {@link ProcessContext#getTraceProperty(String, Class) trace
+         * properties}, but not "sideloaded" {@link ProcessContext#getBytes(String) bytes} and
+         * {@link ProcessContext#getString(String) strings}). The returned byte array are utterly opaque seen from the
+         * Mats API side (however, depending on the serialization mechanism employed in the Mats implementation, you
+         * might be able to peek into them anyway - but this should at most be used for debugging/monitoring
+         * introspection). Therefore, any information from the incoming message, or from your state object, or anything
+         * else from the {@link DetachedProcessContext} which is needed to actually execute the job that should be
+         * performed outside of the Mats flow, <u>must be picked out manually</u> before exiting the process lambda.
+         * This also goes for "sideloaded" objects ({@link ProcessContext#getBytes(String) bytes} and
+         * {@link ProcessContext#getString(String) strings}) - which will not be available inside the unstashed process
+         * lambda (they are not a part of the stash-bytes). Also, you should for debugging/monitoring purposes also
+         * store at least the Mats flow's {@link ProcessContext#getTraceId() TraceId} and a timestamp along with the
+         * stash and data. You should probably also have some kind of monitoring / health checks for stashes that have
+         * become stale - i.e. stashes that have not been unstashed for a considerable time, and whose Mats flow have
+         * thus stopped up, and where the downstream endpoints/stages therefore will not get invoked.
+         * <p>
+         * <b>Notes:</b>
+         * <ul>
+         * <li>Invoking {@code stash()} will not affect the stage processing in any way other than producing a
+         * serialized representation of the current incoming execution point. You can still send out messages. You could
+         * even reply, but then, what would be the point of stashing?</li>
+         * <li>Repeated invocations within the same stage will yield (effectively) the same stash, as any processing
+         * done inside the stage before invoking {@code stash()} don't affect the <i>incoming</i> execution point.</li>
+         * <li>You will have to exit the current process lambda yourself - meaning that this cannot be used in a
+         * {@link MatsEndpoint#lastStage(Class, ProcessReturnLambda) lastStage}, as you cannot return from such a stage
+         * without actually sending a reply ({@code return null} replies with {@code null}). Instead employ a
+         * {@link MatsEndpoint#stage(Class, ProcessLambda) normal stage}, using {@link ProcessContext#reply(Object)} to
+         * return a reply if needed.</li>
+         * <li>Mats won't care if you unstash() the same stash multiple times, but your downstream parts of the Mats
+         * flow might find this a bit strange.</li>
+         * </ul>
+         *
+         * @return a binary representation of the current Mats flow's incoming execution point (i.e. any incoming state
+         *         and the incoming message - along with the Mats flow stack at this point). It shall start with the 4
+         *         ASCII letters "MATS", and then 4 more letters representing which mechanism is employed to construct
+         *         the rest of the byte array.
+         */
+        byte[] stash();
+
+        /**
          * Sends a request message, meaning that the specified endpoint will be invoked, with the reply-to endpointId
          * set to the next stage in the multi-stage endpoint. This will throw if the current process stage is a
          * terminator, single-stage endpoint or the last endpoint of a multi-stage endpoint, as there then is no next
@@ -351,8 +432,8 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
     /**
      * Can be thrown by any of the {@link ProcessLambda}s of the {@link MatsStage}s to denote that it would prefer this
      * message to be instantly put on a <i>Dead Letter Queue</i>. This is just advisory - the message might still be
-     * presented a number of times to the {@link MatsStage} in question (i.e. for the backend-configured number of retries,
-     * e.g. default 1 delivery + 5 redeliveries for ActiveMQ).
+     * presented a number of times to the {@link MatsStage} in question (i.e. for the backend-configured number of
+     * retries, e.g. default 1 delivery + 5 redeliveries for ActiveMQ).
      *
      * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
      */

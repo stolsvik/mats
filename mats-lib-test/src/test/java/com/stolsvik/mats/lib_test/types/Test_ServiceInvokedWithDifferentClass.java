@@ -53,7 +53,7 @@ public class Test_ServiceInvokedWithDifferentClass extends MatsBasicTest {
         matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, SubDataTO.class,
                 (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
-                    matsTestLatch.resolve(dto, sto);
+                    matsTestLatch.resolve(sto, dto);
                 });
 
     }
@@ -70,7 +70,7 @@ public class Test_ServiceInvokedWithDifferentClass extends MatsBasicTest {
                         .request(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<SubDataTO, StateTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, SubDataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         SubDataTO data = result.getData();
 

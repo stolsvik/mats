@@ -84,7 +84,7 @@ public class Test_TraceProperties extends MatsBasicTest {
                     _objectPropFromService_terminator = context.getTraceProperty("objectPropFromService", DataTO.class);
 
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
-                    matsTestLatch.resolve(dto, sto);
+                    matsTestLatch.resolve(sto, dto);
                 });
 
     }
@@ -105,7 +105,7 @@ public class Test_TraceProperties extends MatsBasicTest {
                     _objectPropFromService_terminator_initiatedWithinService_setInInitiation = context.getTraceProperty("objectPropInitiatedWithinService", DataTO.class);
 
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
-                    _secondLatch.resolve(dto, sto);
+                    _secondLatch.resolve(sto, dto);
                 });
 
     }
@@ -124,7 +124,7 @@ public class Test_TraceProperties extends MatsBasicTest {
                         .request(dto));
 
         // ::: Wait synchronously for terminator to finish.
-        Result<DataTO, StateTO> primaryResult = matsTestLatch.waitForResult();
+        Result<StateTO, DataTO> primaryResult = matsTestLatch.waitForResult();
 
         Assert.assertEquals(sto, primaryResult.getState());
         Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), primaryResult.getData());
@@ -142,7 +142,7 @@ public class Test_TraceProperties extends MatsBasicTest {
         Assert.assertEquals(new DataTO(Math.PI, "xyz"), _objectPropFromService_terminator);
 
         // ::: Now get the result for the secondary Terminator, which gets a message initiated from within the service.
-        Result<DataTO, StateTO> resultInitiatedWithinService = _secondLatch.waitForResult();
+        Result<StateTO, DataTO> resultInitiatedWithinService = _secondLatch.waitForResult();
         Assert.assertEquals(new StateTO(42, 420.024), resultInitiatedWithinService.getState());
         Assert.assertEquals(new DataTO(13.14, "qwerty"), resultInitiatedWithinService.getData());
 

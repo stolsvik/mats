@@ -187,11 +187,18 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
 
     @Override
     public DeserializedMatsTrace<String> deserializeMatsTrace(byte[] matsTraceBytes, String meta) {
+        return deserializeMatsTrace(matsTraceBytes, 0, matsTraceBytes.length, meta);
+    }
+
+    @Override
+    public DeserializedMatsTrace<String> deserializeMatsTrace(byte[] matsTraceBytes, int offset, int length,
+            String meta) {
         try {
             long nanosStart = System.nanoTime();
-            byte[] decompressedBytes;
-            double decompressionMillis = 0;
-            long nanosAfterDecompression;
+            double decompressionMillis;
+            long nanosStartDeserialization;
+
+            int decompressedBytesLength;
 
             // ?: Is there a colon in the meta string?
             if (meta.indexOf(':') != -1) {
@@ -201,24 +208,37 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
                 meta = meta.substring(meta.indexOf(':') + 1);
             }
 
+            MatsTrace<String> matsTrace;
             if (meta.startsWith(COMPRESS_DEFLATE)) {
-                // -> Compressed, so decompress it
-                decompressedBytes = decompress(matsTraceBytes);
-                nanosAfterDecompression = System.nanoTime();
-                decompressionMillis = (nanosAfterDecompression - nanosStart) / 1_000_000d;
+                // -> Compressed, so decompress the incoming bytes
+                // Decompress
+                byte[] decompressedBytes = decompress(matsTraceBytes, offset, length, matsTraceBytes.length * 10);
+                // Begin deserialization time
+                nanosStartDeserialization = System.nanoTime();
+                // Store how long it took to decompress
+                decompressionMillis = (nanosStartDeserialization - nanosStart) / 1_000_000d;
+                // Store the size of the decompressed array
+                decompressedBytesLength = decompressedBytes.length;
+                // Deserialize using the entire decompressed byte array
+                matsTrace = _matsTraceJson_Reader.readValue(decompressedBytes);
             }
             else if (meta.startsWith(COMPRESS_PLAIN)) {
-                // -> Plain, no compression - so just set the 'decompressedBytes' directly to the incoming bytes.
-                decompressedBytes = matsTraceBytes;
-                nanosAfterDecompression = nanosStart;
+                // -> Plain, no compression - use the incoming bytes directly
+                // There is no decompression, so we "start deserialization timer" at the beginning.
+                nanosStartDeserialization = nanosStart;
+                // It per definition takes 0 nanos to NOT decompress.
+                decompressionMillis = 0d;
+                // The decompressed bytes length is the same as the incoming length, since we do not decompress.
+                decompressedBytesLength = length;
+                // Deserialize directly from the incoming bytes, using offset and length.
+                matsTrace = _matsTraceJson_Reader.readValue(matsTraceBytes, offset, length);
             }
             else {
                 throw new AssertionError("Can only deserialize 'plain' and 'deflate'.");
             }
 
-            MatsTrace<String> matsTrace = _matsTraceJson_Reader.readValue(decompressedBytes);
-            double deserializationMillis = (System.nanoTime() - nanosAfterDecompression) / 1_000_000d;
-            return new DeserializedMatsTraceImpl(matsTrace, decompressedBytes.length, deserializationMillis,
+            double deserializationMillis = (System.nanoTime() - nanosStartDeserialization) / 1_000_000d;
+            return new DeserializedMatsTraceImpl(matsTrace, decompressedBytesLength, deserializationMillis,
                     decompressionMillis);
         }
         catch (IOException e) {
@@ -331,7 +351,8 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
         try {
             deflater.setInput(data);
             deflater.setLevel(Deflater.BEST_COMPRESSION);
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length);
+            // Hoping for at least 50% reduction, so set "best guess" to half incoming
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length / 2);
             deflater.finish();
             byte[] buffer = new byte[2048];
             while (!deflater.finished()) {
@@ -352,13 +373,13 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
         }
     }
 
-    protected byte[] decompress(byte[] data) {
+    protected byte[] decompress(byte[] data, int offset, int length, int bestGuessTargetSize) {
         // OPTIMIZE: Use Object Pool for decompressor-instances with Inflater and byte array.
         // This pool could possibly be a simple lock-free stack, if stack is empty, make a new instance.
         Inflater inflater = new Inflater();
         try {
-            inflater.setInput(data);
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length * 10);
+            inflater.setInput(data, offset, length);
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream(bestGuessTargetSize);
             byte[] buffer = new byte[4096];
             while (!inflater.finished()) {
                 try {

@@ -46,7 +46,6 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
     private final ProcessLambda<R, S, I> _processLambda;
 
     private final JmsMatsFactory<Z> _parentFactory;
-    private final MatsSerializer<Z> _matsJsonSerializer;
 
     private final JmsStageConfig _stageConfig = new JmsStageConfig();
 
@@ -60,7 +59,6 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         _processLambda = processLambda;
 
         _parentFactory = _parentEndpoint.getParentFactory();
-        _matsJsonSerializer = _parentFactory.getMatsSerializer();
 
         log.info(LOG_PREFIX + "Created Stage [" + id(_stageId, this) + "].");
     }
@@ -342,8 +340,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                         }
                     }
                     Session jmsSession = _jmsSessionHolder.getSession();
-                    FactoryConfig factoryConfig = _jmsMatsStage._parentEndpoint.getParentFactory().getFactoryConfig();
-                    Destination destination = createJmsDestination(jmsSession, factoryConfig);
+                    Destination destination = createJmsDestination(jmsSession, getFactory().getFactoryConfig());
                     MessageConsumer jmsConsumer = jmsSession.createConsumer(destination);
 
                     // We've established the consumer, and hence will start to receive messages and process them.
@@ -391,8 +388,9 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                 byte[] matsTraceBytes;
                                 String matsTraceMeta;
                                 try {
-                                    matsTraceBytes = mapMessage.getBytes(factoryConfig.getMatsTraceKey());
-                                    matsTraceMeta = mapMessage.getString(factoryConfig.getMatsTraceKey()
+                                    String matsTraceKey = getFactory().getFactoryConfig().getMatsTraceKey();
+                                    matsTraceBytes = mapMessage.getBytes(matsTraceKey);
+                                    matsTraceMeta = mapMessage.getString(matsTraceKey
                                             + MatsSerializer.META_KEY_POSTFIX);
                                 }
                                 catch (JMSException e) {
@@ -401,7 +399,8 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                             + " Pretty crazy.", e);
                                 }
 
-                                DeserializedMatsTrace<Z> matsTraceDeserialized = _jmsMatsStage._matsJsonSerializer
+                                MatsSerializer<Z> matsSerializer = getFactory().getMatsSerializer();
+                                DeserializedMatsTrace<Z> matsTraceDeserialized = matsSerializer
                                         .deserializeMatsTrace(matsTraceBytes, matsTraceMeta);
                                 MatsTrace<Z> matsTrace = matsTraceDeserialized.getMatsTrace();
 
@@ -416,18 +415,18 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                     throw new MatsRefuseMessageException(msg);
                                 }
 
-                                // :: Current State. If null, then make an empty object instead, unless Void.
+                                // :: Current State: If null, make an empty object instead, unless Void, which is null.
                                 Z currentSerializedState = matsTrace.getCurrentState();
                                 S currentSto = (currentSerializedState == null
                                         ? (_jmsMatsStage._stateClass != Void.class
-                                                ? _jmsMatsStage._matsJsonSerializer.newInstance(
+                                                ? matsSerializer.newInstance(
                                                         _jmsMatsStage._stateClass)
                                                 : null)
-                                        : _jmsMatsStage._matsJsonSerializer.deserializeObject(currentSerializedState,
+                                        : matsSerializer.deserializeObject(currentSerializedState,
                                                 _jmsMatsStage._stateClass));
 
-                                // :: Incoming DTO
-                                I incomingDto = _jmsMatsStage._matsJsonSerializer.deserializeObject(currentCall
+                                // :: Incoming Message DTO
+                                I incomingDto = matsSerializer.deserializeObject(currentCall
                                         .getData(), _jmsMatsStage._incomingMessageClass);
 
                                 double nanosTaken = (System.nanoTime() - nanosStart) / 1_000_000d;
@@ -440,9 +439,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                         + matsTraceDeserialized.getMillisDeserialization()
                                         + " ms]->MT - tot w/DTO&STO:[" + nanosTaken + " ms].");
 
-                                List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
-
-                                // :: Getting the 'sideloads', byte-arrays and Strings from the MapMessage.
+                                // :: Getting the 'sideloads'; Byte-arrays and Strings from the MapMessage.
                                 LinkedHashMap<String, byte[]> incomingBinaries = new LinkedHashMap<>();
                                 LinkedHashMap<String, String> incomingStrings = new LinkedHashMap<>();
                                 try {
@@ -471,8 +468,18 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                 }
 
                                 // :: Invoke the process lambda (the actual user code).
-                                _jmsMatsStage._processLambda.process(new JmsMatsProcessContext<>(_jmsMatsStage,
-                                        incomingBinaries, incomingStrings, messagesToSend, matsTrace, currentSto),
+                                List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
+
+                                _jmsMatsStage._processLambda.process(new JmsMatsProcessContext<>(
+                                        getFactory(),
+                                        _jmsMatsStage.getParentEndpoint().getEndpointId(),
+                                        _jmsMatsStage.getStageId(),
+                                        _jmsMatsStage.getNextStageId(),
+                                        matsTraceBytes, 0, matsTraceBytes.length, matsTraceMeta,
+                                        matsTrace,
+                                        currentSto,
+                                        incomingBinaries, incomingStrings,
+                                        messagesToSend),
                                         currentSto, incomingDto);
 
                                 sendMatsMessages(log, nanosStart, jmsSession, getFactory(), messagesToSend);

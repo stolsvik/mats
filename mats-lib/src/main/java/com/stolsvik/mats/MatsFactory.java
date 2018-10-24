@@ -257,11 +257,11 @@ public interface MatsFactory extends StartStoppable {
     /**
      * <b>If this method is invoked before any endpoint is created, the endpoints will not start even though
      * {@link MatsEndpoint#finishSetup()} is invoked on them, but will wait till {@link #start()} is invoked on the
-     * factory.</b> This feature should be employed in most setups where the MATS endpoints might use other services
-     * whose order of creation and initialization are difficult to fully control, e.g. typically in an IoC container
-     * like Spring: Set all stuff up, where order is not of importance, and <i>then</i> fire up the endpoints. If this
-     * is not done, the endpoints might start consuming messages off of the MQ (there might already be messages waiting
-     * when the service boots), and thus invoke other services that are not yet fully up.
+     * factory.</b> This feature should be employed in most setups where the MATS endpoints might use other services or
+     * components whose order of creation and initialization are difficult to fully control, e.g. typically in an IoC
+     * container like Spring. Set all stuff up, where order is not of importance, and <i>then</i> fire up the endpoints.
+     * If this is not done, the endpoints might start consuming messages off of the MQ (there might already be messages
+     * waiting when the service boots), and thus invoke services/components that are not yet fully up.
      */
     void holdEndpointsUntilFactoryIsStarted();
 

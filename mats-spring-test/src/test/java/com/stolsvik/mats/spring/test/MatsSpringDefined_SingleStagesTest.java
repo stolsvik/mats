@@ -132,7 +132,7 @@ public class MatsSpringDefined_SingleStagesTest {
          */
         @MatsMapping(endpointId = ENDPOINT_ID + TERMINATOR)
         public void springMatsTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
-            _latch.resolve(msg, state);
+            _latch.resolve(state, msg);
         }
     }
 
@@ -202,7 +202,7 @@ public class MatsSpringDefined_SingleStagesTest {
                     }
                 });
 
-        Result<SpringTestDataTO, SpringTestStateTO> result = _latch.waitForResult();
+        Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         if (requestSto != null) {
             Assert.assertEquals(new SpringTestDataTO(dto.number * requestSto.number,

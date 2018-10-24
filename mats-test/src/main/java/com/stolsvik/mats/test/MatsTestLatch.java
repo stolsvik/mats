@@ -1,7 +1,6 @@
 package com.stolsvik.mats.test;
 
-import java.util.HashMap;
-import java.util.Map;
+import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 
 /**
  * Test-utility: Gives a latch-functionality facilitating communication back from typically a Mats Terminator to the
@@ -11,14 +10,12 @@ import java.util.Map;
  */
 public class MatsTestLatch {
 
-    public interface Result<I, S> {
-        I getData();
+    public interface Result<S, I> {
+        DetachedProcessContext getContext();
 
         S getState();
 
-        Map<String, byte[]> getBinaries();
-
-        Map<String, String> getStrings();
+        I getData();
     }
 
     /**
@@ -26,7 +23,7 @@ public class MatsTestLatch {
      *
      * @return same as {@link #waitForResult(long)}.
      */
-    public <I, S> Result<I, S> waitForResult() {
+    public <S, I> Result<S, I> waitForResult() {
         return waitForResult(2500);
     }
 
@@ -39,7 +36,7 @@ public class MatsTestLatch {
      *            the max time to wait.
      * @return the {@link Result}. Throws {@link AssertionError} if not gotten within timeout.
      */
-    public <I, S> Result<I, S> waitForResult(long timeout) {
+    public <S, I> Result<S, I> waitForResult(long timeout) {
         synchronized (this) {
             if (!_resolved) {
                 try {
@@ -54,17 +51,16 @@ public class MatsTestLatch {
                 throw new AssertionError("After waiting for " + timeout + " ms, the result was not present.");
             }
 
-            Result<I, S> result = new Result<I, S>() {
+            Result<S, I> result = new Result<S, I>() {
                 @SuppressWarnings("unchecked")
                 private I _idto = (I) _dto;
                 @SuppressWarnings("unchecked")
                 private S _isto = (S) _sto;
-                private Map<String, byte[]> _ibinaries = _binaries;
-                private Map<String, String> _istrings = _strings;
+                private DetachedProcessContext _icontext = _context;
 
                 @Override
-                public I getData() {
-                    return _idto;
+                public DetachedProcessContext getContext() {
+                    return _icontext;
                 }
 
                 @Override
@@ -73,13 +69,8 @@ public class MatsTestLatch {
                 }
 
                 @Override
-                public Map<String, byte[]> getBinaries() {
-                    return _ibinaries;
-                }
-
-                @Override
-                public Map<String, String> getStrings() {
-                    return _istrings;
+                public I getData() {
+                    return _idto;
                 }
             };
 
@@ -87,8 +78,7 @@ public class MatsTestLatch {
             _resolved = false;
             _sto = null;
             _dto = null;
-            _binaries = new HashMap<>();
-            _strings = new HashMap<>();
+            _context = null;
             return result;
         }
     }
@@ -96,19 +86,19 @@ public class MatsTestLatch {
     private boolean _resolved;
     private Object _dto;
     private Object _sto;
-    private Map<String, byte[]> _binaries = new HashMap<>();
-    private Map<String, String> _strings = new HashMap<>();
+    private DetachedProcessContext _context;
 
     /**
-     * When this method is invoked, the waiting threads will be released. Thus, if you want to populate the key-value
-     * maps with the result, you need to invoke those methods before.
+     * When this method is invoked, the waiting threads will be released - <b>this variant does not take the
+     * ProcessContext</b>, use {@link #resolve(DetachedProcessContext, Object, Object) the other one}!
      *
-     * @param dto
-     *            the incoming state object that the Mats processor initially received.
      * @param sto
      *            State object.
+     * @param dto
+     *            the incoming state object that the Mats processor initially received.
+     * @see #resolve(DetachedProcessContext, Object, Object)
      */
-    public void resolve(Object dto, Object sto) {
+    public void resolve(Object sto, Object dto) {
         synchronized (this) {
             if (_resolved) {
                 throw new IllegalStateException("Already set, but not consumed: Cannot set again.");
@@ -119,4 +109,28 @@ public class MatsTestLatch {
             this.notifyAll();
         }
     }
+
+    /**
+     * When this method is invoked, the waiting threads will be released.
+     *
+     * @param context
+     *            (Detached)ProcessContext
+     * @param sto
+     *            State object.
+     * @param dto
+     *            the incoming state object that the Mats processor initially received.
+     */
+    public void resolve(DetachedProcessContext context, Object sto, Object dto) {
+        synchronized (this) {
+            if (_resolved) {
+                throw new IllegalStateException("Already set, but not consumed: Cannot set again.");
+            }
+            _resolved = true;
+            _dto = dto;
+            _sto = sto;
+            _context = context;
+            this.notifyAll();
+        }
+    }
+
 }

@@ -102,7 +102,7 @@ public class MatsSpringDefined_StagedEndpoint {
                 // Void state class should lead to null state.
                 Assert.assertNull(sto);
                 // Resolve directly
-                _latch.resolve(new SpringTestDataTO(dto.number * 17, dto.string + ":FromSingleVoidVoid"), sto);
+                _latch.resolve(sto, new SpringTestDataTO(dto.number * 17, dto.string + ":FromSingleVoidVoid"));
             });
             // Must invoke .start(), since we're not invoking lastStage.
             ep.start();
@@ -124,7 +124,7 @@ public class MatsSpringDefined_StagedEndpoint {
          */
         @MatsMapping(endpointId = ENDPOINT_ID + TERMINATOR)
         public void springMatsSingleEndpoint_Dto(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO sto) {
-            _latch.resolve(msg, sto);
+            _latch.resolve(sto, msg);
         }
     }
 
@@ -146,7 +146,7 @@ public class MatsSpringDefined_StagedEndpoint {
                     .request(dto);
         });
 
-        Result<SpringTestDataTO, SpringTestStateTO> result = _latch.waitForResult();
+        Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new SpringTestDataTO(dto.number * 2 * 3 * 5, dto.string + ":FromLeaf:Nexted:FromStaged"),
                 result.getData());
@@ -164,7 +164,7 @@ public class MatsSpringDefined_StagedEndpoint {
                     .request(dto);
         });
 
-        Result<SpringTestDataTO, SpringTestStateTO> result = _latch.waitForResult();
+        Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new SpringTestDataTO(dto.number * 2 * 7 * 11,
                 dto.string + ":FromLeaf:Nexted:FromStagedWithConfig"), result.getData());
@@ -180,7 +180,7 @@ public class MatsSpringDefined_StagedEndpoint {
                     .send(dto);
         });
 
-        Result<SpringTestDataTO, Void> result = _latch.waitForResult();
+        Result<Void, SpringTestDataTO> result = _latch.waitForResult();
 
         Assert.assertNull(result.getState()); // Void state class should lead to null state.
         Assert.assertEquals(new SpringTestDataTO(dto.number * 17,

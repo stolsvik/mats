@@ -35,7 +35,7 @@ public class Test_SendAlongStateWithRequest extends MatsBasicTest {
         MatsEndpoint<DataTO, StateTO> ep = matsRule.getMatsFactory().staged(SERVICE, DataTO.class, StateTO.class);
         ep.stage(DataTO.class, (context, sto, dto) -> {
             log.debug("STAGE 0 MatsTrace:\n" + context.toString());
-            matsTestLatch.resolve(dto, sto);
+            matsTestLatch.resolve(sto, dto);
         });
 
         // We need to manually start it, since we did not employ lastStage.
@@ -54,7 +54,7 @@ public class Test_SendAlongStateWithRequest extends MatsBasicTest {
                         .request(requestDto, initialTargetSto));
 
         // Wait synchronously for terminator to finish.
-        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(requestDto, result.getData());
         Assert.assertEquals(initialTargetSto, result.getState());
     }

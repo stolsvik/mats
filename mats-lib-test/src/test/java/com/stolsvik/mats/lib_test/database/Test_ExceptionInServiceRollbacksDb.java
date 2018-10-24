@@ -48,7 +48,7 @@ public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
     @Before
     public void setupTerminator() {
         matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
-                (context, sto, dto) -> matsTestLatch.resolve(dto, sto));
+                (context, sto, dto) -> matsTestLatch.resolve(sto, dto));
     }
 
     /**
@@ -78,7 +78,7 @@ public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
                 });
 
         // Wait synchronously for terminator to finish.
-        Result<DataTO, StateTO> result = matsTestLatch.waitForResult(WAIT_MILLIS);
+        Result<StateTO, DataTO> result = matsTestLatch.waitForResult(WAIT_MILLIS);
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), result.getData());
 

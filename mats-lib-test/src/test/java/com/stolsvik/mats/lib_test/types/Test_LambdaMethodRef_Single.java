@@ -45,7 +45,7 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
         matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, SubDataTO.class,
                 (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
-                    matsTestLatch.resolve(dto, sto);
+                    matsTestLatch.resolve(sto, dto);
                 });
 
     }
@@ -62,7 +62,7 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
                         .request(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
 
         // Note that for the "MatchTypes", the type of the incoming will actually be a SubDataTO, as that is what
@@ -82,7 +82,7 @@ public class Test_LambdaMethodRef_Single extends MatsBasicTest {
                         .request(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<SubDataTO, StateTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, SubDataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new SubDataTO(dto.number * 4, dto.string + WIDE_TYPES, dto.string + (Math.PI * 2)),
                 result.getData());

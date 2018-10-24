@@ -36,7 +36,7 @@ public class TestApp {
                         .replyTo(TestMatsEndpoint.ENDPOINT_ID + ".Terminator", sto)
                         .request(dto, requstSto));
 
-        Result<SpringTestDataTO, SpringTestStateTO> result = _testBean._latch.waitForResult();
+        Result<SpringTestStateTO, SpringTestDataTO> result = _testBean._latch.waitForResult();
         System.out.println("Reply: " + result.getData());
         System.out.println("State: " + result.getState());
     }

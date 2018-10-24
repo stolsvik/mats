@@ -114,7 +114,24 @@ public interface MatsSerializer<Z> {
     }
 
     /**
-     * Used for deserializing a byte array into a {@link MatsTrace}
+     * Used for deserializing a byte array into a {@link MatsTrace} - this includes offset and length.
+     *
+     * @param serialized
+     *            the byte array from which to reconstitute the {@link MatsTrace}.
+     * @param offset
+     *            from where to start in the byte array.
+     * @param offset
+     *            from where to start in the byte array.
+     * @param meta
+     *            some meta information that the deserialized needs back {@link SerializedMatsTrace#getMeta() from the
+     *            serialization process}.
+     * @return the reconstituted {@link MatsTrace}.
+     * @see #META_KEY_POSTFIX
+     */
+    DeserializedMatsTrace<Z> deserializeMatsTrace(byte[] serialized, int offset, int len, String meta);
+
+    /**
+     * Used for deserializing a byte array into a {@link MatsTrace} - this uses the entire byte array.
      *
      * @param serialized
      *            the byte array from which to reconstitute the {@link MatsTrace}.

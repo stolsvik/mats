@@ -1,7 +1,5 @@
 package com.stolsvik.mats.spring.experiment;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import com.stolsvik.mats.spring.Dto;
@@ -22,7 +20,7 @@ public class TestMatsEndpoint {
      */
     @MatsMapping(endpointId = ENDPOINT_ID + ".Terminator")
     public void springMatsTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
-        _latch.resolve(msg, state);
+        _latch.resolve(state, msg);
     }
 
     /**

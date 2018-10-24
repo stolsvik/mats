@@ -50,7 +50,7 @@ public class MatsSpringDefined_TerminatorsTest {
          */
         @MatsMapping(endpointId = ENDPOINT_ID + TERMINATOR)
         public void springMatsSingleEndpoint(SpringTestDataTO msg) {
-            _latch.resolve(msg, null);
+            _latch.resolve(null, msg);
         }
 
         /**
@@ -58,7 +58,7 @@ public class MatsSpringDefined_TerminatorsTest {
          */
         @MatsMapping(endpointId = ENDPOINT_ID + TERMINATOR_DTO)
         public void springMatsSingleEndpoint_Dto(@Dto SpringTestDataTO msg) {
-            _latch.resolve(msg, null);
+            _latch.resolve(null, msg);
         }
 
         /**
@@ -66,7 +66,7 @@ public class MatsSpringDefined_TerminatorsTest {
          */
         @MatsMapping(endpointId = ENDPOINT_ID + TERMINATOR_DTO_STO)
         public void springMatsSingleWithStateEndpoint_Dto_Sto(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
-            _latch.resolve(msg, state);
+            _latch.resolve(state, msg);
         }
 
         /**
@@ -74,7 +74,7 @@ public class MatsSpringDefined_TerminatorsTest {
          */
         @MatsMapping(endpointId = ENDPOINT_ID + TERMINATOR_STO_DTO)
         public void springMatsSingleWithStateEndpoint_Sto_Dto(@Sto SpringTestStateTO state, @Dto SpringTestDataTO msg) {
-            _latch.resolve(msg, state);
+            _latch.resolve(state, msg);
         }
 
         // == Permutations WITH ProcessContext
@@ -85,7 +85,7 @@ public class MatsSpringDefined_TerminatorsTest {
         @MatsMapping(endpointId = ENDPOINT_ID + TERMINATOR_CONTEXT)
         public void springMatsSingleEndpoint_Context(ProcessContext<Void> context, SpringTestDataTO msg) {
             Assert.assertEquals("test_trace_id" + TERMINATOR_CONTEXT, context.getTraceId());
-            _latch.resolve(msg, null);
+            _latch.resolve(null, msg);
         }
 
         /**
@@ -94,7 +94,7 @@ public class MatsSpringDefined_TerminatorsTest {
         @MatsMapping(endpointId = ENDPOINT_ID + TERMINATOR_CONTEXT_DTO)
         public void springMatsSingleEndpoint_Context_Dto(ProcessContext<Void> context, @Dto SpringTestDataTO msg) {
             Assert.assertEquals("test_trace_id" + TERMINATOR_CONTEXT_DTO, context.getTraceId());
-            _latch.resolve(msg, null);
+            _latch.resolve(null, msg);
         }
 
         /**
@@ -104,7 +104,7 @@ public class MatsSpringDefined_TerminatorsTest {
         public void springMatsSingleEndpoint_Context_Dto_Sto(ProcessContext<Void> context,
                 @Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
             Assert.assertEquals("test_trace_id" + TERMINATOR_CONTEXT_DTO_STO, context.getTraceId());
-            _latch.resolve(msg, state);
+            _latch.resolve(state, msg);
         }
 
         /**
@@ -114,7 +114,7 @@ public class MatsSpringDefined_TerminatorsTest {
         public void springMatsSingleEndpoint_Context_Sto_Dto(ProcessContext<Void> context,
                 @Sto SpringTestStateTO state, @Dto SpringTestDataTO msg) {
             Assert.assertEquals("test_trace_id" + TERMINATOR_CONTEXT_STO_DTO, context.getTraceId());
-            _latch.resolve(msg, state);
+            _latch.resolve(state, msg);
         }
     }
 
@@ -182,7 +182,7 @@ public class MatsSpringDefined_TerminatorsTest {
                     }
                 });
 
-        Result<SpringTestDataTO, SpringTestStateTO> result = _latch.waitForResult();
+        Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
         Assert.assertEquals(dto, result.getData());
         Assert.assertEquals(requestSto, result.getState());
     }

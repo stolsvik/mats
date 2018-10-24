@@ -20,7 +20,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 
 public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(JmsMatsJmsSessionHandler_Simple.class);
+    private static final Logger log = LoggerFactory.getLogger(JmsMatsJmsSessionHandler_Pooling.class);
 
     private final JmsConnectionSupplier _jmsConnectionSupplier;
 
@@ -225,10 +225,14 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
          *            the session holder to be closed (also physically).
          */
         void close(JmsSessionHolderImpl jmsSessionHolder) {
+            int available, employed;
+            synchronized (this) {
+                available = _availableSessionHolders.size();
+                employed = _employedSessionHolders.size();
+            }
             log.warn(LOG_PREFIX + "close() from [" + jmsSessionHolder + "] on [" + this
                     + "] - physically closing Session, and then removing from 'employed' set - not enpooling back to"
-                    + " 'available' set. (currently: available:[" + _availableSessionHolders.size()
-                    + "], employed:[" + _employedSessionHolders.size() + "]).");
+                    + " 'available' set. (before: available:[" + available + "], employed:[" + employed + "]).");
             boolean closeJmsConnection = removeSessionHolderFromEmployed_AndRemoveConnectionAndSessionsIfEmpty(
                     jmsSessionHolder);
             // ?: Was this the last SessionHolder in use?
@@ -262,9 +266,15 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
          *            the Exception that was deemed as a JMS crash.
          */
         void crashed(JmsSessionHolderImpl jmsSessionHolder, Throwable reasonException) {
+            int available, employed;
+            synchronized (this) {
+                available = _availableSessionHolders.size();
+                employed = _employedSessionHolders.size();
+            }
+
             log.warn(LOG_PREFIX + "crashed() from [" + jmsSessionHolder + "] on [" + this
                     + "] - crashing: Closing JMS Connection, which closes all its Sessions. (currently available:["
-                    + _availableSessionHolders.size() + "], employed:[" + _employedSessionHolders.size() + "]).");
+                    + available + "], employed:[" + employed + "]).");
             // ?: Are we already crashed?
             if (_crashed_StackTrace != null) {
                 // -> Yes, so then everything should already have been taken care of.

@@ -50,7 +50,7 @@ public class MatsSpringDefined_MultipleMappingsTest {
         @MatsMapping(endpointId = ENDPOINT_ID + TERMINATOR2)
         public void springMatsSingleEndpoint_Dto(ProcessContext<Void> ctx,
                 @Dto SpringTestDataTO msg, @Sto SpringTestStateTO sto) {
-            _latch.resolve(new SpringTestDataTO(msg.number * 3, msg.string + ctx.getEndpointId()), sto);
+            _latch.resolve(sto, new SpringTestDataTO(msg.number * 3, msg.string + ctx.getEndpointId()));
         }
     }
 
@@ -72,7 +72,7 @@ public class MatsSpringDefined_MultipleMappingsTest {
                     .request(dto);
         });
 
-        Result<SpringTestDataTO, SpringTestStateTO> result = _latch.waitForResult();
+        Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new SpringTestDataTO(dto.number * 2 * 3, dto.string + ENDPOINT_ID + SINGLE1
                 + ENDPOINT_ID + TERMINATOR1), result.getData());
@@ -90,7 +90,7 @@ public class MatsSpringDefined_MultipleMappingsTest {
                     .request(dto);
         });
 
-        Result<SpringTestDataTO, SpringTestStateTO> result = _latch.waitForResult();
+        Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new SpringTestDataTO(dto.number * 2 * 3, dto.string + ENDPOINT_ID + SINGLE2
                 + ENDPOINT_ID + TERMINATOR2), result.getData());

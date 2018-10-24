@@ -48,7 +48,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
         matsRule.getMatsFactory().terminator(TERMINATOR + ".DataTO", StateTO.class, DataTO.class,
                 (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
-                    matsTestLatch.resolve(dto, sto);
+                    matsTestLatch.resolve(sto, dto);
                 });
     }
 
@@ -58,7 +58,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
         matsRule.getMatsFactory().terminator(TERMINATOR + ".SubDataTO", StateTO.class, SubDataTO.class,
                 (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
-                    matsTestLatch.resolve(dto, sto);
+                    matsTestLatch.resolve(sto, dto);
                 });
     }
 
@@ -81,7 +81,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
                 .request(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<StateTO, SubDataTO> result = matsTestLatch.waitForResult();
+        Result<SubDataTO, StateTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new SubDataTO(dto.number * 2, dto.string + ":FromService_SubDataTO", "SubDataTO_Specific"),
                 result.getData());
@@ -99,7 +99,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
                 .request(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService_SubDataTO"), result.getData());
     }
@@ -116,7 +116,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
                 .request(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<SubDataTO, StateTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, SubDataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new SubDataTO(dto.number * 2, dto.string + ":FromService_DataTO", null),
                 result.getData());

@@ -53,7 +53,7 @@ public class Test_MutilStageNext extends MatsBasicTest {
         matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
                 (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
-                    matsTestLatch.resolve(dto, sto);
+                    matsTestLatch.resolve(sto, dto);
                 });
     }
 
@@ -69,7 +69,7 @@ public class Test_MutilStageNext extends MatsBasicTest {
                         .request(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 5,
                 dto.string + ":InitialStage" + ":Stage1" + ":ReplyStage"),

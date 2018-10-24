@@ -87,14 +87,11 @@ public interface JmsMatsStatics {
      * <b>Notice that the props-, bytes- and Strings-Maps come back cleared.</b>
      */
     default <Z> JmsMatsMessage<Z> produceJmsMatsMessage(Logger log, long nanosStart,
-            JmsMatsFactory<Z> jmsMatsFactory,
+            MatsSerializer<Z> serializer,
             MatsTrace<Z> outgoingMatsTrace,
             HashMap<String, Object> props,
             HashMap<String, byte[]> bytes,
             HashMap<String, String> strings, String what) {
-        // Get the serializer
-        MatsSerializer<Z> serializer = jmsMatsFactory.getMatsSerializer();
-
         // :: Add the MatsTrace properties
         for (Entry<String, Object> entry : props.entrySet()) {
             outgoingMatsTrace.setTraceProperty(entry.getKey(), serializer.serializeObject(entry.getValue()));
@@ -221,9 +218,9 @@ public interface JmsMatsStatics {
         long nanosFinal = System.nanoTime();
         double millisCloseProducer = (nanosFinal - nanosStartClosingProducer) / 1_000_000d;
         double millisTotal = (nanosFinal - nanosStart) / 1_000_000d;
-        log.info("SENT [" + messagesToSend.size() + "] messages: Creating producer:[" + millisCreateProducer
-                + "], sending messages:[" + millisSendingMessags + "], closing producer:[" + millisCloseProducer
-                + "] - total:[" + millisTotal + "].");
+        log.info(LOG_PREFIX + "SENT [" + messagesToSend.size() + "] messages: Creating producer:["
+                + millisCreateProducer + "], sending messages:[" + millisSendingMessags + "], closing producer:["
+                + millisCloseProducer + "] - total:[" + millisTotal + "].");
     }
 
     default String id(String what, Object obj) {

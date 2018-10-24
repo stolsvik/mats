@@ -23,7 +23,7 @@ public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
         _ep = matsRule.getMatsFactory().staged(TERMINATOR, Void.class, StateTO.class);
         _ep.stage(DataTO.class, (context, sto, dto) -> {
             log.debug("Stage:\n" + context.toString());
-            matsTestLatch.resolve(dto, sto);
+            matsTestLatch.resolve(sto, dto);
         });
     }
 
@@ -67,7 +67,7 @@ public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
         _ep.start();
 
         // Wait synchronously for terminator to finish, which now should happen pretty fast.
-        Result<DataTO, StateTO> result = matsTestLatch.waitForResult(1000);
+        Result<StateTO, DataTO> result = matsTestLatch.waitForResult(1000);
         Assert.assertEquals(dto, result.getData());
 
         // The waiter should either already have gotten through the waiting, or is in the process of doing so.

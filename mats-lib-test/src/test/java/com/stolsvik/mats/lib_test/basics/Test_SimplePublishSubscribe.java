@@ -33,12 +33,12 @@ public class Test_SimplePublishSubscribe extends MatsBasicTest {
         matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, StateTO.class, DataTO.class,
                 (context, sto, dto) -> {
                     log.debug("SUBSCRIPTION TERMINATOR 1 MatsTrace:\n" + context.toString());
-                    matsTestLatch.resolve(dto, sto);
+                    matsTestLatch.resolve(sto, dto);
                 });
         matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, StateTO.class, DataTO.class,
                 (context, sto, dto) -> {
                     log.debug("SUBSCRIPTION TERMINATOR 2 MatsTrace:\n" + context.toString());
-                    matsTestLatch2.resolve(dto, sto);
+                    matsTestLatch2.resolve(sto, dto);
                 });
 
         // Nap for a small while, due to the nature of Pub/Sub: If the listeners are not up when the message is sent,
@@ -57,11 +57,11 @@ public class Test_SimplePublishSubscribe extends MatsBasicTest {
                         .publish(dto, sto));
 
         // Wait synchronously for both terminators to finish.
-        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(dto, result.getData());
         Assert.assertEquals(sto, result.getState());
 
-        Result<DataTO, StateTO> result2 = matsTestLatch2.waitForResult();
+        Result<StateTO, DataTO> result2 = matsTestLatch2.waitForResult();
         Assert.assertEquals(dto, result2.getData());
         Assert.assertEquals(sto, result2.getState());
     }

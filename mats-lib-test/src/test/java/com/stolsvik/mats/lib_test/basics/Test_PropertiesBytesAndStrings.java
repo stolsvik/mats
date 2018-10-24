@@ -62,7 +62,7 @@ public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     _bytes = context.getBytes("bytes");
                     _string = context.getString("string");
-                    matsTestLatch.resolve(dto, sto);
+                    matsTestLatch.resolve(sto, dto);
                 });
     }
 
@@ -85,7 +85,7 @@ public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
                         .request(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<DataTO, StateTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2 * 3, dto.string + ":InitialStage" + ":ReplyStage"),
                 result.getData());

@@ -22,7 +22,7 @@ public class Test_StringAsIncomingDto extends MatsBasicTest {
         matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, String.class,
                 (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
-                    matsTestLatch.resolve(dto, sto);
+                    matsTestLatch.resolve(sto, dto);
                 });
     }
 
@@ -36,7 +36,7 @@ public class Test_StringAsIncomingDto extends MatsBasicTest {
                         .send(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<String, StateTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, String> result = matsTestLatch.waitForResult();
         // Empty State (not provided in invocation)
         Assert.assertEquals(new StateTO(), result.getState());
         // We specified String as incoming DTO, so we'll get the JSON of the request DTO directly.

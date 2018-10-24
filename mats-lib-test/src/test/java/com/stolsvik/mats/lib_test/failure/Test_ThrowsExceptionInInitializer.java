@@ -28,7 +28,7 @@ public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
     @Before
     public void setupTerminator() {
         matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
-                (context, sto, dto) -> matsTestLatch.resolve(dto, sto));
+                (context, sto, dto) -> matsTestLatch.resolve(sto, dto));
     }
 
     /**
