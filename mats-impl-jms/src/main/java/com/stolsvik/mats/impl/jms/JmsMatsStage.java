@@ -137,6 +137,11 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         _stageProcessors.clear();
     }
 
+    @Override
+    public String toString() {
+        return idThis();
+    }
+
     private class JmsStageConfig implements StageConfig<R, S, I> {
         private int _concurrency;
 
@@ -371,9 +376,9 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                         _jmsSessionHolder.isSessionOk();
 
                         // :: Perform the work inside the TransactionContext
+                        long nanosStart = System.nanoTime();
                         try {
                             _transactionContext.doTransaction(_jmsSessionHolder, () -> {
-                                long nanosStart = System.nanoTime();
                                 // Assert that this is indeed a JMS MapMessage.
                                 if (!(message instanceof MapMessage)) {
                                     String msg = "Got some JMS Message that is not instanceof MapMessage"
@@ -492,6 +497,10 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                     + " Looping to fetch next message.");
                             // No more to do, so loop. Notice that this code is not involved in initiations..
                         }
+
+                        double millisTotal = (System.nanoTime() - nanosStart) / 1_000_000d;
+                        log.info(LOG_PREFIX + "Total time from receive till committed: [" + millisTotal + "].");
+
                     } // End: INNER RUN-LOOP
                 }
                 catch (JmsMatsJmsException | JMSException | RuntimeException t) {
@@ -527,6 +536,11 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
             log.info(LOG_PREFIX + "Created JMS " + (_jmsMatsStage._queue ? "Queue" : "Topic") + ""
                     + " to receive from: [" + destination + "].");
             return destination;
+        }
+
+        @Override
+        public String toString() {
+            return idThis();
         }
     }
 }

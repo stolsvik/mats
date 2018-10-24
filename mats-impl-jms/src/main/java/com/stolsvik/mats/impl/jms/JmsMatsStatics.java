@@ -135,7 +135,11 @@ public interface JmsMatsStatics {
     default <Z> void sendMatsMessages(Logger log, long nanosStart, Session jmsSession, JmsMatsFactory<Z> jmsMatsFactory,
             List<JmsMatsMessage<Z>> messagesToSend) throws JmsMatsJmsException {
 
-        if (log.isDebugEnabled()) log.debug("Sending [" + messagesToSend.size() + "] messages.");
+        if (messagesToSend.isEmpty()) {
+            log.info(LOG_PREFIX + "No messages to send.");
+            return;
+        }
+        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Sending [" + messagesToSend.size() + "] messages.");
         // Create MessageProducer w/o specific Destination (will be given in .send(..))
         MessageProducer messageProducer;
         long nanosStartCreateProducer = System.nanoTime();
@@ -150,9 +154,9 @@ public interface JmsMatsStatics {
         double millisCreateProducer = (nanosStartSendingMessages - nanosStartCreateProducer) / 1_000_000d;
 
         for (JmsMatsMessage<Z> jmsMatsMessage : messagesToSend) {
+            long nanosStartSend = System.nanoTime();
             Channel toChannel = jmsMatsMessage.getMatsTrace().getCurrentCall().getTo();
             try {
-                long nanosStartSend = System.nanoTime();
                 byte[] matsTraceBytes = jmsMatsMessage.getSerializedOutgoingMatsTrace().getMatsTraceBytes();
 
                 // Get FactoryConfig
@@ -181,7 +185,7 @@ public interface JmsMatsStatics {
                 // TODO: OPTIMIZE: Use "asynchronous sends", i.e. register completion listeners (catch exceptions) and
                 // close at the end.
 
-                // TODO: OPTIMIZE: Is it worth it to cache producers?! Could do it on the JmsSessionHolder..
+                // TODO: OPTIMIZE: Is it worth it to cache producers?! Seems so. Could do it on the JmsSessionHolder..
 
                 // Setting DeliveryMode: NonPersistent or Persistent
                 int deliveryMode = jmsMatsMessage.getMatsTrace().isNonPersistent()
@@ -194,9 +198,9 @@ public interface JmsMatsStatics {
                 messageProducer.send(destination, mm, deliveryMode, priority, 0);
 
                 // Log it.
-                double millisSent = (System.nanoTime() - nanosStartSend) / 1_000_000d;
+                double millisSend = (System.nanoTime() - nanosStartSend) / 1_000_000d;
                 log.info(LOG_PREFIX + "SENDING [" + jmsMatsMessage.getWhat() + "] message to [" + destination
-                        + "], send took:[" + millisSent + " ms] (production was:[" + jmsMatsMessage
+                        + "], send took:[" + millisSend + " ms] (production was:[" + jmsMatsMessage
                                 .getTotalProductionTimeMillis() + "]).");
             }
             catch (JMSException e) {
@@ -205,7 +209,7 @@ public interface JmsMatsStatics {
             }
         }
         long nanosStartClosingProducer = System.nanoTime();
-        double millisSendingMessags = (nanosStartClosingProducer - nanosStartCreateProducer) / 1_000_000d;
+        double millisSendingMessags = (nanosStartClosingProducer - nanosStartSendingMessages) / 1_000_000d;
 
         try {
             messageProducer.close();
@@ -220,7 +224,7 @@ public interface JmsMatsStatics {
         double millisTotal = (nanosFinal - nanosStart) / 1_000_000d;
         log.info(LOG_PREFIX + "SENT [" + messagesToSend.size() + "] messages: Creating producer:["
                 + millisCreateProducer + "], sending messages:[" + millisSendingMessags + "], closing producer:["
-                + millisCloseProducer + "] - total:[" + millisTotal + "].");
+                + millisCloseProducer + "] - total since recv/init:[" + millisTotal + "].");
     }
 
     default String id(String what, Object obj) {

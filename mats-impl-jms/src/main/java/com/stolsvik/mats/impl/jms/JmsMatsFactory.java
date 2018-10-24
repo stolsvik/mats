@@ -258,6 +258,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     public void stop() {
         log.info(LOG_PREFIX + "Stopping [" + idThis()
                 + "], thus starting/closing all created endpoints and initiators.");
+        // :: Stopping all endpoints
         for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
             try {
                 endpoint.stop();
@@ -266,6 +267,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
                 log.warn("Got some throwable when stopping endpoint [" + endpoint + "].", t);
             }
         }
+        // :: Closing all initiators
         for (MatsInitiator initiator : _createdInitiators) {
             try {
                 initiator.close();
@@ -274,6 +276,8 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
                 log.warn("Got some throwable when closing initiator [" + initiator + "].", t);
             }
         }
+        // :: "Closing the JMS pool"; closing all available SessionHolder, which should lead to the Connections closing.
+        _jmsMatsJmsSessionHandler.closeAllAvailableSessions();
     }
 
     private class JmsMatsFactoryConfig implements FactoryConfig {

@@ -1,5 +1,7 @@
 package com.stolsvik.mats.impl.jms;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import javax.jms.Connection;
 import javax.jms.Session;
 
@@ -42,28 +44,67 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
         return jmsSessionHolder;
     }
 
+    private AtomicInteger _numberOfOutstandingConnections = new AtomicInteger(0);
+
+    @Override
+    public int closeAllAvailableSessions() {
+        /* nothing to do here, as each SessionHolder is an independent connection */
+        // Directly return the number of outstanding connections.
+        return _numberOfOutstandingConnections.get();
+    }
+
     private JmsSessionHolder getSessionHolder_internal(JmsMatsTxContextKey txContextKey) throws JmsMatsJmsException {
         Connection jmsConnection;
         try {
             jmsConnection = _jmsConnectionSupplier.createJmsConnection(txContextKey);
-            // Starting it right away, as that could potentially also give "connection establishment" JMSExceptions
+        }
+        catch (Throwable t) {
+            throw new JmsMatsJmsException("Got problems when trying to create a new JMS Connection.", t);
+        }
+        // We now have an extra JMS Connection - "count it"
+        _numberOfOutstandingConnections.incrementAndGet();
+
+        // Starting it right away, as that could potentially also give "connection establishment" JMSExceptions
+        try {
             jmsConnection.start();
         }
         catch (Throwable t) {
-            throw new JmsMatsJmsException("Got problems when trying to create & start a new JMS Connection.", t);
+            try {
+                jmsConnection.close();
+                _numberOfOutstandingConnections.decrementAndGet();
+            }
+            catch (Throwable t2) {
+                log.error("Got " + t2.getClass().getSimpleName() + " when trying to close a JMS Connection after it"
+                        + " failed to start. [" + jmsConnection + "]. Ignoring.", t);
+            }
+            throw new JmsMatsJmsException("Got problems when trying to start a new JMS Connection.", t);
         }
+
+        // ----- The JMS Connection is gotten and started.
+
+        // :: Create JMS Session and stick it in a Simple-holder
         try {
             Session jmsSession = jmsConnection.createSession(true, Session.SESSION_TRANSACTED);
             return new JmsSessionHolder_Simple(jmsConnection, jmsSession);
         }
         catch (Throwable t) {
-            throw new JmsMatsJmsException("Got problems when trying to create a new JMS Session from JMS Connection ["
-                    + jmsConnection + "].", t);
+            try {
+                _numberOfOutstandingConnections.decrementAndGet();
+                jmsConnection.close();
+            }
+            catch (Throwable t2) {
+                log.error("Got " + t2.getClass().getSimpleName() + " when trying to close a JMS Connection after it"
+                        + " failed to create a new Session. [" + jmsConnection + "]. Ignoring.", t2);
+            }
+            throw new JmsMatsJmsException(
+                    "Got problems when trying to create a new JMS Session from a new JMS Connection ["
+                            + jmsConnection + "].", t);
         }
     }
 
-    public static class JmsSessionHolder_Simple implements JmsSessionHolder {
-        private static final Logger log = LoggerFactory.getLogger(JmsSessionHolder_Simple.class);
+    private static final Logger log_holder = LoggerFactory.getLogger(JmsSessionHolder_Simple.class);
+
+    public class JmsSessionHolder_Simple implements JmsSessionHolder {
 
         private final Connection _jmsConnection;
         private final Session _jmsSession;
@@ -80,41 +121,48 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
 
         @Override
         public Session getSession() {
-            if (log.isDebugEnabled()) log.debug("getSession() on SessionHolder [" + this + "]");
+            if (log_holder.isDebugEnabled()) log_holder.debug("getSession() on SessionHolder [" + this
+                    + "], returning directly.");
             return _jmsSession;
         }
 
         @Override
         public void close() {
-            if (log.isDebugEnabled()) log.debug("close() on SessionHolder [" + this + "] - closing JMS Connection.");
+            if (log_holder.isDebugEnabled()) log_holder.debug("close() on SessionHolder [" + this
+                    + "] - closing JMS Connection.");
             try {
+                _numberOfOutstandingConnections.decrementAndGet();
                 _jmsConnection.close();
             }
             catch (Throwable t) {
-                log.warn("Got problems when trying to close the JMS Connection.", t);
+                log_holder.warn("Got problems when trying to close the JMS Connection.", t);
             }
         }
 
         @Override
         public void release() {
-            if (log.isDebugEnabled()) log.debug("release() on SessionHolder [" + this + "] - closing JMS Connection.");
+            if (log_holder.isDebugEnabled()) log_holder.debug("release() on SessionHolder [" + this
+                    + "] - closing JMS Connection.");
             try {
+                _numberOfOutstandingConnections.decrementAndGet();
                 _jmsConnection.close();
             }
             catch (Throwable t) {
-                log.warn("Got problems when trying to close the JMS Connection.", t);
+                log_holder.warn("Got problems when trying to close the JMS Connection.", t);
             }
         }
 
         @Override
         public void crashed(Throwable t) {
-            if (log.isDebugEnabled()) log.debug("crashed() on SessionHolder [" + this + "] - closing JMS Connection.",
+            if (log_holder.isDebugEnabled()) log_holder.debug("crashed() on SessionHolder [" + this
+                    + "] - closing JMS Connection.",
                     t);
             try {
+                _numberOfOutstandingConnections.decrementAndGet();
                 _jmsConnection.close();
             }
             catch (Throwable t2) {
-                log.warn("Got problems when trying to close the JMS Connection due to a \"JMS Crash\" (" + t
+                log_holder.warn("Got problems when trying to close the JMS Connection due to a \"JMS Crash\" (" + t
                         .getClass().getSimpleName() + ": " + t.getMessage() + ").", t2);
             }
         }

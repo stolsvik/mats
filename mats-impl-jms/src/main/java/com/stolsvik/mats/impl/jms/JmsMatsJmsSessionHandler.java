@@ -51,6 +51,13 @@ public interface JmsMatsJmsSessionHandler {
     JmsSessionHolder getSessionHolder(JmsMatsStageProcessor<?, ?, ?, ?> processor) throws JmsMatsJmsException;
 
     /**
+     * Closes all available Session (does not touch employed), and thus closes connections that are empty of Sessions.
+     *
+     * @return the number of connections still alive after the operation (in the assumed use case, this should be zero).
+     */
+    int closeAllAvailableSessions();
+
+    /**
      * A "sidecar object" for the JMS Session, so that additional stuff can be bound to it.
      */
     interface JmsSessionHolder {

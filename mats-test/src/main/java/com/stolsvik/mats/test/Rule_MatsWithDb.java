@@ -9,7 +9,6 @@ import java.sql.Statement;
 import javax.jms.ConnectionFactory;
 import javax.sql.DataSource;
 
-import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
 import com.stolsvik.mats.serial.MatsSerializer;
 
@@ -52,14 +52,13 @@ public class Rule_MatsWithDb extends Rule_Mats {
         // Set up H2 Database
         _dataSource = new JdbcDataSource();
         _dataSource.setURL(H2_DATABASE_URL);
-        try {
-            try (Connection con = _dataSource.getConnection();
-                    Statement stmt = con.createStatement();) {
-                stmt.execute("DROP ALL OBJECTS DELETE FILES");
-            }
+        String dropSql = "DROP ALL OBJECTS DELETE FILES";
+        try (Connection con = _dataSource.getConnection();
+                Statement stmt = con.createStatement()) {
+            stmt.execute(dropSql);
         }
         catch (SQLException e) {
-            throw new RuntimeException("Got problems running 'DROP ALL OBJECTS DELETE FILES'.", e);
+            throw new RuntimeException("Got problems running '" + dropSql + "'.", e);
         }
         log.info("--- BEFORE done! JUnit Rule '" + id(Rule_MatsWithDb.class) + "', H2 database.");
     }

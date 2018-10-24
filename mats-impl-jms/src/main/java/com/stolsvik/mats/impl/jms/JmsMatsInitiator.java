@@ -252,6 +252,11 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         return _parentFactory;
     }
 
+    @Override
+    public String toString() {
+        return idThis();
+    }
+
     static class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
         private static final Logger log = LoggerFactory.getLogger(JmsMatsInitiate.class);
 
@@ -501,6 +506,11 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             if (_to == null) {
                 throw new NullPointerException(msg + ": Missing 'to'.");
             }
+        }
+
+        @Override
+        public String toString() {
+            return idThis();
         }
     }
 }

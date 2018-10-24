@@ -9,7 +9,6 @@ import javax.jms.MessageConsumer;
 import javax.jms.Queue;
 import javax.jms.Session;
 
-import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import org.apache.activemq.ActiveMQConnectionFactory;
 import org.apache.activemq.RedeliveryPolicy;
 import org.apache.activemq.broker.BrokerService;
@@ -21,14 +20,15 @@ import org.junit.rules.ExternalResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.serial.MatsTrace;
-import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
-import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsTrace;
+import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 
 /**
  * JUnit {@link Rule} of type {@link ExternalResource} that make a convenient MATS harness, providing a
@@ -46,15 +46,19 @@ public class Rule_Mats extends ExternalResource {
     private static final Logger log = LoggerFactory.getLogger(Rule_Mats.class);
 
     /**
-     * System property that if set will a) Not start in-vm ActiceMQ instance, and b) make the ConnectionFactory use the
-     * value as brokerURL - with the special case that if the value is "{@link #SYSPROP_VALUE_LOCALHOST LOCAL_TCP}", it
-     * will be <code>"tcp://localhost:61616"</code>.
+     * System property ("-D" jvm argument) that if set will a) Not start in-vm ActiceMQ instance, and b) make the
+     * ConnectionFactory use the value as brokerURL - with the special case that if the value is
+     * "{@link #SYSPROP_VALUE_LOCALHOST LOCALHOST}", it will be <code>"tcp://localhost:61616"</code>.
+     * <p>
+     * Value is {@code "mats.test.activemq"}
      */
     public static final String SYSPROP_MATS_TEST_ACTIVEMQ = "mats.test.activemq";
 
     /**
      * If the value of {@link #SYSPROP_MATS_TEST_ACTIVEMQ} is this value, the ConnectionFactory will use
      * "tcp://localhost:61616" as the brokerURL.
+     * <p>
+     * Value is {@code "LOCALHOST"}
      */
     public static final String SYSPROP_VALUE_LOCALHOST = "LOCALHOST";
 
@@ -147,7 +151,7 @@ public class Rule_Mats extends ExternalResource {
     }
 
     protected MatsFactory createMatsFactory(MatsSerializer<String> stringSerializer,
-                                            ConnectionFactory connectionFactory) {
+            ConnectionFactory connectionFactory) {
         return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(this.getClass().getSimpleName(),
                 "*testing*",
                 new JmsMatsJmsSessionHandler_Pooling((s) -> connectionFactory.createConnection()),
@@ -187,7 +191,8 @@ public class Rule_Mats extends ExternalResource {
      * if the test is designed to fail a stage (i.e. that a stage raises some {@link RuntimeException}, or the special
      * {@link MatsRefuseMessageException}).
      *
-     * @param endpointId the endpoint which is expected to generate a DLQ message.
+     * @param endpointId
+     *            the endpoint which is expected to generate a DLQ message.
      * @return the {@link MatsTrace} of the DLQ'ed message.
      */
     public MatsTrace<String> getDlqMessage(String endpointId) {
@@ -212,7 +217,8 @@ public class Rule_Mats extends ExternalResource {
 
                 MapMessage matsMM = (MapMessage) msg;
                 byte[] matsTraceBytes = matsMM.getBytes(factoryConfig.getMatsTraceKey());
-                log.info("!! Got a DLQ Message! Length of byte serialized&compressed MatsTrace: " + matsTraceBytes.length);
+                log.info("!! Got a DLQ Message! Length of byte serialized&compressed MatsTrace: "
+                        + matsTraceBytes.length);
                 jmsSession.commit();
                 jmsConnection.close(); // Closes session and consumer
                 return _matsSerializer.deserializeMatsTrace(matsTraceBytes,
