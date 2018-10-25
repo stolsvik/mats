@@ -487,7 +487,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                         messagesToSend),
                                         currentSto, incomingDto);
 
-                                sendMatsMessages(log, nanosStart, jmsSession, getFactory(), messagesToSend);
+                                sendMatsMessages(log, nanosStart, _jmsSessionHolder, getFactory(), messagesToSend);
                             });
                         }
                         catch (RuntimeException e) {

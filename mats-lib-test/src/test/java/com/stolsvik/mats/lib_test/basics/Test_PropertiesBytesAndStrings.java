@@ -75,7 +75,7 @@ public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
         DataTO dto = new DataTO(42, "TheAnswer");
         byte[] bytes = new byte[] { 0, 1, -1, 127, -128, 11 };
         String string = "TestString";
-        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
+        matsRule.getMatsInitiator().initiateUnchecked(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)

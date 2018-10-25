@@ -2,6 +2,7 @@ package com.stolsvik.mats.impl.jms;
 
 import javax.jms.Connection;
 import javax.jms.JMSException;
+import javax.jms.MessageProducer;
 import javax.jms.Session;
 
 import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
@@ -91,6 +92,12 @@ public interface JmsMatsJmsSessionHandler {
          * @return the JMS Session. It will be the same instance every time.
          */
         Session getSession();
+
+        /**
+         * @return the default non-specific {@link MessageProducer} that goes along with {@link #getSession() the JMS
+         *         Session}.
+         */
+        MessageProducer getDefaultNoDestinationMessageProducer();
 
         /**
          * Employed by StageProcessors: This physically closes the Session, and removes it from the pool-Connection, and

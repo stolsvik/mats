@@ -44,7 +44,7 @@ public class Test_SimplestServiceRequest extends MatsBasicTest {
     public void doTest() {
         DataTO dto = new DataTO(42, "TheAnswer");
         StateTO sto = new StateTO(420, 420.024);
-        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
+        matsRule.getMatsInitiator().initiateUnchecked(
                 (msg) -> msg.traceId(randomId())
                         .from(INITIATOR)
                         .to(SERVICE)

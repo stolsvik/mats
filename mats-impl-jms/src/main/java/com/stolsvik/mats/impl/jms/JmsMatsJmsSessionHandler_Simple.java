@@ -3,6 +3,7 @@ package com.stolsvik.mats.impl.jms;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.jms.Connection;
+import javax.jms.MessageProducer;
 import javax.jms.Session;
 
 import org.slf4j.Logger;
@@ -83,9 +84,9 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
         // ----- The JMS Connection is gotten and started.
 
         // :: Create JMS Session and stick it in a Simple-holder
+        Session jmsSession;
         try {
-            Session jmsSession = jmsConnection.createSession(true, Session.SESSION_TRANSACTED);
-            return new JmsSessionHolder_Simple(jmsConnection, jmsSession);
+            jmsSession = jmsConnection.createSession(true, Session.SESSION_TRANSACTED);
         }
         catch (Throwable t) {
             try {
@@ -100,6 +101,26 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
                     "Got problems when trying to create a new JMS Session from a new JMS Connection ["
                             + jmsConnection + "].", t);
         }
+
+        // :: Create The default MessageProducer, and then stick the Session and MessageProducer in a SessionHolder.
+        try {
+            MessageProducer messageProducer = jmsSession.createProducer(null);
+            return new JmsSessionHolder_Simple(jmsConnection, jmsSession, messageProducer);
+        }
+        catch (Throwable t) {
+            try {
+                _numberOfOutstandingConnections.decrementAndGet();
+                jmsConnection.close();
+            }
+            catch (Throwable t2) {
+                log.error("Got " + t2.getClass().getSimpleName() + " when trying to close a JMS Connection after it"
+                        + " failed to create a new MessageProducer from a newly created JMS Session. [" + jmsConnection
+                        + ", " + jmsSession + "]. Ignoring.", t2);
+            }
+            throw new JmsMatsJmsException(
+                    "Got problems when trying to create a new MessageProducer from a new JMS Session [" + jmsSession
+                            + "] created from a new JMS Connection [" + jmsConnection + "].", t);
+        }
     }
 
     private static final Logger log_holder = LoggerFactory.getLogger(JmsSessionHolder_Simple.class);
@@ -108,10 +129,12 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
 
         private final Connection _jmsConnection;
         private final Session _jmsSession;
+        private final MessageProducer _messageProducer;
 
-        public JmsSessionHolder_Simple(Connection jmsConnection, Session jmsSession) {
+        public JmsSessionHolder_Simple(Connection jmsConnection, Session jmsSession, MessageProducer messageProducer) {
             _jmsConnection = jmsConnection;
             _jmsSession = jmsSession;
+            _messageProducer = messageProducer;
         }
 
         @Override
@@ -124,6 +147,11 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
             if (log_holder.isDebugEnabled()) log_holder.debug("getSession() on SessionHolder [" + this
                     + "], returning directly.");
             return _jmsSession;
+        }
+
+        @Override
+        public MessageProducer getDefaultNoDestinationMessageProducer() {
+            return _messageProducer;
         }
 
         @Override

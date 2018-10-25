@@ -67,7 +67,7 @@ public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
         StateTO sto = new StateTO(420, 420.024);
 
         // :: Send the request to SERVICE.
-        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
+        matsRule.getMatsInitiator().initiateUnchecked(
                 (msg) -> {
                     // :: Send the request
                     msg.traceId(randomId())
@@ -102,7 +102,7 @@ public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
         StateTO sto = new StateTO(420, 420.024);
 
         // :: Send the request to SERVICE.
-        matsRule.getMatsFactory().createInitiator().initiateUnchecked(
+        matsRule.getMatsInitiator().initiateUnchecked(
                 (msg) -> {
                     // :: Send the request
                     msg.traceId(randomId())

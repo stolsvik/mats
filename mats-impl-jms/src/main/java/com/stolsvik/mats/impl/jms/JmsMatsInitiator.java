@@ -65,7 +65,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             _transactionContext.doTransaction(jmsSessionHolder, () -> {
                 List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
                 lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend));
-                sendMatsMessages(log, nanosStart, jmsSessionHolder.getSession(), _parentFactory, messagesToSend);
+                sendMatsMessages(log, nanosStart, jmsSessionHolder, _parentFactory, messagesToSend);
             });
             jmsSessionHolder.release();
         }
@@ -211,7 +211,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                         messagesToSend),
                         currentSto, incomingDto);
 
-                sendMatsMessages(log, nanosStart, jmsSessionHolder.getSession(), getFactory(), messagesToSend);
+                sendMatsMessages(log, nanosStart, jmsSessionHolder, getFactory(), messagesToSend);
             });
             jmsSessionHolder.release();
         }

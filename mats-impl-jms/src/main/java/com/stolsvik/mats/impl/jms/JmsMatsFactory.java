@@ -202,15 +202,10 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
                 Void.class);
         _createdEndpoints.add(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
-        // :: Wrap the ProcessTerminatorLambda in a single lastStage-ProcessReturnLambda
-        // TODO: Use stage, and then finishSetup() instead - so that we don't have to return null?
-        endpoint.lastStage(incomingClass, stageConfigLambda,
-                (processContext, state, incomingDto) -> {
-                    // This is just a direct forward - there is no difference from a ProcessReturnLambda ...
-                    processor.process(processContext, state, incomingDto);
-                    // ... except we have no reply (Void reply type).
-                    return null;
-                });
+        // :: Wrap the ProcessTerminatorLambda in a single stage that does not return.
+        // This is just a direct forward, w/o any return value.
+        endpoint.stage(incomingClass, stageConfigLambda, processor::process);
+        endpoint.finishSetup();
         return endpoint;
     }
 

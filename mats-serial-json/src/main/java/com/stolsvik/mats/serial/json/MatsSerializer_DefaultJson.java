@@ -64,11 +64,29 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
 
     public static String IDENTIFICATION = "MatsTrace_JSON_v1";
 
+    /**
+     * The default compression level - which I chose to be {@link Deflater#BEST_SPEED} (compression level 1), since I
+     * assume that the rather small incremental reduction in size does not outweigh the pretty large increase in time,
+     * as one hopefully runs on a pretty fast network (and that the MQ backing store is fast).
+     */
+    public static int DEFAULT_COMPRESSION_LEVEL = Deflater.BEST_SPEED;
+
+    private final int _compressionLevel;
+
     private final ObjectMapper _objectMapper;
     private final ObjectReader _matsTraceJson_Reader;
     private final ObjectWriter _matsTraceJson_Writer;
 
-    public MatsSerializer_DefaultJson() {
+    /**
+     * Constructs a MatsSerializer, using the specified Compression Level - refer to {@link Deflater}'s constants and
+     * levels.
+     * 
+     * @param compressionLevel
+     *            the compression level given to {@link Deflater} to use.
+     */
+    public MatsSerializer_DefaultJson(int compressionLevel) {
+        _compressionLevel = compressionLevel;
+
         ObjectMapper mapper = new ObjectMapper();
 
         // Read and write any access modifier fields (e.g. private)
@@ -93,6 +111,15 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
         _matsTraceJson_Reader = mapper.readerFor(MatsTraceStringImpl.class);
         _matsTraceJson_Writer = mapper.writerFor(MatsTraceStringImpl.class);
         _objectMapper = mapper;
+
+        // TODO / OPTIMIZE: What about making specific mappers for each new class found, using e.g. ConcurrentHashMap?
+    }
+
+    /**
+     * Constructs a MatsSerializer, using the {@link #DEFAULT_COMPRESSION_LEVEL} (which is 4).
+     */
+    public MatsSerializer_DefaultJson() {
+        this(DEFAULT_COMPRESSION_LEVEL);
     }
 
     @Override
@@ -347,10 +374,9 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
     protected byte[] compress(byte[] data) {
         // OPTIMIZE: Use Object Pool for compressor-instances with Deflater and byte array.
         // This pool could possibly be a simple lock-free stack, if stack is empty, make a new instance.
-        Deflater deflater = new Deflater();
+        Deflater deflater = new Deflater(_compressionLevel);
         try {
             deflater.setInput(data);
-            deflater.setLevel(Deflater.BEST_COMPRESSION);
             // Hoping for at least 50% reduction, so set "best guess" to half incoming
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length / 2);
             deflater.finish();

@@ -15,6 +15,7 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsSerializer.SerializedMatsTrace;
@@ -132,27 +133,19 @@ public interface JmsMatsStatics {
     /**
      * Send a bunch of {@link JmsMatsMessage}s.
      */
-    default <Z> void sendMatsMessages(Logger log, long nanosStart, Session jmsSession, JmsMatsFactory<Z> jmsMatsFactory,
-            List<JmsMatsMessage<Z>> messagesToSend) throws JmsMatsJmsException {
+    default <Z> void sendMatsMessages(Logger log, long nanosStart, JmsSessionHolder jmsSessionHolder,
+            JmsMatsFactory<Z> jmsMatsFactory, List<JmsMatsMessage<Z>> messagesToSend) throws JmsMatsJmsException {
 
         if (messagesToSend.isEmpty()) {
             log.info(LOG_PREFIX + "No messages to send.");
             return;
         }
+        Session jmsSession = jmsSessionHolder.getSession();
         if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Sending [" + messagesToSend.size() + "] messages.");
-        // Create MessageProducer w/o specific Destination (will be given in .send(..))
-        MessageProducer messageProducer;
-        long nanosStartCreateProducer = System.nanoTime();
-        try {
-            messageProducer = jmsSession.createProducer(null);
-        }
-        catch (JMSException e) {
-            throw new JmsMatsJmsException("Got problems creating a MessageProducer from Session [" + jmsSession + "].",
-                    e);
-        }
-        long nanosStartSendingMessages = System.nanoTime();
-        double millisCreateProducer = (nanosStartSendingMessages - nanosStartCreateProducer) / 1_000_000d;
 
+        MessageProducer messageProducer = jmsSessionHolder.getDefaultNoDestinationMessageProducer();
+
+        long nanosStartSendingMessages = System.nanoTime();
         for (JmsMatsMessage<Z> jmsMatsMessage : messagesToSend) {
             long nanosStartSend = System.nanoTime();
             Channel toChannel = jmsMatsMessage.getMatsTrace().getCurrentCall().getTo();
@@ -208,23 +201,12 @@ public interface JmsMatsStatics {
                         + "] via JMS API.", e);
             }
         }
-        long nanosStartClosingProducer = System.nanoTime();
-        double millisSendingMessags = (nanosStartClosingProducer - nanosStartSendingMessages) / 1_000_000d;
-
-        try {
-            messageProducer.close();
-        }
-        catch (JMSException e) {
-            throw new JmsMatsJmsException("Got problems closing the MessageProducer [" + messageProducer
-                    + "] from Session [" + jmsSession + "].", e);
-        }
-
         long nanosFinal = System.nanoTime();
-        double millisCloseProducer = (nanosFinal - nanosStartClosingProducer) / 1_000_000d;
+        double millisSendingMessags = (nanosFinal - nanosStartSendingMessages) / 1_000_000d;
+
         double millisTotal = (nanosFinal - nanosStart) / 1_000_000d;
-        log.info(LOG_PREFIX + "SENT [" + messagesToSend.size() + "] messages: Creating producer:["
-                + millisCreateProducer + "], sending messages:[" + millisSendingMessags + "], closing producer:["
-                + millisCloseProducer + "] - total since recv/init:[" + millisTotal + "].");
+        log.info(LOG_PREFIX + "SENT [" + messagesToSend.size() + "] messages, took:[" + millisSendingMessags
+                + "] - total since recv/init:[" + millisTotal + "].");
     }
 
     default String id(String what, Object obj) {

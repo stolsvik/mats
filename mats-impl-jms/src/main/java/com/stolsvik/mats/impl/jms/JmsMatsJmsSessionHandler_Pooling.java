@@ -10,6 +10,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import javax.jms.Connection;
+import javax.jms.MessageProducer;
 import javax.jms.Session;
 
 import org.slf4j.Logger;
@@ -210,8 +211,11 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                 try {
                     // Create JMS Session from JMS Connection
                     Session jmsSession = jmsConnection.createSession(true, Session.SESSION_TRANSACTED);
-                    // Stick it into a SessionHolder
-                    JmsSessionHolderImpl jmsSessionHolder = new JmsSessionHolderImpl(txContextKey, this, jmsSession);
+                    // Create the default MessageProducer
+                    MessageProducer messageProducer = jmsSession.createProducer(null);
+                    // Stick them into a SessionHolder
+                    JmsSessionHolderImpl jmsSessionHolder = new JmsSessionHolderImpl(txContextKey, this, jmsSession,
+                            messageProducer);
                     // Employ it.
                     _employedSessionHolders.add(jmsSessionHolder);
                     // Return it.
@@ -222,8 +226,8 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                     JmsMatsJmsException e = new JmsMatsJmsException("Got problems when trying to create a new JMS"
                             + " Session from JMS Connection [" + jmsConnection + "].", t);
                     // :: Crash this ConnectionWithSessionPool
-                    // Need a dummy JmsSessionHolderImpl (The JMS Session is not touched by the crashed() method).
-                    crashed(new JmsSessionHolderImpl(txContextKey, this, null), e);
+                    // Need a dummy JmsSessionHolderImpl (The JMS objects are not touched by the crashed() method).
+                    crashed(new JmsSessionHolderImpl(txContextKey, this, null, null), e);
                     // Throw it out.
                     throw e;
                 }
@@ -429,17 +433,18 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
     }
 
     public static class JmsSessionHolderImpl implements JmsSessionHolder, JmsMatsStatics {
-        private static final Logger log = LoggerFactory.getLogger(JmsSessionHolderImpl.class);
-
         private final ConnectionWithSessionPool _connectionWithSessionPool;
         private final Session _jmsSession;
+        private final MessageProducer _messageProducer;
 
         public JmsSessionHolderImpl(JmsMatsTxContextKey txContextKey,
                 ConnectionWithSessionPool connectionWithSessionPool,
-                Session jmsSession) {
+                Session jmsSession,
+                MessageProducer messageProducer) {
             _currentContext = txContextKey;
             _connectionWithSessionPool = connectionWithSessionPool;
             _jmsSession = jmsSession;
+            _messageProducer = messageProducer;
         }
 
         private Object _currentContext;
@@ -456,6 +461,11 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         @Override
         public Session getSession() {
             return _jmsSession;
+        }
+
+        @Override
+        public MessageProducer getDefaultNoDestinationMessageProducer() {
+            return _messageProducer;
         }
 
         @Override
