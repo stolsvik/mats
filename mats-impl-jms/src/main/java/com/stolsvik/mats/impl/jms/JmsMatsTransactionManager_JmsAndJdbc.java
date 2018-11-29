@@ -8,7 +8,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
-import com.stolsvik.mats.exceptions.MatsRuntimeException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.util.MatsTxSqlConnection;
 import com.stolsvik.mats.util.MatsTxSqlConnection.MatsSqlConnectionCreationException;
@@ -164,8 +163,8 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                     // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
                     // We will now re-throw the Throwable, which will rollback the JMS Transaction.
-                    throw new MatsRuntimeException("Got a undeclared checked exception " + t.getClass().getSimpleName()
-                            + " while processing " + stageOrInit(_txContextKey) + ".", t);
+                    throw new JmsMatsUndeclaredCheckedExceptionRaisedException("Got a undeclared checked exception " + t
+                            .getClass().getSimpleName() + " while processing " + stageOrInit(_txContextKey) + ".", t);
                 }
 
                 // ----- The ProcessingLambda went OK, no Exception was raised.
@@ -228,7 +227,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
         /**
          * Raised if commit or rollback of the SQL Connection failed.
          */
-        public static final class MatsSqlCommitOrRollbackFailedException extends MatsRuntimeException {
+        public static final class MatsSqlCommitOrRollbackFailedException extends RuntimeException {
             public MatsSqlCommitOrRollbackFailedException(String message, Throwable cause) {
                 super(message, cause);
             }

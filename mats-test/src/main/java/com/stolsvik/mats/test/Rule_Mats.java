@@ -110,7 +110,7 @@ public class Rule_Mats extends ExternalResource {
             _amqServer.start();
         }
         else {
-            // -> Yes, there is specified a brokerUrl to connect to, so we
+            // -> Yes, there is specified a brokerUrl to connect to, so we don't start in-vm ActiveMQ.
             log.info("SKIPPING setup of in-vm ActiveMQ BrokerService (MQ server), since System Property '"
                     + SYSPROP_MATS_TEST_ACTIVEMQ + "' was set (to [" + sysprop_matsTestActiveMq + "]).");
         }

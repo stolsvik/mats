@@ -64,40 +64,47 @@ public class Test_LargeMessages extends MatsBasicTest {
         matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, LargeMessageDTO.class,
                 config -> {
                     // Endpoint config - setting concurrency.
-                    config.setConcurrency(7);
+                    config.setConcurrency(NUMBER_OF_MESSAGES);
                 },
                 config -> {
                     // Stage config - nothing to do.
                 }, (context, sto, dto) -> {
+                    // Just putting the message in the right slot on the received-messages array.
                     synchronized (_receivedMessages) {
                         _receivedMessages[dto._index] = dto;
                     }
+                    // Counting down the latch, so that when last message is received, the test can continue.
                     _latch.countDown();
                 });
     }
 
     @Test
     public void doTest() throws InterruptedException {
-        List<LargeMessageDTO> messages = new ArrayList<>(NUMBER_OF_MESSAGES);
+        LargeMessageDTO[] messages = new LargeMessageDTO[NUMBER_OF_MESSAGES];
         for (int i = 0; i < NUMBER_OF_MESSAGES; i++) {
             List<DataTO> messageContent = new ArrayList<>(NUMBER_OF_DATATO_PER_MESSAGE);
             for (int j = 0; j < NUMBER_OF_DATATO_PER_MESSAGE; j++) {
                 messageContent.add(new DataTO(Math.random(), "Random:" + Math.random(), j));
             }
-            messages.add(new LargeMessageDTO(i, messageContent));
+            messages[i] = new LargeMessageDTO(i, messageContent);
         }
         MatsInitiator matsInitiator = matsRule.getMatsInitiator();
         for (int i = 0; i < NUMBER_OF_MESSAGES; i++) {
             final int finalI = i;
             new Thread(() -> {
+                log.info(
+                        "Sending messsage: Outside of initiator-lambda: Invoking .initiateUnchecked(..) on initiator.");
                 matsInitiator.initiateUnchecked(
                         (msg) -> {
+                            log.info("Sending messsage: Inside initiator-lambda, before sending.");
                             msg.traceId(randomId())
                                     .from(INITIATOR)
                                     .to(TERMINATOR)
-                                    .send(messages.get(finalI));
+                                    .send(messages[finalI]);
+                            log.info("Message sent: Inside initiator-lambda, message sent.");
                         });
-            }).start();
+                log.info("Message sent: Outside of initiator-lambda: Finished, exiting thread.");
+            }, "Initiator-thread #" + i).start();
         }
 
         // Wait synchronously for terminator to finish.
@@ -106,6 +113,6 @@ public class Test_LargeMessages extends MatsBasicTest {
             throw new AssertionError("Didn't get all " + NUMBER_OF_MESSAGES + " messages in 10 seconds!");
         }
 
-        Assert.assertArrayEquals(messages.toArray(), _receivedMessages);
+        Assert.assertArrayEquals(messages, _receivedMessages);
     }
 }

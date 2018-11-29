@@ -12,7 +12,7 @@
 * .. And even if the last Session is released, the Connection (and the Sessions of it) shall live on 
 
 
-## MatsFactory, Endpoints, Stages - StageProcessors
+## Endpoints, Stages - StageProcessors
 
 * The actual processing part is the StageProcessor - this is the one that needs a JMS Session, and
 will make a consumer and producers off of it.

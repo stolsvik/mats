@@ -52,9 +52,10 @@ public interface JmsMatsJmsSessionHandler {
     JmsSessionHolder getSessionHolder(JmsMatsStageProcessor<?, ?, ?, ?> processor) throws JmsMatsJmsException;
 
     /**
-     * Closes all available Session (does not touch employed), and thus closes connections that are empty of Sessions.
+     * Closes all available Session, does not touch employed, and thus closes Connections that do not have any employed
+     * Sessions.
      *
-     * @return the number of connections still alive after the operation (in the assumed use case, this should be zero).
+     * @return the number of Connections still alive after the operation (in the assumed use case, this should be zero).
      */
     int closeAllAvailableSessions();
 
@@ -69,14 +70,14 @@ public interface JmsMatsJmsSessionHandler {
          * raised, {@link #close()} or {@link #crashed(Throwable)} shall be invoked, and then a new SessionHolder shall
          * be fetched. [This is to be able to signal to the StageProcessor that the underlying Connection might have
          * become unstable - start afresh]</li>
-         * 
+         *
          * <li>(For StageProcessors) After exiting from MessageConsumer.receive() - if {@link JmsMatsJmsException} is
          * raised, rollback shall be performed, {@link #close()} or {@link #crashed(Throwable)} shall be invoked, and
          * then a new SessionHolder shall be fetched. [This is to be able to signal to the StageProcessor that the
          * underlying Connection might have become unstable - start afresh] (NOTICE: The return from receive() shall
          * obviously first be checked for null - which is returned when the Consumer, Session or Connection is closed -
-         * which signifies that the normal check for "running" shall be performed, and if it is, a new SessionHolder
-         * shall be fetched)].</li>
+         * which signifies that the normal check for "running" shall be performed, and if it is still running, a new
+         * SessionHolder shall be fetched)].</li>
          * 
          * <li>(For StageProcessors and Initiators) Before committing any resources other than the JMS Session - if
          * {@link JmsMatsJmsException} is raised, rollback shall be performed, {@link #close()} or

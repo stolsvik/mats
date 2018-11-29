@@ -2,12 +2,11 @@ package com.stolsvik.mats.impl.jms;
 
 import javax.jms.Session;
 
-import com.stolsvik.mats.MatsInitiator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
-import com.stolsvik.mats.exceptions.MatsRuntimeException;
+import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 
 /**
@@ -123,8 +122,8 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 rollback(jmsSession, t);
                 // Throw on, so that if this is in an initiate-call, it will percolate all the way out.
                 // (Inside JmsMatsStage, RuntimeExceptions won't recreate the JMS Connection..)
-                throw new MatsRuntimeException("Got a undeclared checked exception " + t.getClass().getSimpleName()
-                        + " while transacting " + stageOrInit(_txContextKey) + ".", t);
+                throw new JmsMatsUndeclaredCheckedExceptionRaisedException("Got a undeclared checked exception " + t
+                        .getClass().getSimpleName() + " while transacting " + stageOrInit(_txContextKey) + ".", t);
             }
 
             // ----- The ProcessingLambda went OK, no Exception was raised.
@@ -154,12 +153,26 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 /*
                  * This certainly calls for reestablishing the JMS Session, so throw out.
                  */
-                throw new JmsMatsMessageSendException("VERY BAD! After finished transacting " + stageOrInit(_txContextKey)
+                throw new JmsMatsMessageSendException("VERY BAD! After finished transacting " + stageOrInit(
+                        _txContextKey)
                         + ", we could not commit JMS Session!", t);
             }
 
             // -> The JMS Session nicely committed.
             log.debug(LOG_PREFIX + "JMS Session committed.");
+        }
+    }
+
+    /**
+     * Thrown if a undeclared <b>checked</b> exception propagates out of the user-supplied lambda. This should obviously
+     * not happen, but can happen nevertheless due to checked-ness being a compilation-feature, not a JVM feature.
+     * Groovy chooses to ignore this feature - and it is also possible to throw such an Exception with the
+     * "sneaky-throws" paradigm in pure Java (Google it) - and therefore, it is possible to get such Chceked Exceptions
+     * propagating even though the signature of a method states that is should not be possible.
+     */
+    static class JmsMatsUndeclaredCheckedExceptionRaisedException extends RuntimeException {
+        JmsMatsUndeclaredCheckedExceptionRaisedException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 

@@ -36,7 +36,6 @@ import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
-import com.stolsvik.mats.exceptions.MatsRuntimeException;
 import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
 import com.stolsvik.mats.spring.MatsStaged.MatsStageds;
 
@@ -305,7 +304,7 @@ public class MatsSpringAnnotationBeanPostProcessor implements
     /**
      * Thrown if the setup of a Mats Spring endpoint fails.
      */
-    public static class MatsSpringConfigException extends MatsRuntimeException {
+    public static class MatsSpringConfigException extends RuntimeException {
         public MatsSpringConfigException(String message, Throwable cause) {
             super(message, cause);
         }
@@ -358,7 +357,7 @@ public class MatsSpringAnnotationBeanPostProcessor implements
      * Thrown if the invocation of a {@link MatsMapping @MatsMapping} or {@link MatsStaged @MatsStaged} annotated method
      * raises {@link InvocationTargetException} and the underlying exception is not a {@link RuntimeException}.
      */
-    public static class MatsSpringInvocationTargetException extends MatsRuntimeException {
+    public static class MatsSpringInvocationTargetException extends RuntimeException {
         public MatsSpringInvocationTargetException(String message, Throwable cause) {
             super(message, cause);
         }

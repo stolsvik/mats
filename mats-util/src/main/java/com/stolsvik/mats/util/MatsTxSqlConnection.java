@@ -6,7 +6,6 @@ import java.util.function.Supplier;
 import javax.sql.DataSource;
 
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.exceptions.MatsRuntimeException;
 
 /**
  * The different MATS Transaction Managers that include and handle a SQL {@link Connection} will provide some means for
@@ -38,10 +37,10 @@ public final class MatsTxSqlConnection {
     }
 
     /**
-     * A {@link MatsRuntimeException} that should be raised by the {@literal Supplier<Connection>} if it can't get SQL
+     * A {@link RuntimeException} that should be raised by the {@literal Supplier<Connection>} if it can't get SQL
      * Connections.
      */
-    public static class MatsSqlConnectionCreationException extends MatsRuntimeException {
+    public static class MatsSqlConnectionCreationException extends RuntimeException {
         public MatsSqlConnectionCreationException(String message, Throwable cause) {
             super(message, cause);
         }
