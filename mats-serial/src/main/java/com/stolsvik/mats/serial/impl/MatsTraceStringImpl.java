@@ -546,17 +546,12 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         }
 
         public String toStringFromMatsTrace(long startTimestamp, int maxStackSize, int maxToStageIdLength, boolean printNulLData) {
-            String toType = (ts != 0 ? String.format("%4d", (ts - startTimestamp)) + "ms " : " - ")
-                    + indent()
-                    + t;
+            String toType = (ts != 0 ? String.format("%4d", (ts - startTimestamp)) + "ms " : " - ") + indent() + t;
             int numMaxIncludingCallType = 14 + maxStackSize * 2;
-            String toTo = toType
-                    + spaces(numMaxIncludingCallType - toType.length())
-                    + " #to:" + to;
-            int numMaxIncludingToStageId = 7 + numMaxIncludingCallType + maxToStageIdLength;
-            return toTo
-                    + spaces(numMaxIncludingToStageId - toTo.length())
-                    + fromStackData(printNulLData);
+            int numSpacesTo = Math.max(0, numMaxIncludingCallType - toType.length());
+            String toTo = toType + spaces(numSpacesTo) + " #to:" + to;
+            int numSpacesStack = Math.max(1, 7 + numMaxIncludingCallType + maxToStageIdLength - toTo.length());
+            return toTo + spaces(numSpacesStack) + fromStackData(printNulLData);
         }
     }
 
