@@ -150,11 +150,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         String getFromStageId();
 
         /**
-         * @return a for-human-consumption, multi-line debug-String representing the current processing context,
-         *         typically the "MatsTrace" up to the current stage. The format is utterly arbitrary, can and will
-         *         change between versions and revisions, and <b>shall <u>NOT</u> be used programmatically!!</b>.
+         * @return the unique messageId for the incoming message, from the underlying message system - which can be used
+         *         to catch double-deliveries. (For a JMS Implementation, this will be the "JMSMessageID").
+         * @throws IllegalStateException if this is within an initialization, where there is no incoming message.
          */
-        String toString();
+        String getMessageId() throws IllegalStateException;
 
         /**
          * @param key
@@ -190,6 +190,13 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * @see ProcessContext#setTraceProperty(String, Object)
          */
         <T> T getTraceProperty(String propertyName, Class<T> clazz);
+
+        /**
+         * @return a for-human-consumption, multi-line debug-String representing the current processing context,
+         *         typically the "MatsTrace" up to the current stage. The format is utterly arbitrary, can and will
+         *         change between versions and revisions, and <b>shall <u>NOT</u> be used programmatically!!</b>
+         */
+        String toString();
     }
 
     /**

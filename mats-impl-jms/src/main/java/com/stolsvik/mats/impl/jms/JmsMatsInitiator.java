@@ -204,6 +204,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                         getFactory(),
                         endpointId,
                         stageId,
+                        null,
                         nextStageId,
                         stash, zstartMatsTrace + 1, stash.length - zstartMatsTrace - 1,
                         matsTraceMeta, matsTrace,

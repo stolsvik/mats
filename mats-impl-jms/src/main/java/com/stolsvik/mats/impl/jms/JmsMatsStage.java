@@ -392,11 +392,13 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
                                 byte[] matsTraceBytes;
                                 String matsTraceMeta;
+                                String messageId;
                                 try {
                                     String matsTraceKey = getFactory().getFactoryConfig().getMatsTraceKey();
                                     matsTraceBytes = mapMessage.getBytes(matsTraceKey);
                                     matsTraceMeta = mapMessage.getString(matsTraceKey
                                             + MatsSerializer.META_KEY_POSTFIX);
+                                    messageId = mapMessage.getJMSMessageID();
                                 }
                                 catch (JMSException e) {
                                     throw new JmsMatsJmsException("Got JMSException when getting the MatsTrace"
@@ -479,6 +481,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                         getFactory(),
                                         _jmsMatsStage.getParentEndpoint().getEndpointId(),
                                         _jmsMatsStage.getStageId(),
+                                        messageId,
                                         _jmsMatsStage.getNextStageId(),
                                         matsTraceBytes, 0, matsTraceBytes.length, matsTraceMeta,
                                         matsTrace,

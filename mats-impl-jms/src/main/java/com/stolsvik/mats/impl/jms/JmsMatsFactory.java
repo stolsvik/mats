@@ -249,10 +249,18 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         _createdEndpoints.forEach(MatsEndpoint::waitForStarted);
     }
 
+    /**
+     * Method for Spring's default lifecycle - directly invokes {@link #stop()}.
+     */
+    public void close() {
+        log.info(LOG_PREFIX + getClass().getSimpleName() + ".close() invoked, forwarding to stop().");
+        stop();
+    }
+
     @Override
     public void stop() {
         log.info(LOG_PREFIX + "Stopping [" + idThis()
-                + "], thus starting/closing all created endpoints and initiators.");
+                + "], thus stopping/closing all created endpoints and initiators.");
         // :: Stopping all endpoints
         for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
             try {

@@ -33,6 +33,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     private final String _endpointId;
     private final String _stageId;
+    private final String _messageId;
     private final String _nextStageId;
 
     private final byte[] _incomingSerializedMatsTrace;
@@ -48,6 +49,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     JmsMatsProcessContext(JmsMatsFactory<Z> parentFactory,
             String endpointId,
             String stageId,
+            String messageId,
             String nextStageId,
             byte[] incomingSerializedMatsTrace, int mtSerOffset, int mtSerLength,
             String incomingSerializedMatsTraceMeta,
@@ -58,6 +60,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
         _endpointId = endpointId;
         _stageId = stageId;
+        _messageId = messageId;
         _nextStageId = nextStageId;
 
         _incomingSerializedMatsTrace = incomingSerializedMatsTrace;
@@ -83,6 +86,14 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     @Override
     public String getFromStageId() {
         return _incomingMatsTrace.getCurrentCall().getFrom();
+    }
+
+    @Override
+    public String getMessageId() {
+        if (_messageId == null) {
+            throw new IllegalStateException("The messageId is not set - is this an initialization?");
+        }
+        return _messageId;
     }
 
     @Override
