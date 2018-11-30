@@ -72,11 +72,8 @@ public class MatsSpringAnnotationBeanPostProcessor implements
 
     @Override
     public int getOrder() {
-        log.info(LOG_PREFIX + "Ordered.getOrder()");
-        if (true) {
-            throw new AssertionError("I thought Ordered.getOrder() was not invoked. How come it suddenly is?");
-        }
-        return LOWEST_PRECEDENCE - 1;
+        log.info(LOG_PREFIX + "Ordered.getOrder(), returning 0.");
+        return 0;
     }
 
     private ApplicationContext _applicationContext;
