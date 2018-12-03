@@ -9,6 +9,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
@@ -103,138 +104,6 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         catch (MatsBackendException e) {
             throw new MatsBackendRuntimeException("Wrapping the MatsBackendException in a unchecked variant", e);
         }
-    }
-
-    private void validateByte(byte[] stash, int idx, int value) {
-        if (stash[idx] != value) {
-            throw new IllegalArgumentException("The stash bytes shall start with ASCII letters 'MATSjmts' and then a"
-                    + "byte 1. Index [" + idx + "] should be [" + value + "], but was [" + stash[idx] + "].");
-        }
-    }
-
-    private int findZero(byte[] stash, int fromIndex) {
-        try {
-            int t = fromIndex;
-            while (stash[t] != 0) {
-                t++;
-            }
-            return t;
-        }
-        catch (ArrayIndexOutOfBoundsException e) {
-            throw new IllegalArgumentException(
-                    "The stash byte array does not contain the zeros I expected, starting from index [" + fromIndex
-                            + "]");
-        }
-    }
-
-    private static final Charset CHARSET_UTF8 = Charset.forName("UTF-8");
-
-    @Override
-    public <R, S, I> void unstash(byte[] stash,
-            Class<R> replyClass, Class<S> stateClass, Class<I> incomingClass,
-            ProcessLambda<R, S, I> lambda) throws MatsBackendException, MatsMessageSendException {
-
-        if (stash == null) {
-            throw new NullPointerException("byte[] stash");
-        }
-
-        // :: Validate that this is a "MATSjmts" v.1 stash.
-        validateByte(stash, 0, 77);
-        validateByte(stash, 1, 65);
-        validateByte(stash, 2, 84);
-        validateByte(stash, 3, 83);
-        validateByte(stash, 4, 106);
-        validateByte(stash, 5, 109);
-        validateByte(stash, 6, 116);
-        validateByte(stash, 7, 115);
-        validateByte(stash, 8, 1);
-
-        // ----- Validated ok. Could have thrown in a checksum, but if foot-shooting is your thing, then go ahead.
-
-        // :: Get the annoying metadata
-
-        // Find zeros
-        int zstartEndpointId = findZero(stash, 9); // Should be right there.
-        int zstartStageId = findZero(stash, zstartEndpointId + 1);
-        int zstartNextStageId = findZero(stash, zstartStageId + 1);
-        int zstartMeta = findZero(stash, zstartNextStageId + 1);
-        int zstartMatsTrace = findZero(stash, zstartMeta + 1);
-
-        String endpointId = new String(stash, zstartEndpointId + 1, zstartStageId - zstartEndpointId - 1, CHARSET_UTF8);
-        String stageId = new String(stash, zstartStageId + 1, zstartNextStageId - zstartStageId - 1, CHARSET_UTF8);
-        // If nextStageId == the special "no next stage" string, then null. Else get it.
-        String nextStageId = (zstartMeta - zstartNextStageId - 1) == JmsMatsProcessContext.NO_NEXT_STAGE.length &&
-                stash[zstartNextStageId + 1] == JmsMatsProcessContext.NO_NEXT_STAGE[0]
-                        ? null
-                        : new String(stash, zstartNextStageId + 1, zstartMeta - zstartNextStageId - 1, CHARSET_UTF8);
-        String matsTraceMeta = new String(stash, zstartMeta + 1, zstartMatsTrace - zstartMeta - 1, CHARSET_UTF8);
-
-        DeserializedMatsTrace<Z> deserializedMatsTrace = _parentFactory.getMatsSerializer().deserializeMatsTrace(stash,
-                zstartMatsTrace + 1, stash.length - zstartMatsTrace - 1, matsTraceMeta);
-        MatsTrace<Z> matsTrace = deserializedMatsTrace.getMatsTrace();
-
-        // :: Current State: If null, make an empty object instead, unless Void, which is null.
-        Z currentSerializedState = matsTrace.getCurrentState();
-
-        S currentSto = (currentSerializedState == null
-                ? (stateClass != Void.class
-                        ? _parentFactory.getMatsSerializer().newInstance(
-                                stateClass)
-                        : null)
-                : _parentFactory.getMatsSerializer().deserializeObject(currentSerializedState, stateClass));
-
-        // :: Current Call, incoming Message DTO
-        Call<Z> currentCall = matsTrace.getCurrentCall();
-        I incomingDto = _parentFactory.getMatsSerializer().deserializeObject(currentCall.getData(), incomingClass);
-
-        long nanosStart = System.nanoTime();
-        JmsSessionHolder jmsSessionHolder;
-        try {
-            jmsSessionHolder = _jmsMatsJmsSessionHandler.getSessionHolder(this);
-        }
-        catch (JmsMatsJmsException e) {
-            throw new MatsBackendException("Damn it.", e);
-        }
-
-        try {
-            _transactionContext.doTransaction(jmsSessionHolder, () -> {
-                List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
-                // :: Invoke the process lambda (the actual user code).
-                lambda.process(new JmsMatsProcessContext<>(
-                        getFactory(),
-                        endpointId,
-                        stageId,
-                        null,
-                        nextStageId,
-                        stash, zstartMatsTrace + 1, stash.length - zstartMatsTrace - 1,
-                        matsTraceMeta, matsTrace,
-                        currentSto, new LinkedHashMap<>(), new LinkedHashMap<>(),
-                        messagesToSend),
-                        currentSto, incomingDto);
-
-                sendMatsMessages(log, nanosStart, jmsSessionHolder, getFactory(), messagesToSend);
-            });
-            jmsSessionHolder.release();
-        }
-        catch (JmsMatsMessageSendException e) {
-            // JmsMatsMessageSendException is a JmsMatsJmsException, and that indicates that there was a problem with
-            // JMS - so we should "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
-            jmsSessionHolder.crashed(e);
-            // This is a special variant of JmsMatsJmsException which is the "VERY BAD!" scenario.
-            // TODO: Do retries if it fails!
-            throw new MatsMessageSendException("Evidently got problems sending out the message after having run the"
-                    + " process lambda and potentially committed other resources, typically database.", e);
-        }
-        catch (JmsMatsJmsException e) {
-            // Catch any JmsMatsJmsException, as that indicates that there was a problem with JMS - so we should
-            // "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
-            jmsSessionHolder.crashed(e);
-            // .. then throw on. This is a lesser evil than JmsMatsMessageSendException, as it probably have happened
-            // before we committed database etc.
-            throw new MatsBackendException("Evidently have problems talking with our backend, which is a JMS Broker.",
-                    e);
-        }
-
     }
 
     @Override
@@ -486,6 +355,124 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     matsTrace, _props, _binaries, _strings, "new PUBLISH");
             _messagesToSend.add(request);
         }
+
+        @Override
+        public <R, S, I> void unstash(byte[] stash,
+                Class<R> replyClass, Class<S> stateClass, Class<I> incomingClass,
+                ProcessLambda<R, S, I> lambda) {
+
+            long nanosStart = System.nanoTime();
+
+            if (stash == null) {
+                throw new NullPointerException("byte[] stash");
+            }
+
+            // :: Validate that this is a "MATSjmts" v.1 stash.
+            validateByte(stash, 0, 77);
+            validateByte(stash, 1, 65);
+            validateByte(stash, 2, 84);
+            validateByte(stash, 3, 83);
+            validateByte(stash, 4, 106);
+            validateByte(stash, 5, 109);
+            validateByte(stash, 6, 116);
+            validateByte(stash, 7, 115);
+            validateByte(stash, 8, 1);
+
+            // ----- Validated ok. Could have thrown in a checksum, but if foot-shooting is your thing, then go ahead.
+
+            // :: Get the annoying metadata
+
+            // Find zeros
+            int zstartEndpointId = findZero(stash, 9); // Should be right there.
+            int zstartStageId = findZero(stash, zstartEndpointId + 1);
+            int zstartNextStageId = findZero(stash, zstartStageId + 1);
+            int zstartMeta = findZero(stash, zstartNextStageId + 1);
+            int zstartMatsTrace = findZero(stash, zstartMeta + 1);
+
+            String endpointId = new String(stash, zstartEndpointId + 1, zstartStageId - zstartEndpointId - 1,
+                    CHARSET_UTF8);
+            String stageId = new String(stash, zstartStageId + 1, zstartNextStageId - zstartStageId - 1, CHARSET_UTF8);
+            // If nextStageId == the special "no next stage" string, then null. Else get it.
+            String nextStageId = (zstartMeta - zstartNextStageId - 1) == JmsMatsProcessContext.NO_NEXT_STAGE.length &&
+                    stash[zstartNextStageId + 1] == JmsMatsProcessContext.NO_NEXT_STAGE[0]
+                            ? null
+                            : new String(stash, zstartNextStageId + 1, zstartMeta - zstartNextStageId - 1,
+                                    CHARSET_UTF8);
+            String matsTraceMeta = new String(stash, zstartMeta + 1, zstartMatsTrace - zstartMeta - 1, CHARSET_UTF8);
+
+            DeserializedMatsTrace<Z> deserializedMatsTrace = _parentFactory.getMatsSerializer().deserializeMatsTrace(
+                    stash,
+                    zstartMatsTrace + 1, stash.length - zstartMatsTrace - 1, matsTraceMeta);
+            MatsTrace<Z> matsTrace = deserializedMatsTrace.getMatsTrace();
+
+            // :: Current State: If null, make an empty object instead, unless Void, which is null.
+            Z currentSerializedState = matsTrace.getCurrentState();
+
+            S currentSto = (currentSerializedState == null
+                    ? (stateClass != Void.class
+                            ? _parentFactory.getMatsSerializer().newInstance(
+                                    stateClass)
+                            : null)
+                    : _parentFactory.getMatsSerializer().deserializeObject(currentSerializedState, stateClass));
+
+            // :: Current Call, incoming Message DTO
+            Call<Z> currentCall = matsTrace.getCurrentCall();
+            I incomingDto = _parentFactory.getMatsSerializer().deserializeObject(currentCall.getData(), incomingClass);
+
+            double millisDeserializing = (System.nanoTime() - nanosStart) / 1_000_000d;
+
+            log.info(LOG_PREFIX + "Unstashing message from [" + stash.length + " B] stash, R:[" + replyClass
+                    .getSimpleName() + "], S:[" + stateClass.getSimpleName() + "], I:[" + incomingClass.getSimpleName()
+                    + "]. From StageId:[" + matsTrace.getCurrentCall().getFrom() + "], This StageId:[" + stageId
+                    + "], NextStageId:[" + nextStageId + "] - deserializing took ["
+                    + millisDeserializing + " ms]");
+
+            // :: Invoke the process lambda (the actual user code).
+            try {
+                lambda.process(new JmsMatsProcessContext<>(
+                        _parentFactory,
+                        endpointId,
+                        stageId,
+                        null,
+                        nextStageId,
+                        stash, zstartMatsTrace + 1, stash.length - zstartMatsTrace - 1,
+                        matsTraceMeta, matsTrace,
+                        currentSto, new LinkedHashMap<>(), new LinkedHashMap<>(),
+                        _messagesToSend),
+                        currentSto, incomingDto);
+            }
+            catch (MatsRefuseMessageException e) {
+                throw new IllegalStateException("Cannot throw MatsRefuseMessageException when unstash()'ing!"
+                        + " You should have done that when you first received the message, before"
+                        + " stash()'ing it.", e);
+            }
+        }
+
+        private static void validateByte(byte[] stash, int idx, int value) {
+            if (stash[idx] != value) {
+                throw new IllegalArgumentException(
+                        "The stash bytes shall start with ASCII letters 'MATSjmts' and then a"
+                                + "byte 1. Index [" + idx + "] should be [" + value + "], but was [" + stash[idx]
+                                + "].");
+            }
+        }
+
+        private static int findZero(byte[] stash, int fromIndex) {
+            try {
+                int t = fromIndex;
+                while (stash[t] != 0) {
+                    t++;
+                }
+                return t;
+            }
+            catch (ArrayIndexOutOfBoundsException e) {
+                throw new IllegalArgumentException(
+                        "The stash byte array does not contain the zeros I expected, starting from index [" + fromIndex
+                                + "]");
+            }
+        }
+
+        private static final Charset CHARSET_UTF8 = Charset.forName("UTF-8");
 
         private void copyOverAnyExistingTraceProperties(MatsTrace<Z> matsTrace) {
             // ?: Do we have an existing MatsTrace (implying that we are being initiated within a Stage)

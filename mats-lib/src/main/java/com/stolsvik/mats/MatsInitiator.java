@@ -34,7 +34,7 @@ public interface MatsInitiator extends Closeable {
 
     /**
      * Initiates a new message (request or invocation) out to an endpoint - where the two error conditions are raised as
-     * unchecked exceptions (But please understand the implications of {@link MatsBackendRuntimeException}).
+     * unchecked exceptions (But please understand the implications of {@link MatsMessageSendRuntimeException}).
      *
      * @param lambda
      *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
@@ -47,42 +47,6 @@ public interface MatsInitiator extends Closeable {
      */
     void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
             MatsMessageSendRuntimeException;
-
-    /**
-     * Unstashes a Mats Flow that have been previously {@link ProcessContext#stash() stashed}. To be able to deserialize
-     * the stashed bytes to instances provided to the supplied {@link ProcessLambda}, you need to provide the classes of
-     * the original stage's Reply, State and Incoming objects.
-     *
-     * @param stash
-     *            the stashed bytes which now should be unstashed
-     * @param replyClass
-     *            the class which the original stage originally would reply with.
-     * @param stateClass
-     *            the class which used for state in the original stage (endpoint) - or Void.class if none.
-     * @param incomingClass
-     *            the class which the original stage gets as incoming DTO.
-     * @param lambda
-     *            the stage lambda which should now be executed instead of the original stage lambda where stash was
-     *            invoked.
-     * @param <R>
-     *            type of the ReplyClass
-     * @param <S>
-     *            type of the StateClass
-     * @param <I>
-     *            type of the IncomingClass
-     *
-     * @throws MatsBackendException
-     *             if the Mats implementation cannot connect to the underlying message broker, or are having problems
-     *             interacting with it.
-     * @throws MatsMessageSendException
-     *             if the Mats implementation cannot send the messages after it has executed the initiation lambda and
-     *             committed external resources - please read the JavaDoc of that class.
-     */
-    <R, S, I> void unstash(byte[] stash,
-            Class<R> replyClass,
-            Class<S> stateClass,
-            Class<I> incomingClass,
-            ProcessLambda<R, S, I> lambda) throws MatsBackendException, MatsMessageSendException;
 
     /**
      * Will be thrown by the {@link MatsInitiator#initiate(InitiateLambda)}-method if it is not possible at this time to
@@ -484,6 +448,35 @@ public interface MatsInitiator extends Closeable {
          *            the object which the target endpoint will get as its STO (State Transfer Object).
          */
         void publish(Object messageDto, Object initialTargetSto);
+
+        /**
+         * Unstashes a Mats Flow that have been previously {@link ProcessContext#stash() stashed}. To be able to
+         * deserialize the stashed bytes to instances provided to the supplied {@link ProcessLambda}, you need to
+         * provide the classes of the original stage's Reply, State and Incoming objects.
+         *
+         * @param stash
+         *            the stashed bytes which now should be unstashed
+         * @param replyClass
+         *            the class which the original stage originally would reply with.
+         * @param stateClass
+         *            the class which used for state in the original stage (endpoint) - or Void.class if none.
+         * @param incomingClass
+         *            the class which the original stage gets as incoming DTO.
+         * @param lambda
+         *            the stage lambda which should now be executed instead of the original stage lambda where stash was
+         *            invoked.
+         * @param <R>
+         *            type of the ReplyClass
+         * @param <S>
+         *            type of the StateClass
+         * @param <I>
+         *            type of the IncomingClass
+         */
+        <R, S, I> void unstash(byte[] stash,
+                Class<R> replyClass,
+                Class<S> stateClass,
+                Class<I> incomingClass,
+                ProcessLambda<R, S, I> lambda);
     }
 
     /**

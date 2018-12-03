@@ -96,13 +96,13 @@ public class Test_MultiLevelStash extends MatsBasicTest {
         Assert.assertEquals(SERVICE, stashContext_stage0.getContext().getStageId());
 
         // Unstash!
-        matsRule.getMatsInitiator().unstash(_stash_stage0, DataTO.class, StateTO.class, DataTO.class,
-                (context, state, incomingDto) -> {
+        matsRule.getMatsInitiator().initiateUnchecked(initiate -> initiate.unstash(_stash_stage0,
+                DataTO.class, StateTO.class, DataTO.class, (context, state, incomingDto) -> {
                     state.number1 = 1337;
                     state.number2 = Math.PI;
                     context.request(SERVICE + ".Leaf", new DataTO(incomingDto.number * 2, incomingDto.string
                             + ":RequestToLeaf"));
-                });
+                }));
 
         // ### STASHED AT LEAF - Wait synchronously for stash to appear
         Result<StateTO, DataTO> stashContext_leaf = _stashLatch_leaf.waitForResult();
@@ -113,12 +113,12 @@ public class Test_MultiLevelStash extends MatsBasicTest {
 
         byte[][] restash = new byte[1][];
         // Unstash!
-        matsRule.getMatsInitiator().unstash(_stash_leaf, DataTO.class, StateTO.class, DataTO.class,
-                (context, state, incomingDto) -> {
+        matsRule.getMatsInitiator().initiateUnchecked( initiate -> initiate.unstash(_stash_leaf,
+                DataTO.class, StateTO.class, DataTO.class, (context, state, incomingDto) -> {
                     // Restashing bytes. Absurd idea, but everything should work inside the "continued" process lambda.
                     restash[0] = context.stash();
                     context.reply(new DataTO(incomingDto.number * 3, incomingDto.string + ":FromLeaf"));
-                });
+                }));
 
         // ### STASHED AT SERVICE.stage1 - Wait synchronously for stash to appear
         Result<StateTO, DataTO> stashContext_stage1 = _stashLatch_Stage1.waitForResult();
@@ -132,13 +132,13 @@ public class Test_MultiLevelStash extends MatsBasicTest {
         Assert.assertArrayEquals(_stash_leaf, restash[0]);
 
         // Unstash!
-        matsRule.getMatsInitiator().unstash(_stash_stage1, DataTO.class, StateTO.class, DataTO.class,
-                (context, state, incomingDto) -> {
+        matsRule.getMatsInitiator().initiateUnchecked(initiate -> initiate.unstash(_stash_stage1,
+                DataTO.class, StateTO.class, DataTO.class, (context, state, incomingDto) -> {
                     // State is present
                     Assert.assertEquals(1337, state.number1);
                     Assert.assertEquals(Math.PI, state.number2, 0d);
                     context.reply(new DataTO(incomingDto.number * 5, incomingDto.string + ":FromService"));
-                });
+                }));
 
         // ### PROCESS FINISHED @ Terminator, first time! - Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
@@ -151,13 +151,14 @@ public class Test_MultiLevelStash extends MatsBasicTest {
         // :: USING STASH FROM SERVICE.stage1 AGAIN TO UNSTASH TWICE - the terminator will get its answer once more.
 
         // Unstash AGAIN!
-        matsRule.getMatsInitiator().unstash(_stash_stage1, DataTO.class, StateTO.class, DataTO.class,
-                (context, state, incomingDto) -> {
+        matsRule.getMatsInitiator().initiateUnchecked(initiate -> initiate.unstash(_stash_stage1,
+                DataTO.class, StateTO.class, DataTO.class, (context, state, incomingDto) -> {
                     // Different reply this time around
                     context.reply(new DataTO(incomingDto.number * 7, incomingDto.string + ":FromServiceAGAIN"));
-                });
+                }));
 
-        // ### PROCESS FINISHED @ Terminator, second time! - Wait synchronously for terminator to finish for a second time.
+        // ### PROCESS FINISHED @ Terminator, second time! - Wait synchronously for terminator to finish for a second
+        // time.
         Result<StateTO, DataTO> result_Again = matsTestLatch.waitForResult();
         // :: Assert that the flow went through as expected, with the traceId intact.
         Assert.assertEquals(traceId, result_Again.getContext().getTraceId());

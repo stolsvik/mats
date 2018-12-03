@@ -116,7 +116,8 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
     }
 
     /**
-     * Constructs a MatsSerializer, using the {@link #DEFAULT_COMPRESSION_LEVEL} (which is 4).
+     * Constructs a MatsSerializer, using the {@link #DEFAULT_COMPRESSION_LEVEL} (which is {@link Deflater#BEST_SPEED},
+     * which is 1).
      */
     public MatsSerializer_DefaultJson() {
         this(DEFAULT_COMPRESSION_LEVEL);
@@ -239,7 +240,7 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
             if (meta.startsWith(COMPRESS_DEFLATE)) {
                 // -> Compressed, so decompress the incoming bytes
                 // Decompress
-                byte[] decompressedBytes = decompress(matsTraceBytes, offset, length, matsTraceBytes.length * 10);
+                byte[] decompressedBytes = decompress(matsTraceBytes, offset, length, matsTraceBytes.length * 4);
                 // Begin deserialization time
                 nanosStartDeserialization = System.nanoTime();
                 // Store how long it took to decompress

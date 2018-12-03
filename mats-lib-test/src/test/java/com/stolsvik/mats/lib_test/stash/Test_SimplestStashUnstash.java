@@ -62,10 +62,10 @@ public class Test_SimplestStashUnstash extends MatsBasicTest {
         _stashLatch.await(1, TimeUnit.SECONDS);
 
         // Unstash!
-        matsRule.getMatsInitiator().unstash(_stash, DataTO.class, StateTO.class, DataTO.class,
-                (context, state, incomingDto) -> {
+        matsRule.getMatsInitiator().initiateUnchecked(initiate -> initiate.unstash(_stash,
+                DataTO.class, StateTO.class, DataTO.class, (context, state, incomingDto) -> {
                     context.reply(new DataTO(dto.number * 2, dto.string + ":FromService"));
-                });
+                }));
 
         // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();

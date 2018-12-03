@@ -194,7 +194,7 @@ public interface JmsMatsStatics {
                 double millisSend = (System.nanoTime() - nanosStartSend) / 1_000_000d;
                 log.info(LOG_PREFIX + "SENDING [" + jmsMatsMessage.getWhat() + "] message to [" + destination
                         + "], send took:[" + millisSend + " ms] (production was:[" + jmsMatsMessage
-                                .getTotalProductionTimeMillis() + "]).");
+                                .getTotalProductionTimeMillis() + " ms]).");
             }
             catch (JMSException e) {
                 throw new JmsMatsJmsException("Got problems sending [" + jmsMatsMessage.getWhat() + "] to [" + toChannel

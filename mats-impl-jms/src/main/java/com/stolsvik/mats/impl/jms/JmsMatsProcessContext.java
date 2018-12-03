@@ -38,7 +38,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     private final byte[] _incomingSerializedMatsTrace;
     private final int _mtSerOffset;
-    private final int _mtSerLength;
+    private final int _mtSerLength;  // The reason for having this separate, is when unstashing: Length != entire thing.
     private final String _incomingSerializedMatsTraceMeta;
     private final MatsTrace<Z> _incomingMatsTrace;
     private final LinkedHashMap<String, byte[]> _incomingBinaries;
@@ -142,6 +142,8 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     @Override
     public byte[] stash() {
+        long nanosStart = System.nanoTime();
+
         // Serialize the Serialized MatsTrace's meta info:
         byte[] b_meta = _incomingSerializedMatsTraceMeta.getBytes(CHARSET_UTF8);
         // .. endpointId
@@ -209,6 +211,11 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
                 + b_stageId.length + 1 + b_nextStageId.length + 1 + b_meta.length + 1;
         System.arraycopy(_incomingSerializedMatsTrace, _mtSerOffset,
                 fullStash, startPos_MatsTrace, _mtSerLength);
+
+        double millisSerializing = (System.nanoTime() - nanosStart) / 1_000_000d;
+
+        log.info(LOG_PREFIX + "Stashed Mats flow, stash:[" + fullStash.length + " B], serializing took:["
+                + millisSerializing + " ms].");
 
         return fullStash;
     }
