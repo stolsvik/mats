@@ -97,6 +97,16 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     }
 
     @Override
+    public boolean isNonPersistent() {
+        return _incomingMatsTrace.isNonPersistent();
+    }
+
+    @Override
+    public boolean isInteractive() {
+        return _incomingMatsTrace.isInteractive();
+    }
+
+    @Override
     public String toString() {
         return _incomingMatsTrace.toString();
     }

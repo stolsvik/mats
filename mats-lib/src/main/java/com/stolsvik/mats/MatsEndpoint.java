@@ -152,9 +152,26 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         /**
          * @return the unique messageId for the incoming message, from the underlying message system - which can be used
          *         to catch double-deliveries. (For a JMS Implementation, this will be the "JMSMessageID").
-         * @throws IllegalStateException if this is within an initialization, where there is no incoming message.
+         * @throws IllegalStateException
+         *             if this is within an initialization, where there is no incoming message.
          */
         String getMessageId() throws IllegalStateException;
+
+        /**
+         * This is relevant if stashing or otherwise when a stage is accessing an external system (e.g. another MQ)
+         * which have a notion of persistence.
+         *
+         * @return whether the current Mats flow is non-persistent - read {@link MatsInitiate#nonPersistent()}.
+         */
+        boolean isNonPersistent();
+
+        /**
+         * This is relevant if stashing or otherwise when a stage is accessing an external system (e.g. another MQ)
+         * which have a notion of prioritization.
+         *
+         * @return whether the current Mats flow is interactive (prioritized) - read {@link MatsInitiate#interactive()}.
+         */
+        boolean isInteractive();
 
         /**
          * @param key

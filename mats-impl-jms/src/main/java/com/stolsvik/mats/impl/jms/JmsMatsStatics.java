@@ -135,9 +135,8 @@ public interface JmsMatsStatics {
      */
     default <Z> void sendMatsMessages(Logger log, long nanosStart, JmsSessionHolder jmsSessionHolder,
             JmsMatsFactory<Z> jmsMatsFactory, List<JmsMatsMessage<Z>> messagesToSend) throws JmsMatsJmsException {
-
         if (messagesToSend.isEmpty()) {
-            log.info(LOG_PREFIX + "No messages to send.");
+            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "No messages to send.");
             return;
         }
         Session jmsSession = jmsSessionHolder.getSession();
@@ -178,15 +177,13 @@ public interface JmsMatsStatics {
                 // TODO: OPTIMIZE: Use "asynchronous sends", i.e. register completion listeners (catch exceptions) and
                 // close at the end.
 
-                // TODO: OPTIMIZE: Is it worth it to cache producers?! Seems so. Could do it on the JmsSessionHolder..
-
                 // Setting DeliveryMode: NonPersistent or Persistent
                 int deliveryMode = jmsMatsMessage.getMatsTrace().isNonPersistent()
                         ? DeliveryMode.NON_PERSISTENT
                         : DeliveryMode.PERSISTENT;
                 // Setting Priority: 4 is default, 9 is highest.
                 int priority = jmsMatsMessage.getMatsTrace().isInteractive() ? 9 : 4;
-                // TODO: Set time-to-live
+                // TODO: Set time-to-live (Issue #23)
                 // Send the message (but since transactional, won't be committed until TransactionContext does).
                 messageProducer.send(destination, mm, deliveryMode, priority, 0);
 

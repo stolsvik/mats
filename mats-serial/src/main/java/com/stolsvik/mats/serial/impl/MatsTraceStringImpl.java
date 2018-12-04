@@ -33,10 +33,10 @@ import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
  * This makes it possible to use a condensed variant of MatsTrace that only includes the single current
  * {@link CallImpl}, along with the relevant stack frames. This is defined by the {@link KeepMatsTrace} enum.
  * <p>
- * One envisions that for development and the production stabilization phase of the system, the default long form is
- * used, while when the system have performed flawless for a while, one can change it to use the condensed form, thereby
- * shaving some cycles for the serialization and deserialization, but more importantly potentially quite a bit of
- * bandwidth and message processing compared to transfer of the full trace.
+ * One envisions that for development and the production stabilization phase of the system, the long form is used, while
+ * when the system have performed flawless for a while, one can change it to use the condensed form, thereby shaving
+ * some cycles for the serialization and deserialization, but more importantly potentially quite a bit of bandwidth and
+ * message processing compared to transfer of the full trace.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
@@ -115,7 +115,6 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     public String getInitializingHost() {
         return h;
     }
-
 
     /**
      * @return the "from" of the initiation.
@@ -291,7 +290,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     private static void pruneUnnecessaryStackStates(List<StackStateImpl> stackStates, int currentPruneDepth) {
         Set<Integer> seen = new HashSet<>();
-        // Iterate over all elements from the most recent (which is the last) to the earliest (which is first).
+        // Iterate over all elements backwards, from the most recent (which is the last) to the oldest (which is first).
         for (ListIterator<StackStateImpl> it = stackStates.listIterator(stackStates.size()); it.hasPrevious();) {
             StackStateImpl curr = it.previous();
             // ?: Is this at a higher level than current stack height?
@@ -545,7 +544,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             return new String(new char[length]).replace("\0", " ");
         }
 
-        public String toStringFromMatsTrace(long startTimestamp, int maxStackSize, int maxToStageIdLength, boolean printNulLData) {
+        public String toStringFromMatsTrace(long startTimestamp, int maxStackSize, int maxToStageIdLength,
+                boolean printNulLData) {
             String toType = (ts != 0 ? String.format("%4d", (ts - startTimestamp)) + "ms " : " - ") + indent() + t;
             int numMaxIncludingCallType = 14 + maxStackSize * 2;
             int numSpacesTo = Math.max(0, numMaxIncludingCallType - toType.length());
