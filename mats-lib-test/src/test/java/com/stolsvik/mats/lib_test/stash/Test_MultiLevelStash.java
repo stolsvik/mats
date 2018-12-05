@@ -113,7 +113,7 @@ public class Test_MultiLevelStash extends MatsBasicTest {
 
         byte[][] restash = new byte[1][];
         // Unstash!
-        matsRule.getMatsInitiator().initiateUnchecked( initiate -> initiate.unstash(_stash_leaf,
+        matsRule.getMatsInitiator().initiateUnchecked(initiate -> initiate.unstash(_stash_leaf,
                 DataTO.class, StateTO.class, DataTO.class, (context, state, incomingDto) -> {
                     // Restashing bytes. Absurd idea, but everything should work inside the "continued" process lambda.
                     restash[0] = context.stash();
@@ -131,12 +131,17 @@ public class Test_MultiLevelStash extends MatsBasicTest {
         // Check that the restash is the same as the stash (which with current impl is true)
         Assert.assertArrayEquals(_stash_leaf, restash[0]);
 
+        String messageId_AtStage1 = stashContext_stage1.getContext().getMessageId();
+        Assert.assertNotNull(messageId_AtStage1);
+        log.info("Here's the MessageId at stage1: [" + messageId_AtStage1 + "]");
+
         // Unstash!
         matsRule.getMatsInitiator().initiateUnchecked(initiate -> initiate.unstash(_stash_stage1,
                 DataTO.class, StateTO.class, DataTO.class, (context, state, incomingDto) -> {
                     // State is present
                     Assert.assertEquals(1337, state.number1);
                     Assert.assertEquals(Math.PI, state.number2, 0d);
+                    Assert.assertEquals(messageId_AtStage1, context.getMessageId());
                     context.reply(new DataTO(incomingDto.number * 5, incomingDto.string + ":FromService"));
                 }));
 
@@ -144,6 +149,7 @@ public class Test_MultiLevelStash extends MatsBasicTest {
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         // :: Assert that the flow went through as expected, with the traceId intact.
         Assert.assertEquals(traceId, result.getContext().getTraceId());
+        Assert.assertNotNull(result.getContext().getMessageId());
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 5, dto.string + ":RequestToLeaf:FromLeaf:FromService"),
                 result.getData());
@@ -154,6 +160,7 @@ public class Test_MultiLevelStash extends MatsBasicTest {
         matsRule.getMatsInitiator().initiateUnchecked(initiate -> initiate.unstash(_stash_stage1,
                 DataTO.class, StateTO.class, DataTO.class, (context, state, incomingDto) -> {
                     // Different reply this time around
+                    Assert.assertEquals(messageId_AtStage1, context.getMessageId());
                     context.reply(new DataTO(incomingDto.number * 7, incomingDto.string + ":FromServiceAGAIN"));
                 }));
 
@@ -162,9 +169,9 @@ public class Test_MultiLevelStash extends MatsBasicTest {
         Result<StateTO, DataTO> result_Again = matsTestLatch.waitForResult();
         // :: Assert that the flow went through as expected, with the traceId intact.
         Assert.assertEquals(traceId, result_Again.getContext().getTraceId());
+        Assert.assertNotNull(result_Again.getContext().getMessageId());
         Assert.assertEquals(sto, result_Again.getState());
         Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 7, dto.string + ":RequestToLeaf:FromLeaf:FromServiceAGAIN"),
                 result_Again.getData());
-
     }
 }

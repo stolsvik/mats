@@ -380,29 +380,49 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             // ----- Validated ok. Could have thrown in a checksum, but if foot-shooting is your thing, then go ahead.
 
-            // :: Get the annoying metadata
+            // ::: Get the annoying metadata
 
-            // Find zeros
-            int zstartEndpointId = findZero(stash, 9); // Should be right there.
+            // How many such fields are there. The idea is that we can add more fields in later revisions, and
+            // just have older versions "jump over" the ones it does not know.
+            int howManyZeros = stash[9];
+
+            // :: Find zeros (field delimiters)
+            int zstartEndpointId = findZero(stash, 10); // Should currently be right there, at pos#10.
             int zstartStageId = findZero(stash, zstartEndpointId + 1);
             int zstartNextStageId = findZero(stash, zstartStageId + 1);
-            int zstartMeta = findZero(stash, zstartNextStageId + 1);
-            int zstartMatsTrace = findZero(stash, zstartMeta + 1);
+            int zstartMatsTraceMeta = findZero(stash, zstartNextStageId + 1);
+            int zstartMessageId = findZero(stash, zstartMatsTraceMeta + 1);
+            // :: Here we'll jump over fields that we do not know, to be able to add more metadata in later revisions.
+            int zstartMatsTrace = zstartMessageId;
+            for (int i = 5; i < howManyZeros; i++) {
+                zstartMatsTrace = findZero(stash, zstartMatsTrace + 1);
+            }
 
+            // :: Metadata
+            // :EndpointId
             String endpointId = new String(stash, zstartEndpointId + 1, zstartStageId - zstartEndpointId - 1,
                     CHARSET_UTF8);
+            // :StageId
             String stageId = new String(stash, zstartStageId + 1, zstartNextStageId - zstartStageId - 1, CHARSET_UTF8);
+            // :NextStageId
             // If nextStageId == the special "no next stage" string, then null. Else get it.
-            String nextStageId = (zstartMeta - zstartNextStageId - 1) == JmsMatsProcessContext.NO_NEXT_STAGE.length &&
+            String nextStageId = (zstartMatsTraceMeta - zstartNextStageId
+                    - 1) == JmsMatsProcessContext.NO_NEXT_STAGE.length &&
                     stash[zstartNextStageId + 1] == JmsMatsProcessContext.NO_NEXT_STAGE[0]
                             ? null
-                            : new String(stash, zstartNextStageId + 1, zstartMeta - zstartNextStageId - 1,
-                                    CHARSET_UTF8);
-            String matsTraceMeta = new String(stash, zstartMeta + 1, zstartMatsTrace - zstartMeta - 1, CHARSET_UTF8);
+                            : new String(stash, zstartNextStageId + 1,
+                                    zstartMatsTraceMeta - zstartNextStageId - 1, CHARSET_UTF8);
+            // :MatsTrace Meta
+            String matsTraceMeta = new String(stash, zstartMatsTraceMeta + 1,
+                    zstartMessageId - zstartMatsTraceMeta - 1, CHARSET_UTF8);
+            // :MessageId
+            String messageId = new String(stash, zstartMessageId + 1,
+                    zstartMatsTrace - zstartMessageId - 1, CHARSET_UTF8);
 
-            DeserializedMatsTrace<Z> deserializedMatsTrace = _parentFactory.getMatsSerializer().deserializeMatsTrace(
-                    stash,
-                    zstartMatsTrace + 1, stash.length - zstartMatsTrace - 1, matsTraceMeta);
+            // :Actual MatsTrace:
+            DeserializedMatsTrace<Z> deserializedMatsTrace = _parentFactory.getMatsSerializer()
+                    .deserializeMatsTrace(stash, zstartMatsTrace + 1,
+                            stash.length - zstartMatsTrace - 1, matsTraceMeta);
             MatsTrace<Z> matsTrace = deserializedMatsTrace.getMatsTrace();
 
             // :: Current State: If null, make an empty object instead, unless Void, which is null.
@@ -410,8 +430,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             S currentSto = (currentSerializedState == null
                     ? (stateClass != Void.class
-                            ? _parentFactory.getMatsSerializer().newInstance(
-                                    stateClass)
+                            ? _parentFactory.getMatsSerializer().newInstance(stateClass)
                             : null)
                     : _parentFactory.getMatsSerializer().deserializeObject(currentSerializedState, stateClass));
 
@@ -433,7 +452,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                         _parentFactory,
                         endpointId,
                         stageId,
-                        null,
+                        messageId,
                         nextStageId,
                         stash, zstartMatsTrace + 1, stash.length - zstartMatsTrace - 1,
                         matsTraceMeta, matsTrace,

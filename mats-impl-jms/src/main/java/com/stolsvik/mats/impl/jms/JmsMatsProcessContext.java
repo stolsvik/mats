@@ -90,9 +90,6 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     @Override
     public String getMessageId() {
-        if (_messageId == null) {
-            throw new IllegalStateException("The messageId is not set - is this an initialization?");
-        }
         return _messageId;
     }
 
@@ -154,21 +151,25 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     public byte[] stash() {
         long nanosStart = System.nanoTime();
 
-        // Serialize the Serialized MatsTrace's meta info:
-        byte[] b_meta = _incomingSerializedMatsTraceMeta.getBytes(CHARSET_UTF8);
-        // .. endpointId
+        // Serialize the endpointId
         byte[] b_endpointId = _endpointId.getBytes(CHARSET_UTF8);
         // .. stageId
         byte[] b_stageId = _stageId.getBytes(CHARSET_UTF8);
         // .. nextStageId, handling that it might be null.
         byte[] b_nextStageId = _nextStageId == null ? NO_NEXT_STAGE : _nextStageId.getBytes(CHARSET_UTF8);
+        // .. serialized MatsTrace's meta info:
+        byte[] b_meta = _incomingSerializedMatsTraceMeta.getBytes(CHARSET_UTF8);
+        // .. messageId
+        byte[] b_messageId = _messageId.getBytes(CHARSET_UTF8);
 
         // :: Create and fill the Stash resulting array
 
         // Total length:
         // . 8 for the 2 x FourCC's "MATSjmts"
         // + 1 for the version, '1'
-        // + 1 for the 0-terminator
+        // + 1 for the number of zeros, currently 6.
+
+        // + 1 for the 0-terminator  // NOTICE: Can add more future data between n.o.Zeros and this zero-delimiter.
         // + b_endpointId.length
         // + 1 for the 0-terminator
         // + b_stageId.length
@@ -177,14 +178,19 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         // + 1 for the 0-terminator
         // + b_meta.length
         // + 1 for the 0-terminator
+        // + b_messageId.length
+        // + 1 for the 0-terminator
         // + length of incoming serialized MatsTrace, _mtSerLength
 
         int fullStashLength = 8
                 + 1
-                + 1 + b_meta.length
+                + 1
+
                 + 1 + b_endpointId.length
                 + 1 + b_stageId.length
                 + 1 + b_nextStageId.length
+                + 1 + b_meta.length
+                + 1 + b_messageId.length
                 + 1 + _mtSerLength;
         byte[] fullStash = new byte[fullStashLength];
         // "MATSjmts":
@@ -198,27 +204,31 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         fullStash[5] = 109; // m
         fullStash[6] = 116; // t
         fullStash[7] = 115; // s
-        fullStash[8] = 1; // Version -- notice that there are room to add more stuff here before first 0-byte.
+        fullStash[8] = 1; // Version -- NOTICE! that there are room to add more stuff here before first 0-byte.
+        fullStash[9] = 6; // Number of zeros - to be able to add stuff later, and have older deserializers handle it.
         // ZERO 1: All bytes in new initialized array is 0 already
         // EndpointId:
-        int startPos_EndpointId = 8 + 1 + 1;
+        int startPos_EndpointId = 8 + 1 + 1 + 1;
         System.arraycopy(b_endpointId, 0, fullStash, startPos_EndpointId, b_endpointId.length);
         // ZERO 2: All bytes in new initialized array is 0 already
         // StageId:
-        int startPos_StageId = 8 + 1 + 1 + b_endpointId.length + 1;
+        int startPos_StageId = startPos_EndpointId + b_endpointId.length + 1;
         System.arraycopy(b_stageId, 0, fullStash, startPos_StageId, b_stageId.length);
         // ZERO 3: All bytes in new initialized array is 0 already
         // NextStageId:
-        int startPos_NextStageId = 8 + 1 + 1 + b_endpointId.length + 1 + b_stageId.length + 1;
+        int startPos_NextStageId = startPos_StageId + b_stageId.length + 1;
         System.arraycopy(b_nextStageId, 0, fullStash, startPos_NextStageId, b_nextStageId.length);
         // ZERO 4: All bytes in new initialized array is 0 already
         // Meta:
-        int startPos_Meta = 8 + 1 + 1 + b_endpointId.length + 1 + b_stageId.length + 1 + b_nextStageId.length + 1;
+        int startPos_Meta = startPos_NextStageId + b_nextStageId.length + 1;
         System.arraycopy(b_meta, 0, fullStash, startPos_Meta, b_meta.length);
         // ZERO 5: All bytes in new initialized array is 0 already
+        // MessageId:
+        int startPos_MessageId = startPos_Meta + b_meta.length + 1;
+        System.arraycopy(b_messageId, 0, fullStash, startPos_MessageId, b_messageId.length);
+        // ZERO 6: All bytes in new initialized array is 0 already
         // Actual Serialized MatsTrace:
-        int startPos_MatsTrace = 8 + 1 + 1 + b_endpointId.length + 1
-                + b_stageId.length + 1 + b_nextStageId.length + 1 + b_meta.length + 1;
+        int startPos_MatsTrace = startPos_MessageId + b_messageId.length + 1;
         System.arraycopy(_incomingSerializedMatsTrace, _mtSerOffset,
                 fullStash, startPos_MatsTrace, _mtSerLength);
 
