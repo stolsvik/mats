@@ -356,6 +356,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             _messagesToSend.add(request);
         }
 
+        private static final Charset CHARSET_UTF8 = Charset.forName("UTF-8");
+
         @Override
         public <R, S, I> void unstash(byte[] stash,
                 Class<R> replyClass, Class<S> stateClass, Class<I> incomingClass,
@@ -469,10 +471,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
         private static void validateByte(byte[] stash, int idx, int value) {
             if (stash[idx] != value) {
-                throw new IllegalArgumentException(
-                        "The stash bytes shall start with ASCII letters 'MATSjmts' and then a"
-                                + "byte 1. Index [" + idx + "] should be [" + value + "], but was [" + stash[idx]
-                                + "].");
+                throw new IllegalArgumentException("The stash bytes shall start with ASCII letters 'MATSjmts' and then"
+                        + " a byte denoting the version. Index [" + idx + "] should be [" + value
+                        + "], but was [" + stash[idx] + "].");
             }
         }
 
@@ -485,13 +486,10 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 return t;
             }
             catch (ArrayIndexOutOfBoundsException e) {
-                throw new IllegalArgumentException(
-                        "The stash byte array does not contain the zeros I expected, starting from index [" + fromIndex
-                                + "]");
+                throw new IllegalArgumentException("The stash byte array does not contain the zeros I expected,"
+                        + " starting from index [" + fromIndex + "]");
             }
         }
-
-        private static final Charset CHARSET_UTF8 = Charset.forName("UTF-8");
 
         private void copyOverAnyExistingTraceProperties(MatsTrace<Z> matsTrace) {
             // ?: Do we have an existing MatsTrace (implying that we are being initiated within a Stage)

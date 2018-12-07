@@ -38,7 +38,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     private final byte[] _incomingSerializedMatsTrace;
     private final int _mtSerOffset;
-    private final int _mtSerLength;  // The reason for having this separate, is when unstashing: Length != entire thing.
+    private final int _mtSerLength; // The reason for having this separate, is when unstashing: Length != entire thing.
     private final String _incomingSerializedMatsTraceMeta;
     private final MatsTrace<Z> _incomingMatsTrace;
     private final LinkedHashMap<String, byte[]> _incomingBinaries;
@@ -162,82 +162,87 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         // .. messageId
         byte[] b_messageId = _messageId.getBytes(CHARSET_UTF8);
 
-        // :: Create and fill the Stash resulting array
+        // :: Create the byte array in one go
 
         // Total length:
-        // . 8 for the 2 x FourCC's "MATSjmts"
-        // + 1 for the version, '1'
-        // + 1 for the number of zeros, currently 6.
-
-        // + 1 for the 0-terminator  // NOTICE: Can add more future data between n.o.Zeros and this zero-delimiter.
-        // + b_endpointId.length
-        // + 1 for the 0-terminator
-        // + b_stageId.length
-        // + 1 for the 0-terminator
-        // + b_nextStageId.length
-        // + 1 for the 0-terminator
-        // + b_meta.length
-        // + 1 for the 0-terminator
-        // + b_messageId.length
-        // + 1 for the 0-terminator
-        // + length of incoming serialized MatsTrace, _mtSerLength
-
+        // = 8 for the 2 x FourCC's "MATSjmts"
         int fullStashLength = 8
+                // + 1 for the version, '1'
                 + 1
+                // + 1 for the number of zeros, currently 6.
                 + 1
-
+                // + 1 for the 0-delimiter // NOTICE: Can add more future data between n.o.Zeros and this
+                // zero-delimiter.
+                // + b_endpointId.length
                 + 1 + b_endpointId.length
+                // + 1 for the 0-delimiter
+                // + b_stageId.length
                 + 1 + b_stageId.length
+                // + 1 for the 0-delimiter
+                // + b_nextStageId.length
                 + 1 + b_nextStageId.length
+                // + 1 for the 0-delimiter
+                // + b_meta.length
                 + 1 + b_meta.length
+                // + 1 for the 0-delimiter
+                // + b_messageId.length
                 + 1 + b_messageId.length
+                // + 1 for the 0-delimiter
+                // + length of incoming serialized MatsTrace, _mtSerLength
                 + 1 + _mtSerLength;
-        byte[] fullStash = new byte[fullStashLength];
+        byte[] b_fullStash = new byte[fullStashLength];
+
+        // :: Fill the byte array with the stash
+
         // "MATSjmts":
         // * "MATS" as FourCC/"Magic Number", per spec.
         // * "jmts" for "Jms MatsTrace Serializer": This is the JMS impl of Mats, which employs MatsTraceSerializer.
-        fullStash[0] = 77; // M
-        fullStash[1] = 65; // A
-        fullStash[2] = 84; // T
-        fullStash[3] = 83; // S
-        fullStash[4] = 106; // j
-        fullStash[5] = 109; // m
-        fullStash[6] = 116; // t
-        fullStash[7] = 115; // s
-        fullStash[8] = 1; // Version -- NOTICE! that there are room to add more stuff here before first 0-byte.
-        fullStash[9] = 6; // Number of zeros - to be able to add stuff later, and have older deserializers handle it.
+        b_fullStash[0] = 77; // M
+        b_fullStash[1] = 65; // A
+        b_fullStash[2] = 84; // T
+        b_fullStash[3] = 83; // S
+        b_fullStash[4] = 106; // j
+        b_fullStash[5] = 109; // m
+        b_fullStash[6] = 116; // t
+        b_fullStash[7] = 115; // s
+        b_fullStash[8] = 1; // Version
+        b_fullStash[9] = 6; // Number of zeros - to be able to add stuff later, and have older deserializers handle it.
+        // -- NOTICE! There are room to add more stuff here before first 0-byte.
+
         // ZERO 1: All bytes in new initialized array is 0 already
         // EndpointId:
-        int startPos_EndpointId = 8 + 1 + 1 + 1;
-        System.arraycopy(b_endpointId, 0, fullStash, startPos_EndpointId, b_endpointId.length);
+        int startPos_EndpointId = /* 4CC */ 8 + /* Version */ 1 + /* n.o.Zeros */ 1 + /* 0-delimiter */ 1;
+        System.arraycopy(b_endpointId, 0, b_fullStash, startPos_EndpointId, b_endpointId.length);
         // ZERO 2: All bytes in new initialized array is 0 already
-        // StageId:
-        int startPos_StageId = startPos_EndpointId + b_endpointId.length + 1;
-        System.arraycopy(b_stageId, 0, fullStash, startPos_StageId, b_stageId.length);
+        // StageId start pos:
+        int /* next field start */ startPos_StageId = /* last field start */ startPos_EndpointId
+                + /* last field length */ b_endpointId.length
+                + /* 0-delimiter */ 1;
+        System.arraycopy(b_stageId, 0, b_fullStash, startPos_StageId, b_stageId.length);
         // ZERO 3: All bytes in new initialized array is 0 already
-        // NextStageId:
+        // NextStageId start pos:
         int startPos_NextStageId = startPos_StageId + b_stageId.length + 1;
-        System.arraycopy(b_nextStageId, 0, fullStash, startPos_NextStageId, b_nextStageId.length);
+        System.arraycopy(b_nextStageId, 0, b_fullStash, startPos_NextStageId, b_nextStageId.length);
         // ZERO 4: All bytes in new initialized array is 0 already
-        // Meta:
+        // MatsTrace Meta start pos:
         int startPos_Meta = startPos_NextStageId + b_nextStageId.length + 1;
-        System.arraycopy(b_meta, 0, fullStash, startPos_Meta, b_meta.length);
+        System.arraycopy(b_meta, 0, b_fullStash, startPos_Meta, b_meta.length);
         // ZERO 5: All bytes in new initialized array is 0 already
-        // MessageId:
+        // MessageId start pos:
         int startPos_MessageId = startPos_Meta + b_meta.length + 1;
-        System.arraycopy(b_messageId, 0, fullStash, startPos_MessageId, b_messageId.length);
+        System.arraycopy(b_messageId, 0, b_fullStash, startPos_MessageId, b_messageId.length);
         // ZERO 6: All bytes in new initialized array is 0 already
-        // Actual Serialized MatsTrace:
+        // Actual Serialized MatsTrace start pos:
         int startPos_MatsTrace = startPos_MessageId + b_messageId.length + 1;
         System.arraycopy(_incomingSerializedMatsTrace, _mtSerOffset,
-                fullStash, startPos_MatsTrace, _mtSerLength);
+                b_fullStash, startPos_MatsTrace, _mtSerLength);
 
         double millisSerializing = (System.nanoTime() - nanosStart) / 1_000_000d;
 
-        log.info(LOG_PREFIX + "Stashed Mats flow, stash:[" + fullStash.length + " B], serializing took:["
+        log.info(LOG_PREFIX + "Stashed Mats flow, stash:[" + b_fullStash.length + " B], serializing took:["
                 + millisSerializing + " ms].");
 
-        return fullStash;
+        return b_fullStash;
     }
 
     @Override
