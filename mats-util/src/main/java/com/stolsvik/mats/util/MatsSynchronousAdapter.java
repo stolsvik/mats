@@ -31,9 +31,24 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 public class MatsSynchronousAdapter<R> implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(MatsSynchronousAdapter.class);
 
+    /**
+     * Invoke to create an instance of the synchronous adapter - it is Thread Safe and meant for reuse, it contains an
+     * active Thread, and it is imperative that you do not make one instance per "synchronization" you perform.
+     */
     public static <R> MatsSynchronousAdapter<R> create(MatsFactory matsFactory, MatsInitiator matsInitiator,
             String returnEndpointPrefix, Class<R> replyClass) {
         return new MatsSynchronousAdapter<>(matsFactory, matsInitiator, returnEndpointPrefix, replyClass);
+    }
+
+    /**
+     * (Variant that gets the needed {@link MatsInitiator} by creating one from {@link MatsFactory#createInitiator()}).
+     * Invoke to create an instance of the synchronous adapter - it is Thread Safe and meant for reuse, it contains an
+     * active Thread, and it is imperative that you do not make one instance per "synchronization" you perform.
+     */
+    public static <R> MatsSynchronousAdapter<R> create(MatsFactory matsFactory,
+            String returnEndpointPrefix, Class<R> replyClass) {
+        return new MatsSynchronousAdapter<>(matsFactory, matsFactory.createInitiator(), returnEndpointPrefix,
+                replyClass);
     }
 
     /**
@@ -73,13 +88,19 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
     private final MatsInitiator _matsInitiator;
     private final String _completingSubscriptionEndpointId;
     private final MatsEndpoint<Void, String> _completingSubscriptionTerminator;
+    private final Class<R> _replyClass;
 
     private MatsSynchronousAdapter(MatsFactory matsFactory, MatsInitiator matsInitiator, String returnEndpointIdPrefix,
             Class<R> replyClass) {
         _matsInitiator = matsInitiator;
+        _replyClass = replyClass;
 
         _completingSubscriptionEndpointId = returnEndpointIdPrefix + ".private.SyncAdapter."
                 + replyClass.getSimpleName() + "." + matsFactory.getFactoryConfig().getNodename();
+
+        log.info("Creating " + MatsSynchronousAdapter.class + "<" + _replyClass.getSimpleName() + ">@"
+                + Integer.toHexString(System.identityHashCode(this)) + " - using completion SubscriptionEndpointId ["
+                + _completingSubscriptionEndpointId + "].");
 
         // :: Create the Thread that will timeout futures
         Thread timeoutThread = new Thread(this::timeouter,
@@ -126,6 +147,8 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
      * Stops the Timeout Thread and cancels all outstanding Futures.
      */
     public void close() {
+        log.info("Closing/stopping " + MatsSynchronousAdapter.class + "<" + _replyClass.getSimpleName() + ">@"
+                + Integer.toHexString(System.identityHashCode(this)));
         synchronized (_outstandingPromises) {
             // Set the TimeoutThread to exit
             _runTimeoutThread = false;
@@ -141,7 +164,9 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
     private final HashMap<String, WaitingPromise<R>> _outstandingPromises = new HashMap<>();
 
     private void timeouter() {
-        log.info("Timeout Thread for MatsSynchronousAdapter [" + _completingSubscriptionEndpointId + "] started.");
+        log.info("Timeout Thread for " + MatsSynchronousAdapter.class + "<" + _replyClass.getSimpleName() + ">@"
+                + Integer.toHexString(System.identityHashCode(this)) + " [" + _completingSubscriptionEndpointId
+                + "] started.");
         synchronized (_outstandingPromises) {
             while (_runTimeoutThread) {
                 // :: Find the nearest Future to time out.
