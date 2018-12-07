@@ -233,13 +233,15 @@ public interface MatsFactory extends StartStoppable {
 
     /**
      * Creates a new Initiator from which to initiate new Mats processes, i.e. send a message from "outside of Mats" to
-     * a Mats endpoint - <b>NOTICE: This is an active object that carries backend connection(s), therefore you are not
-     * supposed to create one instance per message you send!</b>
+     * a Mats endpoint - <b>NOTICE: This is an active object that can carry backend resources, and it is Thread Safe,
+     * therefore you are not supposed to create one instance per message you send!</b>
      * <p>
-     * <b>Observe: You are <em>not</em> supposed to create one instance of {@link MatsInitiator} per message you need to
-     * send - rather either create one for the entire application, or e.g. for each component:</b> The
-     * {@code MatsInitiator} will have underlying backend connection(s) attached to it - which also means that it needs
-     * to be {@link MatsInitiator#close() closed} for a clean application shutdown.
+     * <b>Observe: The returned MatsInitiator is Thread Safe, and meant for reuse: You are <em>not</em> supposed to
+     * create one instance of {@link MatsInitiator} per message you need to send - rather either create one for the
+     * entire application, or e.g. for each component:</b> The {@code MatsInitiator} can have underlying backend
+     * resources attached to it - which also means that it needs to be {@link MatsInitiator#close() closed} for a clean
+     * application shutdown (Note that all MatsInitiators are closed when {@link #stop() MatsFactory.stop()} is
+     * invoked).
      *
      * @return a {@link MatsInitiator}, on which messages can be {@link MatsInitiator#initiate(InitiateLambda)
      *         initiated}.

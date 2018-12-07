@@ -1,12 +1,10 @@
 package com.stolsvik.mats.impl.jms;
 
-import javax.jms.ConnectionFactory;
 import javax.jms.Session;
 
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.MatsInitiator.MatsBackendRuntimeException;
-import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
 
@@ -22,20 +20,12 @@ import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
 public interface JmsMatsTransactionManager {
 
     /**
-     * TODO: Fix or move JavaDoc
-     *
-     * Will be provided to {@link JmsMatsTransactionManager#getTransactionContext(JmsMatsTxContextKey)} to let it have a
-     * key from which to decide which level it shall do JMS Connection sharing on (from which to make Sessions). Notice
-     * that it is used both for {@link JmsMatsStageProcessor StageProcessors} (in which case {@link #getStage()} returns
-     * the stage), and for {@link JmsMatsInitiator Initiators} (in which case said method returns {@code null}).
+     * Provided to {@link #getTransactionContext(JmsMatsTxContextKey) getTransactionContext(...)} when a Mats-component
+     * fetches the TransactionContext implementation.
      * <p>
-     * For reference: In the JCA spec, it is specified that one JMS Connection is used per one JMS Session (and in the
-     * JMS spec v2.0, this is "formalized" in that in the "simplified JMS API" one have a new class JMSContext, which
-     * combines a Connection and Session in one). This will here mean that for each {@link JmsMatsTxContextKey}, there
-     * shall be a unique JMS Connection (i.e. each StageProcessor has its own Connection). It does makes some sense,
-     * though, that JMS Connections at least are shared for all StageProcessors for a Stage - or even for all
-     * StageProcessors for all Stages of an Endpoint. However, sharing one Connection for the entire application (i.e.
-     * for all endpoints in the JVM) might be a bit too heavy burden for a single JMS Connection.
+     * This interface is implemented both by {@link JmsMatsStageProcessor StageProcessors} (in which case
+     * {@link #getStage()} returns the stage), and by {@link JmsMatsInitiator Initiators} (in which case said method
+     * returns {@code null}).
      */
     interface JmsMatsTxContextKey {
         /**
@@ -50,21 +40,8 @@ public interface JmsMatsTransactionManager {
     }
 
     /**
-     * TODO: FIX JAVADOC
-     *
-     * A transactional context is created for each txContextKey, and then
-     * {@link TransactionContext#getTransactionalJmsSession(boolean)} is invoked per {@link JmsMatsStageProcessor}.
-     * <p>
-     * This invocation should create the JMS Connection, and any problems creating it should raise a
-     * {@link MatsBackendRuntimeException} - which is considered fatal. Any reconnect-logic is assumed to be found in the
-     * JMS implementation's {@link ConnectionFactory} - but handling retry even in face of DNS lookup or authentication
-     * failures could conceivably be implemented. Note that in this case this method must nevertheless return a
-     * {@link TransactionContext}, but where the the creation of the JMS Connection is deferred to the
-     * {@link TransactionContext#getTransactionalJmsSession(boolean)} - which <i>is allowed</i> to block.
-     * <p>
-     * The {@link JmsMatsStage txContextKey} that is being called for, is provided. The transaction manager is free to
-     * implement any kind of scheme it finds fit in regards to JMS Connections and how they are handled - i.e. per
-     * txContextKey, or per endpoint.
+     * Provides an implementation of {@link TransactionContext}. (JMS Connection and Session handling is done by
+     * {@link JmsMatsJmsSessionHandler}).
      *
      * @param txContextKey
      *            for which {@link JmsMatsStage} or {@link JmsMatsInitiator} this request for {@link TransactionContext}
@@ -90,7 +67,8 @@ public interface JmsMatsTransactionManager {
          * exception or not: It is possible to throw a checked exception form a method that doesn't declare it in
          * several different ways. Groovy is nasty here (as effectively everything is RuntimeException in Groovy world),
          * and also google "sneakyThrows" for a way to do it using "pure java" that was invented with Generics.)</i>
-         *  @param jmsSessionHolder
+         * 
+         * @param jmsSessionHolder
          *            the JMS Session upon which this transaction should run. Gotten from
          *            {@link JmsMatsJmsSessionHandler#getSessionHolder(JmsMatsStageProcessor)} or
          *            {@link JmsMatsJmsSessionHandler#getSessionHolder(JmsMatsInitiator)}.

@@ -60,7 +60,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             jmsSessionHolder = _jmsMatsJmsSessionHandler.getSessionHolder(this);
         }
         catch (JmsMatsJmsException e) {
-            throw new MatsBackendException("Damn it.", e);
+            // Could not get hold of JMS *Connection* - Read the JavaDoc of JmsMatsJmsSessionHandler.getSessionHolder()
+            throw new MatsBackendException("Could not get hold of JMS Connection.", e);
         }
         try {
             _transactionContext.doTransaction(jmsSessionHolder, () -> {

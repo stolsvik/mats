@@ -16,6 +16,15 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
  * <p>
  * The reason for session pooling for initiators is that a JMS Session can only be used for one thread, and since
  * initiators are shared throughout the code base, one initiator might be used by several threads at the same time.
+ * <p>
+ * For reference wrt. cardinality between Sessions and Connections: In the JCA spec, it is specified that one JMS
+ * Connection is used per one JMS Session (and in the JMS spec v2.0, this is "formalized" in that in the "simplified JMS
+ * API" one have a new class JMSContext, which combines a Connection and Session in one). This will here mean that for
+ * each {@link JmsMatsTxContextKey}, there shall be a unique JMS Connection (i.e. each StageProcessor has its own
+ * Connection). It does makes some sense, though, that JMS Connections at least are shared for all StageProcessors for a
+ * Stage - or even for all StageProcessors for all Stages of an Endpoint. Otherwise, a large system built on Mats will
+ * use a pretty massive amount of Connection. However, sharing one Connection for the entire application/service (i.e.
+ * for all endpoints in the JVM) might be a bit too heavy burden for a single JMS Connection.
  */
 public interface JmsMatsJmsSessionHandler {
 

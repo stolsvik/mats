@@ -13,6 +13,9 @@ import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
  * Provides a way to get a {@link MatsInitiate} instance "from the outside" of MATS, i.e. from a synchronous context. On
  * this instance, you invoke {@link #initiate(InitiateLambda)}, where the lambda will provide you with the necessary
  * {@link MatsInitiate} instance.
+ * <p>
+ * <b>Notice: This class is Thread Safe</b> - you are not supposed to make one instance per message initiation, but
+ * rather make one (or a few) for the entire application, and use it/them for all your initiation needs.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
