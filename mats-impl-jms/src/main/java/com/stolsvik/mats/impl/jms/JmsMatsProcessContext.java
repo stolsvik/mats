@@ -1,6 +1,6 @@
 package com.stolsvik.mats.impl.jms;
 
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -45,6 +45,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     private final LinkedHashMap<String, String> _incomingStrings;
     private final S _incomingAndOutgoingState;
     private final List<JmsMatsMessage<Z>> _messagesToSend;
+    private final DoAfterRunnableHolder _doAfterRunnableHolder;
 
     JmsMatsProcessContext(JmsMatsFactory<Z> parentFactory,
             String endpointId,
@@ -55,7 +56,8 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
             String incomingSerializedMatsTraceMeta,
             MatsTrace<Z> incomingMatsTrace, S incomingAndOutgoingState,
             LinkedHashMap<String, byte[]> incomingBinaries, LinkedHashMap<String, String> incomingStrings,
-            List<JmsMatsMessage<Z>> out_messagesToSend) {
+            List<JmsMatsMessage<Z>> out_messagesToSend,
+                          DoAfterRunnableHolder doAfterRunnableHolder) {
         _parentFactory = parentFactory;
 
         _endpointId = endpointId;
@@ -72,6 +74,24 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         _incomingStrings = incomingStrings;
         _incomingAndOutgoingState = incomingAndOutgoingState;
         _messagesToSend = out_messagesToSend;
+        _doAfterRunnableHolder = doAfterRunnableHolder;
+    }
+
+    /**
+     * Holds any Runnable set by {@link #doAfterCommit(Runnable)}.
+     */
+    static class DoAfterRunnableHolder {
+        private Runnable _doAfterCommit;
+
+        void setDoAfterCommit(Runnable runnable) {
+            _doAfterCommit = runnable;
+        }
+
+        public void runDoAfterCommitIfAny() {
+            if (_doAfterCommit != null) {
+                _doAfterCommit.run();
+            }
+        }
     }
 
     private final LinkedHashMap<String, Object> _outgoingProps = new LinkedHashMap<>();
@@ -143,24 +163,22 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         _outgoingProps.put(propertyName, propertyValue);
     }
 
-    private static final Charset CHARSET_UTF8 = Charset.forName("UTF-8");
-
-    static final byte[] NO_NEXT_STAGE = "-".getBytes(CHARSET_UTF8);
+    static final byte[] NO_NEXT_STAGE = "-".getBytes(StandardCharsets.UTF_8);
 
     @Override
     public byte[] stash() {
         long nanosStart = System.nanoTime();
 
         // Serialize the endpointId
-        byte[] b_endpointId = _endpointId.getBytes(CHARSET_UTF8);
+        byte[] b_endpointId = _endpointId.getBytes(StandardCharsets.UTF_8);
         // .. stageId
-        byte[] b_stageId = _stageId.getBytes(CHARSET_UTF8);
+        byte[] b_stageId = _stageId.getBytes(StandardCharsets.UTF_8);
         // .. nextStageId, handling that it might be null.
-        byte[] b_nextStageId = _nextStageId == null ? NO_NEXT_STAGE : _nextStageId.getBytes(CHARSET_UTF8);
+        byte[] b_nextStageId = _nextStageId == null ? NO_NEXT_STAGE : _nextStageId.getBytes(StandardCharsets.UTF_8);
         // .. serialized MatsTrace's meta info:
-        byte[] b_meta = _incomingSerializedMatsTraceMeta.getBytes(CHARSET_UTF8);
+        byte[] b_meta = _incomingSerializedMatsTraceMeta.getBytes(StandardCharsets.UTF_8);
         // .. messageId
-        byte[] b_messageId = _messageId.getBytes(CHARSET_UTF8);
+        byte[] b_messageId = _messageId.getBytes(StandardCharsets.UTF_8);
 
         // :: Create the byte array in one go
 
@@ -340,6 +358,11 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     @Override
     public void initiate(InitiateLambda lambda) {
-        lambda.initiate(new JmsMatsInitiate<>(_parentFactory, _messagesToSend, _incomingMatsTrace, _outgoingProps));
+        lambda.initiate(new JmsMatsInitiate<>(_parentFactory, _messagesToSend, _doAfterRunnableHolder, _incomingMatsTrace, _outgoingProps));
+    }
+
+    @Override
+    public void doAfterCommit(Runnable runnable) {
+        _doAfterRunnableHolder.setDoAfterCommit(runnable);
     }
 }

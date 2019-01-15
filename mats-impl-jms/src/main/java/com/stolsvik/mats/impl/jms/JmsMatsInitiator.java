@@ -13,6 +13,7 @@ import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
+import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterRunnableHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly.JmsMatsMessageSendException;
@@ -64,12 +65,22 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             throw new MatsBackendException("Could not get hold of JMS Connection.", e);
         }
         try {
+            DoAfterRunnableHolder doAfterRunnableHolder = new DoAfterRunnableHolder();
             _transactionContext.doTransaction(jmsSessionHolder, () -> {
                 List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
-                lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend));
+                lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend, doAfterRunnableHolder));
                 sendMatsMessages(log, nanosStart, jmsSessionHolder, _parentFactory, messagesToSend);
             });
             jmsSessionHolder.release();
+            // :: Handle the context.doAfterCommit(Runnable) lambda.
+            try {
+                doAfterRunnableHolder.runDoAfterCommitIfAny();
+            }
+            catch (RuntimeException re) {
+                log.error(LOG_PREFIX
+                        + "Got RuntimeException when running the doAfterCommit Runnable."
+                        + " Ignoring.", re);
+            }
         }
         catch (JmsMatsMessageSendException e) {
             // JmsMatsMessageSendException is a JmsMatsJmsException, and that indicates that there was a problem with
@@ -133,18 +144,21 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
         private final JmsMatsFactory<Z> _parentFactory;
         private final List<JmsMatsMessage<Z>> _messagesToSend;
+        private final DoAfterRunnableHolder _doAfterRunnableHolder;
 
-        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend) {
+        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend, DoAfterRunnableHolder doAfterRunnableHolder) {
             _parentFactory = parentFactory;
             _messagesToSend = messagesToSend;
+            _doAfterRunnableHolder = doAfterRunnableHolder;
         }
 
         private MatsTrace<Z> _existingMatsTrace;
 
-        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
+        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend, DoAfterRunnableHolder doAfterRunnableHolder,
                 MatsTrace<Z> existingMatsTrace, Map<String, Object> propsSetInStage) {
             _parentFactory = parentFactory;
             _messagesToSend = messagesToSend;
+            _doAfterRunnableHolder = doAfterRunnableHolder;
 
             _existingMatsTrace = existingMatsTrace;
 
@@ -460,7 +474,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                         stash, zstartMatsTrace + 1, stash.length - zstartMatsTrace - 1,
                         matsTraceMeta, matsTrace,
                         currentSto, new LinkedHashMap<>(), new LinkedHashMap<>(),
-                        _messagesToSend),
+                        _messagesToSend, _doAfterRunnableHolder),
                         currentSto, incomingDto);
             }
             catch (MatsRefuseMessageException e) {

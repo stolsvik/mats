@@ -96,7 +96,7 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
         // Drop nulls
         mapper.setSerializationInclusion(Include.NON_NULL);
 
-        // If props are in JSON that aren't in Java DTO, do nof fail.
+        // If props are in JSON that aren't in Java DTO, do not fail.
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
         // Write e.g. Dates as "1975-03-11" instead of timestamp, and instead of array-of-ints [1975, 3, 11].

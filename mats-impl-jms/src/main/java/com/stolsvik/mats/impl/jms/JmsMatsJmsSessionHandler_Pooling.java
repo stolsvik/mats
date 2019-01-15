@@ -427,7 +427,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                 available = _availableSessionHolders.size();
                 employed = _employedSessionHolders.size();
             }
-            return idThis() + "{" + (_crashed_StackTrace == null ? "live" : "crashed") + "!avail:" + available
+            return idThis() + "{" + (_crashed_StackTrace == null ? "live" : "crashed") + ",avail:" + available
                     + ",empl:" + employed + "}";
         }
     }

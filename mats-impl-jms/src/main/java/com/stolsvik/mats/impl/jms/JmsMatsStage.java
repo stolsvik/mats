@@ -23,12 +23,14 @@ import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
+import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterRunnableHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsSerializer.DeserializedMatsTrace;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call;
+import com.stolsvik.mats.util.RandomString;
 
 /**
  * The JMS implementation of {@link MatsStage}.
@@ -187,6 +189,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
      * Package access so that it can be referred to from JavaDoc.
      */
     static class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxContextKey {
+        private final String randomInstanceId = RandomString.randomString(5);
         private final JmsMatsStage<R, S, I, Z> _jmsMatsStage;
         private final int _processorNumber;
         private final Thread _processorThread;
@@ -195,7 +198,8 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         JmsMatsStageProcessor(JmsMatsStage<R, S, I, Z> jmsMatsStage, int processorNumber) {
             _jmsMatsStage = jmsMatsStage;
             _processorNumber = processorNumber;
-            _processorThread = new Thread(this::runner, THREAD_PREFIX + _jmsMatsStage._stageId + " " + id());
+            _processorThread = new Thread(this::runner, THREAD_PREFIX + _jmsMatsStage._stageId
+                    + '#' + _processorNumber + " {" + randomInstanceId + "}");
             _processorThread.start();
             _transactionContext = _jmsMatsStage._parentFactory
                     .getJmsMatsTransactionManager().getTransactionContext(this);
@@ -205,8 +209,8 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
         private JmsSessionHolder _jmsSessionHolder;
 
-        private String id() {
-            return id("StageProcessor#" + _processorNumber, this);
+        private String ident() {
+            return "StageProcessor#" + _processorNumber + '.' + randomInstanceId;
         }
 
         @Override
@@ -252,7 +256,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                 // JavaDoc isAlive(): "A thread is alive if it has been started and has not yet died."
                 // The Thread is started in the constructor.
                 // Thus, if it is not alive, there is NO possibility that it is starting, or about to be started.
-                log.info(LOG_PREFIX + id() + " has already exited, so just close JMS Session.");
+                log.info(LOG_PREFIX + ident() + " has already exited, so just close JMS Session.");
                 jmsSessionHolderToClose.close();
                 // Finished!
                 return;
@@ -263,27 +267,27 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
             // ?: Is thread currently waiting in consumer.receive()?
             if (_processorInReceive) {
                 // -> Yes, waiting in receive(), so close session, thus making receive() return null.
-                log.info(LOG_PREFIX + id() + " is waiting in consumer.receive(), so we'll close the JMS Session,"
+                log.info(LOG_PREFIX + ident() + " is waiting in consumer.receive(), so we'll close the JMS Session,"
                         + " thereby making the receive() call return null, and the thread will exit.");
                 jmsSessionHolderToClose.close();
                 sessionClosed = true;
             }
             else {
                 // -> No, not in receive()
-                log.info(LOG_PREFIX + id() + " is NOT waiting in consumer.receive(), so we assume it is out"
+                log.info(LOG_PREFIX + ident() + " is NOT waiting in consumer.receive(), so we assume it is out"
                         + " doing work, and will come back and see the run-flag being false, thus exit.");
             }
 
-            log.info(LOG_PREFIX + "Waiting for " + id() + " to exit.");
+            log.info(LOG_PREFIX + "Waiting for " + ident() + " to exit.");
             joinProcessorThread(gracefulWaitMillis);
             // ?: Did the thread exit?
             if (!_processorThread.isAlive()) {
                 // -> Yes, thread exited.
-                log.info(LOG_PREFIX + id() + " exited nicely.");
+                log.info(LOG_PREFIX + ident() + " exited nicely.");
             }
             else {
                 // -> No, thread did not exit within graceful wait period.
-                log.warn(LOG_PREFIX + id() + " DID NOT exit after " + gracefulWaitMillis
+                log.warn(LOG_PREFIX + ident() + " DID NOT exit after " + gracefulWaitMillis
                         + "ms, so interrupt it and wait some more.");
                 // -> No, so interrupt it from whatever it is doing.
                 _processorThread.interrupt();
@@ -292,10 +296,10 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                 // ?: Did the thread exit now? (Log only)
                 if (!_processorThread.isAlive()) {
                     // -> Yes, thread exited.
-                    log.info(LOG_PREFIX + id() + " exited after being interrupted.");
+                    log.info(LOG_PREFIX + ident() + " exited after being interrupted.");
                 }
                 else {
-                    log.warn(LOG_PREFIX + id() + " DID NOT exit even after being interrupted."
+                    log.warn(LOG_PREFIX + ident() + " DID NOT exit even after being interrupted."
                             + " Giving up, closing JMS Session.");
                 }
                 // ----- At this point, if the thread has not exited, we'll just close the JMS Session and pray.
@@ -313,7 +317,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                 _processorThread.join(gracefulWaitMillis);
             }
             catch (InterruptedException e) {
-                log.warn(LOG_PREFIX + "Got InterruptedException when waiting for " + id() + " to join."
+                log.warn(LOG_PREFIX + "Got InterruptedException when waiting for " + ident() + " to join."
                         + " Dropping out.");
             }
         }
@@ -378,6 +382,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                         // :: Perform the work inside the TransactionContext
                         long nanosStart = System.nanoTime();
                         try {
+                            DoAfterRunnableHolder doAfterRunnableHolder = new DoAfterRunnableHolder();
                             _transactionContext.doTransaction(_jmsSessionHolder, () -> {
                                 // Assert that this is indeed a JMS MapMessage.
                                 if (!(message instanceof MapMessage)) {
@@ -487,11 +492,20 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                         matsTrace,
                                         currentSto,
                                         incomingBinaries, incomingStrings,
-                                        messagesToSend),
+                                        messagesToSend, doAfterRunnableHolder),
                                         currentSto, incomingDto);
 
                                 sendMatsMessages(log, nanosStart, _jmsSessionHolder, getFactory(), messagesToSend);
                             });
+                            // :: Handle the DoAfterCommit lambda.
+                            try {
+                                doAfterRunnableHolder.runDoAfterCommitIfAny();
+                            }
+                            catch (RuntimeException re) {
+                                log.error(LOG_PREFIX
+                                        + "Got RuntimeException when running the doAfterCommit Runnable."
+                                        + " Ignoring.", re);
+                            }
                         }
                         catch (RuntimeException e) {
                             log.info(LOG_PREFIX + "Got [" + e.getClass().getName()
@@ -524,7 +538,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                     }
                 }
             } // END: OUTER RUN-LOOP
-            log.info(LOG_PREFIX + id() + " asked to exit, and that we do! Bye.");
+            log.info(LOG_PREFIX + ident() + " asked to exit, and that we do! Bye.");
         }
 
         private Destination createJmsDestination(Session jmsSession, FactoryConfig factoryConfig) throws JMSException {

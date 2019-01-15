@@ -409,6 +409,30 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
          */
         void initiate(InitiateLambda lambda);
+
+        /**
+         * The Runnable will be performed after messaging and external resources (DB) have been committed. An example
+         * can be if the Mats-lambda inserts a row in a database that should be processed by some other component (i.e.
+         * a service running with some Threads), and thus wants to wake up that component telling it that new work is
+         * available. Problem is then that if this "wakeUp()" call is done within the lambda, the row is not technically
+         * there yet - as we're still within the SQL transaction demarcation. Therefore, if the process-service wakes up
+         * really fast and tries to find the new work, it will not see anything yet. (It might then presume that e.g.
+         * another node of the service-cluster took care of whatever woke it up, and go back to sleep.)
+         * <p>
+         * Note: This is per processing; Setting it is only relevant for the current message. If you invoke the method
+         * more than once, only the last Runnable will be run. If you set it to <code>null</code>, you "cancel" any
+         * previously set Runnable.
+         * <p>
+         * Note: If any Exception is raised from the code after the Runnable has been set, or any Exception is raised by
+         * the processing or committing, the Runnable will not be run.
+         * <p>
+         * Note: If the Runnable throws a {@link RuntimeException}, it will be logged on ERROR level, then ignored.
+         *
+         * @param runnable
+         *            the code to run right after the transaction of both external resources and messaging has been
+         *            committed. Setting to <code>null</code> "cancels" any previously set Runnable.
+         */
+        void doAfterCommit(Runnable runnable);
     }
 
     /**
