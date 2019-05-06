@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.test;
+package com.stolsvik.mats.spring.test.mapping;
 
 /**
  * A <i>Data Transfer Object</i> meant for unit tests.

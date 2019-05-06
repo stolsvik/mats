@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring;
+package com.stolsvik.mats.spring.test;
 
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
@@ -6,6 +6,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+import com.stolsvik.mats.spring.EnableMats;
+import com.stolsvik.mats.spring.MatsSpringAnnotationBeanPostProcessor;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.config.BeanDefinition;
@@ -21,7 +23,7 @@ import org.springframework.test.context.ContextConfiguration;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.spring.MatsSimpleTestContext.MatsSimpleTestInfrastructureContextInitializer;
+import com.stolsvik.mats.spring.test.MatsSimpleTestContext.MatsSimpleTestInfrastructureContextInitializer;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.Rule_Mats;
 

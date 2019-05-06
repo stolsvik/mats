@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.test;
+package com.stolsvik.mats.spring.test.mapping;
 
 /**
  * A <i>State Transfer Object</i> meant for Spring unit tests.

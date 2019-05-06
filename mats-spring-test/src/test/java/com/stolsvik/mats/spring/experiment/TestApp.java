@@ -8,8 +8,8 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.stereotype.Component;
 
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.spring.test.SpringTestDataTO;
-import com.stolsvik.mats.spring.test.SpringTestStateTO;
+import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
+import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 @Component
