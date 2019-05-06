@@ -6,17 +6,14 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit4.SpringRunner;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
-import com.stolsvik.mats.spring.MatsSimpleTestContext.MatsTestInfrastructureConfiguration;
+import com.stolsvik.mats.spring.MatsSimpleTestContext;
 import com.stolsvik.mats.spring.Sto;
-import com.stolsvik.mats.spring.test.MatsSpringDefined_MultipleMappingsTest.MultipleMappingsConfiguration;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
@@ -26,8 +23,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * @author Endre Stølsvik - 2016-08-07 - http://endre.stolsvik.com
  */
 @RunWith(SpringRunner.class)
-@ContextConfiguration(classes = { MatsTestInfrastructureConfiguration.class, MultipleMappingsConfiguration.class })
-@DirtiesContext
+@MatsSimpleTestContext
 public class MatsSpringDefined_MultipleMappingsTest {
     public static final String ENDPOINT_ID = "mats.spring.MatsSpringDefined_MultipleMappingsTest";
     public static final String TERMINATOR1 = ".TERMINATOR1";
