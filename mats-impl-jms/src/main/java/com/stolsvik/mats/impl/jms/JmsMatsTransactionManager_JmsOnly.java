@@ -54,7 +54,7 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
             /*
              * We're always within a JMS transaction (as that is the nature of the JMS API when in transactional mode).
              *
-             * -- Therefore, we're now *within* the JMS Transaction demarcation.
+             * ----- Therefore, we're now *within* the JMS Transaction demarcation.
              */
 
             Session jmsSession = jmsSessionHolder.getSession();

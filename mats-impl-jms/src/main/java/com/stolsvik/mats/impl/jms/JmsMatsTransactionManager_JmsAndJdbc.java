@@ -73,13 +73,11 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
     private final JdbcConnectionSupplier _jdbcConnectionSupplier;
 
-    public static JmsMatsTransactionManager_JmsAndJdbc create(
-            JdbcConnectionSupplier jdbcConnectionSupplier) {
+    public static JmsMatsTransactionManager_JmsAndJdbc create(JdbcConnectionSupplier jdbcConnectionSupplier) {
         return new JmsMatsTransactionManager_JmsAndJdbc(jdbcConnectionSupplier);
     }
 
-    protected JmsMatsTransactionManager_JmsAndJdbc(
-            JdbcConnectionSupplier jdbcConnectionSupplier) {
+    protected JmsMatsTransactionManager_JmsAndJdbc(JdbcConnectionSupplier jdbcConnectionSupplier) {
         super();
         _jdbcConnectionSupplier = jdbcConnectionSupplier;
     }
@@ -171,6 +169,8 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
                 // Check whether Session/Connection is ok before committing DB (per contract with JmsSessionHolder).
                 jmsSessionHolder.isSessionOk();
+
+                // TODO: Also somehow check runFlag of StageProcessor before committing.
 
                 log.debug(LOG_PREFIX + "COMMIT SQL: ProcessingLambda finished, committing SQL Connection.");
                 /*

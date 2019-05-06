@@ -64,12 +64,12 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
     public static class Reply<R> {
         private final DetachedProcessContext _processContext;
         private final R _reply;
-        private final int _latency;
+        private final int _latencyMillis;
 
-        Reply(DetachedProcessContext processContext, R reply, int latency) {
+        Reply(DetachedProcessContext processContext, R reply, int latencyMillis) {
             _reply = reply;
             _processContext = processContext;
-            _latency = latency;
+            _latencyMillis = latencyMillis;
         }
 
         public R getReply() {
@@ -81,7 +81,7 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
         }
 
         public int getLatencyMillis() {
-            return _latency;
+            return _latencyMillis;
         }
     }
 
