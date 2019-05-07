@@ -24,8 +24,8 @@ public interface JmsMatsTransactionManager {
      * fetches the TransactionContext implementation.
      * <p>
      * This interface is implemented both by {@link JmsMatsStageProcessor StageProcessors} (in which case
-     * {@link #getStage()} returns the stage), and by {@link JmsMatsInitiator Initiators} (in which case said method
-     * returns {@code null}).
+     * {@link #getStage()} returns itself), and by {@link JmsMatsInitiator Initiators} (in which case
+     * {@link #getStage()} returns {@code null}).
      */
     interface JmsMatsTxContextKey {
         /**

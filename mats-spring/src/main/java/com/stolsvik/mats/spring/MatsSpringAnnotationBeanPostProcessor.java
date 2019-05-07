@@ -9,12 +9,12 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import javax.inject.Inject;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.BeanCreationException;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.context.ApplicationContext;
@@ -33,9 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
 import com.stolsvik.mats.spring.MatsStaged.MatsStageds;
 
@@ -67,9 +67,6 @@ public class MatsSpringAnnotationBeanPostProcessor implements
         }
     }
 
-    @Inject
-    private MatsFactory matsFactory;
-
     @Override
     public int getOrder() {
         log.info(LOG_PREFIX + "Ordered.getOrder(), returning 0.");
@@ -84,6 +81,21 @@ public class MatsSpringAnnotationBeanPostProcessor implements
                 .getSimpleName()
                 + "'): " + applicationContext);
         _applicationContext = applicationContext;
+    }
+
+    /**
+     * Using lazy getting of MatsFactory, as else we can get a whole heap of <i>"Bean of type is not eligible for getting
+     * processed by all BeanPostProcessors (for example: not eligible for auto-proxying)"</i> situations.
+     */
+    private MatsFactory getMatsFactory() {
+        try {
+            return _applicationContext.getBean(MatsFactory.class);
+        }
+        catch (NoSuchBeanDefinitionException e) {
+            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
+                    .getClass().getSimpleName() + " found that there is no MatsFactory available in the"
+                    + " Spring ApplicationContext", e);
+        }
     }
 
     @Override
@@ -245,7 +257,7 @@ public class MatsSpringAnnotationBeanPostProcessor implements
         if (replyType.getName().equals("void")) {
             // -> Yes, void return: Setup Terminator.
             typeEndpoint = "Terminator";
-            matsFactory.terminator(matsMapping.endpointId(), stoType, dtoType,
+            getMatsFactory().terminator(matsMapping.endpointId(), stoType, dtoType,
                     (processContext, state, incomingDto) -> {
                         invokeMatsMappingMethod(matsMapping, method, bean,
                                 paramsLength, processContextParamF,
@@ -259,7 +271,7 @@ public class MatsSpringAnnotationBeanPostProcessor implements
             if (stoParamF != -1) {
                 // -> Yes, so then we need to hack together a "single" endpoint out of a staged with single lastStage.
                 typeEndpoint = "Single w/State";
-                MatsEndpoint<?, ?> ep = matsFactory.staged(matsMapping.endpointId(), replyType, stoType);
+                MatsEndpoint<?, ?> ep = getMatsFactory().staged(matsMapping.endpointId(), replyType, stoType);
                 ep.lastStage(dtoType, (processContext, state, incomingDto) -> {
                     Object reply = invokeMatsMappingMethod(matsMapping, method, bean,
                             paramsLength, processContextParamF,
@@ -271,7 +283,7 @@ public class MatsSpringAnnotationBeanPostProcessor implements
             else {
                 // -> No state parameter, so use the proper Single endpoint.
                 typeEndpoint = "Single";
-                matsFactory.single(matsMapping.endpointId(), replyType, dtoType,
+                getMatsFactory().single(matsMapping.endpointId(), replyType, dtoType,
                         (processContext, incomingDto) -> {
                             Object reply = invokeMatsMappingMethod(matsMapping, method, bean,
                                     paramsLength, processContextParamF,
@@ -322,7 +334,7 @@ public class MatsSpringAnnotationBeanPostProcessor implements
             int paramsLength, int processContextParamIdx,
             ProcessContext<?> processContext, int dtoParamIdx,
             Object dto, int stoParamIdx, Object sto)
-                    throws MatsRefuseMessageException {
+            throws MatsRefuseMessageException {
         Object[] args = new Object[paramsLength];
         args[dtoParamIdx] = processContext;
         if (processContextParamIdx != -1) {
@@ -412,7 +424,7 @@ public class MatsSpringAnnotationBeanPostProcessor implements
 
         // :: Invoke the @MatsStaged-annotated staged endpoint setup method
 
-        MatsEndpoint<?, ?> endpoint = matsFactory.staged(matsStaged.endpointId(), matsStaged
+        MatsEndpoint<?, ?> endpoint = getMatsFactory().staged(matsStaged.endpointId(), matsStaged
                 .reply(), matsStaged.state());
 
         // Invoke the @MatsStaged-annotated setup method

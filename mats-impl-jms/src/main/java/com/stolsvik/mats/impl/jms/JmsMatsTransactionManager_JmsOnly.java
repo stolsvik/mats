@@ -154,8 +154,7 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                  * This certainly calls for reestablishing the JMS Session, so throw out.
                  */
                 throw new JmsMatsMessageSendException("VERY BAD! After finished transacting " + stageOrInit(
-                        _txContextKey)
-                        + ", we could not commit JMS Session!", t);
+                        _txContextKey) + ", we could not commit JMS Session!", t);
             }
 
             // -> The JMS Session nicely committed.
@@ -167,7 +166,7 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
      * Thrown if a undeclared <b>checked</b> exception propagates out of the user-supplied lambda. This should obviously
      * not happen, but can happen nevertheless due to checked-ness being a compilation-feature, not a JVM feature.
      * Groovy chooses to ignore this feature - and it is also possible to throw such an Exception with the
-     * "sneaky-throws" paradigm in pure Java (Google it) - and therefore, it is possible to get such Chceked Exceptions
+     * "sneaky-throws" paradigm in pure Java (Google it) - and therefore, it is possible to get such Checked Exceptions
      * propagating even though the signature of a method states that is should not be possible.
      */
     static class JmsMatsUndeclaredCheckedExceptionRaisedException extends RuntimeException {

@@ -253,7 +253,8 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
      * Method for Spring's default lifecycle - directly invokes {@link #stop()}.
      */
     public void close() {
-        log.info(LOG_PREFIX + getClass().getSimpleName() + ".close() invoked, forwarding to stop().");
+        log.info(LOG_PREFIX + getClass().getSimpleName() + ".close() invoked"
+                + " (probably via Spring's default lifecycle), forwarding to stop().");
         stop();
     }
 

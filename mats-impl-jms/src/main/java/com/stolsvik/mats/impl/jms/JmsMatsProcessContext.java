@@ -45,7 +45,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     private final LinkedHashMap<String, String> _incomingStrings;
     private final S _incomingAndOutgoingState;
     private final List<JmsMatsMessage<Z>> _messagesToSend;
-    private final DoAfterRunnableHolder _doAfterRunnableHolder;
+    private final DoAfterCommitRunnableHolder _doAfterCommitRunnableHolder;
 
     JmsMatsProcessContext(JmsMatsFactory<Z> parentFactory,
             String endpointId,
@@ -56,8 +56,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
             String incomingSerializedMatsTraceMeta,
             MatsTrace<Z> incomingMatsTrace, S incomingAndOutgoingState,
             LinkedHashMap<String, byte[]> incomingBinaries, LinkedHashMap<String, String> incomingStrings,
-            List<JmsMatsMessage<Z>> out_messagesToSend,
-                          DoAfterRunnableHolder doAfterRunnableHolder) {
+            List<JmsMatsMessage<Z>> out_messagesToSend, DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
         _parentFactory = parentFactory;
 
         _endpointId = endpointId;
@@ -74,13 +73,13 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         _incomingStrings = incomingStrings;
         _incomingAndOutgoingState = incomingAndOutgoingState;
         _messagesToSend = out_messagesToSend;
-        _doAfterRunnableHolder = doAfterRunnableHolder;
+        _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
     }
 
     /**
      * Holds any Runnable set by {@link #doAfterCommit(Runnable)}.
      */
-    static class DoAfterRunnableHolder {
+    static class DoAfterCommitRunnableHolder {
         private Runnable _doAfterCommit;
 
         void setDoAfterCommit(Runnable runnable) {
@@ -358,11 +357,11 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     @Override
     public void initiate(InitiateLambda lambda) {
-        lambda.initiate(new JmsMatsInitiate<>(_parentFactory, _messagesToSend, _doAfterRunnableHolder, _incomingMatsTrace, _outgoingProps));
+        lambda.initiate(new JmsMatsInitiate<>(_parentFactory, _messagesToSend, _doAfterCommitRunnableHolder, _incomingMatsTrace, _outgoingProps));
     }
 
     @Override
     public void doAfterCommit(Runnable runnable) {
-        _doAfterRunnableHolder.setDoAfterCommit(runnable);
+        _doAfterCommitRunnableHolder.setDoAfterCommit(runnable);
     }
 }

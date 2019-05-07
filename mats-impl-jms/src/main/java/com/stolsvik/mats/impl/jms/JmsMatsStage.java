@@ -23,7 +23,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
-import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterRunnableHolder;
+import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
 import com.stolsvik.mats.serial.MatsSerializer;
@@ -132,7 +132,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
     @Override
     public synchronized void stop() {
-        log.info(LOG_PREFIX + "Closing [" + _stageId + "]: Setting running to false, and"
+        log.info(LOG_PREFIX + "Closing [" + _stageId + "]: Setting run-flag to false, and"
                 + " stopping StageProcessors.");
         _stageProcessors.forEach(JmsMatsStageProcessor::setRunFlagFalse);
         _stageProcessors.forEach(sp -> sp.stop(5000));
@@ -253,11 +253,11 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
             // ?: Has processorThread already exited?
             if (!_processorThread.isAlive()) {
                 // -> Yes, thread already exited, so just close session (this is our responsibility).
-                // JavaDoc isAlive(): "A thread is alive if it has been started and has not yet died."
-                // The Thread is started in the constructor.
-                // Thus, if it is not alive, there is NO possibility that it is starting, or about to be started.
+                // 1. JavaDoc isAlive(): "A thread is alive if it has been started and has not yet died."
+                // 2. The Thread is started in the constructor.
+                // 3. Thus, if it is not alive, there is NO possibility that it is starting, or about to be started.
                 log.info(LOG_PREFIX + ident() + " has already exited, so just close JMS Session.");
-                jmsSessionHolderToClose.close();
+                closeJmsSessionHolder(jmsSessionHolderToClose);
                 // Finished!
                 return;
             }
@@ -269,7 +269,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                 // -> Yes, waiting in receive(), so close session, thus making receive() return null.
                 log.info(LOG_PREFIX + ident() + " is waiting in consumer.receive(), so we'll close the JMS Session,"
                         + " thereby making the receive() call return null, and the thread will exit.");
-                jmsSessionHolderToClose.close();
+                closeJmsSessionHolder(jmsSessionHolderToClose);
                 sessionClosed = true;
             }
             else {
@@ -308,6 +308,15 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
             // ?: Have we already closed the session?
             if (!sessionClosed) {
                 // -> No, so do it now.
+                closeJmsSessionHolder(jmsSessionHolderToClose);
+            }
+        }
+
+        private void closeJmsSessionHolder(JmsSessionHolder jmsSessionHolderToClose) {
+            if (jmsSessionHolderToClose == null) {
+                log.info(LOG_PREFIX + "There was no JMS Session in place...");
+            }
+            else {
                 jmsSessionHolderToClose.close();
             }
         }
@@ -325,29 +334,42 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         private void runner() {
             // :: OUTER RUN-LOOP, where we'll get a fresh JMS Session, Destination and MessageConsumer.
             while (_runFlag) {
-                try {
-                    log.info(LOG_PREFIX + "Getting JMS Session, Destination and Consumer for stage ["
-                            + _jmsMatsStage._stageId + "].");
-                    { // Local-scope the 'newSession' variable.
-                        JmsSessionHolder newJmsSessionHolder = _jmsMatsStage._parentFactory
+                log.info(LOG_PREFIX + "Getting JMS Session, Destination and Consumer for stage ["
+                        + _jmsMatsStage._stageId + "].");
+                { // Local-scope the 'newJmsSessionHolder' variable.
+                    JmsSessionHolder newJmsSessionHolder;
+                    try {
+                        newJmsSessionHolder = _jmsMatsStage._parentFactory
                                 .getJmsMatsJmsSessionHandler().getSessionHolder(this);
-                        // :: "Publish" the new JMS Session.
-                        synchronized (this) {
-                            // ?: Check the run-flag one more time!
-                            if (!_runFlag) {
-                                // -> No, we're asked to exit.
-                                // NOTICE! Since this JMS Session has not been "published" outside yet, we'll have to
-                                // close it directly.
-                                newJmsSessionHolder.close();
-                                // Break out of run-loop.
-                                break;
-                            }
-                            else {
-                                // -> Yes, we're good! "Publish" the new JMS Session.
-                                _jmsSessionHolder = newJmsSessionHolder;
-                            }
+                    }
+                    catch (JmsMatsJmsException | RuntimeException t) {
+                        log.warn(LOG_PREFIX + "Got " + t.getClass().getSimpleName() + " while trying to get new"
+                                + " JmsSessionHolder. Chilling a bit, then looping to check run-flag.", t);
+                        /*
+                         * Doing a "chill-wait", so that if we're in a situation where this will tight-loop, we won't
+                         * totally swamp both CPU and logs with meaninglessness.
+                         */
+                        chillWait();
+                        continue;
+                    }
+                    // :: "Publish" the new JMS Session.
+                    synchronized (this) {
+                        // ?: Check the run-flag one more time!
+                        if (!_runFlag) {
+                            // -> No, we're asked to exit.
+                            // NOTICE! Since this JMS Session has not been "published" outside yet, we'll have to
+                            // close it directly.
+                            newJmsSessionHolder.close();
+                            // Break out of run-loop.
+                            break;
+                        }
+                        else {
+                            // -> Yes, we're good! "Publish" the new JMS Session.
+                            _jmsSessionHolder = newJmsSessionHolder;
                         }
                     }
+                }
+                try {
                     Session jmsSession = _jmsSessionHolder.getSession();
                     Destination destination = createJmsDestination(jmsSession, getFactory().getFactoryConfig());
                     MessageConsumer jmsConsumer = jmsSession.createConsumer(destination);
@@ -357,7 +379,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                     // TODO: Handle ability to stop with subsequent re-start of endpoint.
                     _jmsMatsStage._anyProcessorMadeConsumerLatch.countDown();
 
-                    // :: INNER RUN-LOOP, where we'll use the JMS Session and MessageConsumer.
+                    // :: INNER RECEIVE-LOOP, where we'll use the JMS Session and MessageConsumer.receive().
                     while (_runFlag) {
                         _processorInReceive = true;
                         // Check whether Session/Connection is ok (per contract with JmsSessionHolder)
@@ -380,13 +402,15 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                         _jmsSessionHolder.isSessionOk();
 
                         // :: Perform the work inside the TransactionContext
+                        DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
                         long nanosStart = System.nanoTime();
                         try {
-                            DoAfterRunnableHolder doAfterRunnableHolder = new DoAfterRunnableHolder();
+                            // :: Going into Mats Transaction
+
                             _transactionContext.doTransaction(_jmsSessionHolder, () -> {
                                 // Assert that this is indeed a JMS MapMessage.
                                 if (!(message instanceof MapMessage)) {
-                                    String msg = "Got some JMS Message that is not instanceof MapMessage"
+                                    String msg = "Got some JMS Message that is not instanceof JMS MapMessage"
                                             + " - cannot be a MATS message! Refusing this message!";
                                     log.error(LOG_PREFIX + msg + "\n" + message);
                                     throw new MatsRefuseMessageException(msg);
@@ -404,8 +428,26 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                     matsTraceMeta = mapMessage.getString(matsTraceKey
                                             + MatsSerializer.META_KEY_POSTFIX);
                                     messageId = mapMessage.getJMSMessageID();
+
+                                    // :: Assert that we got some values
+                                    if (matsTraceBytes == null) {
+                                        String msg = "Got some JMS Message that is missing MatsTrace byte array on"
+                                                + "JMS MapMessage key '" + matsTraceKey +
+                                                "' - cannot be a MATS message! Refusing this message!";
+                                        log.error(LOG_PREFIX + msg + "\n" + message);
+                                        throw new MatsRefuseMessageException(msg);
+                                    }
+
+                                    if (matsTraceMeta == null) {
+                                        String msg = "Got some JMS Message that is missing MatsTraceMeta String on"
+                                                + "JMS MapMessage key '" + MatsSerializer.META_KEY_POSTFIX
+                                                + "' - cannot be a MATS message! Refusing this message!";
+                                        log.error(LOG_PREFIX + msg + "\n" + message);
+                                        throw new MatsRefuseMessageException(msg);
+                                    }
                                 }
                                 catch (JMSException e) {
+                                    // This might be temporary, so just throw to rollback this and try again.
                                     throw new JmsMatsJmsException("Got JMSException when getting the MatsTrace"
                                             + " from the MapMessage by using mapMessage.get[Bytes|String](..)."
                                             + " Pretty crazy.", e);
@@ -492,53 +534,59 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                         matsTrace,
                                         currentSto,
                                         incomingBinaries, incomingStrings,
-                                        messagesToSend, doAfterRunnableHolder),
+                                        messagesToSend, doAfterCommitRunnableHolder),
                                         currentSto, incomingDto);
 
                                 sendMatsMessages(log, nanosStart, _jmsSessionHolder, getFactory(), messagesToSend);
-                            });
-                            // :: Handle the DoAfterCommit lambda.
-                            try {
-                                doAfterRunnableHolder.runDoAfterCommitIfAny();
-                            }
-                            catch (RuntimeException re) {
-                                log.error(LOG_PREFIX
-                                        + "Got RuntimeException when running the doAfterCommit Runnable."
-                                        + " Ignoring.", re);
-                            }
+                            }); // End: Mats Transaction
                         }
                         catch (RuntimeException e) {
                             log.info(LOG_PREFIX + "Got [" + e.getClass().getName()
-                                    + "] when processing " + stageOrInit(this)
-                                    + ", which shall have been handled by the MATS TransactionManager (rollback)."
-                                    + " Looping to fetch next message.");
+                                    + "] inside transactional message processing, which shall have been handled by the"
+                                    + " MATS TransactionManager (rollback). Looping to fetch next message.");
                             // No more to do, so loop. Notice that this code is not involved in initiations..
+                            continue;
+                        }
+
+                        // :: Handle the DoAfterCommit lambda.
+                        try {
+                            doAfterCommitRunnableHolder.runDoAfterCommitIfAny();
+                        }
+                        catch (RuntimeException e) {
+                            // Message processing is per definition finished here, so no way to DLQ or otherwise
+                            // notify world except logging an error.
+                            log.error(LOG_PREFIX + "Got [" + e.getClass().getSimpleName()
+                                    + "] when running the doAfterCommit Runnable. Ignoring.", e);
                         }
 
                         double millisTotal = (System.nanoTime() - nanosStart) / 1_000_000d;
-                        log.info(LOG_PREFIX + "Total time from receive till committed: [" + millisTotal + "].");
+                        log.info(LOG_PREFIX + "Total time from received till finished processing: ["
+                                + millisTotal + "].");
 
-                    } // End: INNER RUN-LOOP
+                    } // End: INNER RECEIVE-LOOP
                 }
-                catch (JmsMatsJmsException | JMSException | RuntimeException t) {
-                    log.warn(LOG_PREFIX + "Got " + t.getClass().getSimpleName() + ", crashing JmsSessionHolder,"
-                            + " looping to check run-flag.", t);
-                    _jmsSessionHolder.crashed(t);
+                catch (JmsMatsJmsException | JMSException | RuntimeException | Error e) {
+                    log.warn(LOG_PREFIX + "Got [" + e.getClass().getSimpleName() + "] inside the message processing"
+                            + " loop, crashing JmsSessionHolder, chilling a bit, then looping to check run-flag.", e);
+                    _jmsSessionHolder.crashed(e);
                     /*
                      * Doing a "chill-wait", so that if we're in a situation where this will tight-loop, we won't
                      * totally swamp both CPU and logs with meaninglessness.
                      */
-                    try {
-                        // About 2.5 seconds..
-                        Thread.sleep(2000 + Math.round(Math.random() * 1000));
-                    }
-                    catch (InterruptedException e) {
-                        log.info(LOG_PREFIX + "Got InterruptedException when chill-waiting."
-                                + " Looping to check run-flag.");
-                    }
+                    chillWait();
                 }
             } // END: OUTER RUN-LOOP
             log.info(LOG_PREFIX + ident() + " asked to exit, and that we do! Bye.");
+        }
+
+        private void chillWait() {
+            try {
+                // About 5 seconds..
+                Thread.sleep(4500 + Math.round(Math.random() * 1000));
+            }
+            catch (InterruptedException e) {
+                log.info(LOG_PREFIX + "Got InterruptedException when chill-waiting.");
+            }
         }
 
         private Destination createJmsDestination(Session jmsSession, FactoryConfig factoryConfig) throws JMSException {

@@ -82,7 +82,7 @@ public @interface MatsSimpleTestContext {
         }
 
         @Bean
-        protected MatsFactory testMatsFactory(Rule_Mats rule_Mats) throws Throwable {
+        protected MatsFactory testMatsFactory(Rule_Mats rule_Mats){
             return rule_Mats.getMatsFactory();
         }
 

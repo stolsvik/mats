@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 
-public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandler {
+public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandler, JmsMatsStatics {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsJmsSessionHandler_Pooling.class);
 
@@ -66,7 +66,8 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
     @Override
     public int closeAllAvailableSessions() {
-        log.info("Closing all available SessionHolders in all pools, thus hoping to close all JMS Connections.");
+        log.info(LOG_PREFIX + "Closing all available SessionHolders in all pools,"
+                + " thus hoping to close all JMS Connections.");
         int liveConnectionsBefore;
         int availableSessionsClosed = 0;
         int liveConnectionsAfter;
@@ -89,7 +90,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                 employedSessions += connectionAndSession._employedSessionHolders.size();
             }
         }
-        log.info(" \\- Live Connections before closing Sessions:[" + liveConnectionsBefore
+        log.info(LOG_PREFIX + " \\- Live Connections before closing Sessions:[" + liveConnectionsBefore
                 + "], Available Sessions (now closed):[" + availableSessionsClosed
                 + "], Live Connections after closing:[" + liveConnectionsAfter + "], Employed Sessions:["
                 + employedSessions + "].");
@@ -125,8 +126,8 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         // Synchronized internally
         JmsSessionHolderImpl jmsSessionHolder = connectionWithSessionPool.getOrCreateAndEmploySessionHolder(
                 txContextKey);
-        if (log.isDebugEnabled()) log.debug("getSessionHolder(...) for [" + txContextKey + "], derived pool ["
-                + connectionWithSessionPool + "], returning [" + jmsSessionHolder + "].");
+        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "getSessionHolder(...) for [" + txContextKey
+                + "], derived pool [" + connectionWithSessionPool + "], returning [" + jmsSessionHolder + "].");
         return jmsSessionHolder;
     }
 
@@ -151,7 +152,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         void initializeByCreatingJmsConnection(JmsMatsTxContextKey txContextKey) throws JmsMatsJmsException {
             try {
                 Connection jmsConnection = _jmsConnectionSupplier.createJmsConnection(txContextKey);
-                // Starting it right away, as that could potentially also give "connection establishment" JMSExceptions
+                // Starting it right away, as that could conceivably also give "connection establishment" JMSExceptions
                 jmsConnection.start();
                 setConnectionOrException_ReleaseWaiters(jmsConnection, null);
             }

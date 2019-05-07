@@ -11,8 +11,8 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 /**
  * Interface for implementing JMS Connection and JMS Session handling. This can implement both different connection
  * sharing mechanisms, and should implement some kind of Session pooling for initiators. It can also implement logic for
- * "is this connection up?" mechanisms, to close the gap whereby a JMS Connection is in a bad state but the application
- * has not noticed this yet.
+ * "is this connection up?" mechanisms, to minimize the gap whereby a JMS Connection is in a bad state but the
+ * application has not noticed this yet.
  * <p>
  * The reason for session pooling for initiators is that a JMS Session can only be used for one thread, and since
  * initiators are shared throughout the code base, one initiator might be used by several threads at the same time.
@@ -23,11 +23,10 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
  * each {@link JmsMatsTxContextKey}, there shall be a unique JMS Connection (i.e. each StageProcessor has its own
  * Connection). It does makes some sense, though, that JMS Connections at least are shared for all StageProcessors for a
  * Stage - or even for all StageProcessors for all Stages of an Endpoint. Otherwise, a large system built on Mats will
- * use a pretty massive amount of Connection. However, sharing one Connection for the entire application/service (i.e.
+ * use a pretty massive amount of Connections. However, sharing one Connection for the entire application/service (i.e.
  * for all endpoints in the JVM) might be a bit too heavy burden for a single JMS Connection.
  */
 public interface JmsMatsJmsSessionHandler {
-
     /**
      * Should be invoked every time an Initiator wants to send a message - it will be returned after the message(s) is
      * sent.

@@ -190,9 +190,8 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
             // ?: Was connection gotten by code in ProcessingLambda (user code)
             if (con == null) {
                 // -> No, Connection was not gotten
-                log.debug(LOG_PREFIX
-                        + "SQL Connection was not requested by stage processing lambda (user code), nothing"
-                        + " to perform " + (commit ? "commit" : "rollback") + " on!");
+                log.debug(LOG_PREFIX + "SQL Connection was not requested by stage processing lambda (user code),"
+                        + " nothing to perform " + (commit ? "commit" : "rollback") + " on!");
                 return;
             }
             // E-> Yes, Connection was gotten by ProcessingLambda (user code)
@@ -217,8 +216,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 log.debug(LOG_PREFIX + "Closed SQL Connection [" + con + "].");
             }
             catch (SQLException e) {
-                log.warn("After performing " + (commit ? "commit"
-                        : "rollback") + " on SQL Connection [" + con
+                log.warn("After performing " + (commit ? "commit" : "rollback") + " on SQL Connection [" + con
                         + "], we tried to close it but that raised an exception - for stage [" + _txContextKey
                         + "]. Will ignore this, since the operation should have gone through.", e);
             }
