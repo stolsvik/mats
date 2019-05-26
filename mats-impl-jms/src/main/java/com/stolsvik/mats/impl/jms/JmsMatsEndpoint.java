@@ -18,7 +18,7 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S> {
+public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStatics {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsEndpoint.class);
 
@@ -108,7 +108,7 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S> {
 
     @Override
     public void finishSetup() {
-        if (! _parentFactory.isHoldEndpointsUntilFactoryIsStarted()) {
+        if (!_parentFactory.isHoldEndpointsUntilFactoryIsStarted()) {
             start();
         }
     }
@@ -127,6 +127,11 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S> {
     @Override
     public void stop() {
         _stages.forEach(JmsMatsStage::stop);
+    }
+
+    @Override
+    public String toString() {
+        return idThis() + "_" + _parentFactory.getFactoryConfig().getName() + "|" + _endpointId;
     }
 
     private class JmsEndpointConfig implements EndpointConfig<R, S> {
@@ -164,6 +169,11 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S> {
         @Override
         public Class<?> getIncomingMessageClass() {
             return _stages.get(0).getStageConfig().getIncomingMessageClass();
+        }
+
+        @Override
+        public String getEndpointId() {
+            return _endpointId;
         }
 
         @Override

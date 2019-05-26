@@ -1,15 +1,9 @@
 package com.stolsvik.mats.test;
 
-import javax.jms.Connection;
-import javax.jms.ConnectionFactory;
-import javax.jms.JMSException;
-import javax.jms.MapMessage;
-import javax.jms.Message;
-import javax.jms.MessageConsumer;
-import javax.jms.Queue;
-import javax.jms.Session;
+import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.apache.activemq.ActiveMQConnectionFactory;
+import javax.jms.ConnectionFactory;
+
 import org.apache.activemq.broker.BrokerService;
 import org.junit.Rule;
 import org.junit.rules.ExternalResource;
@@ -17,8 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
@@ -38,10 +32,7 @@ import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 public class Rule_Mats extends ExternalResource {
     private static final Logger log = LoggerFactory.getLogger(Rule_Mats.class);
 
-
-    private BrokerService _amqServer;
-
-    private ActiveMQConnectionFactory _amqClient;
+    private MatsTestActiveMq _matsTestActiveMq;
 
     MatsSerializer<String> _matsSerializer;
 
@@ -55,44 +46,62 @@ public class Rule_Mats extends ExternalResource {
     public void before() throws Throwable {
         log.info("+++ BEFORE on JUnit Rule '" + id(Rule_Mats.class) + "', JMS and MATS:");
 
-        // ::: Server (BrokerService)
-        // ====================================
+        // ::: ActiveMQ BrokerService and ConnectionFactory
+        // ==================================================
 
-        _amqServer = MatsTestActiveMq.createBrokerService();
-
-        // ::: Client (ConnectionFactory)
-        // ====================================
-
-        _amqClient = MatsTestActiveMq.createConnectionFactory();
+        _matsTestActiveMq = MatsTestActiveMq.createRandomTestActiveMq();
 
         // ::: MatsFactory
-        // ====================================
+        // ==================================================
 
         log.info("Setting up JmsMatsFactory.");
         _matsSerializer = new MatsSerializer_DefaultJson();
         // Allow for override in specialization classes, in particular the one with DB.
-        _matsFactory = createMatsFactory(_matsSerializer, _amqClient);
+        _matsFactory = createMatsFactory();
         // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
         _matsFactory.getFactoryConfig().setConcurrency(1);
         log.info("--- BEFORE done! JUnit Rule '" + id(Rule_Mats.class) + "', JMS and MATS.");
     }
 
+    private CopyOnWriteArrayList<MatsFactory> _createdMatsFactories = new CopyOnWriteArrayList<>();
+
+    /**
+     * Should only be invoked by {@link #createMatsFactory()}.
+     */
     protected MatsFactory createMatsFactory(MatsSerializer<String> stringSerializer,
             ConnectionFactory connectionFactory) {
-        return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(this.getClass().getSimpleName(),
-                "*testing*",
+        return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
+                this.getClass().getSimpleName(), "*testing*",
                 new JmsMatsJmsSessionHandler_Pooling((s) -> connectionFactory.createConnection()),
                 _matsSerializer);
+    }
+
+    /**
+     * This method is public for a single reason: If you need a <i>new, separate</i> {@link MatsFactory} using the same
+     * JMS ConnectionFactory as the one provided by {@link #getMatsFactory()}. The only currently known reason for this
+     * is if you want to register two endpoints with the same endpointId, and the only reason for this again is to test
+     * {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
+     * subscriptionTerminators}.
+     * 
+     * @return a <i>new, separate</i> {@link MatsFactory} in addition to the one provided by {@link #getMatsFactory()}.
+     */
+    public MatsFactory createMatsFactory() {
+        MatsFactory matsFactory = createMatsFactory(_matsSerializer, _matsTestActiveMq.getConnectionFactory());
+        // Add it to the list of created MatsFactories.
+        _createdMatsFactories.add(matsFactory);
+        return matsFactory;
     }
 
     @Override
     public void after() {
         log.info("+++ AFTER on JUnit Rule '" + id(Rule_Mats.class) + "':");
-        // :: Close the MatsFactory (thereby closing all endpoints and initiators, and thus their connections).
-        _matsFactory.stop();
+        // :: Close all MatsFactories (thereby closing all endpoints and initiators, and thus their connections).
+        for (MatsFactory createdMatsFactory : _createdMatsFactories) {
+            createdMatsFactory.stop();
+        }
 
         // :: Close the AMQ Broker
-        MatsTestActiveMq.stopBrokerService(_amqServer);
+        _matsTestActiveMq.stopBroker();
 
         log.info("--- AFTER done! JUnit Rule '" + id(Rule_Mats.class) + "' DONE.");
     }
@@ -107,42 +116,10 @@ public class Rule_Mats extends ExternalResource {
      * @return the {@link MatsTrace} of the DLQ'ed message.
      */
     public MatsTrace<String> getDlqMessage(String endpointId) {
-        FactoryConfig factoryConfig = getMatsFactory().getFactoryConfig();
-        String dlqQueueName = "DLQ." + factoryConfig.getMatsDestinationPrefix() + endpointId;
-        try {
-            Connection jmsConnection = _amqClient.createConnection();
-            try {
-                Session jmsSession = jmsConnection.createSession(true, Session.SESSION_TRANSACTED);
-                Queue dlqQueue = jmsSession.createQueue(dlqQueueName);
-                MessageConsumer dlqConsumer = jmsSession.createConsumer(dlqQueue);
-                jmsConnection.start();
-
-                final int maxWaitMillis = 5000;
-                log.info("Listening for message on queue [" + dlqQueueName + "].");
-                Message msg = dlqConsumer.receive(maxWaitMillis);
-
-                if (msg == null) {
-                    throw new AssertionError("Did not get a message on the queue [" + dlqQueueName + "] within "
-                            + maxWaitMillis + "ms.");
-                }
-
-                MapMessage matsMM = (MapMessage) msg;
-                byte[] matsTraceBytes = matsMM.getBytes(factoryConfig.getMatsTraceKey());
-                log.info("!! Got a DLQ Message! Length of byte serialized&compressed MatsTrace: "
-                        + matsTraceBytes.length);
-                jmsSession.commit();
-                jmsConnection.close(); // Closes session and consumer
-                return _matsSerializer.deserializeMatsTrace(matsTraceBytes,
-                        matsMM.getString(factoryConfig.getMatsTraceKey() + ":meta")).getMatsTrace();
-            }
-            finally {
-                jmsConnection.close();
-            }
-        }
-        catch (JMSException e) {
-            throw new IllegalStateException("Got a JMSException when trying to receive Mats message on [" + dlqQueueName
-                    + "].", e);
-        }
+        return _matsTestActiveMq.getDlqMessage(_matsSerializer,
+                _matsFactory.getFactoryConfig().getMatsDestinationPrefix(),
+                _matsFactory.getFactoryConfig().getMatsTraceKey(),
+                endpointId);
     }
 
     /**
@@ -150,6 +127,13 @@ public class Rule_Mats extends ExternalResource {
      */
     public MatsFactory getMatsFactory() {
         return _matsFactory;
+    }
+
+    /**
+     * @return the JMS ConnectionFactory that this JUnit Rule sets up.
+     */
+    public ConnectionFactory getJmsConnectionFactory() {
+        return _matsTestActiveMq.getConnectionFactory();
     }
 
     private MatsInitiator _matsInitiator;

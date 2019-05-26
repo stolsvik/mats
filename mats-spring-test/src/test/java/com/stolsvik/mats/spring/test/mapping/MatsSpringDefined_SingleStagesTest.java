@@ -24,7 +24,6 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * @author Endre Stølsvik - 2016-06-23 - http://endre.stolsvik.com
  */
 @RunWith(SpringRunner.class)
-@MatsSimpleTestContext
 public class MatsSpringDefined_SingleStagesTest {
     public static final String ENDPOINT_ID = "mats.spring.MatsSpringDefined_SingleStagesTest";
     public static final String TERMINATOR = ".TERMINATOR";
@@ -38,6 +37,7 @@ public class MatsSpringDefined_SingleStagesTest {
     public static final String SINGLE_CONTEXT_STO_DTO = ".Single_Context_Sto_Dto";
 
     @Configuration
+    @MatsSimpleTestContext
     static class SingleStagesConfiguration {
 
         // == Permutations WITHOUT ProcessContext

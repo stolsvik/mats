@@ -88,8 +88,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
     }
 
     /**
-     * The {@link JmsMatsTransactionManager.TransactionContext} implementation for
-     * {@link JmsMatsTransactionManager_JmsOnly}.
+     * The {@link TransactionContext}-implementation for {@link JmsMatsTransactionManager_JmsOnly}.
      */
     public static class TransactionalContext_JmsAndJdbc extends TransactionalContext_JmsOnly {
         private final JdbcConnectionSupplier _jdbcConnectionSupplier;

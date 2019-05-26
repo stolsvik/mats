@@ -251,17 +251,18 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     private List<ChannelImpl> getCurrentStack() {
         CallImpl currentCall = getCurrentCall();
+        // ?: Do we have a Current Call?
         if (currentCall != null) {
-            // -> We have a current call, return its stack
+            // -> Yes, we have a current call, return its stack
             return currentCall.getStack_internal(); // This is a copy.
         }
-        // E-> no current call, so empty stack.
+        // E-> No, no Current call, thus we by definition have an empty stack.
         return new ArrayList<>();
     }
 
     /**
-     * Should be invoked just before adding the new call, so as to clean out the from and stack on call that after the
-     * add will become the previous call.
+     * Should be invoked just before adding the new call, so as to clean out the 'from' and Stack (and data if COMPACT)
+     * on the call that after the add will become the previous call.
      */
     private void dropValuesOnCurrent() {
         if (c.size() > 0) {
@@ -507,9 +508,12 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
          * @return a COPY of the stack.
          */
         List<ChannelImpl> getStack_internal() {
+            // ?: Has the stack been nulled (to conserve space) due to not being Current Call?
             if (s == null) {
-                new ArrayList<>(Collections.nCopies(getStackHeight(), new ChannelImpl("-nulled-", null)));
+                // -> Yes, nulled, so return a list of correct size where all elements are the string "-nulled-".
+                return new ArrayList<>(Collections.nCopies(getStackHeight(), new ChannelImpl("-nulled-", null)));
             }
+            // E-> No, not nulled (thus Current Call), so return the stack.
             return new ArrayList<>(s);
         }
 

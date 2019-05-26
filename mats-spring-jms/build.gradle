@@ -1,7 +1,9 @@
-// mats-util
+// mats-spring-jms
 
 dependencies {
-    compile project(":mats-lib")
+    compile project(":mats-impl-jms")
     
-    compile 'com.fasterxml.jackson.core:jackson-databind:2.9.+'
+    compile "org.springframework:spring-context:$springVersion"
+    compile "org.springframework:spring-tx:$springVersion"
+    compile "org.springframework:spring-jdbc:$springVersion"
 }

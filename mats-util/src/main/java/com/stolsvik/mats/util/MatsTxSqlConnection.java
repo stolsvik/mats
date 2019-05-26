@@ -14,11 +14,12 @@ import com.stolsvik.mats.MatsStage;
  * Supplier to a ThreadLocal by invoking the {@link #setThreadLocalConnectionSupplier(Supplier)}.
  * <p>
  * Notice that within a Spring environment, the usual way to get hold of the SQL Connection is by means of an injected
- * {@link DataSource} which the Spring transaction system has taken control of, so that the Connection you get out of
- * that DataSource is the transactional Connection for that thread. There is however no similar logic outside of such a
- * IoC Container, so this class is made to be a portable way for a MATS Stage Processor to get a SQL Connection: It
- * shall work both outside the IoC container ("pure java"), and within the IoC container (DataSource proxying by the
- * Spring Transaction Manager in conjunction with the IoC system).
+ * {@link DataSource} which the Spring transaction system wraps, so that any Spring JDBC tools you employ, e.g.
+ * JdbcTemplate or similar (or invoke <code>DataSourceUtils.getConnection(dataSource)</code>), will use the
+ * transactional Connection for that thread. There is however no similar logic outside of such a IoC Container, so this
+ * class is made to be a portable way for a MATS Stage Processor to get a SQL Connection: It shall work both outside a
+ * IoC container ("pure java"), and within the IoC container (DataSource proxying by the Spring Transaction Manager in
+ * conjunction with the IoC system).
  *
  * @author Endre Stølsvik - 2015-12-05 - http://endre.stolsvik.com
  */

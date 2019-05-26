@@ -6,8 +6,6 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-import com.stolsvik.mats.spring.EnableMats;
-import com.stolsvik.mats.spring.MatsSpringAnnotationBeanPostProcessor;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.config.BeanDefinition;
@@ -17,19 +15,25 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotatedBeanDefinitionReader;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Role;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
+import com.stolsvik.mats.spring.EnableMats;
+import com.stolsvik.mats.spring.MatsSpringConfiguration;
 import com.stolsvik.mats.spring.test.MatsSimpleTestContext.MatsSimpleTestInfrastructureContextInitializer;
+import com.stolsvik.mats.spring.test.MatsSimpleTestContext.MatsTestInfrastructureConfiguration;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.Rule_Mats;
 
 /**
- * One-stop-shop for making simple integration/unit tests of MATS endpoints, reusing the functionality from
- * {@link Rule_Mats}. The configuration is done in {@link MatsTestInfrastructureConfiguration}.
+ * One-stop-shop for making <i>simple</i> Spring-based integration/unit tests of MATS endpoints, reusing the
+ * functionality from {@link Rule_Mats}. The configuration is done in {@link MatsTestInfrastructureConfiguration}. This
+ * annotation can be put on a test-class, or on a {@literal @Configuration} class (typically a nested static class
+ * within the test-class).
  * <ul>
  * <li>Meta-annotated with {@link DirtiesContext}, since the Spring Test Context caching system is problematic when one
  * is handling static/global resources like what an external Message Queue broker is. Read more below.</li>
@@ -61,9 +65,14 @@ import com.stolsvik.mats.test.Rule_Mats;
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
+// @ContextConfiguration makes it possible to annotate the test class itself
 @ContextConfiguration(initializers = MatsSimpleTestInfrastructureContextInitializer.class)
-@Documented
+// @Import makes it possible to annotate a @Configuration class
+@Import(MatsTestInfrastructureConfiguration.class)
+// @DirtiesContext since most tests needs this.
 @DirtiesContext
+// @Documented is only for JavaDoc: The documentation will show that the class is annotated with this annotation.
+@Documented
 public @interface MatsSimpleTestContext {
     /**
      * Spring {@link Configuration @Configuration} class that cooks up the simple test infrastructure, reusing the
@@ -82,7 +91,7 @@ public @interface MatsSimpleTestContext {
         }
 
         @Bean
-        protected MatsFactory testMatsFactory(Rule_Mats rule_Mats){
+        protected MatsFactory testMatsFactory(Rule_Mats rule_Mats) {
             return rule_Mats.getMatsFactory();
         }
 
@@ -98,9 +107,14 @@ public @interface MatsSimpleTestContext {
     }
 
     /**
-     * The reason for this obscure way to add the {@link MatsTestInfrastructureConfiguration} is that otherwise the
-     * default {@literal @Configuration} lookup is thwarted, i.e. if you specify classes= or location=, it will not find
-     * the typical static inner class annotated with {@literal @Configuration}.
+     * The reason for this obscure way to add the {@link MatsTestInfrastructureConfiguration} (as opposed to just point
+     * to it with "classes=..") is that otherwise the default {@literal @Configuration} lookup is thwarted, i.e. if you
+     * specify classes= or location=, it will not find the typical static inner class annotated with
+     * {@literal @Configuration}.
+     * 
+     * @see <a href=
+     *      "https://docs.spring.io/spring/docs/current/spring-framework-reference/testing.html#testcontext-ctx-management-initializers">Test
+     *      doc about ContextConfiguration</a>.
      */
     class MatsSimpleTestInfrastructureContextInitializer implements
             ApplicationContextInitializer<ConfigurableApplicationContext> {
@@ -109,17 +123,13 @@ public @interface MatsSimpleTestContext {
 
         @Override
         public void initialize(ConfigurableApplicationContext applicationContext) {
-            log.debug(MatsSpringAnnotationBeanPostProcessor.LOG_PREFIX + "Registering "
+            log.debug(MatsSpringConfiguration.LOG_PREFIX + "Registering "
                     + MatsTestInfrastructureConfiguration.class.getSimpleName()
                     + " on: " + applicationContext);
 
             /*
              * Hopefully all the ConfigurableApplicationContexts presented here will also be a BeanDefinitionRegistry.
              * This at least holds for the default 'GenericApplicationContext'.
-             *
-             * <a href=
-             * "http://docs.spring.io/spring/docs/current/spring-framework-reference/html/integration-testing.html#testcontext-ctx-management-initializers"
-             * >read here</a>
              */
             new AnnotatedBeanDefinitionReader((BeanDefinitionRegistry) applicationContext.getBeanFactory())
                     .register(MatsTestInfrastructureConfiguration.class);

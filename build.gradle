@@ -15,6 +15,7 @@ task wrapper(type: Wrapper) {
 // Used both in mats-test and mats-amq
 ext {
     activeMqVersion = '5.15.+'
+    springVersion = "4.+"
 }
 
 

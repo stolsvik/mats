@@ -59,6 +59,48 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
             ProcessReturnLambda<R, S, I> processor);
 
     /**
+     * The lambda that shall be provided by the developer for the process stage(s) for the endpoint - provides the
+     * context, state and incoming message DTO.
+     */
+    @FunctionalInterface
+    interface ProcessLambda<R, S, I> {
+        void process(ProcessContext<R> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
+    }
+
+    /**
+     * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} that makes it possible to do a "return
+     * replyDto" at the end of the stage, which is just a convenient way to invoke
+     * {@link MatsEndpoint.ProcessContext#reply(Object)}. Used for the last process stage of a multistage endpoint.
+     */
+    @FunctionalInterface
+    interface ProcessReturnLambda<R, S, I> {
+        R process(ProcessContext<R> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
+    }
+
+    /**
+     * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} which does not have a state, and have the same
+     * return-semantics as {@link MatsEndpoint.ProcessReturnLambda ProcessLambda} - used for single-stage endpoints as
+     * these does not have multiple stages to transfer state between.
+     * <p>
+     * However, since it is possible to send state along with the request, one may still use the
+     * {@link MatsEndpoint.ProcessReturnLambda ProcessReturnLambda} for single-stage endpoints, but in this case you
+     * need to code it up yourself by making a multi-stage and then just adding a single lastStage.
+     */
+    @FunctionalInterface
+    interface ProcessSingleLambda<R, I> {
+        R process(ProcessContext<R> processContext, I incomingDto) throws MatsRefuseMessageException;
+    }
+
+    /**
+     * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} which does not have reply specified - used for
+     * terminator endpoints. It has state, as the initiator typically have state that it wants the terminator to get.
+     */
+    @FunctionalInterface
+    interface ProcessTerminatorLambda<S, I> {
+        void process(ProcessContext<Void> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
+    }
+
+    /**
      * Should be invoked when all stages has been added. Will automatically be invoked by invocation of
      * {@link #lastStage(Class, ProcessReturnLambda)}, which again implies that it will be invoked when creating
      * {@link MatsFactory#single(String, Class, Class, ProcessSingleLambda) single-stage endpoints} and
@@ -95,6 +137,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * Provides for both configuring the endpoint (before it is started), and introspecting the configuration.
      */
     interface EndpointConfig<R, S> extends MatsConfig {
+        /**
+         * @return the endpointId if this {@link MatsEndpoint}.
+         */
+        String getEndpointId();
+
         /**
          * @return the class that will be sent as reply for this endpoint.
          */
@@ -280,7 +327,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
 
         /**
          * Returns a binary representation of the current Mats flow's incoming execution point, which can be
-         * {@link MatsInitiator#unstash(byte[], Class, Class, Class, ProcessLambda) unstashed} again at a later time
+         * {@link MatsInitiate#unstash(byte[], Class, Class, Class, ProcessLambda) unstashed} again at a later time
          * using the {@link MatsInitiator}, thereby providing a simplistic "continuation" feature in Mats. You will have
          * to find storage for these bytes yourself - an obvious place is the co-transactional database that the stage
          * typically has available. This feature gives the ability to "pause" the current Mats flow, and later restore
@@ -290,7 +337,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * running process, or a process whose execution time is variable, maybe residing on a Mats-external service
          * structure: E.g. some REST service that sometimes lags, or sometimes is down in smaller periods. Or a service
          * on a different Message Broker. Once this "Mats external" processing has finished, that thread can invoke
-         * {@link MatsInitiator#unstash(byte[], Class, Class, Class, ProcessLambda) unstash(stashBytes,...)} to get the
+         * {@link MatsInitiate#unstash(byte[], Class, Class, Class, ProcessLambda) unstash(stashBytes,...)} to get the
          * Mats flow going again. Notice that functionally, the unstash-operation is a kind of initiation, only that
          * this type of initiation doesn't start a <i>new</i> Mats flow, rather <i>continuing an existing flow</i>.
          * <p>
@@ -436,52 +483,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
     }
 
     /**
-     * The lambda that shall be provided by the developer for the process stage(s) for the endpoint - provides the
-     * context, state and incoming message DTO.
-     */
-    @FunctionalInterface
-    interface ProcessLambda<R, S, I> {
-        void process(ProcessContext<R> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
-    }
-
-    /**
-     * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} that makes it possible to do a "return
-     * replyDto" at the end of the stage, which is just a convenient way to invoke
-     * {@link MatsEndpoint.ProcessContext#reply(Object)}. Used for the last process stage of a multistage endpoint.
-     */
-    @FunctionalInterface
-    interface ProcessReturnLambda<R, S, I> {
-        R process(ProcessContext<R> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
-    }
-
-    /**
-     * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} which does not have a state, and have the same
-     * return-semantics as {@link MatsEndpoint.ProcessReturnLambda ProcessLambda} - used for single-stage endpoints as
-     * these does not have multiple stages to transfer state between.
-     * <p>
-     * However, since it is possible to send state along with the request, one may still use the
-     * {@link MatsEndpoint.ProcessReturnLambda ProcessReturnLambda} for single-stage endpoints, but in this case you
-     * need to code it up yourself by making a multi-stage and then just adding a single lastStage.
-     */
-    @FunctionalInterface
-    interface ProcessSingleLambda<R, I> {
-        R process(ProcessContext<R> processContext, I incomingDto) throws MatsRefuseMessageException;
-    }
-
-    /**
-     * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} which does not have reply specified - used for
-     * terminator endpoints. It has state, as the initiator typically have state that it wants the terminator to get.
-     */
-    @FunctionalInterface
-    interface ProcessTerminatorLambda<S, I> {
-        void process(ProcessContext<Void> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
-    }
-
-    /**
      * Can be thrown by any of the {@link ProcessLambda}s of the {@link MatsStage}s to denote that it would prefer this
-     * message to be instantly put on a <i>Dead Letter Queue</i>. This is just advisory - the message might still be
-     * presented a number of times to the {@link MatsStage} in question (i.e. for the backend-configured number of
-     * retries, e.g. default 1 delivery + 5 redeliveries for ActiveMQ).
+     * message to be instantly put on a <i>Dead Letter Queue</i> (the stage processing, including any database actions,
+     * will still be rolled back as with any other exception thrown out of a ProcessLambda). This is just advisory - the
+     * message might still be presented a number of times to the {@link MatsStage} in question (i.e. for the
+     * backend-configured number of retries, e.g. default 1 delivery + 5 redeliveries for ActiveMQ).
      *
      * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
      */

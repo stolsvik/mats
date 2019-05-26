@@ -1,5 +1,7 @@
 package com.stolsvik.mats;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import com.stolsvik.mats.MatsConfig.StartStoppable;
@@ -193,7 +195,7 @@ public interface MatsFactory extends StartStoppable {
     /**
      * Special kind of terminator that, in JMS-style terms, subscribes to a topic instead of listening to a queue (i.e.
      * "pub-sub"-style messaging). You may only communicate with this type of endpoints by using the
-     * {@link MatsInitiate#publish(Object)} methods.
+     * {@link MatsInitiate#publish(Object)} or {@link MatsInitiate#replyToSubscription(String, Object)} methods.
      * <p>
      * <b>Notice that the concurrency of a SubscriptionTerminator is always 1, as it makes no sense to have multiple
      * processors for a subscription - all of the processors would just get an identical copy of each message.</b> If
@@ -249,6 +251,22 @@ public interface MatsFactory extends StartStoppable {
     MatsInitiator createInitiator();
 
     /**
+     * @return all {@link MatsEndpoint}s created on this {@link MatsFactory}.
+     */
+    List<MatsEndpoint<?, ?>> getEndpoints();
+
+    /**
+     * @param endpointId which {@link MatsEndpoint} to return, if present.
+     * @return the requested {@link MatsEndpoint} if present, {@link Optional#empty()} if not.
+     */
+    Optional<MatsEndpoint<?, ?>> getEndpoint(String endpointId);
+
+    /**
+     * @return all {@link MatsInitiator}s created on this {@link MatsFactory}.
+     */
+    List<MatsInitiator> getInitiators();
+
+    /**
      * Starts all endpoints that has been created by this factory, by invoking {@link MatsEndpoint#start()} on them.
      * <p>
      * Subsequently clears the {@link #holdEndpointsUntilFactoryIsStarted()}-flag.
@@ -289,6 +307,19 @@ public interface MatsFactory extends StartStoppable {
      */
     interface FactoryConfig extends MatsConfig {
         /**
+         * Sets the name of the MatsFactory.
+         * 
+         * @param name
+         *            the name that the MatsFactory should have.
+         */
+        void setName(String name);
+
+        /**
+         * @return the name of the MatsFactory, shall return "" (empty string) if not set, never {@code null}.
+         */
+        String getName();
+
+        /**
          * @return the suggested key on which to store the "wire representation" if the underlying mechanism uses a Map,
          *         e.g. a {@code MapMessage} of JMS. Defaults to <code>"mats:trace"</code>.
          */
@@ -315,7 +346,7 @@ public interface MatsFactory extends StartStoppable {
         String getAppVersion();
 
         /**
-         * Returns a node-specific idenitifier, that is, a name which is different between different instances of the
+         * Returns a node-specific identifier, that is, a name which is different between different instances of the
          * same app running of different nodes. This can be used to make node-specific topics, which are nice when you
          * need a message to return to the node that sent it, due to some synchronous process waiting for the message
          * (which entirely defeats the Messaging Oriented Middleware Architecture, but sometimes you need a solution..).

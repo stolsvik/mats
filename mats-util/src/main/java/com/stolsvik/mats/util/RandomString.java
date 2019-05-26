@@ -4,8 +4,8 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * If you need a random string for <u>a part of the traceId</u> (Read NOTE!), use this class instead of {@link UUID},
- * because UUID has low entropy density with only 4 bits per character, and dashes.
+ * If you need a random string for <u>a part of the traceId</u> (Read NOTE about traceIds!), use this class instead of
+ * {@link UUID}, because UUID has low entropy density with only 4 bits per character, and dashes.
  */
 public class RandomString {
 

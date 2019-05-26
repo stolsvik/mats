@@ -1,5 +1,13 @@
 package com.stolsvik.mats.test;
 
+import javax.jms.Connection;
+import javax.jms.JMSException;
+import javax.jms.MapMessage;
+import javax.jms.Message;
+import javax.jms.MessageConsumer;
+import javax.jms.Queue;
+import javax.jms.Session;
+
 import org.apache.activemq.ActiveMQConnectionFactory;
 import org.apache.activemq.RedeliveryPolicy;
 import org.apache.activemq.broker.BrokerService;
@@ -8,6 +16,11 @@ import org.apache.activemq.broker.region.policy.PolicyEntry;
 import org.apache.activemq.broker.region.policy.PolicyMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
+import com.stolsvik.mats.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsTrace;
+import com.stolsvik.mats.util.RandomString;
 
 /**
  * If the system property "{@link #SYSPROP_MATS_TEST_ACTIVEMQ mats.test.activemq}" is set to any string, the in-vm
@@ -19,6 +32,7 @@ import org.slf4j.LoggerFactory;
  * @author Endre Stølsvik 2019-05-06 22:42 - http://stolsvik.com/, endre@stolsvik.com
  */
 public class MatsTestActiveMq {
+    private static final Logger log = LoggerFactory.getLogger(MatsTestActiveMq.class);
 
     /**
      * System property ("-D" jvm argument) that if set will a) Not start in-vm ActiceMQ instance, and b) make the
@@ -38,13 +52,113 @@ public class MatsTestActiveMq {
     public static final String SYSPROP_VALUE_LOCALHOST = "LOCALHOST";
 
     /**
-     * Name of the local broker.
+     * Name of the local broker if created with {@link #createDefaultTestActiveMq()}, or the prefix if created with
+     * {@link #createRandomTestActiveMq()}.
      * <p>
      * Value is {@code "MatsLocalVmBroker"}
      */
     private static final String BROKER_NAME = "MatsLocalVmBroker";
 
-    private static final Logger log = LoggerFactory.getLogger(MatsTestActiveMq.class);
+    private final BrokerService _brokerService;
+
+    private final ActiveMQConnectionFactory _activeMQConnectionFactory;
+
+    /**
+     * @return an instance whose brokername is {@link #BROKER_NAME}.
+     */
+    public static MatsTestActiveMq createDefaultTestActiveMq() {
+        return new MatsTestActiveMq(BROKER_NAME);
+    }
+
+    /**
+     * @return an instance whose brokername is {@link #BROKER_NAME} + '_' + a random String of 10 chars.
+     */
+    public static MatsTestActiveMq createRandomTestActiveMq() {
+        return new MatsTestActiveMq(BROKER_NAME + '_' + RandomString.randomString(10));
+    }
+
+    /**
+     * @return an instance whose brokername is the provided brokername.
+     */
+    public static MatsTestActiveMq createTestActiveMq(String brokername) {
+        return new MatsTestActiveMq(brokername);
+    }
+
+    private MatsTestActiveMq(String brokername) {
+        _brokerService = createBrokerService(brokername);
+        _activeMQConnectionFactory = createConnectionFactory(brokername);
+    }
+
+    /**
+     * @return the test ActiveMQ BrokerService - which might be <code>null</code> depending on system property
+     *         {@link #SYSPROP_MATS_TEST_ACTIVEMQ}.
+     */
+    public BrokerService getBrokerService() {
+        return _brokerService;
+    }
+
+    /**
+     * @return the test ActiveMQ ConnectionFactory.
+     */
+    public ActiveMQConnectionFactory getConnectionFactory() {
+        return _activeMQConnectionFactory;
+    }
+
+    /**
+     * Stops the ActiveMQ BrokerService, if it was created (read {@link #SYSPROP_MATS_TEST_ACTIVEMQ}).
+     */
+    public void stopBroker() {
+        stopBrokerService(_brokerService);
+    }
+
+    /**
+     * Waits a couple of seconds for a message to appear on the Dead Letter Queue for the provided endpointId - useful
+     * if the test is designed to fail a stage (i.e. that a stage raises some {@link RuntimeException}, or the special
+     * {@link MatsRefuseMessageException}).
+     *
+     * @param endpointId
+     *            the endpoint which is expected to generate a DLQ message.
+     * @return the {@link MatsTrace} of the DLQ'ed message.
+     */
+    public <Z> MatsTrace<Z> getDlqMessage(MatsSerializer<Z> matsSerializer,
+            String matsDestinationPrefix, String matsTraceKey,
+            String endpointId) {
+        String dlqQueueName = "DLQ." + matsDestinationPrefix + endpointId;
+        try {
+            Connection jmsConnection = getConnectionFactory().createConnection();
+            try {
+                Session jmsSession = jmsConnection.createSession(true, Session.SESSION_TRANSACTED);
+                Queue dlqQueue = jmsSession.createQueue(dlqQueueName);
+                MessageConsumer dlqConsumer = jmsSession.createConsumer(dlqQueue);
+                jmsConnection.start();
+
+                final int maxWaitMillis = 5000;
+                log.info("Listening for message on queue [" + dlqQueueName + "].");
+                Message msg = dlqConsumer.receive(maxWaitMillis);
+
+                if (msg == null) {
+                    throw new AssertionError("Did not get a message on the queue [" + dlqQueueName + "] within "
+                            + maxWaitMillis + "ms.");
+                }
+
+                MapMessage matsMM = (MapMessage) msg;
+                byte[] matsTraceBytes = matsMM.getBytes(matsTraceKey);
+                log.info("!! Got a DLQ Message! Length of byte serialized&compressed MatsTrace: "
+                        + matsTraceBytes.length);
+                jmsSession.commit();
+                jmsConnection.close(); // Closes session and consumer
+                return matsSerializer.deserializeMatsTrace(matsTraceBytes,
+                        matsMM.getString(matsTraceKey + ":meta")).getMatsTrace();
+            }
+            finally {
+                jmsConnection.close();
+            }
+        }
+        catch (JMSException e) {
+            throw new IllegalStateException("Got a JMSException when trying to receive Mats message on [" + dlqQueueName
+                    + "].", e);
+        }
+    }
 
     /**
      * <b>Remember to {@link #stopBrokerService(BrokerService) stop the broker} after use!</b>
@@ -53,15 +167,15 @@ public class MatsTestActiveMq {
      *         something, <b>in which case it returns <code>null</code></b> (The broker is then assumed to be running
      *         outside of this JVM).
      */
-    public static BrokerService createBrokerService() {
+    protected static BrokerService createBrokerService(String brokername) {
         String sysprop_matsTestActiveMq = System.getProperty(SYSPROP_MATS_TEST_ACTIVEMQ);
 
         // :? Do we have specific brokerUrl to connect to?
         if (sysprop_matsTestActiveMq == null) {
             // -> No - the system property was not set, hence start the in-vm broker.
-            log.info("Setting up in-vm ActiveMQ BrokerService '" + BROKER_NAME + "' (i.e. the MQ server).");
+            log.info("Setting up in-vm ActiveMQ BrokerService '" + brokername + "' (i.e. the MQ server).");
             BrokerService _amqBrokerService = new BrokerService();
-            _amqBrokerService.setBrokerName(BROKER_NAME);
+            _amqBrokerService.setBrokerName(brokername);
             _amqBrokerService.setUseJmx(false); // No need for JMX registry.
             _amqBrokerService.setPersistent(false); // No need for persistence (prevents KahaDB dirs from being
                                                     // created).
@@ -97,15 +211,15 @@ public class MatsTestActiveMq {
     /**
      * @return an ActiveMq JMS ConnectionFactory, based on the value of system property
      *         {@link #SYSPROP_MATS_TEST_ACTIVEMQ} - if this is not set, it connects to the BrokerService that was
-     *         created with {@link #createBrokerService()}.
+     *         created with {@link #createBrokerService(String)}, assuming the provided brokername is the same.
      */
-    public static ActiveMQConnectionFactory createConnectionFactory() {
+    protected static ActiveMQConnectionFactory createConnectionFactory(String brokername) {
         String sysprop_matsTestActiveMq = System.getProperty(SYSPROP_MATS_TEST_ACTIVEMQ);
 
         // :: Find which broker URL to use
         String brokerUrl;
         if (sysprop_matsTestActiveMq == null) {
-            brokerUrl = "vm://" + BROKER_NAME + "?create=false";
+            brokerUrl = "vm://" + brokername + "?create=false";
         }
         else if (SYSPROP_VALUE_LOCALHOST.equals(sysprop_matsTestActiveMq)) {
             brokerUrl = "tcp://localhost:61616";
@@ -129,20 +243,22 @@ public class MatsTestActiveMq {
      * Stops the supplied BrokerService <b>if non-null</b>
      * 
      * @param brokerService
-     *            the BrokerService that was gotten with {@link #createBrokerService()}, which might be null.
+     *            the BrokerService that was gotten with {@link #createBrokerService(String)}, which might be null.
      */
-    public static void stopBrokerService(BrokerService brokerService) {
+    protected static void stopBrokerService(BrokerService brokerService) {
         if (brokerService != null) {
-            log.info("AMQ Server.stop().");
+            log.info("AMQ brokerService.stop().");
             try {
                 brokerService.stop();
             }
             catch (Exception e) {
                 throw new IllegalStateException("Couldn't stop AMQ Broker!", e);
             }
-            log.info("AMQ Server.waitUntilStopped().");
+            log.info("AMQ brokerService.waitUntilStopped().");
             brokerService.waitUntilStopped();
-            // Force yield, as evidently AMQ's async shut down procedure must have some millis to fully run.
+
+            // Force yield, as evidently sometimes AMQ's async shut down procedure must have some millis to fully run.
+            log.info("AMQ BrokerService exited, \"force-yield'ing\" for 25 ms to let any async processes finish.");
             try {
                 Thread.sleep(25);
             }

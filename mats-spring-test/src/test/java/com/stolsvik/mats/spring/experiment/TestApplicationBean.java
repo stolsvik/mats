@@ -13,7 +13,7 @@ import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 @Component
-public class TestApp {
+public class TestApplicationBean {
     @Inject
     private TestMatsEndpoint _testBean;
 

@@ -169,8 +169,8 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
      * "sneaky-throws" paradigm in pure Java (Google it) - and therefore, it is possible to get such Checked Exceptions
      * propagating even though the signature of a method states that is should not be possible.
      */
-    static class JmsMatsUndeclaredCheckedExceptionRaisedException extends RuntimeException {
-        JmsMatsUndeclaredCheckedExceptionRaisedException(String message, Throwable cause) {
+    protected static class JmsMatsUndeclaredCheckedExceptionRaisedException extends RuntimeException {
+        public JmsMatsUndeclaredCheckedExceptionRaisedException(String message, Throwable cause) {
             super(message, cause);
         }
     }

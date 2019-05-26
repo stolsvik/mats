@@ -92,7 +92,7 @@ public interface JmsMatsStatics {
             MatsTrace<Z> outgoingMatsTrace,
             HashMap<String, Object> props,
             HashMap<String, byte[]> bytes,
-            HashMap<String, String> strings, String what) {
+            HashMap<String, String> strings, String what, String matsFactoryName) {
         // :: Add the MatsTrace properties
         for (Entry<String, Object> entry : props.entrySet()) {
             outgoingMatsTrace.setTraceProperty(entry.getKey(), serializer.serializeObject(entry.getValue()));
@@ -118,7 +118,8 @@ public interface JmsMatsStatics {
                 serializedOutgoingMatsTrace, totalProductionTimeMillis);
 
         // Log
-        log.info(LOG_PREFIX + "PRODUCED [" + what + "] message to [" + outgoingMatsTrace.getCurrentCall().getTo()
+        log.info(LOG_PREFIX + "PRODUCED [" + what + "] message to [" + matsFactoryName + "|"
+                + outgoingMatsTrace.getCurrentCall().getTo()
                 + "], MT->serialize:[" + serializedOutgoingMatsTrace.getSizeUncompressed()
                 + " B, " + serializedOutgoingMatsTrace.getMillisSerialization()
                 + " ms]->comp:[" + serializedOutgoingMatsTrace.getMeta()
@@ -189,7 +190,8 @@ public interface JmsMatsStatics {
 
                 // Log it.
                 double millisSend = (System.nanoTime() - nanosStartSend) / 1_000_000d;
-                log.info(LOG_PREFIX + "SENDING [" + jmsMatsMessage.getWhat() + "] message to [" + destination
+                log.info(LOG_PREFIX + "SENDING [" + jmsMatsMessage.getWhat() + "] message to ["
+                        + jmsMatsFactory.getFactoryConfig().getName() + "|" + destination
                         + "], send took:[" + millisSend + " ms] (production was:[" + jmsMatsMessage
                                 .getTotalProductionTimeMillis() + " ms]).");
             }

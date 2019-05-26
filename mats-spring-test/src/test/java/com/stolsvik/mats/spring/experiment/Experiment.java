@@ -11,6 +11,8 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.test.Rule_Mats;
 
+import javax.jms.ConnectionFactory;
+
 @Configuration
 @EnableMats
 @ComponentScan(basePackages = "com.stolsvik.mats.spring.experiment")
@@ -18,7 +20,7 @@ public class Experiment {
 
     private static final Logger log = LoggerFactory.getLogger(Experiment.class);
 
-    public static void main(String... args) throws InterruptedException {
+    public static void main(String... args) {
         new Experiment().start();
     }
 
@@ -30,17 +32,20 @@ public class Experiment {
     }
 
     @Bean
-    protected MatsFactory matsFactory(Rule_Mats rule_Mats) throws Throwable {
+    protected MatsFactory matsFactory(Rule_Mats rule_Mats) {
         return rule_Mats.getMatsFactory();
     }
 
-    public void start() throws InterruptedException {
+    public void start() {
         long nanosStart = System.nanoTime();
         log.info("Starting Experiment! new'ing up AnnotationConfigApplicationContext.");
         AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext(Experiment.class);
-        TestApp testApp = ctx.getBean(TestApp.class);
+        log.info("=========== Done new'ing up AnnotationConfigApplicationContext: [" + ctx + "].");
+
+
+        TestApplicationBean testApplicationBean = ctx.getBean(TestApplicationBean.class);
         try {
-            testApp.run();
+            testApplicationBean.run();
         }
         catch (Throwable t) {
             log.error("Got some Exception when running app.", t);
@@ -48,6 +53,6 @@ public class Experiment {
 
         ctx.close();
 
-        log.info("Exiting! took "+((System.nanoTime() - nanosStart) / 1_000_000d)+" ms.");
+        log.info("Exiting! took " + ((System.nanoTime() - nanosStart) / 1_000_000d) + " ms.");
     }
 }

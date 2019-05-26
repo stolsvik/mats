@@ -4,6 +4,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.lib_test.StateTO;
@@ -28,14 +29,30 @@ public class Test_SimplePublishSubscribe extends MatsBasicTest {
 
     private MatsTestLatch matsTestLatch2 = new MatsTestLatch();
 
+    private MatsFactory _firstMatsFactory;
+    private MatsFactory _secondMatsFactory;
+
     @Before
     public void setupTerminator() {
-        matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, StateTO.class, DataTO.class,
+        /*
+         * :: Register TWO subscriptionTerminators to the same endpoint, to ensure that such a terminator works as
+         * intended.
+         * 
+         * NOTE: Due to a MatsFactory denying two registered endpoints with the same EndpointId, we need to trick this a
+         * bit two make it happen: Create two MatsFactories with the same JMS ConnectionFactory.
+         */
+
+        // This is the standard Rule_Mats MatsFactory. Will as normal be closed by Rule_Mats at its @After
+        _firstMatsFactory = matsRule.getMatsFactory();
+        // This is a second MatsFactory. Will also be closed by Rule_Mats at its @After
+        _secondMatsFactory = matsRule.createMatsFactory();
+
+        _firstMatsFactory.subscriptionTerminator(TERMINATOR, StateTO.class, DataTO.class,
                 (context, sto, dto) -> {
                     log.debug("SUBSCRIPTION TERMINATOR 1 MatsTrace:\n" + context.toString());
                     matsTestLatch.resolve(sto, dto);
                 });
-        matsRule.getMatsFactory().subscriptionTerminator(TERMINATOR, StateTO.class, DataTO.class,
+        _secondMatsFactory.subscriptionTerminator(TERMINATOR, StateTO.class, DataTO.class,
                 (context, sto, dto) -> {
                     log.debug("SUBSCRIPTION TERMINATOR 2 MatsTrace:\n" + context.toString());
                     matsTestLatch2.resolve(sto, dto);

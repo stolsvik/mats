@@ -3,7 +3,9 @@ package com.stolsvik.mats.impl.jms;
 import java.io.BufferedInputStream;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import org.slf4j.Logger;
@@ -108,8 +110,8 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         return _matsSerializer;
     }
 
-    private CopyOnWriteArrayList<MatsEndpoint<?, ?>> _createdEndpoints = new CopyOnWriteArrayList<>();
-    private CopyOnWriteArrayList<MatsInitiator> _createdInitiators = new CopyOnWriteArrayList<>();
+    private final List<MatsEndpoint<?, ?>> _createdEndpointsX = new ArrayList<>();
+    private final List<MatsInitiator> _createdInitiatorsX = new ArrayList<>();
 
     @Override
     public FactoryConfig getFactoryConfig() {
@@ -125,7 +127,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     public <R, S> JmsMatsEndpoint<R, S, Z> staged(String endpointId, Class<R> replyClass, Class<S> stateClass,
             Consumer<? super EndpointConfig<R, S>> endpointConfigLambda) {
         JmsMatsEndpoint<R, S, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, stateClass, replyClass);
-        _createdEndpoints.add(endpoint);
+        addCreatedEndpoint(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
         return endpoint;
     }
@@ -200,7 +202,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         // Need to create the JmsMatsEndpoint ourselves, since we need to set the queue-parameter.
         JmsMatsEndpoint<Void, S, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, queue, stateClass,
                 Void.class);
-        _createdEndpoints.add(endpoint);
+        addCreatedEndpoint(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
         // :: Wrap the ProcessTerminatorLambda in a single stage that does not return.
         // This is just a direct forward, w/o any return value.
@@ -213,8 +215,53 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     public MatsInitiator createInitiator() {
         JmsMatsInitiator<Z> initiator = new JmsMatsInitiator<>(this,
                 _jmsMatsJmsSessionHandler, _jmsMatsTransactionManager);
-        _createdInitiators.add(initiator);
+        addCreatedInitiator(initiator);
         return initiator;
+    }
+
+    @Override
+    public List<MatsEndpoint<?, ?>> getEndpoints() {
+        synchronized (_createdEndpointsX) {
+            return new ArrayList<>(_createdEndpointsX);
+        }
+    }
+
+    private void addCreatedEndpoint(MatsEndpoint<?, ?> newEndpoint) {
+        synchronized (_createdEndpointsX) {
+            Optional<MatsEndpoint<?, ?>> existingEndpoint = getEndpoint(newEndpoint.getEndpointConfig().getEndpointId());
+            if (existingEndpoint.isPresent()) {
+                throw new IllegalStateException("An Endpoint with endpointId='"
+                        + newEndpoint.getEndpointConfig().getEndpointId()
+                        + "' was already present. Existing: [" + existingEndpoint
+                        + "], attempted registered:[" + newEndpoint + "].");
+            }
+            _createdEndpointsX.add(newEndpoint);
+        }
+    }
+
+    @Override
+    public Optional<MatsEndpoint<?, ?>> getEndpoint(String endpointId) {
+        synchronized (_createdEndpointsX) {
+            for (MatsEndpoint<?, ?> endpoint : _createdEndpointsX) {
+                if (endpoint.getEndpointConfig().getEndpointId().equals(endpointId)) {
+                    return Optional.of(endpoint);
+                }
+            }
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public List<MatsInitiator> getInitiators() {
+        synchronized (_createdInitiatorsX) {
+            return new ArrayList<>(_createdInitiatorsX);
+        }
+    }
+
+    private void addCreatedInitiator(MatsInitiator initiator) {
+        synchronized (_createdInitiatorsX) {
+            _createdInitiatorsX.add(initiator);
+        }
     }
 
     @Override
@@ -223,7 +270,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         // First setting the "hold" to false, so if any subsequent endpoints are added, they will auto-start.
         _holdEndpointsUntilFactoryIsStarted = false;
         // :: Now start all the already configured endpoints
-        for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
+        for (MatsEndpoint<?, ?> endpoint : getEndpoints()) {
             try {
                 endpoint.start();
             }
@@ -237,6 +284,8 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     @Override
     public void holdEndpointsUntilFactoryIsStarted() {
+        log.info(LOG_PREFIX + getClass().getSimpleName() + ".holdEndpointsUntilFactoryIsStarted() invoked - will not"
+                + " start any configured endpoints until .start() is explicitly invoked!");
         _holdEndpointsUntilFactoryIsStarted = true;
     }
 
@@ -246,7 +295,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     @Override
     public void waitForStarted() {
-        _createdEndpoints.forEach(MatsEndpoint::waitForStarted);
+        getEndpoints().forEach(MatsEndpoint::waitForStarted);
     }
 
     /**
@@ -263,7 +312,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         log.info(LOG_PREFIX + "Stopping [" + idThis()
                 + "], thus stopping/closing all created endpoints and initiators.");
         // :: Stopping all endpoints
-        for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
+        for (MatsEndpoint<?, ?> endpoint : getEndpoints()) {
             try {
                 endpoint.stop();
             }
@@ -272,7 +321,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
             }
         }
         // :: Closing all initiators
-        for (MatsInitiator initiator : _createdInitiators) {
+        for (MatsInitiator initiator : getInitiators()) {
             try {
                 initiator.close();
             }
@@ -289,6 +338,22 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         private int _concurrency;
 
         private String _matsDestinationPrefix = "mats.";
+
+        private String _name = "";
+
+        @Override
+        public void setName(String name) {
+            if (name == null) {
+                throw new NullPointerException("name");
+            }
+            _name = name;
+            log.info(LOG_PREFIX + "Set name to [" + name + "] for " + idThis());
+        }
+
+        @Override
+        public String getName() {
+            return _name;
+        }
 
         @Override
         public FactoryConfig setConcurrency(int numberOfThreads) {
@@ -311,7 +376,8 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
         @Override
         public boolean isRunning() {
-            for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
+            // :: Return true if /any/ endpoint is running.
+            for (MatsEndpoint<?, ?> endpoint : getEndpoints()) {
                 if (endpoint.getEndpointConfig().isRunning()) {
                     return true;
                 }

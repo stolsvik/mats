@@ -146,7 +146,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         private final List<JmsMatsMessage<Z>> _messagesToSend;
         private final DoAfterCommitRunnableHolder _doAfterCommitRunnableHolder;
 
-        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend, DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
+        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
+                DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
             _parentFactory = parentFactory;
             _messagesToSend = messagesToSend;
             _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
@@ -154,7 +155,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
         private MatsTrace<Z> _existingMatsTrace;
 
-        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend, DoAfterCommitRunnableHolder doAfterCommitRunnableHolder,
+        JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
+                DoAfterCommitRunnableHolder doAfterCommitRunnableHolder,
                 MatsTrace<Z> existingMatsTrace, Map<String, Object> propsSetInStage) {
             _parentFactory = parentFactory;
             _messagesToSend = messagesToSend;
@@ -301,7 +303,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             // Produce the new REQUEST JmsMatsMessage to send
             JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
-                    matsTrace, _props, _binaries, _strings, "new REQUEST");
+                    matsTrace, _props, _binaries, _strings, "new REQUEST",
+                    _parentFactory.getFactoryConfig().getName());
             _messagesToSend.add(request);
         }
 
@@ -334,7 +337,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             // Produce the new SEND JmsMatsMessage to send
             JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
-                    matsTrace, _props, _binaries, _strings, "new SEND");
+                    matsTrace, _props, _binaries, _strings, "new SEND",
+                    _parentFactory.getFactoryConfig().getName());
             _messagesToSend.add(request);
         }
 
@@ -367,7 +371,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             // Produce the new PUBLISH JmsMatsMessage to send
             JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
-                    matsTrace, _props, _binaries, _strings, "new PUBLISH");
+                    matsTrace, _props, _binaries, _strings, "new PUBLISH",
+                    _parentFactory.getFactoryConfig().getName());
             _messagesToSend.add(request);
         }
 

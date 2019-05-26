@@ -189,17 +189,19 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
      * Package access so that it can be referred to from JavaDoc.
      */
     static class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxContextKey {
-        private final String randomInstanceId = RandomString.randomString(5);
+        private final String _randomInstanceId;
         private final JmsMatsStage<R, S, I, Z> _jmsMatsStage;
         private final int _processorNumber;
         private final Thread _processorThread;
         private final TransactionContext _transactionContext;
 
         JmsMatsStageProcessor(JmsMatsStage<R, S, I, Z> jmsMatsStage, int processorNumber) {
+            FactoryConfig factoryConfig = jmsMatsStage.getParentEndpoint().getParentFactory().getFactoryConfig();
+            _randomInstanceId = RandomString.randomString(5)
+                    + ("".equals(factoryConfig.getName()) ? "" : "@" + factoryConfig.getName());
             _jmsMatsStage = jmsMatsStage;
             _processorNumber = processorNumber;
-            _processorThread = new Thread(this::runner, THREAD_PREFIX + _jmsMatsStage._stageId
-                    + '#' + _processorNumber + " {" + randomInstanceId + "}");
+            _processorThread = new Thread(this::runner, THREAD_PREFIX + ident());
             _processorThread.start();
             _transactionContext = _jmsMatsStage._parentFactory
                     .getJmsMatsTransactionManager().getTransactionContext(this);
@@ -210,7 +212,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         private JmsSessionHolder _jmsSessionHolder;
 
         private String ident() {
-            return "StageProcessor#" + _processorNumber + '.' + randomInstanceId;
+            return _jmsMatsStage._stageId + '#' + _processorNumber + " {" + _randomInstanceId + '}';
         }
 
         @Override
@@ -387,7 +389,8 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                         // :: GET NEW MESSAGE!! THIS IS THE MESSAGE PUMP!
                         Message message;
                         try {
-                            log.info(LOG_PREFIX + "Going into JMS consumer.receive() for [" + destination + "].");
+                            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Going into JMS consumer.receive() for ["
+                                    + destination + "].");
                             message = jmsConsumer.receive();
                         }
                         finally {
@@ -395,7 +398,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                         }
                         if (message == null) {
                             log.info(LOG_PREFIX + "!! Got null from JMS consumer.receive(), JMS Session"
-                                    + " was probably closed due to shutdown. Looping to check run-flag.");
+                                    + " was probably closed due to shutdown or JMS error. Looping to check run-flag.");
                             continue;
                         }
                         // Check whether Session/Connection is still ok (per contract with JmsSessionHolder)
@@ -567,8 +570,14 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                 }
                 catch (JmsMatsJmsException | JMSException | RuntimeException | Error e) {
                     log.warn(LOG_PREFIX + "Got [" + e.getClass().getSimpleName() + "] inside the message processing"
-                            + " loop, crashing JmsSessionHolder, chilling a bit, then looping to check run-flag.", e);
+                            + " loop, crashing JmsSessionHolder, chilling a bit, then looping.", e);
                     _jmsSessionHolder.crashed(e);
+                    // Quick-check the run flag before chilling, if the reason for Exception is closed Connection or
+                    // Session due to shutdown. (ActiveMQ do not let you create Session if Connection is closed,
+                    // and do not let you create a Consumer if Session is closed.)
+                    if (!_runFlag) {
+                        log.info("The run-flag was false, so we shortcut to exit.");
+                    }
                     /*
                      * Doing a "chill-wait", so that if we're in a situation where this will tight-loop, we won't
                      * totally swamp both CPU and logs with meaninglessness.

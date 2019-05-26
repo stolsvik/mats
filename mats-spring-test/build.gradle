@@ -3,9 +3,11 @@
 dependencies {
     compile project(":mats-test")
     compile project(":mats-spring")
+    compile project(":mats-spring-jms")
 
-    compile 'org.springframework:spring-test:5.1.+'
+    compile "org.springframework:spring-test:$springVersion"
 
-    testCompile 'org.slf4j:log4j-over-slf4j:1.7.+'
-    testCompile 'ch.qos.logback:logback-classic:1.2.+'
+    testCompile "org.slf4j:log4j-over-slf4j:1.7.+"
+    testCompile "ch.qos.logback:logback-classic:1.2.+"
+    testCompile "com.h2database:h2:1.4.194"
 }
