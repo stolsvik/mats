@@ -32,7 +32,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
     private final JmsMatsJmsSessionHandler _jmsMatsJmsSessionHandler;
     private final TransactionContext _transactionContext;
 
-    public JmsMatsInitiator(String name, JmsMatsFactory<Z> parentFactory, JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler,
+    public JmsMatsInitiator(String name, JmsMatsFactory<Z> parentFactory,
+            JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler,
             JmsMatsTransactionManager jmsMatsTransactionManager) {
         // NOTICE! Due to multi-threading, whereby one Initiator might be used "globally" for e.g. a Servlet Container
         // having 200 threads, we cannot fetch a sole Session for the Initiator to be used for all initiations (as
@@ -158,25 +159,24 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             _parentFactory = parentFactory;
             _messagesToSend = messagesToSend;
             _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
+
+            reset();
         }
 
         private MatsTrace<Z> _existingMatsTrace;
+        private Map<String, Object> _tracePropertiesSetSoFarInStage;
 
         JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
                 DoAfterCommitRunnableHolder doAfterCommitRunnableHolder,
-                MatsTrace<Z> existingMatsTrace, Map<String, Object> propsSetInStage) {
+                MatsTrace<Z> existingMatsTrace, Map<String, Object> tracePropertiesSetSoFarInStage) {
             _parentFactory = parentFactory;
             _messagesToSend = messagesToSend;
             _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
 
             _existingMatsTrace = existingMatsTrace;
+            _tracePropertiesSetSoFarInStage = tracePropertiesSetSoFarInStage;
 
-            // Set the initial traceId, if the user chooses to not set it
-            _traceId = existingMatsTrace.getTraceId();
-            _from = existingMatsTrace.getCurrentCall().getFrom();
-
-            // Copy over the properties which so far has been set in the stage (before this message is initiated).
-            _props.putAll(propsSetInStage);
+            reset();
         }
 
         private String _traceId;
@@ -191,6 +191,40 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         private final LinkedHashMap<String, Object> _props = new LinkedHashMap<>();
         private final LinkedHashMap<String, byte[]> _binaries = new LinkedHashMap<>();
         private final LinkedHashMap<String, String> _strings = new LinkedHashMap<>();
+
+        private void reset() {
+            // ?: Is this a initiation from within a Stage? (Not via a MatsInitiator "from the outside")
+            if (_existingMatsTrace != null) {
+                // -> Yes, initiation within a Stage.
+                // Set the initial traceId - any setting of TraceId is appended.
+                _traceId = _existingMatsTrace.getTraceId();
+                _from = _existingMatsTrace.getCurrentCall().getFrom();
+
+                // Copy over the properties which so far has been set in the stage (before this message is initiated).
+                _props.clear();
+                _props.putAll(_tracePropertiesSetSoFarInStage);
+            }
+            else {
+                // -> No, this is an initiation from MatsInitiator, i.e. "from the outside".
+                _traceId = null;
+                _from = null;
+                _props.clear();
+            }
+
+            // :: Set defaults
+            // _traceId is set above.
+            _keepTrace = KeepMatsTrace.COMPACT;
+            _nonPersistent = false;
+            _interactive = false;
+            // _from is set above
+            _to = null;
+            _replyTo = null;
+            _replyToSubscription = false;
+            _replySto = null;
+            // _props is cleared above
+            _binaries.clear();
+            _strings.clear();
+        }
 
         @Override
         public MatsInitiate traceId(String traceId) {
@@ -313,6 +347,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     matsTrace, _props, _binaries, _strings, "new REQUEST",
                     _parentFactory.getFactoryConfig().getName());
             _messagesToSend.add(request);
+
+            // Reset, in preparation for more messages
+            reset();
         }
 
         @Override
@@ -347,6 +384,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     matsTrace, _props, _binaries, _strings, "new SEND",
                     _parentFactory.getFactoryConfig().getName());
             _messagesToSend.add(request);
+
+            // Reset, in preparation for more messages
+            reset();
         }
 
         @Override
@@ -381,6 +421,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     matsTrace, _props, _binaries, _strings, "new PUBLISH",
                     _parentFactory.getFactoryConfig().getName());
             _messagesToSend.add(request);
+
+            // Reset, in preparation for more messages
+            reset();
         }
 
         private static final Charset CHARSET_UTF8 = Charset.forName("UTF-8");
@@ -494,6 +537,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                         + " You should have done that when you first received the message, before"
                         + " stash()'ing it.", e);
             }
+
+            // No need to reset() here, as we've not touched the _from, _to, etc..
         }
 
         private static void validateByte(byte[] stash, int idx, int value) {

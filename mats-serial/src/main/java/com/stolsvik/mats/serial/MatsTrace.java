@@ -267,7 +267,7 @@ public interface MatsTrace<Z> {
     List<StackState<Z>> getStateFlow();
 
     /**
-     * Represents an immutable entry in the {@link MatsTrace}.
+     * Represents an entry in the {@link MatsTrace}.
      */
     interface Call<Z> {
         /**

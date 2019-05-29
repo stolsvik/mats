@@ -27,8 +27,6 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsProcessContext.class);
 
-    // private final JmsMatsStage<R, ?, ?, Z> _matsStage;
-
     private final JmsMatsFactory<Z> _parentFactory;
 
     private final String _endpointId;

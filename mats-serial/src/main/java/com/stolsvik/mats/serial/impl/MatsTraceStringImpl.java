@@ -169,21 +169,24 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             String to, MessagingModel toMessagingModel,
             String replyTo, MessagingModel replyToMessagingModel,
             String data, String replyState, String initialState) {
-        List<ChannelImpl> replyStack = getCurrentStack();
         MatsTraceStringImpl clone = cloneForNewCall();
+        // Get the stack from /this/
+        List<ChannelImpl> newCallReplyStack = new ArrayList<>(getCurrentStack());
         // Add the replyState - i.e. the state that is outgoing from the current call, destined for the reply.
-        // NOTE: This must be added BEFORE we add to the replyStack, since it is targeted to the stack frame below us!
-        clone.ss.add(new StackStateImpl(replyStack.size(), replyState));
+        // NOTE: This must be added BEFORE we add to the newCallReplyStack, since it is targeted to the stack frame
+        // below us!
+        clone.ss.add(new StackStateImpl(newCallReplyStack.size(), replyState));
         // Add the stageId to replyTo to the stack
-        replyStack.add(new ChannelImpl(replyTo, replyToMessagingModel));
+        newCallReplyStack.add(new ChannelImpl(replyTo, replyToMessagingModel));
         // Prune the data and stack from current call if KeepMatsTrace says so.
-        dropValuesOnCurrent();
+        clone.dropValuesOnCurrentCallIfAny();
         // Add the new Call
-        clone.c.add(new CallImpl(CallType.REQUEST, from, new ChannelImpl(to, toMessagingModel), data, replyStack));
+        clone.c.add(new CallImpl(CallType.REQUEST, from, new ChannelImpl(to, toMessagingModel), data,
+                newCallReplyStack));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
             // The stack is now one height higher, since we added the "replyTo" to it.
-            clone.ss.add(new StackStateImpl(replyStack.size(), initialState));
+            clone.ss.add(new StackStateImpl(newCallReplyStack.size(), initialState));
         }
         // Prune the StackStates if KeepMatsTrace says so
         clone.pruneUnnecessaryStackStates();
@@ -191,19 +194,18 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     @Override
-    public MatsTraceStringImpl addSendCall(String from,
-            String to, MessagingModel toMessagingModel,
+    public MatsTraceStringImpl addSendCall(String from, String to, MessagingModel toMessagingModel,
             String data, String initialState) {
-        // For a send/next call, the stack does not change.
-        List<ChannelImpl> replyStack = getCurrentStack();
         MatsTraceStringImpl clone = cloneForNewCall();
+        // For a send/next call, the stack does not change.
+        List<ChannelImpl> newCallReplyStack = getCurrentStack();
         // Prune the data and stack from current call if KeepMatsTrace says so.
-        dropValuesOnCurrent();
+        clone.dropValuesOnCurrentCallIfAny();
         // Add the new Call
-        clone.c.add(new CallImpl(CallType.SEND, from, new ChannelImpl(to, toMessagingModel), data, replyStack));
+        clone.c.add(new CallImpl(CallType.SEND, from, new ChannelImpl(to, toMessagingModel), data, newCallReplyStack));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
-            clone.ss.add(new StackStateImpl(replyStack.size(), initialState));
+            clone.ss.add(new StackStateImpl(newCallReplyStack.size(), initialState));
         }
         // Prune the StackStates if KeepMatsTrace says so.
         clone.pruneUnnecessaryStackStates();
@@ -215,15 +217,16 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         if (state == null) {
             throw new IllegalStateException("When adding next-call, state-data string should not be null.");
         }
-        // For a send/next call, the stack does not change.
-        List<ChannelImpl> replyStack = getCurrentStack();
         MatsTraceStringImpl clone = cloneForNewCall();
+        // For a send/next call, the stack does not change.
+        List<ChannelImpl> newCallReplyStack = getCurrentStack();
         // Prune the data and stack from current call if KeepMatsTrace says so.
-        dropValuesOnCurrent();
+        clone.dropValuesOnCurrentCallIfAny();
         // Add the new Call
-        clone.c.add(new CallImpl(CallType.NEXT, from, new ChannelImpl(to, MessagingModel.QUEUE), data, replyStack));
+        clone.c.add(new CallImpl(CallType.NEXT, from, new ChannelImpl(to, MessagingModel.QUEUE),
+                data, newCallReplyStack));
         // Add the state meant for the next stage
-        clone.ss.add(new StackStateImpl(replyStack.size(), state));
+        clone.ss.add(new StackStateImpl(newCallReplyStack.size(), state));
         // Prune the StackStates if KeepMatsTrace says so.
         clone.pruneUnnecessaryStackStates();
         return clone;
@@ -231,19 +234,19 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     @Override
     public MatsTraceStringImpl addReplyCall(String from, String data) {
-        List<ChannelImpl> replyStack = getCurrentStack();
-        if (replyStack.size() == 0) {
+        List<ChannelImpl> newCallReplyStack = new ArrayList<>(getCurrentStack());
+        if (newCallReplyStack.size() == 0) {
             throw new IllegalStateException("Trying to add Reply Call when there is no stack."
                     + " (Implementation note: You need to check the getCurrentCall().getStackHeight() before trying to"
                     + " do a reply - if it is zero, then just drop the reply instead.)");
         }
         MatsTraceStringImpl clone = cloneForNewCall();
         // Prune the data and stack from current call if KeepMatsTrace says so.
-        dropValuesOnCurrent();
+        clone.dropValuesOnCurrentCallIfAny();
         // Pop the last element off the stack, since this is where we'll reply to, and the rest is the new stack.
-        ChannelImpl to = replyStack.remove(replyStack.size() - 1);
+        ChannelImpl to = newCallReplyStack.remove(newCallReplyStack.size() - 1);
         // Add the new Call
-        clone.c.add(new CallImpl(CallType.REPLY, from, to, data, replyStack));
+        clone.c.add(new CallImpl(CallType.REPLY, from, to, data, newCallReplyStack));
         // Prune the StackStates if KeepMatsTrace says so.
         clone.pruneUnnecessaryStackStates();
         return clone;
@@ -264,7 +267,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
      * Should be invoked just before adding the new call, so as to clean out the 'from' and Stack (and data if COMPACT)
      * on the call that after the add will become the previous call.
      */
-    private void dropValuesOnCurrent() {
+    private void dropValuesOnCurrentCallIfAny() {
         if (c.size() > 0) {
             getCurrentCall().dropFromAndStack();
             // ?: Are we on COMPACT mode? (Note that this is implicitly also done for MINIMAL - in clone..())
@@ -370,12 +373,23 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         return null;
     }
 
+    /**
+     * Takes into account the KeepMatsTrace value.
+     */
     protected MatsTraceStringImpl cloneForNewCall() {
-        MatsTraceStringImpl cloned;
         try {
-            cloned = (MatsTraceStringImpl) super.clone();
-            // Call are close to immutable. If we're MINIMALing, then only the last Call will be added.
-            cloned.c = (kt == KeepMatsTrace.MINIMAL ? new ArrayList<>() : new ArrayList<>(c));
+            MatsTraceStringImpl cloned = (MatsTraceStringImpl) super.clone();
+            // Calls are not immutable (a Call's stack and data may be nulled due to KeepMatsTrace value)
+            if (kt == KeepMatsTrace.MINIMAL) {
+                cloned.c = new ArrayList<>(1);
+            }
+            else {
+                cloned.c = new ArrayList<>(c.size());
+                // Clone all the calls.
+                for (CallImpl call : c) {
+                    cloned.c.add(call.clone());
+                }
+            }
             // StackStates are immutable.
             cloned.ss = new ArrayList<>(ss);
             // TraceProps are immutable.
@@ -390,7 +404,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     /**
      * Represents an entry in the {@link MatsTrace}.
      */
-    public static class CallImpl implements Call<String> {
+    public static class CallImpl implements Call<String>, Cloneable {
         private String an; // Calling AppName
         private String av; // Calling AppVersion
         private String h; // Calling Host
@@ -435,7 +449,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         /**
          * Nulls the "from" and "stack" fields.
          */
-        private void dropFromAndStack() {
+        void dropFromAndStack() {
             f = null;
             ss = s.size();
             s = null;
@@ -444,7 +458,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         /**
          * Nulls the "data" field.
          */
-        private void dropData() {
+        void dropData() {
             d = null;
         }
 
@@ -557,6 +571,18 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             int numSpacesStack = Math.max(1, 7 + numMaxIncludingCallType + maxToStageIdLength - toTo.length());
             return toTo + spaces(numSpacesStack) + fromStackData(printNulLData);
         }
+
+        protected CallImpl clone() {
+            try {
+                CallImpl cloned = (CallImpl) super.clone();
+                // Channels are immutable.
+                cloned.s = (s == null ? null : new ArrayList<>(s));
+                return cloned;
+            }
+            catch (CloneNotSupportedException e) {
+                throw new AssertionError("Implements Cloneable, so clone() should not throw.", e);
+            }
+        }
     }
 
     private static class ChannelImpl implements Channel {
@@ -645,7 +671,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                 .append('\n');
 
         // === "INITIATOR CALL" ===
-        buf.append(" call#:\n");
+        buf.append(" call#:       call type\n");
         buf.append("    0    --- [Initiator]");
         if (an != null) {
             buf.append(" @").append(an);
