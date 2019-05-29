@@ -27,20 +27,27 @@ import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
 class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsInitiator.class);
 
+    private final String _name;
     private final JmsMatsFactory<Z> _parentFactory;
     private final JmsMatsJmsSessionHandler _jmsMatsJmsSessionHandler;
     private final TransactionContext _transactionContext;
 
-    public JmsMatsInitiator(JmsMatsFactory<Z> parentFactory, JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler,
+    public JmsMatsInitiator(String name, JmsMatsFactory<Z> parentFactory, JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler,
             JmsMatsTransactionManager jmsMatsTransactionManager) {
         // NOTICE! Due to multi-threading, whereby one Initiator might be used "globally" for e.g. a Servlet Container
         // having 200 threads, we cannot fetch a sole Session for the Initiator to be used for all initiations (as
         // it might be used concurrently by all the 200 Servlet Container threads). Thus, each initiation needs to
         // get hold of its own Session. However, the Sessions should be pooled.
 
+        _name = name;
         _parentFactory = parentFactory;
         _jmsMatsJmsSessionHandler = jmsMatsJmsSessionHandler;
         _transactionContext = jmsMatsTransactionManager.getTransactionContext(this);
+    }
+
+    @Override
+    public String getName() {
+        return _name;
     }
 
     @Override

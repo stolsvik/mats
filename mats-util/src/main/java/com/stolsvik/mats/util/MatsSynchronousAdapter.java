@@ -41,13 +41,13 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
     }
 
     /**
-     * (Variant that gets the needed {@link MatsInitiator} by creating one from {@link MatsFactory#createInitiator()}).
+     * (Variant that gets the needed {@link MatsInitiator} by creating one from {@link MatsFactory#getDefaultInitiator()}).
      * Invoke to create an instance of the synchronous adapter - it is Thread Safe and meant for reuse, it contains an
      * active Thread, and it is imperative that you do not make one instance per "synchronization" you perform.
      */
     public static <R> MatsSynchronousAdapter<R> create(MatsFactory matsFactory,
             String returnEndpointPrefix, Class<R> replyClass) {
-        return new MatsSynchronousAdapter<>(matsFactory, matsFactory.createInitiator(), returnEndpointPrefix,
+        return new MatsSynchronousAdapter<>(matsFactory, matsFactory.getDefaultInitiator(), returnEndpointPrefix,
                 replyClass);
     }
 

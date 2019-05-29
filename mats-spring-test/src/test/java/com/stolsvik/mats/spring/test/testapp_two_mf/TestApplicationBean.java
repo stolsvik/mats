@@ -49,7 +49,7 @@ public class TestApplicationBean {
     void run() {
         SpringTestDataTO dto = new SpringTestDataTO(Math.PI, "Data");
         SpringTestStateTO sto = new SpringTestStateTO(256, "State");
-        _matsFactory.createInitiator().initiateUnchecked(
+        _matsFactory.getDefaultInitiator().initiateUnchecked(
                 msg -> msg.traceId("TraceId")
                         .from("FromId")
                         .to(ENDPOINT_ID + ".single")

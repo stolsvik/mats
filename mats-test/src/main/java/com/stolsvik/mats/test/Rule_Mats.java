@@ -143,7 +143,7 @@ public class Rule_Mats extends ExternalResource {
      */
     public synchronized MatsInitiator getMatsInitiator() {
         if (_matsInitiator == null) {
-            _matsInitiator = getMatsFactory().createInitiator();
+            _matsInitiator = getMatsFactory().getDefaultInitiator();
         }
         return _matsInitiator;
     }

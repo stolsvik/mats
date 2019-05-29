@@ -274,9 +274,18 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         /**
          * Attaches a binary payload to the next outgoing message, being it a request or a reply. Note that for
          * initiations, you have the same method on the {@link MatsInitiate} instance.
+         * <p>
+         * The rationale for having this is to not have to encode a largish byte array inside the JSON structure that
+         * carries the Request or Reply DTO - byte arrays represent very badly in JSON.
+         * <p>
+         * Note: The byte array is not compressed (as might happen with the DTO), so if the payload is large, you might
+         * want to consider compressing it before attaching it (and will then have to decompress it on the receiving
+         * side).
          *
          * @param key
-         *            the key on which to store the binary payload.
+         *            the key on which to store the byte array payload. The receiver will have to use this key to get
+         *            the payload out again, so either it will be a specific key that the sender and receiver agree
+         *            upon, or you could generate a random key, and reference this key as a field in the Request DTO.
          * @param payload
          *            the payload to store.
          * @see #getBytes(String)
@@ -288,9 +297,19 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         /**
          * Attaches a String payload to the next outgoing message, being it a request or a reply. Note that for
          * initiations, you have the same method on the {@link MatsInitiate} instance.
-         *
+         * <p>
+         * The rationale for having this is to not have to encode a largish string document inside the JSON structure
+         * that carries the Request or Reply DTO.
+         * <p>
+         * Note: The String payload is not compressed (as might happen with the DTO), so if the payload is large, you
+         * might want to consider compressing it before attaching it and instead use the
+         * {@link #addBytes(String, byte[]) addBytes(..)} method (and will then have to decompress it on the receiving
+         * side).
+         * 
          * @param key
-         *            the key on which to store the String payload.
+         *            the key on which to store the String payload. The receiver will have to use this key to get the
+         *            payload out again, so either it will be a specific key that the sender and receiver agree upon, or
+         *            you could generate a random key, and reference this key as a field in the Request DTO.
          * @param payload
          *            the payload to store.
          * @see #getString(String)
@@ -447,7 +466,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         /**
          * Initiates a new message out to an endpoint. This is effectively the same as invoking
          * {@link MatsInitiator#initiate(InitiateLambda lambda) the same method} on a {@link MatsInitiator} gotten via
-         * {@link MatsFactory#createInitiator()}, only that this way works within the transactional context of the
+         * {@link MatsFactory#getDefaultInitiator()}, only that this way works within the transactional context of the
          * {@link MatsStage} which this method is invoked within. Also, the traceId and from-endpointId is predefined,
          * but it is still recommended to set the traceId, as that will append the new string on the existing traceId,
          * making log tracking (e.g. when debugging) better.

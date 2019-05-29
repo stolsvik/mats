@@ -110,8 +110,8 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         return _matsSerializer;
     }
 
-    private final List<MatsEndpoint<?, ?>> _createdEndpointsX = new ArrayList<>();
-    private final List<MatsInitiator> _createdInitiatorsX = new ArrayList<>();
+    private final List<MatsEndpoint<?, ?>> _createdEndpoints = new ArrayList<>();
+    private final List<MatsInitiator> _createdInitiators = new ArrayList<>();
 
     @Override
     public FactoryConfig getFactoryConfig() {
@@ -212,37 +212,50 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     }
 
     @Override
-    public MatsInitiator createInitiator() {
-        JmsMatsInitiator<Z> initiator = new JmsMatsInitiator<>(this,
-                _jmsMatsJmsSessionHandler, _jmsMatsTransactionManager);
-        addCreatedInitiator(initiator);
-        return initiator;
+    public MatsInitiator getDefaultInitiator() {
+        return getOrCreateInitiator("default");
+    }
+
+    @Override
+    public MatsInitiator getOrCreateInitiator(String name) {
+        synchronized (_createdInitiators) {
+            for (MatsInitiator initiator : _createdInitiators) {
+                if (initiator.getName().equals(name)) {
+                    return initiator;
+                }
+            }
+            JmsMatsInitiator<Z> initiator = new JmsMatsInitiator<>(name, this,
+                    _jmsMatsJmsSessionHandler, _jmsMatsTransactionManager);
+            addCreatedInitiator(initiator);
+            return initiator;
+        }
     }
 
     @Override
     public List<MatsEndpoint<?, ?>> getEndpoints() {
-        synchronized (_createdEndpointsX) {
-            return new ArrayList<>(_createdEndpointsX);
+        synchronized (_createdEndpoints) {
+            return new ArrayList<>(_createdEndpoints);
         }
     }
 
     private void addCreatedEndpoint(MatsEndpoint<?, ?> newEndpoint) {
-        synchronized (_createdEndpointsX) {
-            Optional<MatsEndpoint<?, ?>> existingEndpoint = getEndpoint(newEndpoint.getEndpointConfig().getEndpointId());
+        synchronized (_createdEndpoints) {
+            Optional<MatsEndpoint<?, ?>> existingEndpoint = getEndpoint(newEndpoint.getEndpointConfig()
+                    .getEndpointId());
             if (existingEndpoint.isPresent()) {
                 throw new IllegalStateException("An Endpoint with endpointId='"
                         + newEndpoint.getEndpointConfig().getEndpointId()
                         + "' was already present. Existing: [" + existingEndpoint
                         + "], attempted registered:[" + newEndpoint + "].");
             }
-            _createdEndpointsX.add(newEndpoint);
+            _createdEndpoints.add(newEndpoint);
         }
     }
 
     @Override
     public Optional<MatsEndpoint<?, ?>> getEndpoint(String endpointId) {
-        synchronized (_createdEndpointsX) {
-            for (MatsEndpoint<?, ?> endpoint : _createdEndpointsX) {
+        synchronized (_createdEndpoints) {
+            for (MatsEndpoint<?, ?> endpoint : _createdEndpoints) {
                 if (endpoint.getEndpointConfig().getEndpointId().equals(endpointId)) {
                     return Optional.of(endpoint);
                 }
@@ -253,14 +266,14 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     @Override
     public List<MatsInitiator> getInitiators() {
-        synchronized (_createdInitiatorsX) {
-            return new ArrayList<>(_createdInitiatorsX);
+        synchronized (_createdInitiators) {
+            return new ArrayList<>(_createdInitiators);
         }
     }
 
     private void addCreatedInitiator(MatsInitiator initiator) {
-        synchronized (_createdInitiatorsX) {
-            _createdInitiatorsX.add(initiator);
+        synchronized (_createdInitiators) {
+            _createdInitiators.add(initiator);
         }
     }
 

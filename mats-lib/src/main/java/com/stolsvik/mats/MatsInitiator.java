@@ -1,7 +1,6 @@
 package com.stolsvik.mats;
 
 import java.io.Closeable;
-import java.util.UUID;
 
 import org.slf4j.MDC;
 
@@ -20,6 +19,12 @@ import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public interface MatsInitiator extends Closeable {
+
+    /**
+     * @return the name of this <code>MatsInitiator</code>. The {@link MatsFactory#getDefaultInitiator() default
+     *         initiator}'s name is 'default'.
+     */
+    String getName();
 
     /**
      * Initiates a new message (request or invocation) out to an endpoint.
@@ -163,7 +168,7 @@ public interface MatsInitiator extends Closeable {
      * You must have access to an instance of this interface to initiate a MATS process.
      * <p>
      * To initiate a message "from the outside", i.e. from synchronous application code, get it by invoking
-     * {@link MatsFactory#createInitiator()}, and then {@link MatsInitiator#initiate(InitiateLambda)} on that.
+     * {@link MatsFactory#getDefaultInitiator()}, and then {@link MatsInitiator#initiate(InitiateLambda)} on that.
      * <p>
      * To initiate a new message "from the inside", i.e. while already inside a {@link MatsStage processing stage} of an
      * endpoint, get it by invoking {@link ProcessContext#initiate(InitiateLambda)}.
@@ -333,29 +338,45 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate setTraceProperty(String propertyName, Object propertyValue);
 
         /**
-         * Adds a binary payload to the endpoint, e.g. a PDF document.
+         * Adds a binary payload to the outgoing request message, e.g. a PDF document.
+         * <p>
+         * The rationale for having this is to not have to encode a largish byte array inside the JSON structure that
+         * carries the Request DTO - byte arrays represent very badly in JSON.
+         * <p>
+         * Note: The byte array is not compressed (as might happen with the DTO), so if the payload is large, you might
+         * want to consider compressing it before attaching it (and will then have to decompress it on the receiving
+         * side).
          *
          * @param key
-         *            the key on which this is set. A typical logic is to just use an {@link UUID} as key, and then
-         *            reference the payload key in the Request DTO.
+         *            the key on which to store the byte array payload. The receiver will have to use this key to get
+         *            the payload out again, so either it will be a specific key that the sender and receiver agree
+         *            upon, or you could generate a random key, and reference this key as a field in the Request DTO.
          * @param payload
          *            the byte array.
          * @return the {@link MatsInitiate} for chaining.
+         * @see #addString(String, String)
          */
         MatsInitiate addBytes(String key, byte[] payload);
 
         /**
-         * Adds a String payload to the endpoint, e.g. a XML, JSON or CSV document.
+         * Adds a String payload to the outgoing request message, e.g. a XML, JSON or CSV document.
          * <p>
          * The rationale for having this is to not have to encode a largish string document inside the JSON structure
          * that carries the Request DTO.
+         * <p>
+         * Note: The String payload is not compressed (as might happen with the DTO), so if the payload is large, you
+         * might want to consider compressing it before attaching it and instead use the
+         * {@link #addBytes(String, byte[]) addBytes(..)} method (and will then have to decompress it on the receiving
+         * side).
          *
          * @param key
-         *            the key on which this is set. A typical logic is to just use an {@link UUID} as key, and then
-         *            reference the payload key in the Request DTO.
+         *            the key on which to store the String payload. The receiver will have to use this key to get the
+         *            payload out again, so either it will be a specific key that the sender and receiver agree upon, or
+         *            you could generate a random key, and reference this key as a field in the Request DTO.
          * @param payload
          *            the string.
          * @return the {@link MatsInitiate} for chaining.
+         * @see #addBytes(String, byte[])
          */
         MatsInitiate addString(String key, String payload);
 

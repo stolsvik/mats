@@ -234,12 +234,45 @@ public interface MatsFactory extends StartStoppable {
             ProcessTerminatorLambda<S, I> processor);
 
     /**
-     * Creates a new Initiator from which to initiate new Mats processes, i.e. send a message from "outside of Mats" to
-     * a Mats endpoint - <b>NOTICE: This is an active object that can carry backend resources, and it is Thread Safe,
-     * therefore you are not supposed to create one instance per message you send!</b>
+     * @return all {@link MatsEndpoint}s created on this {@link MatsFactory}.
+     */
+    List<MatsEndpoint<?, ?>> getEndpoints();
+
+    /**
+     * @param endpointId
+     *            which {@link MatsEndpoint} to return, if present.
+     * @return the requested {@link MatsEndpoint} if present, {@link Optional#empty()} if not.
+     */
+    Optional<MatsEndpoint<?, ?>> getEndpoint(String endpointId);
+
+    /**
+     * Gets or creates the default Initiator (whose name is 'default') from which to initiate new Mats processes, i.e.
+     * send a message from "outside of Mats" to a Mats endpoint - <b>NOTICE: This is an active object that can carry
+     * backend resources, and it is Thread Safe: You are not supposed to create one instance per message you send!</b>
      * <p>
-     * <b>Observe: The returned MatsInitiator is Thread Safe, and meant for reuse: You are <em>not</em> supposed to
-     * create one instance of {@link MatsInitiator} per message you need to send - rather either create one for the
+     * <b>Observe again: The returned MatsInitiator is Thread Safe, and meant for reuse: You are <em>not</em> supposed
+     * to create one instance of {@link MatsInitiator} per message you need to send - rather either create one for the
+     * entire application, or e.g. for each component:</b> The {@code MatsInitiator} can have underlying backend
+     * resources attached to it - which also means that it needs to be {@link MatsInitiator#close() closed} for a clean
+     * application shutdown (Note that all MatsInitiators are closed when {@link #stop() MatsFactory.stop()} is
+     * invoked).
+     *
+     * @return the default <code>MatsInitiator</code>, whose name is 'default', on which messages can be
+     *         {@link MatsInitiator#initiate(InitiateLambda) initiated}.
+     */
+    MatsInitiator getDefaultInitiator();
+
+    /**
+     * Gets or creates a new Initiator from which to initiate new Mats processes, i.e. send a message from "outside of
+     * Mats" to a Mats endpoint - <b>NOTICE: This is an active object that can carry backend resources, and it is Thread
+     * Safe: You are not supposed to create one instance per message you send!</b>
+     * <p>
+     * A reason for wanting to make more than one {@link MatsInitiator} could be that each initiator might have its own
+     * connection to the underlying message broker. You also might want to name the initiators based on what part of the
+     * application uses it.
+     * <p>
+     * <b>Observe again: The returned MatsInitiator is Thread Safe, and meant for reuse: You are <em>not</em> supposed
+     * to create one instance of {@link MatsInitiator} per message you need to send - rather either create one for the
      * entire application, or e.g. for each component:</b> The {@code MatsInitiator} can have underlying backend
      * resources attached to it - which also means that it needs to be {@link MatsInitiator#close() closed} for a clean
      * application shutdown (Note that all MatsInitiators are closed when {@link #stop() MatsFactory.stop()} is
@@ -248,18 +281,7 @@ public interface MatsFactory extends StartStoppable {
      * @return a {@link MatsInitiator}, on which messages can be {@link MatsInitiator#initiate(InitiateLambda)
      *         initiated}.
      */
-    MatsInitiator createInitiator();
-
-    /**
-     * @return all {@link MatsEndpoint}s created on this {@link MatsFactory}.
-     */
-    List<MatsEndpoint<?, ?>> getEndpoints();
-
-    /**
-     * @param endpointId which {@link MatsEndpoint} to return, if present.
-     * @return the requested {@link MatsEndpoint} if present, {@link Optional#empty()} if not.
-     */
-    Optional<MatsEndpoint<?, ?>> getEndpoint(String endpointId);
+    MatsInitiator getOrCreateInitiator(String name);
 
     /**
      * @return all {@link MatsInitiator}s created on this {@link MatsFactory}.

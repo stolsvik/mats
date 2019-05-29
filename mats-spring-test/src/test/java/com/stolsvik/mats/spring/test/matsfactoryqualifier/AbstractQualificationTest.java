@@ -88,7 +88,7 @@ public class AbstractQualificationTest {
     protected void doStandardTest(MatsFactory _matsFactory, String endPointIdBase) {
         SpringTestDataTO dto = new SpringTestDataTO(Math.PI, "Data");
         SpringTestStateTO sto = new SpringTestStateTO(256, "State");
-        _matsFactory.createInitiator().initiateUnchecked(
+        _matsFactory.getDefaultInitiator().initiateUnchecked(
                 msg -> msg.traceId("TraceId")
                         .from("FromId")
                         .to(endPointIdBase + ".single")
