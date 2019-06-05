@@ -19,18 +19,19 @@ import com.stolsvik.mats.MatsFactory;
  * {@link ApplicationContext} for whether they have methods annotated with {@link MatsMapping @MatsMapping} or
  * {@link MatsStaged @MatsStaged}, and if so configures Mats endpoints for them on the (possibly specified)
  * {@link MatsFactory}. It will also control any registered {@link MatsFactory} beans, invoking
- * {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} and {@link MatsFactory#start()} in the startup procedure,
- * then {@link MatsFactory#stop()} in the shutdown procedure.
+ * {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} early in the startup procedure before adding the endpoints,
+ * and then {@link MatsFactory#start()} as late as possible in the startup procedure, then {@link MatsFactory#stop()} as
+ * early as possible in the shutdown procedure.
  * 
  * <h3>This is the startup procedure:</h3>
  * <ol>
- * <li>The {@link MatsSpringAnnotationRegistration} BeanPostProcessor will have each bean in the Spring
- * ApplicationContext presented:
+ * <li>The {@link MatsSpringAnnotationRegistration} (which is a <code>BeanPostProcessor</code>) will have each bean in
+ * the Spring ApplicationContext presented:
  * <ol>
  * <li>Each {@link MatsFactory} bean will have their {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} method
  * invoked.</li>
- * <li>Each beans which will have all their methods searched for the relevant annotations. Such annotated methods will
- * be put in a list.</li>
+ * <li>Each bean which will have all their methods searched for the relevant annotations. Such annotated methods will be
+ * put in a list.</li>
  * </ol>
  * </li>
  * <li>Upon {@link ContextRefreshedEvent}:
@@ -46,7 +47,8 @@ import com.stolsvik.mats.MatsFactory;
  * </li>
  * </ol>
  * Do notice that <i>all</i> MatsFactories in the Spring ApplicationContext are started, regardless of whether they had
- * any Mats endpoints registered.
+ * any Mats endpoints registered using the Mats SpringConfig. This implies that if you register any Mats endpoints
+ * programmatically using e.g. <code>@PostConstruct</code> or similar functionality, these will also be started.
  *
  * <h3>This is the shutdown procedure:</h3>
  * <ol>
@@ -61,7 +63,6 @@ import com.stolsvik.mats.MatsFactory;
  * later, one won't get a load of connection failures from the Mats endpoints which otherwise would have their
  * connections shut down under their feet.
  * 
- * 
  * @author Endre Stølsvik - 2016-05-21 - http://endre.stolsvik.com
  */
 @Configuration
@@ -69,7 +70,7 @@ public class MatsSpringConfiguration {
     public static final String LOG_PREFIX = "#SPRINGMATS# ";
 
     // Use clogging, since that's what Spring does.
-    private static final Log log = LogFactory.getLog(MatsSpringAnnotationRegistration.class);
+    private static final Log log = LogFactory.getLog(MatsSpringConfiguration.class);
 
     @Bean
     public MatsSpringAnnotationRegistration matsSpringAnnotationBeanPostProcessor() {

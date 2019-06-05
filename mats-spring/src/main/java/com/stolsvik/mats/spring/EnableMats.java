@@ -9,12 +9,15 @@ import java.lang.annotation.Target;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
+import com.stolsvik.mats.MatsFactory;
+
 /**
- * Enables Mats-specific bean-scanning for methods annotated with {@link MatsMapping} and {@link MatsStaged},
- * conceptually inspired by the {@literal @EnableWebMvc} annotation. Methods having the specified annotations will get
- * Mats endpoints set up for them.
+ * Enables Mats "SpringConfig", which is bean-scanning for methods on Spring beans annotated with {@link MatsMapping}
+ * and {@link MatsStaged}, conceptually inspired by the {@literal @EnableWebMvc} annotation. One (or several)
+ * {@link MatsFactory}s must be set up in the Spring context. Methods having the specified annotations will get Mats
+ * endpoints set up for them on the <code>MatsFactory</code>.
  * <p>
- * This annotation imports the {@link MatsSpringConfiguration} class, which is a Spring
+ * This annotation simply imports the {@link MatsSpringConfiguration} class, which is a Spring
  * {@link Configuration @Configuration}. Read more JavaDoc there!
  *
  * @author Endre Stølsvik - 2016-05-21 - http://endre.stolsvik.com

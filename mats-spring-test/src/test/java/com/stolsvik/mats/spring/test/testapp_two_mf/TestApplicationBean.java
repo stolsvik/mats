@@ -13,7 +13,7 @@ import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
-import com.stolsvik.mats.spring.test.testapp_two_mf.TestMain_TwoMf.TestQualifier;
+import com.stolsvik.mats.spring.test.testapp_two_mf.Main_TwoMf.TestQualifier;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 

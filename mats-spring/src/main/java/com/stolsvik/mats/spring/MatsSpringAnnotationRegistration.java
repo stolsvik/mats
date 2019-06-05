@@ -9,6 +9,7 @@ import java.lang.reflect.Parameter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -80,10 +81,13 @@ public class MatsSpringAnnotationRegistration implements
 
         // NOTICE!! We CAN NOT touch the _beans_ at this point, since we then will create them, and we will therefore
         // be hit by the "<bean> is not eligible for getting processed by all BeanPostProcessors" - the
-        // BeanPostProcessor in question be ourselves!
-        // (.. However, the BeanDefinitions is okay.)
+        // BeanPostProcessor in question being ourselves!
+        // (.. However, the BeanDefinitions is okay to handle.)
         _configurableListableBeanFactory = _configurableApplicationContext.getBeanFactory();
     }
+
+    private final Map<String, MatsFactory> _matsFactories = new HashMap<>();
+    private final IdentityHashMap<MatsFactory, String> _matsFactoriesToName = new IdentityHashMap<>();
 
     @Override
     public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
@@ -97,11 +101,15 @@ public class MatsSpringAnnotationRegistration implements
                     + " ContextRefreshedEvent, so that they do not start processing messages until the entire"
                     + " application is ready for service. We also sets the name to the beanName if not already set.");
             MatsFactory matsFactory = (MatsFactory) bean;
+            // Add to map for later use
+            _matsFactories.put(beanName, matsFactory);
+            _matsFactoriesToName.put(matsFactory, beanName);
+            // Ensure that any subsequently registered endpoints won't start until we hit matsFactory.start()
             matsFactory.holdEndpointsUntilFactoryIsStarted();
+            // Set the name of the MatsFactory to the Spring bean name if it is not already set.
             if ("".equals(matsFactory.getFactoryConfig().getName())) {
                 matsFactory.getFactoryConfig().setName(beanName);
             }
-
         }
         return bean;
     }
@@ -223,8 +231,7 @@ public class MatsSpringAnnotationRegistration implements
         // :: Start the MatsFactories
         log.info(LOG_PREFIX + "Invoking matsFactory.start() on all MatsFactories in Spring Context to start"
                 + " registered endpoints.");
-        Map<String, MatsFactory> matsFactories = _configurableListableBeanFactory.getBeansOfType(MatsFactory.class);
-        matsFactories.forEach((name, factory) -> {
+        _matsFactories.forEach((name, factory) -> {
             log.info(LOG_PREFIX + "  \\- MatsFactory '" + name + "'.start()");
             factory.start();
         });
@@ -240,8 +247,7 @@ public class MatsSpringAnnotationRegistration implements
         log.info(LOG_PREFIX
                 + "ContextClosedEvent, running MatsFactory.stop() on all MatsFactories in the Spring Context"
                 + " to stop all registered MATS Endpoints and clean out the JmsMatsJmsSessionHandler.");
-        Map<String, MatsFactory> matsFactories = _configurableListableBeanFactory.getBeansOfType(MatsFactory.class);
-        matsFactories.forEach((name, factory) -> {
+        _matsFactories.forEach((name, factory) -> {
             log.info(LOG_PREFIX + "  \\- MatsFactory '" + name + "'.stop()");
             factory.stop();
         });
@@ -461,12 +467,12 @@ public class MatsSpringAnnotationRegistration implements
                     + " @Mats..-annotated method, we ended up with more than one MatsFactory."
                     + " Check your specifications on the method [" + method + "].");
         }
-        // ?: If there was one specifiec MatsFactory, use that, otherwise find any MatsFactory (fails if more than one).
+        // ?: If there was one specified MatsFactory, use that, otherwise find any MatsFactory (fails if more than one).
         MatsFactory matsFactory = specifiedMatsFactories.size() == 1
                 ? specifiedMatsFactories.get(0)
                 : getMatsFactoryUnspecified();
 
-        // TODO: Log which MatsFactory bean name which will be used.
+        log.debug(".. using MatsFactory [" + _matsFactoriesToName.get(matsFactory) + "]: [" + matsFactory + "].");
 
         return matsFactory;
     }
@@ -509,8 +515,9 @@ public class MatsSpringAnnotationRegistration implements
         try {
             Object bean = _configurableApplicationContext.getBean(beanName);
             if (!(bean instanceof MatsFactory)) {
-                throw new BeanCreationException("The @Mats..-annotation specified Spring bean '" + beanName
-                        + "' is not of type MatsFactory");
+                throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
+                        .getClass().getSimpleName() + " found that the @Mats..-annotation specified Spring bean '"
+                        + beanName + "' is not of type MatsFactory");
             }
             // Cache, and return
             _cache_MatsFactoryByBeanName.put(beanName, (MatsFactory) bean);
@@ -633,9 +640,9 @@ public class MatsSpringAnnotationRegistration implements
         // :: Filter only the MatsFactories, log informational if found beans that are not MatsFactory.
         List<MatsFactory> matsFactories = new ArrayList<>();
         for (Object annotatedBean : annotatedBeans) {
-            if (! (annotatedBean instanceof MatsFactory)) {
-                log.info("Found bean annotated with correct custom qualifier ["+customQualifierType+"], but it was"
-                        + "not a MatsFactory. Ignoring. Bean: ["+annotatedBean+"].");
+            if (!(annotatedBean instanceof MatsFactory)) {
+                log.info("Found bean annotated with correct custom qualifier [" + customQualifierType + "], but it was"
+                        + "not a MatsFactory. Ignoring. Bean: [" + annotatedBean + "].");
                 continue;
             }
             matsFactories.add((MatsFactory) annotatedBean);
@@ -653,7 +660,7 @@ public class MatsSpringAnnotationRegistration implements
                     + " annotation '" + customQualifier + "' available in the Spring ApplicationContext");
         }
         // Cache, and return
-        _cache_MatsFactoryByCustomQualifier.computeIfAbsent(customQualifierType, $ -> new HashMap<>() )
+        _cache_MatsFactoryByCustomQualifier.computeIfAbsent(customQualifierType, $ -> new HashMap<>())
                 .put(customQualifier, matsFactories.get(0));
         return matsFactories.get(0);
     }
@@ -813,6 +820,6 @@ public class MatsSpringAnnotationRegistration implements
 
     private static String descString(Annotation annotation, Method method, Object bean) {
         return "@" + annotation.annotationType().getSimpleName() + "-annotated method '" + bean.getClass()
-                .getSimpleName() + "#" + method.getName() + "(...)'";
+                .getSimpleName() + "." + method.getName() + "(...)'";
     }
 }

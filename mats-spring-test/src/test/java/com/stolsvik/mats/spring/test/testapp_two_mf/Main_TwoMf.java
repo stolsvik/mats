@@ -28,14 +28,14 @@ import com.stolsvik.mats.test.MatsTestActiveMq;
 @Configuration
 @EnableMats
 @ComponentScan(basePackages = "com.stolsvik.mats.spring.test.testapp_two_mf")
-public class TestMain_TwoMf {
-    private static final Logger log = LoggerFactory.getLogger(TestMain_TwoMf.class);
+public class Main_TwoMf {
+    private static final Logger log = LoggerFactory.getLogger(Main_TwoMf.class);
 
     private static MatsTestActiveMq _activeMq1;
     private static MatsTestActiveMq _activeMq2;
 
     public static void main(String... args) throws InterruptedException {
-        new TestMain_TwoMf().start();
+        new Main_TwoMf().start();
     }
 
     private void start() {
