@@ -38,21 +38,27 @@ public class Test_MultipleRequestsSendsRepliesWithinStage extends MatsBasicTest 
             Assert.assertEquals(new StateTO(0, 0), sto);
             sto.number1 = 10;
             sto.number2 = Math.PI;
+            // :: Perform /two/ requests to Leaf service (thus replies twice)
             context.request(SERVICE + ".Leaf", new DataTO(dto.number, dto.string + ":Request#1"));
             context.request(SERVICE + ".Leaf", new DataTO(dto.number, dto.string + ":Request#2"));
         });
         ep.stage(DataTO.class, (context, sto, dto) -> {
             // This should now be invoked twice.
             Assert.assertEquals(new StateTO(10, Math.PI), sto);
-            // Should now be invoked twice
             _serviceStage1InvocationCount.incrementAndGet();
             sto.number1 = -10;
             sto.number2 = Math.E;
-            context.next(new DataTO(dto.number, dto.string + ":Send#1"));
-            context.next(new DataTO(dto.number, dto.string + ":Send#2"));
+            // :: Send two messages directly to TERMINATOR
+            context.initiate((msg) -> msg.to(TERMINATOR)
+                    .send(new DataTO(dto.number, dto.string + ":Send#1")));
+            context.initiate((msg) -> msg.to(TERMINATOR)
+                    .send(new DataTO(dto.number, dto.string + ":Send#2")));
+            // :: Pass on /twice/ to next stage (thus 4 times to next stage, since this stage is replied to twice).
+            context.next(new DataTO(dto.number, dto.string + ":Next#1"));
+            context.next(new DataTO(dto.number, dto.string + ":Next#2"));
         });
         ep.stage(DataTO.class, (context, sto, dto) -> {
-            // This should now be invoked four times
+            // This should now be invoked four times (see above on "next" calls).
             _serviceStage2InvocationCount.incrementAndGet();
             Assert.assertEquals(new StateTO(-10, Math.E), sto);
             context.reply(new DataTO(dto.number, dto.string + ":Reply#1"));
@@ -81,13 +87,13 @@ public class Test_MultipleRequestsSendsRepliesWithinStage extends MatsBasicTest 
     public void setupTerminator() {
         matsRule.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
                 (context, sto, dto) -> {
-                    // Should be invoked eight times.
+                    // Should be invoked 12 times, 8 for the request-reply stages + 4 from the sends in middle stage.
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     log.debug("TERMINATOR Incoming Message: " + dto);
                     // Store the answer.
                     answers.put(dto.string, "");
                     int count = _terminatorInvocationCount.incrementAndGet();
-                    if (count == 8) {
+                    if (count == 12) {
                         matsTestLatch.resolve(sto, dto);
                     }
                 });
@@ -133,17 +139,23 @@ public class Test_MultipleRequestsSendsRepliesWithinStage extends MatsBasicTest 
         Assert.assertEquals(2, _leafInvocationCount.get());
         Assert.assertEquals(2, _serviceStage1InvocationCount.get());
         Assert.assertEquals(4, _serviceStage2InvocationCount.get());
-        Assert.assertEquals(8, _terminatorInvocationCount.get());
+        Assert.assertEquals(12, _terminatorInvocationCount.get());
 
+        // :: These are the 12 replies that the Terminator should see.
+        // Effectively a binary permutation of 3x[1|2] + the 2x2 "Send" messages.
         SortedSet<String> expected = new TreeSet<>();
-        expected.add("Initiator:Request#1:FromLeafService:Send#1:Reply#1");
-        expected.add("Initiator:Request#1:FromLeafService:Send#1:Reply#2");
-        expected.add("Initiator:Request#1:FromLeafService:Send#2:Reply#1");
-        expected.add("Initiator:Request#1:FromLeafService:Send#2:Reply#2");
-        expected.add("Initiator:Request#2:FromLeafService:Send#1:Reply#1");
-        expected.add("Initiator:Request#2:FromLeafService:Send#1:Reply#2");
-        expected.add("Initiator:Request#2:FromLeafService:Send#2:Reply#1");
-        expected.add("Initiator:Request#2:FromLeafService:Send#2:Reply#2");
+        expected.add("Initiator:Request#1:FromLeafService:Next#1:Reply#1");
+        expected.add("Initiator:Request#1:FromLeafService:Next#1:Reply#2");
+        expected.add("Initiator:Request#1:FromLeafService:Next#2:Reply#1");
+        expected.add("Initiator:Request#1:FromLeafService:Next#2:Reply#2");
+        expected.add("Initiator:Request#1:FromLeafService:Send#1");
+        expected.add("Initiator:Request#1:FromLeafService:Send#2");
+        expected.add("Initiator:Request#2:FromLeafService:Next#1:Reply#1");
+        expected.add("Initiator:Request#2:FromLeafService:Next#1:Reply#2");
+        expected.add("Initiator:Request#2:FromLeafService:Next#2:Reply#1");
+        expected.add("Initiator:Request#2:FromLeafService:Next#2:Reply#2");
+        expected.add("Initiator:Request#2:FromLeafService:Send#1");
+        expected.add("Initiator:Request#2:FromLeafService:Send#2");
 
         Assert.assertEquals(expected, new TreeSet<>(answers.keySet()));
     }
