@@ -67,10 +67,13 @@ public class Rule_MatsWithDb extends Rule_Mats {
     protected MatsFactory createMatsFactory(MatsSerializer<String> stringSerializer,
             ConnectionFactory jmsConnectionFactory) {
         // Create the JMS and JDBC TransactionManager-backed JMS MatsFactory.
-        return JmsMatsFactory.createMatsFactory_JmsAndJdbcTransactions(this.getClass().getSimpleName(),
+        JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory_JmsAndJdbcTransactions(this.getClass().getSimpleName(),
                 "*testing*",
                 new JmsMatsJmsSessionHandler_Pooling((s) -> jmsConnectionFactory.createConnection()),
                 (s) -> _dataSource.getConnection(), _matsSerializer);
+        // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
+        matsFactory.getFactoryConfig().setConcurrency(1);
+        return matsFactory;
     }
 
     /**

@@ -58,8 +58,6 @@ public class Rule_Mats extends ExternalResource {
         _matsSerializer = new MatsSerializer_DefaultJson();
         // Allow for override in specialization classes, in particular the one with DB.
         _matsFactory = createMatsFactory();
-        // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
-        _matsFactory.getFactoryConfig().setConcurrency(1);
         log.info("--- BEFORE done! JUnit Rule '" + id(Rule_Mats.class) + "', JMS and MATS.");
     }
 
@@ -70,10 +68,13 @@ public class Rule_Mats extends ExternalResource {
      */
     protected MatsFactory createMatsFactory(MatsSerializer<String> stringSerializer,
             ConnectionFactory connectionFactory) {
-        return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
+        JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
                 this.getClass().getSimpleName(), "*testing*",
                 new JmsMatsJmsSessionHandler_Pooling((s) -> connectionFactory.createConnection()),
                 _matsSerializer);
+        // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
+        matsFactory.getFactoryConfig().setConcurrency(1);
+        return matsFactory;
     }
 
     /**
