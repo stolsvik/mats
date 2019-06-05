@@ -1,5 +1,8 @@
 package com.stolsvik.mats.lib_test.lifecycle;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -9,9 +12,6 @@ import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.lib_test.StateTO;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
-
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
     private MatsEndpoint<Void, StateTO> _ep;
@@ -36,7 +36,6 @@ public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
                         .to(TERMINATOR)
                         .send(dto));
 
-
         // Make and start thread that will wait for Endpoint to start.
         Thread waiter = new Thread(() -> {
             _waitThreadStarted.countDown();
@@ -45,9 +44,8 @@ public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
         }, "UnitTestWaiter");
         waiter.start();
 
-        // Now wait for the waiter-thread to actually fire up - should go instantly.
+        // :: Now wait for the waiter-thread to actually fire up - should go instantly.
         boolean threadStarted = _waitThreadStarted.await(1000, TimeUnit.MILLISECONDS);
-        // Assert that waiter-thread has not gotten past waiting
         Assert.assertTrue("Waiter thread should have started!", threadStarted);
 
         // Wait for the answer in 250 ms - which should not come.
@@ -60,8 +58,8 @@ public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
         }
 
         // Assert that waiter-thread has not gotten past waiting
-        Assert.assertEquals("Should not have gotten past waiting for ep to start, since we haven't started it!",
-                1, _waitedForStartupFinished.getCount());
+        Assert.assertEquals("Should not have gotten past waiting for ep to start,"
+                        + " since we haven't started it!", 1, _waitedForStartupFinished.getCount());
 
         // THIS IS IT! Start the endpoint!
         _ep.start();

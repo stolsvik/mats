@@ -5,7 +5,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.stolsvik.mats.lib_test.DataTO;
-import com.stolsvik.mats.lib_test.MatsDbTest;
+import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.lib_test.StateTO;
 
 /**
@@ -22,7 +22,7 @@ import com.stolsvik.mats.lib_test.StateTO;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
+public class Test_ThrowsExceptionInInitializer extends MatsBasicTest {
     private static int WAIT_MILLIS = 200;
 
     @Before
@@ -48,7 +48,9 @@ public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
      */
     @Test
     public void checkTestInfrastructre() {
+        // Send a message that does NOT throw in initiation
         sendMessageToTerminator(false);
+        // .. thus, the message should be received at TERMINATOR
         Assert.assertNotNull(matsTestLatch.waitForResult(WAIT_MILLIS));
     }
 
@@ -57,9 +59,12 @@ public class Test_ThrowsExceptionInInitializer extends MatsDbTest {
      */
     @Test
     public void exceptionInInitiationShouldNotSendMessage() {
+        // Send a message that DOES throw in initiation
         sendMessageToTerminator(true);
 
-        // Wait synchronously for terminator to finish.
+        // .. thus, the message should NOT be received at TERMINATOR!
+
+        // Wait synchronously for terminator to finish (which it shall not do!)
         try {
             matsTestLatch.waitForResult(WAIT_MILLIS);
         }

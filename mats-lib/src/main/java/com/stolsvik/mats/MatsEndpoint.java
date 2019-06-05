@@ -108,14 +108,15 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) subscription
      * terminators}.
      * <p>
-     * This will invoke {@link #start()} on the endpoint, <b>unless</b>
+     * The sole functionality of this method is that it will invoke {@link #start()} on the endpoint, <b>unless</b>
      * {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} has been invoked prior to creating the endpoint.
      */
     void finishSetup();
 
     /**
      * Starts the endpoint, invoking {@link MatsStage#start()} on any not-yet started stages of the endpoint (which
-     * should be all of them at application startup).
+     * should be all of them at application startup). Note that this overrides the {@link #finishSetup()} concept - even
+     * if <code>finishSetup()</code> has not been called, calling <code>start()</code> will actually start the endpoint.
      */
     @Override
     void start();
