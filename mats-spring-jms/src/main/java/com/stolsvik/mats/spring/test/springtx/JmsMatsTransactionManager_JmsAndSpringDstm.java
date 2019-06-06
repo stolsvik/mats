@@ -350,6 +350,7 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
         private final DataSourceTransactionManager _dataSourceTransactionManager;
         private final DefaultTransactionDefinition _transactionDefinitionForThisContext;
         // NOTICE: This is NOT the DataSource which the DataSourceTransactionManager uses!
+        // NOTICE: It can be null, if we were created with explicitly provided DataSourceTransactionManager.
         private final MonitorConnectionGettingDataSourceWrapper_InfrastructureProxy _monitorConnectionGettingDataSourceWrapper;
 
         public TransactionalContext_JmsAndSpringDstm(
@@ -368,6 +369,8 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
                 throws JmsMatsJmsException {
             try {
                 // :: First make the potential SQL Connection available
+                // Notice how we here use the DataSourceUtils class, so that we get the tx ThreadLocal Connection.
+                // Read more at both DataSourceUtils and DataSourceTransactionManager.
                 MatsTxSqlConnection.setThreadLocalConnectionSupplier(() -> DataSourceUtils
                         .getConnection(_dataSourceTransactionManager.getDataSource()));
 
@@ -396,7 +399,7 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
                         // !!NOTE!!: The full Exception will be logged by outside JMS-trans class on JMS rollback
                         // handling.
                         log.error(LOG_PREFIX + "ROLLBACK SQL: " + e.getClass().getSimpleName() + " while processing "
-                                + stageOrInit(_txContextKey) + " (most probably from user code)."
+                                + stageOrInit(_txContextKey) + " (should only be from user code)."
                                 + " Rolling back the SQL Connection.");
                         /*
                          * IFF the SQL Connection was fetched, we will now rollback (and close) it.
@@ -414,7 +417,8 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
                         // handling.
                         log.error(LOG_PREFIX + "ROLLBACK SQL: Got an undeclared checked exception " + t.getClass()
                                 .getSimpleName() + " while processing " + stageOrInit(_txContextKey)
-                                + " (probably 'sneaky throws' of checked exception). Rolling back the SQL Connection.");
+                                + " (should only be 'sneaky throws' of checked exception in user code)."
+                                + " Rolling back the SQL Connection.");
                         /*
                          * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                          */
@@ -430,12 +434,13 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
 
                     // ----- The ProcessingLambda went OK, no Exception was raised.
 
+                    log.debug(LOG_PREFIX + "COMMIT SQL: ProcessingLambda finished, committing SQL Connection.");
+
                     // Check whether Session/Connection is ok before committing DB (per contract with JmsSessionHolder).
                     jmsSessionHolder.isSessionOk();
 
                     // TODO: Also somehow check runFlag of StageProcessor before committing.
 
-                    log.debug(LOG_PREFIX + "COMMIT SQL: ProcessingLambda finished, committing SQL Connection.");
                     /*
                      * IFF the SQL Connection was fetched, we will now commit (and close) it.
                      */
@@ -443,9 +448,9 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
 
                     // ----- We're now *outside* the SQL Transaction demarcation (committed).
 
-                    // Return nicely, as the SQL Connection.commit() and .close() went OK.
+                    // Return nicely, as the SQL Connection.commit() went OK.
 
-                    // When exiting, the JMS transaction will be committed.
+                    // When exiting this lambda, the JMS transaction will be committed by the "outer" Jms tx impl.
                 });
             }
             finally {
@@ -457,10 +462,18 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
             }
         }
 
+        /**
+         * Make note: The Spring DataSourceTransactionManager closes the SQL Connection after commit or rollback. Read
+         * more e.g. <a href="https://stackoverflow.com/a/18207654/39334">here</a>, or look in
+         * {@link DataSourceTransactionManager#doCleanupAfterCompletion(Object)}, which invokes
+         * {@link DataSourceUtils#releaseConnection(Connection, DataSource)}, which invokes doCloseConnection(), which
+         * eventually calls connection.close().
+         */
         private void commitOrRollbackSqlTransaction(boolean commit, TransactionStatus transactionStatus) {
             // ?: Was connection gotten by code in ProcessingLambda (user code)
             // NOTICE: We must commit or rollback the Spring TransactionManager nevertheless, to clean up
-            if (_monitorConnectionGettingDataSourceWrapper.getThreadLocalGottenConnection() == null) {
+            if ((_monitorConnectionGettingDataSourceWrapper != null)
+                    && (_monitorConnectionGettingDataSourceWrapper.getThreadLocalGottenConnection() == null)) {
                 // -> No, Connection was not gotten
                 if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "NOTICE: SQL Connection was not requested by stage"
                         + " or initiation (user code), the following commit is no-op.");
@@ -469,23 +482,31 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
             }
             // :: Commit or Rollback
             try {
+                // ?: Commit or rollback?
                 if (commit) {
+                    // -> Commit.
                     // ?: Check if we have gotten into "RollbackOnly" state, implying that the user has messed up.
                     if (transactionStatus.isRollbackOnly()) {
                         // -> Yes, we're in "RollbackOnly" - so rollback and throw out.
-                        String msg = "When about to commit the TransactionStatus ["
+                        String msg = "When about to commit the SQL Transaction ["
                                 + transactionStatus + "], we found that it was in a 'RollbackOnly' state. This implies"
                                 + " that you have performed your own Spring transaction management within the Mats"
                                 + " Stage, which is not supported. Will now rollback the SQL, and throw out.";
                         log.error(msg);
+                        // If this throws, it was a rollback (parse the Exception-throwing at final catch).
+                        commit = false;
+                        // Do rollback.
                         _dataSourceTransactionManager.rollback(transactionStatus);
+                        // Throw out.
                         throw new MatsSqlCommitOrRollbackFailedException(msg);
                     }
+                    // E-> No, we were not in "RollbackOnly" - so commit this stuff, and get out.
                     _dataSourceTransactionManager.commit(transactionStatus);
                     if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Committed SQL Transaction ["
                             + transactionStatus + "].");
                 }
                 else {
+                    // -> Rollback.
                     _dataSourceTransactionManager.rollback(transactionStatus);
                     if (log.isDebugEnabled()) log.warn(LOG_PREFIX + "Rolled Back SQL Transaction ["
                             + transactionStatus + "].");

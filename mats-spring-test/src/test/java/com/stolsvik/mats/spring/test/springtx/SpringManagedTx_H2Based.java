@@ -8,7 +8,11 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.annotation.PreDestroy;
 import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
 import javax.sql.DataSource;
@@ -60,7 +64,9 @@ public class SpringManagedTx_H2Based {
     public static final String SERVICE = "mats.spring.SpringManagedTx_H2Based";
     public static final String TERMINATOR = SERVICE + ".TERMINATOR";
 
-    public static final String H2_DATABASE_URL = "jdbc:h2:./matsTestH2DB_Spring;AUTO_SERVER=TRUE";
+    public static final String H2_DATABASE_URL = "jdbc:h2:mem:test;DB_CLOSE_DELAY=-1";
+
+    private static final int MULTIPLE_COUNT = 75;
 
     @Configuration
     @EnableMats
@@ -71,7 +77,8 @@ public class SpringManagedTx_H2Based {
          */
         @Bean
         public DataSource dataSource() {
-            log.info("Creating H2 DataSource, run 'DROP ALL OBJECTS DELETE FILES' on it,"
+            log.info("Creating H2 DataSource (url:'" + H2_DATABASE_URL
+                    + "'), run 'DROP ALL OBJECTS DELETE FILES' on it,"
                     + " then 'CREATE TABLE datatable (data VARCHAR {UNIQUE})'.");
 
             JdbcDataSource dataSource = new JdbcDataSource();
@@ -97,6 +104,19 @@ public class SpringManagedTx_H2Based {
             }
 
             return dataSource;
+        }
+
+        @Inject
+        private DataSource _dataSource;
+
+        @PreDestroy
+        protected void closeDownDatabase() throws SQLException {
+            // Shutting down of the database turned out to be pretty important, otherwise it started complaining about
+            // missing table DATATABLE in the middle of a MULTIPLE-run with 500 messages.
+            Connection con = _dataSource.getConnection();
+            Statement stmt = con.createStatement();
+            stmt.execute("SHUTDOWN");
+            con.close();
         }
 
         @Bean
@@ -139,8 +159,8 @@ public class SpringManagedTx_H2Based {
             JmsMatsFactory<String> matsFactory = JmsMatsFactory
                     .createMatsFactory(this.getClass().getSimpleName(), "*testing*", jmsSessionHandler,
                             transMgr_SpringSql, matsSerializer);
-            // For all test scenarios, it makes no sense to have concurrency > 1, unless explicitly testing concurrency.
-            matsFactory.getFactoryConfig().setConcurrency(1);
+            // For the MULTPLE test scenario, it makes sense to test concurrency, so we go for 5.
+            matsFactory.getFactoryConfig().setConcurrency(5);
             return matsFactory;
         }
 
@@ -163,15 +183,17 @@ public class SpringManagedTx_H2Based {
             log.info("Incoming message for '" + SERVICE + "': DTO:[" + msg + "], context:\n" + context);
 
             String value = SERVICE + '[' + msg.string + ']';
-            log.info("ENDPOINT: Inserting row in database, data='" + value + "'");
+            log.info("SERVICE: Inserting row in database, data='" + value + "'");
             _jdbcTemplate.update("INSERT INTO datatable VALUES (?)", value);
 
-            if (THROW.equals(msg.string)) {
+            if (msg.string.startsWith(THROW)) {
                 log.info("Asked to throw RuntimeException, and that we do!");
                 throw new RuntimeException("This RTE should make the SQL INSERT rollback!");
             }
             return new SpringTestDataTO(msg.number * 2, msg.string);
         }
+
+        private AtomicInteger _counter = new AtomicInteger(MULTIPLE_COUNT);
 
         /**
          * Terminator, which also inserts a row in the database.
@@ -185,7 +207,21 @@ public class SpringManagedTx_H2Based {
             _simpleJdbcInsert.execute(Collections.singletonMap("data", value));
 
             // Make sure everything commits before resolving latch, by using doAfterCommit.
-            context.doAfterCommit(() -> _latch.resolve(context, state, msg));
+
+            // ?: Was this a "multiple" run?
+            if (msg.string.startsWith(MULTIPLE)) {
+                // -> Yes, multiple, so countdown multiple-counter until latch.
+                context.doAfterCommit(() -> {
+                    int thisCount = _counter.decrementAndGet();
+                    if (thisCount == 0) {
+                        _latch.resolve(context, state, msg);
+                    }
+                });
+            }
+            else {
+                // -> No, ordinary single-test, so latch away.
+                context.doAfterCommit(() -> _latch.resolve(context, state, msg));
+            }
         }
     }
 
@@ -206,10 +242,11 @@ public class SpringManagedTx_H2Based {
 
     private static final String GOOD = "Good";
     private static final String THROW = "Throw";
+    private static final String MULTIPLE = "Multiple";
 
     @Test
     @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)
-    public void testA_Good() throws SQLException {
+    public void test_Good() throws SQLException {
         SpringTestDataTO dto = new SpringTestDataTO(27, GOOD);
         String traceId = "testGood_TraceId:" + RandomString.randomCorrelationId();
         sendMessage(dto, traceId);
@@ -229,7 +266,27 @@ public class SpringManagedTx_H2Based {
 
     @Test
     @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)
-    public void testB_Throws() throws SQLException {
+    public void test_MultipleGood() throws SQLException {
+        for (int i = 0; i < MULTIPLE_COUNT; i++) {
+            sendMessage(new SpringTestDataTO(i, MULTIPLE + i), RandomString.randomCorrelationId());
+        }
+
+        // Wait for the message that counts it down to zero
+        _latch.waitForResult(60_000);
+
+        // :: Assert against the data from the database - it should be there!
+        // Make expected follow order based on "ORDER BY data", by using TreeSet.
+        SortedSet<String> expected = new TreeSet<>();
+        for (int i = 0; i < MULTIPLE_COUNT; i++) {
+            expected.add(TERMINATOR + '[' + MULTIPLE + i + ']');
+            expected.add(SERVICE + '[' + MULTIPLE + i + ']');
+        }
+        Assert.assertEquals(new ArrayList<>(expected), getDataFromDatabase());
+    }
+
+    @Test
+    @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)
+    public void test_ThrowsShouldRollback() throws SQLException {
         SpringTestDataTO dto = new SpringTestDataTO(13, THROW);
         String traceId = "testBad_TraceId:" + RandomString.randomCorrelationId();
         sendMessage(dto, traceId);
@@ -247,12 +304,14 @@ public class SpringManagedTx_H2Based {
         Assert.assertEquals(dto, dtoInDlq);
         Assert.assertEquals(traceId, dlqMessage.getTraceId());
 
-        // There should be zero rows in the database, since the RuntimeException should have rolled back.
+        // There should be zero rows in the database, since the RuntimeException should have rolled back processing
+        // of SERVICE, and thus TERMINATOR should not have gotten a message either (and thus not inserted row).
         List<String> dataFromDatabase = getDataFromDatabase();
         Assert.assertEquals(0, dataFromDatabase.size());
     }
 
     private void sendMessage(SpringTestDataTO dto, String traceId) {
+        log.debug("Sending message: " + dto.string);
         _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
             init.traceId(traceId)
                     .from(SpringManagedTx_H2Based.class.getSimpleName())
