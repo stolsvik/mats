@@ -30,20 +30,20 @@ public class TestApplicationBean {
     MatsTestLatch _latch = new MatsTestLatch();
 
     /**
-     * Test "Terminator" endpoint.
-     */
-    @MatsMapping(endpointId = ENDPOINT_ID + ".terminator", matsFactoryCustomQualifierType = TestQualifier.class)
-    public void springMatsTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
-        _latch.resolve(state, msg);
-    }
-
-    /**
      * Test "Single" endpoint.
      */
     @MatsMapping(endpointId = ENDPOINT_ID + ".single")
     @Qualifier("matsFactoryX")
     public SpringTestDataTO springMatsSingleEndpoint(@Dto SpringTestDataTO msg) {
         return new SpringTestDataTO(msg.number * 2, msg.string + ":single");
+    }
+
+    /**
+     * Test "Terminator" endpoint.
+     */
+    @MatsMapping(endpointId = ENDPOINT_ID + ".terminator", matsFactoryCustomQualifierType = TestQualifier.class)
+    public void springMatsTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
+        _latch.resolve(state, msg);
     }
 
     void run() {

@@ -37,12 +37,12 @@ public class AbstractQualificationTest {
         return new MatsTestLatch();
     }
 
-    @Bean(destroyMethod = "stopBroker")
+    @Bean
     protected MatsTestActiveMq activeMq1() {
         return MatsTestActiveMq.createTestActiveMq("activeMq1");
     }
 
-    @Bean(destroyMethod = "stopBroker")
+    @Bean
     protected MatsTestActiveMq activeMq2() {
         return MatsTestActiveMq.createTestActiveMq("activeMq2");
     }

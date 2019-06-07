@@ -16,7 +16,8 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
  * A dead simple implementation of {@link JmsMatsJmsSessionHandler} which does nothing of pooling nor connection
  * sharing. For StageProcessors (endpoints), this actually is one of the interesting options: Each StageProcessor has
  * its own Connection with a sole Session. But for Initiators, it is pretty bad: Each initiation constructs one
- * Connection (with a sole Session), and then closes the whole thing down.
+ * Connection (with a sole Session), and then closes the whole thing down after the initiation is done (message(s) is
+ * sent).
  */
 public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler, JmsMatsStatics {
 
@@ -71,8 +72,8 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
         }
         catch (Throwable t) {
             try {
-                jmsConnection.close();
                 _numberOfOutstandingConnections.decrementAndGet();
+                jmsConnection.close();
             }
             catch (Throwable t2) {
                 log.error(LOG_PREFIX + "Got " + t2.getClass().getSimpleName() + " when trying to close a JMS Connection"

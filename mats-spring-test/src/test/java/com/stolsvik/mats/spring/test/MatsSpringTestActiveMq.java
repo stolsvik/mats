@@ -8,14 +8,11 @@ import java.lang.annotation.Target;
 
 import javax.jms.ConnectionFactory;
 
-import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.spring.test.MatsSpringTestActiveMq.TestBeanFactoryPostProcessor;
 import org.apache.activemq.broker.BrokerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
-import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -30,7 +27,6 @@ import com.stolsvik.mats.spring.test.MatsSpringTestActiveMq.MatsSpringTestActivc
 import com.stolsvik.mats.test.MatsTestActiveMq;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.core.type.MethodMetadata;
 import org.springframework.stereotype.Component;
 
 /**
@@ -112,7 +108,7 @@ public @interface MatsSpringTestActiveMq {
 
         @Override
         public void stop() {
-            _matsTestActiveMq.stopBroker();
+            _matsTestActiveMq.close();
             _started = false;
         }
 

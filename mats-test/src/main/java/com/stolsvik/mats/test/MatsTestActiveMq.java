@@ -28,8 +28,8 @@ import com.stolsvik.mats.util.RandomString;
  * {@link ActiveMQConnectionFactory ActiveMQ ConnectionFactory} (i.e. the client) brokerURL. The special value
  * "{@link #SYSPROP_VALUE_LOCALHOST LOCALHOST}" implies "tcp://localhost:61616", which is the default for a localhost
  * ActiveMQ connection.
- * 
- * @author Endre Stølsvik 2019-05-06 22:42 - http://stolsvik.com/, endre@stolsvik.com
+ *
+ * @author Endre Stølsvik 2019-05-06 22:42, factored out of {@link Rule_Mats} - http://stolsvik.com/, endre@stolsvik.com
  */
 public class MatsTestActiveMq {
     private static final Logger log = LoggerFactory.getLogger(MatsTestActiveMq.class);
@@ -105,9 +105,10 @@ public class MatsTestActiveMq {
     }
 
     /**
-     * Stops the ActiveMQ BrokerService, if it was created (read {@link #SYSPROP_MATS_TEST_ACTIVEMQ}).
+     * Stops the ActiveMQ BrokerService, if it was created (read {@link #SYSPROP_MATS_TEST_ACTIVEMQ}). Called "close()"
+     * to hook into the default Spring lifecycle if it is instantiated as a Spring Bean.
      */
-    public void stopBroker() {
+    public void close() {
         stopBrokerService(_brokerService);
     }
 

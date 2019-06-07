@@ -102,7 +102,7 @@ public class Rule_Mats extends ExternalResource {
         }
 
         // :: Close the AMQ Broker
-        _matsTestActiveMq.stopBroker();
+        _matsTestActiveMq.close();
 
         log.info("--- AFTER done! JUnit Rule '" + id(Rule_Mats.class) + "' DONE.");
     }

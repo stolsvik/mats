@@ -3,7 +3,6 @@
 dependencies {
     compile project(":mats-lib")
 
-    // http://mvnrepository.com/artifact/org.springframework/spring-context
     compile "org.springframework:spring-context:$springVersion"
     compile "org.springframework:spring-tx:$springVersion"
     compile "javax.inject:javax.inject:1"

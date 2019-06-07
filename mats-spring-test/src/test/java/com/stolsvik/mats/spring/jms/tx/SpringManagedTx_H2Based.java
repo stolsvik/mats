@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.test.springtx;
+package com.stolsvik.mats.spring.jms.tx;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;

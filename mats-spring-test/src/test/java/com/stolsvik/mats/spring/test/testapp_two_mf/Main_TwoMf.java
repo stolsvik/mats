@@ -66,30 +66,37 @@ public class Main_TwoMf {
         }
     }
 
-    @Bean(destroyMethod = "stopBroker")
-    protected MatsTestActiveMq activeMq1() {
+    @Bean
+    protected MatsTestActiveMq matsTestActiveMq1() {
+        log.info("Creating MatsTestActiveMq1");
         return MatsTestActiveMq.createTestActiveMq("activeMq1");
     }
 
-    @Bean(destroyMethod = "stopBroker")
-    protected MatsTestActiveMq activeMq2() {
+    @Bean
+    protected MatsTestActiveMq matsTestActiveMq2() {
+        log.info("Creating MatsTestActiveMq2");
         return MatsTestActiveMq.createTestActiveMq("activeMq2");
     }
 
     @Bean
-    protected ConnectionFactory connectionFactory1(@Qualifier("activeMq1") MatsTestActiveMq activeMq1) {
+    @Qualifier("connectionFactoryA")
+    protected ConnectionFactory jmsConnectionFactory1(@Qualifier("matsTestActiveMq1") MatsTestActiveMq activeMq1) {
+        log.info("Creating ConnectionFactory with @Qualifier(\"connectionFactoryA\")");
         return activeMq1.getConnectionFactory();
     }
 
     @Bean
-    protected ConnectionFactory connectionFactory2(@Qualifier("activeMq2") MatsTestActiveMq activeMq2) {
+    @Qualifier("connectionFactoryB")
+    protected ConnectionFactory jmsConnectionFactory2(@Qualifier("matsTestActiveMq2") MatsTestActiveMq activeMq2) {
+        log.info("Creating ConnectionFactory with @Qualifier(\"connectionFactoryB\")");
         return activeMq2.getConnectionFactory();
     }
 
     @Bean
     @TestQualifier(endre="Elg")
     @Qualifier("matsFactoryX")
-    protected MatsFactory matsFactory1(@Qualifier("connectionFactory1") ConnectionFactory connectionFactory) {
+    protected MatsFactory matsFactory1(@Qualifier("connectionFactoryA") ConnectionFactory connectionFactory) {
+        log.info("Creating MatsFactory1");
         return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(this.getClass().getSimpleName(), "#testing#",
                 new JmsMatsJmsSessionHandler_Pooling((ctx) -> connectionFactory.createConnection()),
                 new MatsSerializer_DefaultJson());
@@ -97,7 +104,8 @@ public class Main_TwoMf {
 
     @Bean
     @Qualifier("matsFactoryY")
-    protected MatsFactory matsFactory2(@Qualifier("connectionFactory2") ConnectionFactory connectionFactory) {
+    protected MatsFactory matsFactory2(@Qualifier("connectionFactoryB") ConnectionFactory connectionFactory) {
+        log.info("Creating MatsFactory2");
         return JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(this.getClass().getSimpleName(), "#testing#",
                 new JmsMatsJmsSessionHandler_Pooling((ctx) -> connectionFactory.createConnection()),
                 new MatsSerializer_DefaultJson());

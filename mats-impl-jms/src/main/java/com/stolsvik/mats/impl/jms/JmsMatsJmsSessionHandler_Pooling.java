@@ -78,10 +78,10 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             ArrayList<ConnectionWithSessionPool> connWithSessionPool = new ArrayList<>(_liveConnectionWithSessionPools
                     .values());
             for (ConnectionWithSessionPool connectionAndSession : connWithSessionPool) {
-                availableSessionsClosed += connectionAndSession._availableSessionHolders.size();
                 // Copying over the availableHolders, since it hopefully will be modified.
                 ArrayList<JmsSessionHolderImpl> availableHolders = new ArrayList<>(
                         connectionAndSession._availableSessionHolders);
+                availableSessionsClosed += availableHolders.size();
                 for (JmsSessionHolderImpl availableHolder : availableHolders) {
                     connectionAndSession.internalClose(availableHolder);
                 }
@@ -91,10 +91,10 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                 employedSessions += connectionAndSession._employedSessionHolders.size();
             }
         }
-        log.info(LOG_PREFIX + " \\- Live Connections before closing Sessions:[" + liveConnectionsBefore
-                + "], Available Sessions (now closed):[" + availableSessionsClosed
-                + "], Live Connections after closing:[" + liveConnectionsAfter + "], Employed Sessions:["
-                + employedSessions + "].");
+        log.info(LOG_PREFIX + " \\- Live Connections before closing available Sessions:[" + liveConnectionsBefore
+                + "], Available Sessions before closing, now closed:[" + availableSessionsClosed
+                + "], Live Connections after closing:[" + liveConnectionsAfter
+                + "], Still employed Sessions:[" + employedSessions + "].");
 
         return liveConnectionsAfter;
     }
