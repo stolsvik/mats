@@ -1,9 +1,16 @@
 // mats-spring
 
 dependencies {
+    // :: DEPS
     compile project(":mats-lib")
 
     compile "org.springframework:spring-context:$springVersion"
     compile "org.springframework:spring-tx:$springVersion"
     compile "javax.inject:javax.inject:1"
+
+    // :: TEST-DEPS
+    testCompile project(":mats-test")
+
+    testCompile "org.slf4j:log4j-over-slf4j:1.7.+"
+    testCompile "ch.qos.logback:logback-classic:1.2.+"
 }

@@ -20,7 +20,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.spring.EnableMats;
-import com.stolsvik.mats.test.MatsTestActiveMq;
+import com.stolsvik.mats.util_activemq.MatsTestActiveMq;
 
 /**
  * @author Endre Stølsvik 2019-05-17 21:42 - http://stolsvik.com/, endre@stolsvik.com
@@ -93,7 +93,7 @@ public class Main_TwoMf {
     }
 
     @Bean
-    @TestQualifier(endre="Elg")
+    @TestQualifier(endre = "Elg")
     @Qualifier("matsFactoryX")
     protected MatsFactory matsFactory1(@Qualifier("connectionFactoryA") ConnectionFactory connectionFactory) {
         log.info("Creating MatsFactory1");

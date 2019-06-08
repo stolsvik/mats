@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.test.matsfactoryqualifier;
+package com.stolsvik.mats.spring.matsfactoryqualifier;
 
 import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
@@ -12,8 +12,6 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
-import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
-import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch;
 
 /**

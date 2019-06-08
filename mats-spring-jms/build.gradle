@@ -6,4 +6,16 @@ dependencies {
     compile "org.springframework:spring-context:$springVersion"
     compile "org.springframework:spring-tx:$springVersion"
     compile "org.springframework:spring-jdbc:$springVersion"
+
+    testCompile project(":mats-test")
+    testCompile project(":mats-spring")
+    testCompile project(":mats-serial-json")
+    testCompile project(":mats-util_activemq")
+    // Using H2 for testing of database tx.
+    testCompile "com.h2database:h2:1.4.194"
+    // Using @RunWith(SpringRunner.class)
+    testCompile "org.springframework:spring-test:$springVersion"
+    // Using SLF4J and Logback
+    testCompile "org.slf4j:log4j-over-slf4j:1.7.+"
+    testCompile "ch.qos.logback:logback-classic:1.2.+"
 }

@@ -42,14 +42,11 @@ import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
-import com.stolsvik.mats.spring.test.MatsSpringTestActiveMq;
-import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
-import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
-import com.stolsvik.mats.test.MatsTestActiveMq;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.test.Rule_MatsWithDb.DatabaseException;
 import com.stolsvik.mats.util.RandomString;
+import com.stolsvik.mats.util_activemq.MatsTestActiveMq;
 
 /**
  * Testing Spring DB Transaction management.
@@ -70,8 +67,45 @@ public class SpringManagedTx_H2Based {
 
     @Configuration
     @EnableMats
-    @MatsSpringTestActiveMq
     static class MultipleMappingsConfiguration {
+        @Bean
+        MatsTestActiveMq getMatsTestActiveMq() {
+            return MatsTestActiveMq.createRandomTestActiveMq();
+        }
+
+        @Bean
+        public ConnectionFactory getConnectionFactory(MatsTestActiveMq matsTestActiveMq) {
+            return matsTestActiveMq.getConnectionFactory();
+        }
+
+        @Bean
+        public MatsTestLatch testLatch() {
+            return new MatsTestLatch();
+        }
+
+        @Bean
+        MatsSerializer<String> getMatsSerializer() {
+            return new MatsSerializer_DefaultJson();
+        }
+
+        @Bean
+        protected MatsFactory createMatsFactory(DataSource dataSource,
+                ConnectionFactory connectionFactory, MatsSerializer<String> matsSerializer) {
+            // Create the JMS and JDBC TransactionManager-backed JMS MatsFactory.
+
+            JmsMatsJmsSessionHandler_Pooling jmsSessionHandler = new JmsMatsJmsSessionHandler_Pooling((
+                    s) -> connectionFactory.createConnection());
+            JmsMatsTransactionManager_JmsAndSpringDstm transMgr_SpringSql = JmsMatsTransactionManager_JmsAndSpringDstm
+                    .create(dataSource);
+
+            JmsMatsFactory<String> matsFactory = JmsMatsFactory
+                    .createMatsFactory(this.getClass().getSimpleName(), "*testing*", jmsSessionHandler,
+                            transMgr_SpringSql, matsSerializer);
+            // For the MULTPLE test scenario, it makes sense to test concurrency, so we go for 5.
+            matsFactory.getFactoryConfig().setConcurrency(5);
+            return matsFactory;
+        }
+
         /**
          * @return a H2 test database.
          */
@@ -119,11 +153,6 @@ public class SpringManagedTx_H2Based {
             con.close();
         }
 
-        @Bean
-        public MatsTestLatch testLatch() {
-            return new MatsTestLatch();
-        }
-
         /**
          * This is just to "emulate" a proper Spring-managed JdbcTemplate; Could have made it directly in the endpoint.
          */
@@ -139,29 +168,6 @@ public class SpringManagedTx_H2Based {
         @Bean
         public SimpleJdbcInsert simpleJdbcInsert() {
             return new SimpleJdbcInsert(dataSource()).withTableName("datatable");
-        }
-
-        @Bean
-        MatsSerializer<String> getMatsSerializer() {
-            return new MatsSerializer_DefaultJson();
-        }
-
-        @Bean
-        protected MatsFactory createMatsFactory(DataSource dataSource,
-                ConnectionFactory connectionFactory, MatsSerializer<String> matsSerializer) {
-            // Create the JMS and JDBC TransactionManager-backed JMS MatsFactory.
-
-            JmsMatsJmsSessionHandler_Pooling jmsSessionHandler = new JmsMatsJmsSessionHandler_Pooling((
-                    s) -> connectionFactory.createConnection());
-            JmsMatsTransactionManager_JmsAndSpringDstm transMgr_SpringSql = JmsMatsTransactionManager_JmsAndSpringDstm
-                    .create(dataSource);
-
-            JmsMatsFactory<String> matsFactory = JmsMatsFactory
-                    .createMatsFactory(this.getClass().getSimpleName(), "*testing*", jmsSessionHandler,
-                            transMgr_SpringSql, matsSerializer);
-            // For the MULTPLE test scenario, it makes sense to test concurrency, so we go for 5.
-            matsFactory.getFactoryConfig().setConcurrency(5);
-            return matsFactory;
         }
 
         @Inject

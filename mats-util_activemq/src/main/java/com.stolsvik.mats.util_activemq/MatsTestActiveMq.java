@@ -1,4 +1,4 @@
-package com.stolsvik.mats.test;
+package com.stolsvik.mats.util_activemq;
 
 import javax.jms.Connection;
 import javax.jms.JMSException;
@@ -17,10 +17,10 @@ import org.apache.activemq.broker.region.policy.PolicyMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
-import com.stolsvik.mats.util.RandomString;
+
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * If the system property "{@link #SYSPROP_MATS_TEST_ACTIVEMQ mats.test.activemq}" is set to any string, the in-vm
@@ -29,7 +29,8 @@ import com.stolsvik.mats.util.RandomString;
  * "{@link #SYSPROP_VALUE_LOCALHOST LOCALHOST}" implies "tcp://localhost:61616", which is the default for a localhost
  * ActiveMQ connection.
  *
- * @author Endre Stølsvik 2019-05-06 22:42, factored out of {@link Rule_Mats} - http://stolsvik.com/, endre@stolsvik.com
+ * @author Endre Stølsvik 2019-05-06 22:42, factored out of <code>Rule_Mats</code> - http://stolsvik.com/,
+ *         endre@stolsvik.com
  */
 public class MatsTestActiveMq {
     private static final Logger log = LoggerFactory.getLogger(MatsTestActiveMq.class);
@@ -74,7 +75,7 @@ public class MatsTestActiveMq {
      * @return an instance whose brokername is {@link #BROKER_NAME} + '_' + a random String of 10 chars.
      */
     public static MatsTestActiveMq createRandomTestActiveMq() {
-        return new MatsTestActiveMq(BROKER_NAME + '_' + RandomString.randomString(10));
+        return new MatsTestActiveMq(BROKER_NAME + '_' + randomString(10));
     }
 
     /**
@@ -115,7 +116,7 @@ public class MatsTestActiveMq {
     /**
      * Waits a couple of seconds for a message to appear on the Dead Letter Queue for the provided endpointId - useful
      * if the test is designed to fail a stage (i.e. that a stage raises some {@link RuntimeException}, or the special
-     * {@link MatsRefuseMessageException}).
+     * <code>MatsRefuseMessageException</code>.
      *
      * @param endpointId
      *            the endpoint which is expected to generate a DLQ message.
@@ -267,5 +268,18 @@ public class MatsTestActiveMq {
                 throw new AssertionError("Got interrupted while sleeping - unexpected, man..!");
             }
         }
+    }
+
+    private static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+    /**
+     * @param length the desired length of the returned random string.
+     * @return a random string of the specified length.
+     */
+    private static String randomString(int length) {
+        StringBuilder buf = new StringBuilder(length);
+        for( int i = 0; i < length; i++ )
+            buf.append( ALPHABET.charAt( ThreadLocalRandom.current().nextInt(ALPHABET.length()) ) );
+        return buf.toString();
     }
 }

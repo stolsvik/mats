@@ -19,6 +19,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
+import com.stolsvik.mats.util_activemq.MatsTestActiveMq;
 
 /**
  * JUnit {@link Rule} of type {@link ExternalResource} that make a convenient MATS harness, providing a

@@ -1,0 +1,8 @@
+// mats-util_activemq
+
+dependencies {
+    compile project(':mats-serial')
+
+    // ActiveMQ BROKER, which is pretty much the sole reason for this module.
+    compile "org.apache.activemq:activemq-broker:$activeMqVersion"
+}

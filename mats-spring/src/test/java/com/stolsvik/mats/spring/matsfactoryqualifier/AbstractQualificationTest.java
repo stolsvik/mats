@@ -1,11 +1,8 @@
-package com.stolsvik.mats.spring.test.matsfactoryqualifier;
+package com.stolsvik.mats.spring.matsfactoryqualifier;
 
 import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
 
-import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
-import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
-import com.stolsvik.mats.test.MatsTestLatch.Result;
 import org.junit.Assert;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,8 +16,9 @@ import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.spring.EnableMats;
-import com.stolsvik.mats.test.MatsTestActiveMq;
 import com.stolsvik.mats.test.MatsTestLatch;
+import com.stolsvik.mats.test.MatsTestLatch.Result;
+import com.stolsvik.mats.util_activemq.MatsTestActiveMq;
 
 /**
  * @author Endre Stølsvik 2019-05-25 00:35 - http://stolsvik.com/, endre@stolsvik.com

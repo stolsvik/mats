@@ -1,4 +1,9 @@
-package com.stolsvik.mats.spring.test.matsfactoryqualifier;
+package com.stolsvik.mats.spring.matsfactoryqualifier;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
 import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
@@ -12,14 +17,7 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
-import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
-import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch;
-
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
 
 /**
  * Test qualification by means of the three {@link MatsMapping} element qualifications.

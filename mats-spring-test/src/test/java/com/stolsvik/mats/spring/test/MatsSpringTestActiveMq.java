@@ -8,7 +8,6 @@ import java.lang.annotation.Target;
 
 import javax.jms.ConnectionFactory;
 
-import com.stolsvik.mats.spring.test.MatsSpringTestActiveMq.TestBeanFactoryPostProcessor;
 import org.apache.activemq.broker.BrokerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,12 +21,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Role;
-
-import com.stolsvik.mats.spring.test.MatsSpringTestActiveMq.MatsSpringTestActivceMqConfiguration;
-import com.stolsvik.mats.test.MatsTestActiveMq;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+
+import com.stolsvik.mats.spring.test.MatsSpringTestActiveMq.MatsSpringTestActivceMqConfiguration;
+import com.stolsvik.mats.spring.test.MatsSpringTestActiveMq.TestBeanFactoryPostProcessor;
+import com.stolsvik.mats.util_activemq.MatsTestActiveMq;
 
 /**
  * Sets up an ActiveMQ {@link BrokerService} instance (unless certain system properites are set, read more at
@@ -42,7 +42,7 @@ import org.springframework.stereotype.Component;
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@Import({MatsSpringTestActivceMqConfiguration.class, TestBeanFactoryPostProcessor.class})
+@Import({ MatsSpringTestActivceMqConfiguration.class, TestBeanFactoryPostProcessor.class })
 @Documented
 public @interface MatsSpringTestActiveMq {
     /**
