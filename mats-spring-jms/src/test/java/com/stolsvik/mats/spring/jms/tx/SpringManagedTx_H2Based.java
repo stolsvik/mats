@@ -17,6 +17,7 @@ import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
 import javax.sql.DataSource;
 
+import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.Assert;
 import org.junit.Test;
@@ -46,7 +47,6 @@ import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.test.Rule_MatsWithDb.DatabaseException;
 import com.stolsvik.mats.util.RandomString;
-import com.stolsvik.mats.util_activemq.MatsTestActiveMq;
 
 /**
  * Testing Spring DB Transaction management.
@@ -69,13 +69,13 @@ public class SpringManagedTx_H2Based {
     @EnableMats
     static class MultipleMappingsConfiguration {
         @Bean
-        MatsTestActiveMq getMatsTestActiveMq() {
-            return MatsTestActiveMq.createRandomTestActiveMq();
+        MatsLocalVmActiveMq getMatsTestActiveMq() {
+            return MatsLocalVmActiveMq.createRandomInVmActiveMq();
         }
 
         @Bean
-        public ConnectionFactory getConnectionFactory(MatsTestActiveMq matsTestActiveMq) {
-            return matsTestActiveMq.getConnectionFactory();
+        public ConnectionFactory getConnectionFactory(MatsLocalVmActiveMq matsLocalVmActiveMq) {
+            return matsLocalVmActiveMq.getConnectionFactory();
         }
 
         @Bean
@@ -91,8 +91,7 @@ public class SpringManagedTx_H2Based {
         @Bean
         protected MatsFactory createMatsFactory(DataSource dataSource,
                 ConnectionFactory connectionFactory, MatsSerializer<String> matsSerializer) {
-            // Create the JMS and JDBC TransactionManager-backed JMS MatsFactory.
-
+            // Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
             JmsMatsJmsSessionHandler_Pooling jmsSessionHandler = new JmsMatsJmsSessionHandler_Pooling((
                     s) -> connectionFactory.createConnection());
             JmsMatsTransactionManager_JmsAndSpringDstm transMgr_SpringSql = JmsMatsTransactionManager_JmsAndSpringDstm
@@ -101,7 +100,7 @@ public class SpringManagedTx_H2Based {
             JmsMatsFactory<String> matsFactory = JmsMatsFactory
                     .createMatsFactory(this.getClass().getSimpleName(), "*testing*", jmsSessionHandler,
                             transMgr_SpringSql, matsSerializer);
-            // For the MULTPLE test scenario, it makes sense to test concurrency, so we go for 5.
+            // For the MULTIPLE test scenario, it makes sense to test concurrency, so we go for 5.
             matsFactory.getFactoryConfig().setConcurrency(5);
             return matsFactory;
         }
@@ -241,7 +240,7 @@ public class SpringManagedTx_H2Based {
     private MatsTestLatch _latch;
 
     @Inject
-    private MatsTestActiveMq _matsTestActiveMq;
+    private MatsLocalVmActiveMq _matsLocalVmActiveMq;
 
     @Inject
     private MatsSerializer<String> _matsSerializer;
@@ -298,7 +297,7 @@ public class SpringManagedTx_H2Based {
         sendMessage(dto, traceId);
 
         // :: This should result in a DLQ, since the SERVICE throws.
-        MatsTrace<String> dlqMessage = _matsTestActiveMq.getDlqMessage(_matsSerializer,
+        MatsTrace<String> dlqMessage = _matsLocalVmActiveMq.getDlqMessage(_matsSerializer,
                 _matsFactory.getFactoryConfig().getMatsDestinationPrefix(),
                 _matsFactory.getFactoryConfig().getMatsTraceKey(),
                 SERVICE);

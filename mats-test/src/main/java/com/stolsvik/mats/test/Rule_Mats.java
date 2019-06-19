@@ -4,6 +4,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import javax.jms.ConnectionFactory;
 
+import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 import org.apache.activemq.broker.BrokerService;
 import org.junit.Rule;
 import org.junit.rules.ExternalResource;
@@ -19,13 +20,12 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
-import com.stolsvik.mats.util_activemq.MatsTestActiveMq;
 
 /**
  * JUnit {@link Rule} of type {@link ExternalResource} that make a convenient MATS harness, providing a
  * {@link MatsFactory} backed by an in-vm {@link BrokerService ActiveMQ instance}.
  * <p>
- * Please read JavaDoc of {@link MatsTestActiveMq} to see what system properties are available to control the broker
+ * Please read JavaDoc of {@link MatsLocalVmActiveMq} to see what system properties are available to control the broker
  * creation.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
@@ -33,7 +33,7 @@ import com.stolsvik.mats.util_activemq.MatsTestActiveMq;
 public class Rule_Mats extends ExternalResource {
     private static final Logger log = LoggerFactory.getLogger(Rule_Mats.class);
 
-    private MatsTestActiveMq _matsTestActiveMq;
+    private MatsLocalVmActiveMq _matsLocalVmActiveMq;
 
     MatsSerializer<String> _matsSerializer;
 
@@ -50,7 +50,7 @@ public class Rule_Mats extends ExternalResource {
         // ::: ActiveMQ BrokerService and ConnectionFactory
         // ==================================================
 
-        _matsTestActiveMq = MatsTestActiveMq.createRandomTestActiveMq();
+        _matsLocalVmActiveMq = MatsLocalVmActiveMq.createRandomInVmActiveMq();
 
         // ::: MatsFactory
         // ==================================================
@@ -88,7 +88,7 @@ public class Rule_Mats extends ExternalResource {
      * @return a <i>new, separate</i> {@link MatsFactory} in addition to the one provided by {@link #getMatsFactory()}.
      */
     public MatsFactory createMatsFactory() {
-        MatsFactory matsFactory = createMatsFactory(_matsSerializer, _matsTestActiveMq.getConnectionFactory());
+        MatsFactory matsFactory = createMatsFactory(_matsSerializer, _matsLocalVmActiveMq.getConnectionFactory());
         // Add it to the list of created MatsFactories.
         _createdMatsFactories.add(matsFactory);
         return matsFactory;
@@ -103,7 +103,7 @@ public class Rule_Mats extends ExternalResource {
         }
 
         // :: Close the AMQ Broker
-        _matsTestActiveMq.close();
+        _matsLocalVmActiveMq.close();
 
         log.info("--- AFTER done! JUnit Rule '" + id(Rule_Mats.class) + "' DONE.");
     }
@@ -118,7 +118,7 @@ public class Rule_Mats extends ExternalResource {
      * @return the {@link MatsTrace} of the DLQ'ed message.
      */
     public MatsTrace<String> getDlqMessage(String endpointId) {
-        return _matsTestActiveMq.getDlqMessage(_matsSerializer,
+        return _matsLocalVmActiveMq.getDlqMessage(_matsSerializer,
                 _matsFactory.getFactoryConfig().getMatsDestinationPrefix(),
                 _matsFactory.getFactoryConfig().getMatsTraceKey(),
                 endpointId);
@@ -135,7 +135,7 @@ public class Rule_Mats extends ExternalResource {
      * @return the JMS ConnectionFactory that this JUnit Rule sets up.
      */
     public ConnectionFactory getJmsConnectionFactory() {
-        return _matsTestActiveMq.getConnectionFactory();
+        return _matsLocalVmActiveMq.getConnectionFactory();
     }
 
     private MatsInitiator _matsInitiator;

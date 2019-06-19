@@ -73,7 +73,7 @@ public class MatsSpringConfiguration {
     private static final Log log = LogFactory.getLog(MatsSpringConfiguration.class);
 
     @Bean
-    public MatsSpringAnnotationRegistration matsSpringAnnotationBeanPostProcessor() {
+    public MatsSpringAnnotationRegistration matsSpringAnnotationRegistration() {
         log.info(LOG_PREFIX + "SpringVersion: " + SpringVersion.getVersion() + " - Instantiating "
                 + MatsSpringAnnotationRegistration.class.getSimpleName());
         return new MatsSpringAnnotationRegistration();

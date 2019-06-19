@@ -106,7 +106,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         return _jmsMatsTransactionManager;
     }
 
-    MatsSerializer<Z> getMatsSerializer() {
+    public MatsSerializer<Z> getMatsSerializer() {
         return _matsSerializer;
     }
 

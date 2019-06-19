@@ -83,24 +83,36 @@ public interface MatsInitiator extends Closeable {
      * "Best Effort 1-Phase Commit" paradigm that the current Mats implementations runs on. What it means, is that if
      * you e.g. in the initiate-lambda did some "job allocation" logic on a table in a database, and based on that
      * allocation sent out e.g. 5 messages, the job <i>allocation</i> will now have happened, but the <i>messages have
-     * not been sent</i>. The result is that in the database, you will see those jobs as executed, but in reality the
-     * downstream endpoints never started working on them.
+     * not actually been sent</i>. The result is that in the database, you will see those jobs as processed
+     * (semantically "started processing"), but in reality the downstream endpoints never started working on them since
+     * the message was not actually sent out.
      * <p>
      * This situation can to a degree be alleviated if you catch this exception, and then use a <i>compensating
      * transaction</i> to de-allocate the jobs in the database again. However, since bad things often happen in
-     * clusters, you might not be able to do the de-allocation either (due to the database having failed at the same
-     * instant). A way to at least catch when this happens, is to first set those jobs to a status like "ALLOCATED"
-     * (along with a column with a timestamp of when they were allocated), and then in the terminator endpoint (which
-     * you specify in the initiation), you set the status to "DONE". (You could also, right after the initiation
-     * finishes without exception, set the status to "SENT"). Assuming that in normal conditions such jobs should always
-     * be processed in seconds, you can now make some health check that scans the table for rows which have been in the
-     * "ALLOCATED" status for e.g. 15 minutes: Such rows are very suspicious, and should be checked up by humans.
+     * clusters, you might not be able to do the de-allocation either (due to the database becoming inaccessible at the
+     * same instant - e.g. the reason that the messages could not be set was that the network cable became unplugged, or
+     * that this node actually lost power at that instant). A way to at least catch when this happens, is to employ a
+     * state machine to the job allocation logic: First pick jobs for this node by setting the state column of
+     * job-entries whose state is "UNPROCESSED" to some status like "ALLOCATED" (along with a column of which node
+     * allocated them (i.e. "hostname" of this node) and a column for timestamp of when they were allocated). In the
+     * initiator, you pick the jobs that was allocated to this node, set the status to "SENT" and send the outgoing
+     * messages. Finally, in the terminator endpoint (which you specify in the initiation), you set the status to
+     * "DONE". Then you make a health check: Assuming that in normal conditions such jobs should always be processed in
+     * seconds, you make a health check that scans the table for rows which have been in the "ALLOCATED" or "SENT"
+     * status for e.g. 15 minutes: Such rows are very suspicious, and should be checked up by humans. Sitting in
+     * "ALLOCATED" status would imply that the node that allocated the job went down (and has not (yet) come back up)
+     * before it managed to initiate the messages, while sitting in "SENT" would imply that the message had started, but
+     * not gotten through the processing: Either that message flow sits in a downstream Dead Letter Queue due to some
+     * error, or you ended up in the situation explained here: The database commit went through, but the messages was
+     * not sent.
      * <p>
      * Please note that this should, in a somewhat stable operations environment, happen extremely seldom: What needs to
-     * occur for this to happen, is that between the commit of the database, and the commit of the message broker, the
-     * message broker goes down. Given that a check for broker liveliness is performed right before the database commit,
-     * that timeslot is very tight. But to make the most robust systems that can monitor themselves, you should consider
-     * employing a handling as outlined above.
+     * occur for this to happen, is that in the sliver of time between the commit of the database and the commit of the
+     * message broker, this node crashes, the network is lost, or the message broker goes down. Given that a check for
+     * broker liveliness is performed right before the database commit, that time span is very tight. But to make the
+     * most robust systems that can monitor themselves, you should consider employing a state machine handling as
+     * outlined above. You might never see that health check trip, but now you can at least sleep without thinking about
+     * that 1 billion dollar order that was never processed.
      * <p>
      * PS: Best effort 1PC: Two transactions are opened: one for the message broker, and one for the database. The
      * business logic and possibly database reads and changes are performed. The database is committed first, as that

@@ -18,9 +18,12 @@ import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
-import com.stolsvik.mats.util_activemq.MatsTestActiveMq;
+import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
 /**
+ * Base class for all the qualification tests - we do not use SpringRunner or other frameworks, but instead do all
+ * Spring config ourselves. This so that the testing is as application-like as possible.
+ * 
  * @author Endre Stølsvik 2019-05-25 00:35 - http://stolsvik.com/, endre@stolsvik.com
  */
 @Configuration
@@ -36,22 +39,22 @@ public class AbstractQualificationTest {
     }
 
     @Bean
-    protected MatsTestActiveMq activeMq1() {
-        return MatsTestActiveMq.createTestActiveMq("activeMq1");
+    protected MatsLocalVmActiveMq activeMq1() {
+        return MatsLocalVmActiveMq.createInVmActiveMq("activeMq1");
     }
 
     @Bean
-    protected MatsTestActiveMq activeMq2() {
-        return MatsTestActiveMq.createTestActiveMq("activeMq2");
+    protected MatsLocalVmActiveMq activeMq2() {
+        return MatsLocalVmActiveMq.createInVmActiveMq("activeMq2");
     }
 
     @Bean
-    protected ConnectionFactory connectionFactory1(@Qualifier("activeMq1") MatsTestActiveMq activeMq1) {
+    protected ConnectionFactory connectionFactory1(@Qualifier("activeMq1") MatsLocalVmActiveMq activeMq1) {
         return activeMq1.getConnectionFactory();
     }
 
     @Bean
-    protected ConnectionFactory connectionFactory2(@Qualifier("activeMq2") MatsTestActiveMq activeMq2) {
+    protected ConnectionFactory connectionFactory2(@Qualifier("activeMq2") MatsLocalVmActiveMq activeMq2) {
         return activeMq2.getConnectionFactory();
     }
 

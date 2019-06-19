@@ -2,6 +2,7 @@ package com.stolsvik.mats.spring.test.testapp_two_mf;
 
 import javax.inject.Inject;
 
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -21,30 +22,12 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 public class TestApplicationBean {
     private static final Logger log = LoggerFactory.getLogger(TestApplicationBean.class);
 
-    public static final String ENDPOINT_ID = "TestApp_TwoMf";
+    @Inject
+    private MatsTestLatch _latch;
 
     @Inject
     @TestQualifier(endre="Elg")
     private MatsFactory _matsFactory;
-
-    MatsTestLatch _latch = new MatsTestLatch();
-
-    /**
-     * Test "Single" endpoint.
-     */
-    @MatsMapping(endpointId = ENDPOINT_ID + ".single")
-    @Qualifier("matsFactoryX")
-    public SpringTestDataTO springMatsSingleEndpoint(@Dto SpringTestDataTO msg) {
-        return new SpringTestDataTO(msg.number * 2, msg.string + ":single");
-    }
-
-    /**
-     * Test "Terminator" endpoint.
-     */
-    @MatsMapping(endpointId = ENDPOINT_ID + ".terminator", matsFactoryCustomQualifierType = TestQualifier.class)
-    public void springMatsTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
-        _latch.resolve(state, msg);
-    }
 
     void run() {
         SpringTestDataTO dto = new SpringTestDataTO(Math.PI, "Data");
@@ -52,8 +35,8 @@ public class TestApplicationBean {
         _matsFactory.getDefaultInitiator().initiateUnchecked(
                 msg -> msg.traceId("TraceId")
                         .from("FromId")
-                        .to(ENDPOINT_ID + ".single")
-                        .replyTo(ENDPOINT_ID + ".terminator", sto)
+                        .to(Main_TwoMf.ENDPOINT_ID + ".single")
+                        .replyTo(Main_TwoMf.ENDPOINT_ID + ".terminator", sto)
                         .request(dto));
 
         Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();

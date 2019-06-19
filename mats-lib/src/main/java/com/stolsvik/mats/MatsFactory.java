@@ -16,9 +16,11 @@ import com.stolsvik.mats.MatsStage.StageConfig;
 
 /**
  * The start point for all interaction with MATS - you need to get hold of an instance of this interface to be able to
- * code MATS endpoints, and to perform initiations (i.e. send a message, perform a request, publish a message). This is
- * an implementation specific feature (you might want a JMS-specific {@link MatsFactory}, backed by a ActiveMQ-specific
- * JMS ConnectionFactory).
+ * code and configure MATS endpoints, and to perform initiations (i.e. send a message, perform a request, publish a
+ * message). This is an implementation specific feature (you might want a JMS-specific {@link MatsFactory}, backed by a
+ * ActiveMQ-specific JMS ConnectionFactory). <i>An alternative is to use the SpringConfig "mats-spring" integration,
+ * where you do not explicitly use the MatsFactory to code and configure MATS endpoints. Employing SpringConfig of Mats,
+ * you'll need to get an instance of MatsFactory into the Spring context.</i>
  * <p>
  * It is worth realizing that all of the methods {@link #staged(String, Class, Class, Consumer) staged(...config)};
  * {@link #single(String, Class, Class, ProcessSingleLambda) single(...)} and
@@ -251,11 +253,11 @@ public interface MatsFactory extends StartStoppable {
      * backend resources, and it is Thread Safe: You are not supposed to create one instance per message you send!</b>
      * <p>
      * <b>Observe again: The returned MatsInitiator is Thread Safe, and meant for reuse: You are <em>not</em> supposed
-     * to create one instance of {@link MatsInitiator} per message you need to send - rather either create one for the
-     * entire application, or e.g. for each component:</b> The {@code MatsInitiator} can have underlying backend
-     * resources attached to it - which also means that it needs to be {@link MatsInitiator#close() closed} for a clean
-     * application shutdown (Note that all MatsInitiators are closed when {@link #stop() MatsFactory.stop()} is
-     * invoked).
+     * to create one instance of {@link MatsInitiator} per message you need to send, and then close it afterwards -
+     * rather either create one for the entire application, or e.g. for each component:</b> The {@code MatsInitiator}
+     * can have underlying backend resources attached to it - which also means that it needs to be
+     * {@link MatsInitiator#close() closed} for a clean application shutdown (Note that all MatsInitiators are closed
+     * when {@link #stop() MatsFactory.stop()} is invoked).
      *
      * @return the default <code>MatsInitiator</code>, whose name is 'default', on which messages can be
      *         {@link MatsInitiator#initiate(InitiateLambda) initiated}.
@@ -272,11 +274,11 @@ public interface MatsFactory extends StartStoppable {
      * application uses it.
      * <p>
      * <b>Observe again: The returned MatsInitiator is Thread Safe, and meant for reuse: You are <em>not</em> supposed
-     * to create one instance of {@link MatsInitiator} per message you need to send - rather either create one for the
-     * entire application, or e.g. for each component:</b> The {@code MatsInitiator} can have underlying backend
-     * resources attached to it - which also means that it needs to be {@link MatsInitiator#close() closed} for a clean
-     * application shutdown (Note that all MatsInitiators are closed when {@link #stop() MatsFactory.stop()} is
-     * invoked).
+     * to create one instance of {@link MatsInitiator} per message you need to send, and then close it afterwards -
+     * rather either create one for the entire application, or e.g. for each component:</b> The {@code MatsInitiator}
+     * can have underlying backend resources attached to it - which also means that it needs to be
+     * {@link MatsInitiator#close() closed} for a clean application shutdown (Note that all MatsInitiators are closed
+     * when {@link #stop() MatsFactory.stop()} is invoked).
      *
      * @return a {@link MatsInitiator}, on which messages can be {@link MatsInitiator#initiate(InitiateLambda)
      *         initiated}.
@@ -377,5 +379,190 @@ public interface MatsFactory extends StartStoppable {
          * @return the nodename, which by default should be the hostname which the application is running on.
          */
         String getNodename();
+    }
+
+    /**
+     * A base Wrapper for {@link MatsFactory}, which simply implements MatsFactory, takes a MatsFactory instance and
+     * forwards all calls to that. Meant to be extended to add extra functionality, e.g. Spring integration.
+     */
+    class MatsFactoryWrapper implements MatsFactory {
+
+        /**
+         * This field is private - if you in extensions need the instance, invoke {@link #getTargetMatsFactory()}. If
+         * you want to take control of the wrapped MatsFactory instance, then override {@link #getTargetMatsFactory()}.
+         */
+        private MatsFactory _targetMatsFactory;
+
+        /**
+         * Standard constructor, taking the wrapped {@link MatsFactory} instance.
+         * 
+         * @param targetMatsFactory
+         *            the {@link MatsFactory} instance which {@link #getTargetMatsFactory()} will return (and hence all
+         *            forwarded methods will use).
+         */
+        public MatsFactoryWrapper(MatsFactory targetMatsFactory) {
+            _targetMatsFactory = targetMatsFactory;
+        }
+
+        /**
+         * No-args constructor, which implies that you either need to invoke {@link #setTargetMatsFactory(MatsFactory)}
+         * before publishing the instance (making it available for other threads), or override
+         * {@link #getTargetMatsFactory()} to provide the desired {@link MatsFactory} instance. In these cases, make
+         * sure to honor memory visibility semantics - i.e. establish a happens-before edge between the setting of the
+         * instance and any other threads getting it.
+         */
+        public MatsFactoryWrapper() {
+            /* no-op */
+        }
+
+        /**
+         * Sets the wrapped {@link MatsFactory}, e.g. in case you instantiated it with the no-args constructor. <b>Do
+         * note that the field holding the wrapped instance is not volatile nor synchronized</b>. This means that if you
+         * want to set it after it has been published to other threads, you will have to override both this method and
+         * {@link #getTargetMatsFactory()} to provide for needed memory visibility semantics, i.e. establish a
+         * happens-before edge between the setting of the instance and any other threads getting it.
+         * 
+         * @param targetMatsFactory
+         *            the {@link MatsFactory} which is returned by {@link #getTargetMatsFactory()}, unless that is
+         *            overridden.
+         */
+        public void setTargetMatsFactory(MatsFactory targetMatsFactory) {
+            _targetMatsFactory = targetMatsFactory;
+        }
+
+        /**
+         * @return the wrapped {@link MatsFactory}. All forwarding methods invokes this method to get the wrapped
+         *         {@link MatsFactory}, thus if you want to get creative wrt. how and when the MatsFactory is decided,
+         *         you can override this method.
+         */
+        public MatsFactory getTargetMatsFactory() {
+            if (_targetMatsFactory == null) {
+                throw new IllegalStateException("MatsFactory.MatsFactoryWrapper.getTargetMatsFactory():"
+                        + " The target ConnectionFactory is not set!");
+            }
+            return _targetMatsFactory;
+        }
+
+        /**
+         * @return the fully unwrapped {@link MatsFactory}: If the returned MatsFactory from
+         *         {@link #getTargetMatsFactory()} is itself a {@link MatsFactoryWrapper MatsFactoryWrapper}, it will
+         *         recurse down by invoking this method (<code>getEndTargetMatsFactory()</code>) again on the returned
+         *         target.
+         */
+        public MatsFactory getEndTargetMatsFactory() {
+            MatsFactory targetMatsFactory = getTargetMatsFactory();
+            // ?: Is this further wrapped?
+            if (targetMatsFactory instanceof MatsFactoryWrapper) {
+                // -> Yes, further wrapped, so recurse down.
+                MatsFactoryWrapper wrappedTarget = (MatsFactoryWrapper) targetMatsFactory;
+                // .. recurse down.
+                return wrappedTarget.getEndTargetMatsFactory();
+            }
+            // E-> No, not wrapped, so this should be the actual MatsFactory.
+            return targetMatsFactory;
+        }
+
+        @Override
+        public FactoryConfig getFactoryConfig() {
+            return getTargetMatsFactory().getFactoryConfig();
+        }
+
+        @Override
+        public <R, S> MatsEndpoint<R, S> staged(String endpointId, Class<R> replyClass, Class<S> stateClass) {
+            return getTargetMatsFactory().staged(endpointId, replyClass, stateClass);
+        }
+
+        @Override
+        public <R, S> MatsEndpoint<R, S> staged(String endpointId, Class<R> replyClass, Class<S> stateClass,
+                Consumer<? super EndpointConfig<R, S>> endpointConfigLambda) {
+            return getTargetMatsFactory().staged(endpointId, replyClass, stateClass, endpointConfigLambda);
+        }
+
+        @Override
+        public <R, I> MatsEndpoint<R, Void> single(String endpointId, Class<R> replyClass, Class<I> incomingClass,
+                ProcessSingleLambda<R, I> processor) {
+            return getTargetMatsFactory().single(endpointId, replyClass, incomingClass, processor);
+        }
+
+        @Override
+        public <R, I> MatsEndpoint<R, Void> single(String endpointId, Class<R> replyClass, Class<I> incomingClass,
+                Consumer<? super EndpointConfig<R, Void>> endpointConfigLambda,
+                Consumer<? super StageConfig<R, Void, I>> stageConfigLambda, ProcessSingleLambda<R, I> processor) {
+            return getTargetMatsFactory().single(endpointId, replyClass, incomingClass, endpointConfigLambda,
+                    stageConfigLambda, processor);
+        }
+
+        @Override
+        public <S, I> MatsEndpoint<Void, S> terminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
+                ProcessTerminatorLambda<S, I> processor) {
+            return getTargetMatsFactory().terminator(endpointId, stateClass, incomingClass, processor);
+        }
+
+        @Override
+        public <S, I> MatsEndpoint<Void, S> terminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
+                Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
+                Consumer<? super StageConfig<Void, S, I>> stageConfigLambda, ProcessTerminatorLambda<S, I> processor) {
+            return getTargetMatsFactory().terminator(endpointId, stateClass, incomingClass, endpointConfigLambda,
+                    stageConfigLambda, processor);
+        }
+
+        @Override
+        public <S, I> MatsEndpoint<Void, S> subscriptionTerminator(String endpointId, Class<S> stateClass,
+                Class<I> incomingClass, ProcessTerminatorLambda<S, I> processor) {
+            return getTargetMatsFactory().subscriptionTerminator(endpointId, stateClass, incomingClass, processor);
+        }
+
+        @Override
+        public <S, I> MatsEndpoint<Void, S> subscriptionTerminator(String endpointId, Class<S> stateClass,
+                Class<I> incomingClass, Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
+                Consumer<? super StageConfig<Void, S, I>> stageConfigLambda, ProcessTerminatorLambda<S, I> processor) {
+            return getTargetMatsFactory().subscriptionTerminator(endpointId, stateClass, incomingClass,
+                    endpointConfigLambda, stageConfigLambda, processor);
+        }
+
+        @Override
+        public List<MatsEndpoint<?, ?>> getEndpoints() {
+            return getTargetMatsFactory().getEndpoints();
+        }
+
+        @Override
+        public Optional<MatsEndpoint<?, ?>> getEndpoint(String endpointId) {
+            return getTargetMatsFactory().getEndpoint(endpointId);
+        }
+
+        @Override
+        public MatsInitiator getDefaultInitiator() {
+            return getTargetMatsFactory().getDefaultInitiator();
+        }
+
+        @Override
+        public MatsInitiator getOrCreateInitiator(String name) {
+            return getTargetMatsFactory().getOrCreateInitiator(name);
+        }
+
+        @Override
+        public List<MatsInitiator> getInitiators() {
+            return getTargetMatsFactory().getInitiators();
+        }
+
+        @Override
+        public void holdEndpointsUntilFactoryIsStarted() {
+            getTargetMatsFactory().holdEndpointsUntilFactoryIsStarted();
+        }
+
+        @Override
+        public void start() {
+            getTargetMatsFactory().start();
+        }
+
+        @Override
+        public void waitForStarted() {
+            getTargetMatsFactory().waitForStarted();
+        }
+
+        @Override
+        public void stop() {
+            getTargetMatsFactory().stop();
+        }
     }
 }

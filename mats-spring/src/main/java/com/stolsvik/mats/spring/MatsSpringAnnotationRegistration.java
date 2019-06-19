@@ -488,12 +488,12 @@ public class MatsSpringAnnotationRegistration implements
         catch (NoUniqueBeanDefinitionException e) {
             throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
                     .getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available in the"
-                    + " Spring ApplicationContext - You must specify which one to use (using props on the"
-                    + " @Mats..-annotation itself; or further annotate the @Mats..-annotated method with a"
-                    + " @Qualifier(value), which either matches the same @Qualifier(value)-annotation on a MatsFactory"
-                    + " bean, or where the 'value' matches the bean name of a MatsFactory; or annotate both the"
-                    + " @Mats..-annotated method and the MatsFactory @Bean factory method with the same custom"
-                    + " annotation which is meta-annotated with @Qualifier); or mark one (and only one) of the"
+                    + " Spring ApplicationContext - You must specify which one to use: Using props on the"
+                    + " @Mats..-annotation itself (read its JavaDoc); or further annotate the @Mats..-annotated method"
+                    + " with a @Qualifier(value), which either matches the same @Qualifier(value)-annotation on a"
+                    + " MatsFactory bean, or where the 'value' matches the bean name of a MatsFactory; or annotate both"
+                    + " the @Mats..-annotated method and the MatsFactory @Bean factory method with the same custom"
+                    + " annotation which is meta-annotated with @Qualifier; or mark one (and only one) of the"
                     + " MatsFactories as @Primary", e);
         }
         catch (NoSuchBeanDefinitionException e) {
@@ -572,7 +572,7 @@ public class MatsSpringAnnotationRegistration implements
     private MatsFactory getMatsFactoryByCustomQualifier(Class<? extends Annotation> customQualifierType,
             Annotation customQualifier) {
         // :: Cache lookup
-        Map<Annotation, MatsFactory> subCacheMap = _cache_MatsFactoryByCustomQualifier.get(customQualifier);
+        Map<Annotation, MatsFactory> subCacheMap = _cache_MatsFactoryByCustomQualifier.get(customQualifierType);
         if (subCacheMap != null) {
             MatsFactory matsFactory = subCacheMap.get(customQualifier);
             if (matsFactory != null) {
@@ -648,16 +648,17 @@ public class MatsSpringAnnotationRegistration implements
             matsFactories.add((MatsFactory) annotatedBean);
         }
 
+        String qualifierString = (customQualifier != null ? customQualifier.toString() : customQualifierType.getSimpleName());
         if (matsFactories.size() > 1) {
             throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
                     .getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available in the"
-                    + " Spring ApplicationContext with the custom qualifier annotation '" + customQualifier
+                    + " Spring ApplicationContext with the custom qualifier annotation '" + qualifierString
                     + "', this is probably not what you want.");
         }
         if (matsFactories.isEmpty()) {
             throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
                     .getClass().getSimpleName() + " found that there is no MatsFactory with the custom qualifier"
-                    + " annotation '" + customQualifier + "' available in the Spring ApplicationContext");
+                    + " annotation '" + qualifierString + "' available in the Spring ApplicationContext");
         }
         // Cache, and return
         _cache_MatsFactoryByCustomQualifier.computeIfAbsent(customQualifierType, $ -> new HashMap<>())
@@ -671,19 +672,6 @@ public class MatsSpringAnnotationRegistration implements
     @SuppressWarnings("unchecked")
     private static <R> R helperCast(Object reply) {
         return (R) reply;
-    }
-
-    /**
-     * Thrown if the setup of a Mats Spring endpoint fails.
-     */
-    public static class MatsSpringConfigException extends RuntimeException {
-        public MatsSpringConfigException(String message, Throwable cause) {
-            super(message, cause);
-        }
-
-        public MatsSpringConfigException(String message) {
-            super(message);
-        }
     }
 
     /**
@@ -714,6 +702,9 @@ public class MatsSpringAnnotationRegistration implements
                     + descString(matsMapping, method, bean) + ".", e);
         }
         catch (InvocationTargetException e) {
+            if (e.getTargetException() instanceof MatsRefuseMessageException) {
+                throw (MatsRefuseMessageException) e.getTargetException();
+            }
             if (e.getTargetException() instanceof RuntimeException) {
                 throw (RuntimeException) e.getTargetException();
             }
@@ -797,7 +788,7 @@ public class MatsSpringAnnotationRegistration implements
             if (e.getTargetException() instanceof RuntimeException) {
                 throw (RuntimeException) e.getTargetException();
             }
-            throw new MatsSpringInvocationTargetException("Got InvocationTargetException when invoking "
+            throw new MatsSpringConfigException("Got InvocationTargetException when invoking "
                     + descString(matsStaged, method, bean) + ".", e);
         }
 
@@ -805,6 +796,19 @@ public class MatsSpringAnnotationRegistration implements
             log.info(LOG_PREFIX + "Processed Staged Mats Spring endpoint by "
                     + descString(matsStaged, method, bean) + " :: MatsEndpoint:[param#" + endpointParam
                     + "], EndpointConfig:[param#" + endpointParam + "]");
+        }
+    }
+
+    /**
+     * Thrown if the setup of a Mats Spring endpoint fails.
+     */
+    public static class MatsSpringConfigException extends RuntimeException {
+        public MatsSpringConfigException(String message, Throwable cause) {
+            super(message, cause);
+        }
+
+        public MatsSpringConfigException(String message) {
+            super(message);
         }
     }
 

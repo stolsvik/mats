@@ -1,7 +1,9 @@
 // mats-spring-jms
 
 dependencies {
+    compile project(":mats-spring")
     compile project(":mats-impl-jms")
+    compile project(":mats-util_activemq")
     
     compile "org.springframework:spring-context:$springVersion"
     compile "org.springframework:spring-tx:$springVersion"
@@ -10,7 +12,6 @@ dependencies {
     testCompile project(":mats-test")
     testCompile project(":mats-spring")
     testCompile project(":mats-serial-json")
-    testCompile project(":mats-util_activemq")
     // Using H2 for testing of database tx.
     testCompile "com.h2database:h2:1.4.194"
     // Using @RunWith(SpringRunner.class)

@@ -65,8 +65,9 @@ public interface JmsMatsTransactionManager {
          * also try to ensure that the underlying JMS Message is not redelivered (no more retries), but instead put on
          * the DLQ right away. <i>(Beware of "sneaky throws": The JVM bytecode doesn't care whether a method declares an
          * exception or not: It is possible to throw a checked exception form a method that doesn't declare it in
-         * several different ways. Groovy is nasty here (as effectively everything is RuntimeException in Groovy world),
-         * and also google "sneakyThrows" for a way to do it using "pure java" that was invented with Generics.)</i>
+         * several different ways. Groovy is nasty here (as effectively all Exceptions are unchecked in the Groovy
+         * world), and also google "sneakyThrows" for a way to do it using "pure java" that was invented with
+         * Generics.)</i>
          * 
          * @param jmsSessionHolder
          *            the JMS Session upon which this transaction should run. Gotten from

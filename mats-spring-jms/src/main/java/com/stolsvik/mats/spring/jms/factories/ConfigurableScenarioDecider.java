@@ -1,0 +1,189 @@
+package com.stolsvik.mats.spring.jms.factories;
+
+import java.util.Arrays;
+import java.util.Optional;
+import java.util.function.Supplier;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.MutablePropertySources;
+import org.springframework.core.env.PropertySource;
+
+import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.MatsScenario;
+import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.ScenarioDecider;
+
+/**
+ * Configurable {@link ScenarioDecider} which by default implements the logic described in
+ * {@link JmsSpringConnectionFactoryProducer} and handles all the Spring Profiles specified in {@link MatsProfiles}.
+ */
+public class ConfigurableScenarioDecider implements ScenarioDecider {
+    private static final Logger log = LoggerFactory.getLogger(ConfigurableScenarioDecider.class);
+
+    /**
+     * Configures a {@link ScenarioDecider} that implements the logic described in
+     * {@link JmsSpringConnectionFactoryProducer} and handles all the Spring Profiles specified in {@link MatsProfiles}.
+     * 
+     * @return a configured {@link ScenarioDecider}
+     */
+    public static ConfigurableScenarioDecider getDefaultScenarioDecider() {
+        return new ConfigurableScenarioDecider(
+                new StandardSpecificScenarioDecider(MatsProfiles.PROFILE_MATS_REGULAR, MatsProfiles.PROFILE_PRODUCTION,
+                        MatsProfiles.PROFILE_STAGING),
+                new StandardSpecificScenarioDecider(MatsProfiles.PROFILE_MATS_LOCALHOST),
+                new StandardSpecificScenarioDecider(MatsProfiles.PROFILE_MATS_LOCALVM,
+                        MatsProfiles.PROFILE_MATS_TEST),
+                () -> {
+                    throw new IllegalStateException("No MatsScenario was decided - you must make a decision!"
+                            + " Please read JavaDoc at " + JmsSpringConnectionFactoryProducer.class.getSimpleName()
+                            + " and " + ConfigurableScenarioDecider.class.getSimpleName() + ".");
+                });
+    }
+
+    protected SpecificScenarioDecider _regular;
+    protected SpecificScenarioDecider _localhost;
+    protected SpecificScenarioDecider _localVm;
+    private Supplier<MatsScenario> _defaultScenario;
+
+    /**
+     * Takes a {@link SpecificScenarioDecider} for each of the {@link MatsScenario}s, and a default MatsScenario if none
+     * of the SpecificScenarioDeciders kicks in - notice that it makes sense that the default instead of providing a
+     * MatsScenario instead throws an e.g. {@link IllegalStateException} (this is what the {@link ScenarioDecider} from
+     * {@link #getDefaultScenarioDecider()} does).
+     */
+    public ConfigurableScenarioDecider(SpecificScenarioDecider regular, SpecificScenarioDecider localhost,
+            SpecificScenarioDecider localVm, Supplier<MatsScenario> defaultScenario) {
+        _regular = regular;
+        _localhost = localhost;
+        _localVm = localVm;
+        _defaultScenario = defaultScenario;
+    }
+
+    @Override
+    public MatsScenario decision(Environment env) {
+        String envString = "  Active Spring Profiles: " + Arrays.asList(env.getActiveProfiles());
+        if (env instanceof ConfigurableEnvironment) {
+            envString += "\n  Spring Environment instanceof ConfigurableEnvironment (" + env.getClass()
+                    .getSimpleName() + "), listing each PropertySource:";
+            ConfigurableEnvironment confEnv = (ConfigurableEnvironment) env;
+            MutablePropertySources propertySources = confEnv.getPropertySources();
+            for (PropertySource<?> propSource : propertySources) {
+                envString += "\n    " + propSource.getClass().getSimpleName() + "{name=" + propSource.getName()
+                        + "}:" + propSource.getSource();
+            }
+        }
+        else {
+            envString += "  Spring Environment !instanceOf ConfigurableEnvironment, env.toString(): " + env;
+        }
+        log.info("Finding which MatsScenario is active. Using Spring Profiles and"
+                + " Spring Environment properties:\n" + envString);
+
+        int activeScenarios = 0;
+        // :: Find which MatsScenario is active
+        MatsScenario scenario = null;
+        String match;
+        if ((match = _regular.scenarioActive(env).orElse(null)) != null) {
+            scenario = MatsScenario.REGULAR;
+            activeScenarios++;
+            log.info("  \\- " + match + ": choosing MatsScenario '" + scenario + "'");
+        }
+        if ((match = _localhost.scenarioActive(env).orElse(null)) != null) {
+            scenario = MatsScenario.LOCALHOST;
+            activeScenarios++;
+            log.info("  \\- " + match + ": choosing MatsScenario '" + scenario + "'");
+        }
+        if ((match = _localVm.scenarioActive(env).orElse(null)) != null) {
+            scenario = MatsScenario.LOCALVM;
+            activeScenarios++;
+            log.info("  \\- " + match + ": choosing MatsScenario '" + scenario + "'");
+        }
+        // ?: Was no scenario decided?
+        if (scenario == null) {
+            // -> No scenario was decided, so go for LOCALVM, because this is the least dangerous.
+            log.info("  \\- NO Scenario explicitly specified - invoking the default MatsScenario Supplier.");
+            scenario = _defaultScenario.get();
+        }
+        // ?: If more than one Mats MatsScenario is active, throw.
+        if (activeScenarios > 1) {
+            throw new IllegalStateException("When trying to find which Mats MatsScenario was active, we found that"
+                    + " more than one scenario was active - this is not allowed.\n" + envString);
+        }
+
+        // ?: If MatsScenario.REGULAR is active, then mocks shall NOT be active!
+        if (scenario == MatsScenario.REGULAR) {
+            // -> Yes, it is REGULAR, so check for any "mats-mocks" profile active
+            Optional<String> mockProfile = Arrays.stream(env.getActiveProfiles())
+                    .filter(profile -> profile.startsWith(MatsProfiles.PROFILE_MATS_MOCKS)).findAny();
+            if (mockProfile.isPresent()) {
+                throw new IllegalStateException("Found that Mats Scenario [" + scenario
+                        + "] was active, but at the same time, we found that '" + mockProfile.get()
+                        + "' profile was active. This is not allowed.\n" + envString);
+            }
+        }
+
+        // ----- We have found the active Mats Scenario, and we've checked that if REGULAR, then no mats-mocks.
+
+        return scenario;
+    }
+
+    /**
+     * An implementation of this interface can decide whether a specific Mats Scenario is active. The Spring
+     * {@link Environment} is provided from which Spring Profiles and properties/variables can be gotten. Notice that in
+     * the default Spring configuration, the Environment is populated by System Properties (Java command line
+     * "-Dproperty=vale"-properties) and System Environment. However, a SpecificScenarioDecider might use whatever it
+     * find relevant to do a decision.
+     * 
+     * @see StandardSpecificScenarioDecider
+     */
+    @FunctionalInterface
+    public interface SpecificScenarioDecider {
+        /**
+         * Decides whether a specific Scenario is active.
+         * 
+         * @param env
+         *            the Spring {@link Environment}, from which Spring Profiles and properties/variables can be gotten.
+         *            Notice that in the default Spring configuration, the Environment is populated by System Properties
+         *            (Java command line "-Dproperty=vale"-properties) and System Environment.
+         * @return an {@link Optional}, which if present means that the specific Mats Scenario is active - and the
+         *         returned String is used in logging to show why this Scenario was chosen (a string like e.g.
+         *         <code>"Found Spring Profile 'mats-test'"</code> would make sense). If {@link Optional#empty()}, this
+         *         specific Mats Scenario was not active.
+         */
+        Optional<String> scenarioActive(Environment env);
+    }
+
+    /**
+     * Standard implementation of {@linl SpecificScenarioDecider} used in the default configuration of
+     * {@link ConfigurableScenarioDecider}, which takes a set of profile-or-properties names and checks whether they are
+     * present as a Spring Profile or (with the "-" replaced by ".") whether it exists as a property in the Spring
+     * Environment.
+     */
+    public static class StandardSpecificScenarioDecider implements SpecificScenarioDecider {
+        private final String[] _profileOrPropertyNames;
+
+        public StandardSpecificScenarioDecider(String... profileOrPropertyNames) {
+            _profileOrPropertyNames = profileOrPropertyNames;
+        }
+
+        @Override
+        public Optional<String> scenarioActive(Environment env) {
+            return isProfileOrPropertyPresent(env, _profileOrPropertyNames);
+        }
+
+        public static Optional<String> isProfileOrPropertyPresent(Environment env, String... profileNames) {
+            for (String profileName : profileNames) {
+                if (env.containsProperty(profileName)) {
+                    return Optional.of("Found Spring Environment Property '" + profileName + "'");
+                }
+                if (env.containsProperty(profileName.replace('-', '.'))) {
+                    return Optional.of("Found Spring Environment Property '" + profileName.replace('-', '.') + "'");
+                }
+                if (env.acceptsProfiles(profileName)) {
+                    return Optional.of("Found Spring Profile '" + profileName + "'");
+                }
+            }
+            return Optional.empty();
+        }
+    }
+}

@@ -30,10 +30,14 @@ import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.Rule_Mats;
 
 /**
- * One-stop-shop for making <i>simple</i> Spring-based integration/unit tests of MATS endpoints, reusing the
- * functionality from {@link Rule_Mats}. The configuration is done in {@link MatsTestInfrastructureConfiguration}. This
- * annotation can be put on a test-class, or on a {@literal @Configuration} class (typically a nested static class
- * within the test-class).
+ * One-stop-shop for making <i>simple</i> Spring-based integration/unit tests of MATS endpoints (NOT utilizing SQL
+ * Connections), reusing the functionality from {@link Rule_Mats}. The configuration is done in
+ * {@link MatsTestInfrastructureConfiguration}. This annotation can be put on a test-class, or on a
+ * {@literal @Configuration} class (typically a nested static class within the test-class).
+ * <p>
+ * <i>Observe: This annotation is most probably too simple for an actual integration testing setup.</i>
+ * <p>
+ * The annotation sets up the following:
  * <ul>
  * <li>Meta-annotated with {@link DirtiesContext}, since the Spring Test Context caching system is problematic when one
  * is handling static/global resources like what an external Message Queue broker is. Read more below.</li>
