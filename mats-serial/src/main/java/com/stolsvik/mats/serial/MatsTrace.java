@@ -298,7 +298,10 @@ public interface MatsTrace<Z> {
 
             NEXT,
 
-            REPLY
+            REPLY,
+
+            /** Not yet used. Ref issue #69 */
+            GOTO
         }
 
         /**
