@@ -54,7 +54,7 @@ public class UseFullApplicationConfiguration_WithRemock {
 
     // Must set the System Property variant of MatsScenario, since evidently remock wipes the @ActiveProfiles.
     {
-        System.setProperty("mats.test", "true");
+        System.setProperty("mats.test", "elg");
     }
 
     @AfterClass
