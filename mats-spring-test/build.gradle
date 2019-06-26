@@ -7,7 +7,9 @@ dependencies {
 
     compile "org.springframework:spring-test:$springVersion"
 
+    // Need logging system in tests
     testCompile "org.slf4j:log4j-over-slf4j:1.7.+"
     testCompile "ch.qos.logback:logback-classic:1.2.+"
-    testCompile "com.h2database:h2:1.4.194"
+    // Checking that it works with Remock
+    testCompile 'no.saua.remock:remock:0.6.0'
 }

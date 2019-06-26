@@ -188,9 +188,8 @@ public class ConnectionFactoryScenarioWrapper
 
     @Override
     public int getPhase() {
-        log.info(LOG_PREFIX + "SmartLifeCycle.getPhase() on [" + _beanName + "], returning 'Integer.MIN_VALUE' to be"
-                + " stopped as late as possible.");
-        return Integer.MIN_VALUE;
+        // Returning a quite low number to be STARTED early, and STOPPED late.
+        return -2_000_000;
     }
 
     private boolean _started;
@@ -202,6 +201,8 @@ public class ConnectionFactoryScenarioWrapper
 
     @Override
     public void start() {
+        log.info(LOG_PREFIX + "SmartLifeCycle.start on [" + _beanName
+                + "]: Creating Target ConnectionFactory based on ScenarioDecider [" + _scenarioDecider + "].");
         createTargetConnectionFactoryBasedOnScenarioDecider();
         _started = true;
     }

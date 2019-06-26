@@ -32,7 +32,10 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
+import org.springframework.context.ApplicationEvent;
+import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
@@ -58,7 +61,7 @@ import com.stolsvik.mats.spring.MatsStaged.MatsStageds;
  */
 public class MatsSpringAnnotationRegistration implements
         BeanPostProcessor,
-        ApplicationContextAware {
+        ApplicationContextAware, SmartLifecycle {
 
     // Use clogging, since that's what Spring does.
     private static final Log log = LogFactory.getLog(MatsSpringAnnotationRegistration.class);
@@ -214,12 +217,73 @@ public class MatsSpringAnnotationRegistration implements
         }
     }
 
+    // ===== SmartLifeCycle, as a test to be compliant with Remock.
+    // A problem still is that ordering of bean creation makes for problems: Since all @MatsMappings are constructed
+    // and started by the onContextRefreshedEvent(..) method, any bean that is registered LATER than this (which does
+    // not occur when using Spring normally) will NOT have its endpoints constructed and started.
+
+    @Override
+    public int getPhase() {
+        // Returning a quite low number to be STARTED early (but later than ConnectionFactoryScenarioWrapper),
+        // and STOPPED late (but earlier than ConnectionFactoryScenarioWrapper).
+        return -1_000_000;
+    }
+
+    private boolean _started;
+
+    @Override
+    public boolean isAutoStartup() {
+        return true;
+    }
+
+    @Override
+    public void start() {
+        log.info(LOG_PREFIX + "SmartLifeCycle.start on [" + this.getClass().getSimpleName()
+                + "]: Running registration and starting of endpoints");
+        onContextRefreshedEvent(null);
+        _started = true;
+    }
+
+    @Override
+    public boolean isRunning() {
+        return _started;
+    }
+
+    @Override
+    public void stop() {
+        _started = false;
+        onContextClosedEvent(null);
+    }
+
+    @Override
+    public void stop(Runnable callback) {
+        log.info(LOG_PREFIX + "SmartLifeCycle.stop(callback) on [" + this.getClass().getSimpleName()
+                + "]: Stopping MatsLocalVmActiveMq's BrokerService.");
+        stop();
+        callback.run();
+    }
+
+    // ===== /end SmartLifeCycle
+
+
+    // ===== ApplicationListener implementation
+
+//    @Override
+//    public void onApplicationEvent(ApplicationEvent event) {
+//        if (event instanceof ContextRefreshedEvent) {
+//            onContextRefreshedEvent((ContextRefreshedEvent) event);
+//        }
+//        else if (event instanceof ContextClosedEvent) {
+//            onContextClosedEvent((ContextClosedEvent) event);
+//        }
+//    }
+
     /**
      * {@link ContextRefreshedEvent} runs pretty much as the latest step in the Spring life cycle starting process:
      * Processes all {@link MatsMapping} and {@link MatsStaged} annotations, then starts the MatsFactory, which will
      * start any "hanging" MATS Endpoints, which will then start consuming messages.
      */
-    @EventListener
+    // @EventListener
     public void onContextRefreshedEvent(ContextRefreshedEvent e) {
         log.info(LOG_PREFIX + "ContextRefreshedEvent, registering all Endpoints, then running MatsFactory.start()"
                 + " on all MatsFactories in the Spring Context to start all registered MATS Endpoints.");
@@ -242,7 +306,7 @@ public class MatsSpringAnnotationRegistration implements
      * Stop the MatsFactory, which will stop all MATS Endpoints, which will have them release their JMS resources - and
      * then the MatsFactory will clean out the JmsMatsJmsSessionHandler.
      */
-    @EventListener
+    // @EventListener
     public void onContextClosedEvent(ContextClosedEvent e) {
         log.info(LOG_PREFIX
                 + "ContextClosedEvent, running MatsFactory.stop() on all MatsFactories in the Spring Context"
