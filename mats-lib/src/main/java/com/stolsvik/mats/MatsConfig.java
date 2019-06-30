@@ -18,12 +18,12 @@ public interface MatsConfig {
      * <p>
      * Setting to 0 will invoke default logic.
      *
-     * @param numberOfThreads
+     * @param concurrency
      *            the number of consumers on the queue(s) for the processing stage(s). If set to 0, default-logic is in
      *            effect.
      * @return the config object, for method chaining.
      */
-    MatsConfig setConcurrency(int numberOfThreads);
+    MatsConfig setConcurrency(int concurrency);
 
     /**
      * @return the number of consumers set up for this factory, or endpoint, or process stage. Will provide the default

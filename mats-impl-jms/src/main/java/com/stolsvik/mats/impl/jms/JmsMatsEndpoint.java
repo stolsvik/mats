@@ -138,8 +138,8 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
         private int _concurrency;
 
         @Override
-        public MatsConfig setConcurrency(int numberOfThreads) {
-            _concurrency = numberOfThreads;
+        public MatsConfig setConcurrency(int concurrency) {
+            _concurrency = concurrency;
             return this;
         }
 

@@ -140,6 +140,11 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
     }
 
     @Override
+    public String idThis() {
+        return id(_stageId, this) + "@" + _parentFactory;
+    }
+
+    @Override
     public String toString() {
         return idThis();
     }
@@ -148,8 +153,8 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         private int _concurrency;
 
         @Override
-        public MatsConfig setConcurrency(int numberOfThreads) {
-            _concurrency = numberOfThreads;
+        public MatsConfig setConcurrency(int concurrency) {
+            _concurrency = concurrency;
             return this;
         }
 
@@ -196,14 +201,12 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         private final TransactionContext _transactionContext;
 
         JmsMatsStageProcessor(JmsMatsStage<R, S, I, Z> jmsMatsStage, int processorNumber) {
-            FactoryConfig factoryConfig = jmsMatsStage.getParentEndpoint().getParentFactory().getFactoryConfig();
-            _randomInstanceId = RandomString.randomString(5)
-                    + ("".equals(factoryConfig.getName()) ? "" : "@" + factoryConfig.getName());
+            _randomInstanceId = RandomString.randomString(5) + "@" + jmsMatsStage._parentFactory;
             _jmsMatsStage = jmsMatsStage;
             _processorNumber = processorNumber;
             _processorThread = new Thread(this::runner, THREAD_PREFIX + ident());
             _processorThread.start();
-            _transactionContext = _jmsMatsStage._parentFactory
+            _transactionContext = jmsMatsStage._parentFactory
                     .getJmsMatsTransactionManager().getTransactionContext(this);
         }
 

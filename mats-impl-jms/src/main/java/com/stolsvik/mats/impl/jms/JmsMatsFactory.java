@@ -86,18 +86,6 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
 
     private String __hostname = getHostname_internal();
 
-    /**
-     * Sets the JMS destination prefix, which will be employed by all queues and topics, (obviously) both for sending
-     * and listening.
-     *
-     * @param destinationPrefix
-     *            the JMS queue and topic destination prefix - defaults to "mats.".
-     */
-    public JmsMatsFactory<Z> setMatsDestinationPrefix(String destinationPrefix) {
-        _factoryConfig._matsDestinationPrefix = destinationPrefix;
-        return this;
-    }
-
     public JmsMatsJmsSessionHandler getJmsMatsJmsSessionHandler() {
         return _jmsMatsJmsSessionHandler;
     }
@@ -346,21 +334,40 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         _jmsMatsJmsSessionHandler.closeAllAvailableSessions();
     }
 
+    @Override
+    public String idThis() {
+        String name = _factoryConfig.getName();
+        return this.getClass().getSimpleName()
+                + ("".equals(name) ? "" : ("'" + name + "'"))
+                + '@' + Integer.toHexString(System.identityHashCode(this));
+    }
+
+    @Override
+    public String toString() {
+        return idThis();
+    }
+
     private class JmsMatsFactoryConfig implements FactoryConfig {
+        // Set to default, which is 0 (which means default logic; 2x numCpus)
+        private int _concurrency = 0;
 
-        private int _concurrency;
+        // Set to default, which is empty string (not null).
+        private String _name = "";
 
+        // Set to default.
         private String _matsDestinationPrefix = "mats.";
 
-        private String _name = "";
+        // Set to default.
+        private String _matsTraceKey = "mats:trace";
 
         @Override
         public void setName(String name) {
             if (name == null) {
                 throw new NullPointerException("name");
             }
+            String idBefore = idThis();
             _name = name;
-            log.info(LOG_PREFIX + "Set name to [" + name + "] for " + idThis());
+            log.info(LOG_PREFIX + "Set name to [" + name + "] for [" + idBefore + "], new id: [" + idThis() + "].");
         }
 
         @Override
@@ -369,8 +376,34 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         }
 
         @Override
-        public FactoryConfig setConcurrency(int numberOfThreads) {
-            _concurrency = numberOfThreads;
+        public FactoryConfig setMatsDestinationPrefix(String prefix) {
+            log.info("MatsFactory's Mats Destination Prefix is set to [" + prefix + "] (was: [" + _matsDestinationPrefix
+                    + "]).");
+            _matsDestinationPrefix = prefix;
+            return this;
+        }
+
+        @Override
+        public String getMatsDestinationPrefix() {
+            return _matsDestinationPrefix;
+        }
+
+        @Override
+        public FactoryConfig setMatsTraceKey(String key) {
+            log.info("MatsFactory's Mats Trace Key is set to [" + key + "] (was: [" + _matsTraceKey + "]).");
+            _matsTraceKey = key;
+            return this;
+        }
+
+        @Override
+        public String getMatsTraceKey() {
+            return _matsTraceKey;
+        }
+
+        @Override
+        public FactoryConfig setConcurrency(int concurrency) {
+            log.info("MatsFactory's Concurrency is set to [" + concurrency + "] (was: [" + _concurrency + "]).");
+            _concurrency = concurrency;
             return this;
         }
 
@@ -411,11 +444,6 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         @Override
         public String getNodename() {
             return __hostname;
-        }
-
-        @Override
-        public String getMatsDestinationPrefix() {
-            return _matsDestinationPrefix;
         }
     }
 }

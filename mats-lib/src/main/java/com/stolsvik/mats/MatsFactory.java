@@ -344,20 +344,43 @@ public interface MatsFactory extends StartStoppable {
         String getName();
 
         /**
-         * @return the suggested key on which to store the "wire representation" if the underlying mechanism uses a Map,
-         *         e.g. a {@code MapMessage} of JMS. Defaults to <code>"mats:trace"</code>.
+         * Sets the prefix that should be applied to the endpointIds to get queue or topic name in the underlying
+         * messaging system - the default is <code>"mats."</code>. Needless to say, two MatsFactories which are
+         * configured differently here will not be able to communicate. <b>Do not change this unless you have a
+         * compelling reason to why</b>, as you then stray away from the standard, and it will be harder to later merge
+         * two setups.
+         *
+         * @param prefix
+         *            the prefix that should be applied to the endpointIds to get queue or topic name in the underlying
+         *            messaging system. Default is <code>"mats."</code>.
          */
-        default String getMatsTraceKey() {
-            return "mats:trace";
-        }
+        FactoryConfig setMatsDestinationPrefix(String prefix);
 
         /**
-         * @return the suggested prefix for the messaging system's queues and topics that MATS uses. Defaults to
+         * @return the prefix that is applied to endpointIds to get the queue and topic and topic names. Defaults to
          *         <code>"mats."</code>.
          */
-        default String getMatsDestinationPrefix() {
-            return "mats.";
-        }
+        String getMatsDestinationPrefix();
+
+        /**
+         * Sets the key name on which to store the "wire representation" of the Mats message if the underlying mechanism
+         * uses some kind of Map - the default is <code>"mats:trace"</code>. (The JMS Implementation uses a JMS
+         * MapMessage, and this is the key). Needless to say, two MatsFactories which are configured differently here
+         * will not be able to communicate. <b>Do not change this unless you have a compelling reason to why</b>, as you
+         * then stray away from the standard, and it will be harder to later merge two setups.
+         * 
+         * @param key
+         *            the key name on which to store the "wire representation" of the Mats message if the underlying
+         *            mechanism uses some kind of Map. Default is <code>"mats:trace"</code>.
+         */
+        FactoryConfig setMatsTraceKey(String key);
+
+        /**
+         * @return the key name on which to store the "wire representation" of the Mats message if the underlying
+         *         mechanism * uses some kind of Map. (The JMS Implementation uses a JMS MapMessage, and this is the
+         *         key). Default is <code>"mats:trace"</code>.
+         */
+        String getMatsTraceKey();
 
         /**
          * @return the name of the application that employs MATS, set at MatsFactory construction time.
@@ -379,6 +402,10 @@ public interface MatsFactory extends StartStoppable {
          * @return the nodename, which by default should be the hostname which the application is running on.
          */
         String getNodename();
+
+        // Override to return the more specific FactoryConfig instead of MatsConfig
+        @Override
+        FactoryConfig setConcurrency(int concurrency);
     }
 
     /**
