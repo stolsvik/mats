@@ -6,7 +6,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.context.annotation.Import;
 
 import com.stolsvik.mats.MatsFactory;
@@ -17,14 +17,14 @@ import com.stolsvik.mats.MatsFactory;
  * {@link MatsFactory}s must be set up in the Spring context. Methods having the specified annotations will get Mats
  * endpoints set up for them on the <code>MatsFactory</code>.
  * <p>
- * This annotation simply imports the {@link MatsSpringConfiguration} class, which is a Spring
- * {@link Configuration @Configuration}. Read more JavaDoc there!
+ * This annotation simply imports the {@link MatsSpringAnnotationRegistration} bean, which is a Spring
+ * {@link BeanPostProcessor}. Read more JavaDoc there!
  *
  * @author Endre Stølsvik - 2016-05-21 - http://endre.stolsvik.com
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@Import(MatsSpringConfiguration.class)
+@Import(MatsSpringAnnotationRegistration.class)
 @Documented
 public @interface EnableMats {
 

@@ -6,6 +6,8 @@ import javax.jms.ConnectionFactory;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -41,6 +43,7 @@ import com.stolsvik.mats.util.RandomString;
 // This overrides the configured ConnectionFactories in the app to be LocalVM testing instances.
 @MatsTestProfile
 public class UseFullApplicationConfiguration {
+    private static final Logger log = LoggerFactory.getLogger(UseFullApplicationConfiguration.class);
     private static final String TERMINATOR = "UseFullApplicationConfiguration.TERMINATOR";
 
     @Configuration
@@ -58,6 +61,7 @@ public class UseFullApplicationConfiguration {
          */
         @MatsMapping(endpointId = TERMINATOR, matsFactoryCustomQualifierType = TestQualifier.class)
         public void testTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
+            log.info("Got result, resolving latch [" + _latch + "]!");
             _latch.resolve(state, msg);
         }
     }
@@ -79,8 +83,8 @@ public class UseFullApplicationConfiguration {
                     .replyTo(TERMINATOR, null)
                     .request(dto);
         });
+        log.info("Sent message, going into wait on latch [" + _latch + "]");
         Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
         Assert.assertEquals(new SpringTestDataTO(dto.number * 2, dto.string + ":single"), result.getData());
     }
-
 }

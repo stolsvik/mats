@@ -16,10 +16,10 @@ public abstract class ConnectionFactoryWithStartStopWrapper extends ConnectionFa
      * {@link #setTargetConnectionFactory(ConnectionFactory)}. If you return <code>null</code>, nothing will be done -
      * implying that you need to do that setting.
      */
-    abstract ConnectionFactory start(String beanName) throws Exception;
+    public abstract ConnectionFactory start(String beanName) throws Exception;
 
     /**
      * Stop whatever you started in {@link #start(String)}.
      */
-    abstract void stop() throws Exception;
+    public abstract void stop() throws Exception;
 }

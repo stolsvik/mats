@@ -1,5 +1,7 @@
 package com.stolsvik.mats.spring.jms.factories;
 
+import java.util.Random;
+
 import javax.jms.ConnectionFactory;
 
 import org.apache.activemq.ActiveMQConnectionFactory;
@@ -200,13 +202,20 @@ public class JmsSpringConnectionFactoryProducer implements MatsProfiles {
             private MatsLocalVmActiveMq _matsLocalVmActiveMq;
 
             @Override
-            ConnectionFactory start(String beanName) {
-                _matsLocalVmActiveMq = MatsLocalVmActiveMq.createInVmActiveMq(beanName);
+            public ConnectionFactory start(String beanName) {
+                /*
+                 * The added randomness is a hack so that if you end up running several of these in the same VM, you
+                 * won't get into problem with unintentionally sharing a MQ Broker instance between tests. This problem
+                 * will happen due to Spring's caching of contexts in its test framework, unless you
+                 * use @DirtiesContext.
+                 */
+                _matsLocalVmActiveMq = MatsLocalVmActiveMq.createInVmActiveMq(
+                        beanName + "_" + Long.toUnsignedString(new Random().nextLong(), 36));
                 return _matsLocalVmActiveMq.getConnectionFactory();
             }
 
             @Override
-            void stop() {
+            public void stop() {
                 _matsLocalVmActiveMq.close();
             }
         });

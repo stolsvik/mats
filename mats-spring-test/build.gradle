@@ -11,5 +11,5 @@ dependencies {
     testCompile "org.slf4j:log4j-over-slf4j:1.7.+"
     testCompile "ch.qos.logback:logback-classic:1.2.+"
     // Checking that it works with Remock
-    testCompile 'no.saua.remock:remock:0.6.0'
+    testCompile 'no.saua.remock:remock:1.+'
 }

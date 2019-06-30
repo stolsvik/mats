@@ -1,9 +1,7 @@
 package com.stolsvik.mats.spring.test.apptest;
 
 import javax.inject.Inject;
-import javax.jms.ConnectionFactory;
 
-import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -18,7 +16,7 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
-import com.stolsvik.mats.spring.test.apptest.UseFullApplicationConfiguration_WithRemock.TestConfig;
+import com.stolsvik.mats.spring.test.MatsTestProfile;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
 import com.stolsvik.mats.spring.test.testapp_two_mf.Main_TwoMf;
@@ -28,44 +26,47 @@ import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.util.RandomString;
 
-import no.saua.remock.DisableLazyInit;
 import no.saua.remock.RemockBootstrapper;
 
 /**
  * As identical to {@link UseFullApplicationConfiguration} as possible, but now using
  * <a href="https://github.com/ksaua/remock">Remock</a>. The issue when using Remock is that this library puts all beans
- * into <i>lazy initialization</i> mode to make tests (in particular those pointing to the entire application's
- * dependency injection configuration) as fast as possible by only firing up beans that are actually "touched" by the
- * tests. There was an issue with some of Mats' SpringConfig elements relying on eager init - and this test tries to
- * weed out these dependencies.
+ * into <i>lazy initialization</i> mode to make tests (in particular those pointing to the entire application's Spring
+ * Context (i.e. dependency injection) configuration) as fast as possible by only firing up beans that are actually
+ * "touched" by the tests. There was an issue with some of Mats' SpringConfig elements relying on eager init - and this
+ * test tries to weed out these dependencies.
  *
  * @author Endre Stølsvik 2019-06-25 23:31 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
+@MatsTestProfile
 // Using Remock
 @BootstrapWith(RemockBootstrapper.class)
-// This overrides the configured ConnectionFactories in the app to be LocalVM testing instances.
-// @MatsTestProfile // <- Virker ikke
-// @ActiveProfiles("mats-test") // <- Virker ikke
-@DisableLazyInit({ TestConfig.class, ConnectionFactory.class, Mats_SingleEndpoint.class })
 public class UseFullApplicationConfiguration_WithRemock {
     private static final Logger log = LoggerFactory.getLogger(UseFullApplicationConfiguration_WithRemock.class);
     private static final String TERMINATOR = "UseFullApplicationConfiguration_WithRemock.TERMINATOR";
 
-    // Must set the System Property variant of MatsScenario, since evidently remock wipes the @ActiveProfiles.
-    {
-        System.setProperty("mats.test", "elg");
-    }
-
-    @AfterClass
-    public static void clearMatsTest() {
-        System.clearProperty("mats.test");
-    }
-
-    // This is not enough to get proper dependency, as it is registered too late, and thus won't be started by
-    // the MatsSpringAnnotationRegistration when that has its SmartLifeCycle.start() invoked.
+    /**
+     * This is @Inject'ed here to get its @MatsMapping endpoint to register, as otherwise there is nothing that depends
+     * on this bean being instantiated - and since everything is lazy-init with Remock, it will not be instantiated
+     * unless something depends on it. We depend on it /indirectly/: We don't need the /bean/, but the "contents" of the
+     * bean, which is the Mats endpoint. Therefore, we @Inject it here, even though we do not need the instance in the
+     * test. Okay. Do you get it now?
+     */
     @Inject
-    private Mats_SingleEndpoint _dependency;
+    private Mats_SingleEndpoint _dependency1;
+
+    /**
+     * This bean must also be @Inject'ed here due to the same reason as above (we need the @MatsMapping terminator
+     * endpoint specified in it). However, I find this ridiculous, as it is the "default Configuration lookup" , i.e. it
+     * is a /part of the test/, and Remock should most definitely assume that it is a dependency that must be
+     * instantiated. Wrt. "default Configuration lookup": It doesn't help to explicitly define it in
+     * a @ContextConfiguration either, mkay?
+     */
+    @Inject
+    private TestConfig _dependency2;
+
+    // ===== The rest is identical to UseFullApplicationConfiguration
 
     @Configuration
     // This is where we import the application's main configuration class

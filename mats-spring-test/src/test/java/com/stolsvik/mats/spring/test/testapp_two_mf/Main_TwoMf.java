@@ -7,7 +7,6 @@ import java.lang.annotation.Target;
 
 import javax.jms.ConnectionFactory;
 
-import com.stolsvik.mats.test.MatsTestLatch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -20,8 +19,10 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.spring.EnableMats;
+import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryWithStartStopWrapper;
 import com.stolsvik.mats.spring.jms.factories.JmsSpringConnectionFactoryProducer;
 import com.stolsvik.mats.spring.jms.factories.JmsSpringMatsFactoryProducer;
+import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
 /**
@@ -90,32 +91,48 @@ public class Main_TwoMf {
     }
 
     @Bean
-    protected MatsLocalVmActiveMq matsTestActiveMq1() {
-        log.info("Creating MatsTestActiveMq1");
-        return MatsLocalVmActiveMq.createInVmActiveMq("activeMq1");
-    }
-
-    @Bean
-    protected MatsLocalVmActiveMq matsTestActiveMq2() {
-        log.info("Creating MatsTestActiveMq2");
-        return MatsLocalVmActiveMq.createInVmActiveMq("activeMq2");
-    }
-
-    @Bean
     @Qualifier("connectionFactoryA")
-    protected ConnectionFactory jmsConnectionFactory1(@Qualifier("matsTestActiveMq1") MatsLocalVmActiveMq activeMq) {
+    protected ConnectionFactory jmsConnectionFactory1() {
         log.info("Creating ConnectionFactory with @Qualifier(\"connectionFactoryA\")");
         return new JmsSpringConnectionFactoryProducer()
-                .regularConnectionFactory((env) -> activeMq.getConnectionFactory())
+                .regularConnectionFactory((env) ->
+                // Notice: This would normally be something like 'new ActiveMqConnectionFactory(<production URL 1>)'
+                new ConnectionFactoryWithStartStopWrapper() {
+                    private MatsLocalVmActiveMq _amq = MatsLocalVmActiveMq.createInVmActiveMq("activeMq2");
+
+                    @Override
+                    public ConnectionFactory start(String beanName) throws Exception {
+                        return _amq.getConnectionFactory();
+                    }
+
+                    @Override
+                    public void stop() throws Exception {
+                        _amq.close();
+                    }
+                })
                 .create();
     }
 
     @Bean
     @Qualifier("connectionFactoryB")
-    protected ConnectionFactory jmsConnectionFactory2(@Qualifier("matsTestActiveMq2") MatsLocalVmActiveMq activeMq) {
+    protected ConnectionFactory jmsConnectionFactory2() {
         log.info("Creating ConnectionFactory with @Qualifier(\"connectionFactoryB\")");
         return new JmsSpringConnectionFactoryProducer()
-                .regularConnectionFactory((env) -> activeMq.getConnectionFactory())
+                .regularConnectionFactory((env) ->
+                // Notice: This would normally be something like 'new ActiveMqConnectionFactory(<production URL 2>)'
+                new ConnectionFactoryWithStartStopWrapper() {
+                    private MatsLocalVmActiveMq _amq = MatsLocalVmActiveMq.createInVmActiveMq("activeMq1");
+
+                    @Override
+                    public ConnectionFactory start(String beanName) throws Exception {
+                        return _amq.getConnectionFactory();
+                    }
+
+                    @Override
+                    public void stop() throws Exception {
+                        _amq.close();
+                    }
+                })
                 .create();
     }
 

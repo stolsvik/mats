@@ -1,11 +1,9 @@
 package com.stolsvik.mats.spring.jms.factories;
 
-import static com.stolsvik.mats.spring.MatsSpringConfiguration.LOG_PREFIX;
-
 import javax.jms.ConnectionFactory;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.BeanNameAware;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.context.SmartLifecycle;
@@ -23,7 +21,9 @@ import org.springframework.core.env.Environment;
 public class ConnectionFactoryScenarioWrapper
         extends ConnectionFactoryWrapper
         implements EnvironmentAware, BeanNameAware, SmartLifecycle {
-    private static final Logger log = LoggerFactory.getLogger(ConnectionFactoryScenarioWrapper.class);
+    // Use clogging, since that's what Spring does.
+    private static final Log log = LogFactory.getLog(ConnectionFactoryScenarioWrapper.class);
+    private static final String LOG_PREFIX = "#SPRINGMATS# ";
 
     /**
      * A ConnectionFactory provider which can throw Exceptions - if it returns a
@@ -105,14 +105,33 @@ public class ConnectionFactoryScenarioWrapper
                 + "; A set of suppliers will have to be provided in the constructor.");
     }
 
-    protected ConnectionFactory _targetConnectionFactory;
+    protected volatile ConnectionFactory _targetConnectionFactory;
 
     @Override
     public ConnectionFactory getTargetConnectionFactory() {
+        /*
+         * Perform lazy init, even though it should have been produced by SmartLifeCycle.start() below. It is here for
+         * the situation where all beans have been put into lazy init mode (the test-helper project "Remock" does this).
+         * Evidently what can happen then, is that life cycle process can have been run, and then you get more beans
+         * being pulled up - but these were too late to be lifecycled. Thus, the start() won't be run, so we'll get a
+         * null target ConnectionFactory when we request it. By performing lazy-init check here, we hack it in place in
+         * such scenarios.
+         */
+        if (_targetConnectionFactory == null) {
+            log.info("Whoops! TargetConnectionFactory is null! - perform lazy-init!");
+            synchronized (this) {
+                if (_targetConnectionFactory == null) {
+                    createTargetConnectionFactoryBasedOnScenarioDecider();
+                }
+            }
+        }
         return _targetConnectionFactory;
     }
 
     protected void createTargetConnectionFactoryBasedOnScenarioDecider() {
+        if (_targetConnectionFactory != null) {
+            log.info("  \\- Target ConnectionFactory already present, not creating again.");
+        }
         ConnectionFactoryProvider provider;
         MatsScenario scenario = _scenarioDecider.decision(_environment);
         switch (scenario) {

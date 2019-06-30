@@ -1,7 +1,5 @@
 package com.stolsvik.mats.spring;
 
-import static com.stolsvik.mats.spring.MatsSpringConfiguration.LOG_PREFIX;
-
 import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -32,10 +30,8 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
-import org.springframework.context.ApplicationEvent;
-import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.context.SmartLifecycle;
+import org.springframework.context.annotation.Role;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
@@ -44,6 +40,7 @@ import org.springframework.core.MethodIntrospector.MetadataLookup;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.type.MethodMetadata;
 import org.springframework.core.type.StandardMethodMetadata;
+import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.stolsvik.mats.MatsEndpoint;
@@ -55,16 +52,65 @@ import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
 import com.stolsvik.mats.spring.MatsStaged.MatsStageds;
 
 /**
- * Read JavaDoc at {@link MatsSpringConfiguration}.
- * 
+ * The {@link BeanPostProcessor}-class specified by the {@link EnableMats @EnableMats} annotation.
+ * <p>
+ * It checks all Spring beans in the current Spring {@link ApplicationContext} for whether they have methods annotated
+ * with {@link MatsMapping @MatsMapping} or {@link MatsStaged @MatsStaged}, and if so configures Mats endpoints for them
+ * on the (possibly specified) {@link MatsFactory}. It will also control any registered {@link MatsFactory} beans,
+ * invoking {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} early in the startup procedure before adding the
+ * endpoints, and then {@link MatsFactory#start()} as late as possible in the startup procedure, then
+ * {@link MatsFactory#stop()} as early as possible in the shutdown procedure.
+ *
+ * <h3>This is the startup procedure:</h3>
+ * <ol>
+ * <li>The {@link MatsSpringAnnotationRegistration} (which is a <code>BeanPostProcessor</code>) will have each bean in
+ * the Spring ApplicationContext presented:
+ * <ol>
+ * <li>Each {@link MatsFactory} bean will have their {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} method
+ * invoked.</li>
+ * <li>Each bean which will have all their methods searched for the relevant annotations. Such annotated methods will be
+ * put in a list.</li>
+ * </ol>
+ * </li>
+ * <li>Upon {@link ContextRefreshedEvent}:
+ * <ol>
+ * <li>All definitions that was put in the list will be processed, and Mats Endpoints will be registered into the
+ * MatsFactory - using the specified MatsFactory if this was qualified in the definition (Read more at
+ * {@link MatsMapping @MatsMapping}).</li>
+ * <li>Then, all MatsFactories present in the ApplicationContext will have their {@link MatsFactory#start()} method
+ * invoked, which will "release" the configured Mats endpoints, so that they will start (which in turn fires up their
+ * "stage processor" threads, which will each go and get a connection to the underlying MQ (which probably is JMS-based)
+ * and start to listen for messages).</li>
+ * </ol>
+ * </li>
+ * </ol>
+ * Do notice that <i>all</i> MatsFactories in the Spring ApplicationContext are started, regardless of whether they had
+ * any Mats endpoints registered using the Mats SpringConfig. This implies that if you register any Mats endpoints
+ * programmatically using e.g. <code>@PostConstruct</code> or similar functionality, these will also be started.
+ *
+ * <h3>This is the shutdown procedure:</h3>
+ * <ol>
+ * <li>Upon {@link ContextClosedEvent}, all MatsFactories in the ApplicationContext will have their
+ * {@link MatsFactory#stop()} method invoked.
+ * <li>This causes all registered Mats Endpoints to be {@link MatsEndpoint#stop() stopped}, which releases the
+ * connection to the underlying MQ and stops the stage processor threads.
+ * </ol>
+ * Notice: ContextClosedEvent is fired rather early in the Spring ApplicationContext shutdown procedure. When running in
+ * integration testing mode, which typically will involve starting an in-vm ActiveMQ in the same JVM as the endpoints,
+ * this early stopping and releasing of connections is beneficial so that when the in-vm ActiveMQ is stopped somewhat
+ * later, one won't get a load of connection failures from the Mats endpoints which otherwise would have their
+ * connections shut down under their feet.
+ *
  * @author Endre Stølsvik - 2016-05-21 - http://endre.stolsvik.com
  */
+@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+@Component
 public class MatsSpringAnnotationRegistration implements
         BeanPostProcessor,
-        ApplicationContextAware, SmartLifecycle {
-
+        ApplicationContextAware {
     // Use clogging, since that's what Spring does.
     private static final Log log = LogFactory.getLog(MatsSpringAnnotationRegistration.class);
+    private static final String LOG_PREFIX = "#SPRINGMATS# ";
 
     private ConfigurableApplicationContext _configurableApplicationContext;
     private ConfigurableListableBeanFactory _configurableListableBeanFactory;
@@ -74,7 +120,7 @@ public class MatsSpringAnnotationRegistration implements
         log.info(LOG_PREFIX + "ApplicationContextAware.setApplicationContext('" + applicationContext.getClass()
                 .getSimpleName() + "'): " + applicationContext);
         if (!(applicationContext instanceof ConfigurableApplicationContext)) {
-            throw new IllegalStateException("The ApplicationContext when using Mats' Spring configuration"
+            throw new IllegalStateException("The ApplicationContext when using Mats' SpringConfig"
                     + " must implement " + ConfigurableApplicationContext.class.getSimpleName()
                     + ", while the provided ApplicationContext is of type [" + applicationContext.getClass().getName()
                     + "], and evidently don't.");
@@ -98,17 +144,33 @@ public class MatsSpringAnnotationRegistration implements
         if (bean instanceof MatsFactory) {
             // -> Yes, MatsFactory, so ask it to hold any subsequently registered endpoints until the MatsFactory is
             // explicitly started.
-            log.info(LOG_PREFIX + "postProcessBeforeInitialization(bean) invoked, and the bean is a MatsFactory."
-                    + " We invoke matsFactory.holdEndpointsUntilFactoryIsStarted(), ensuring that any subsequently"
-                    + " registered endpoints is held until we explicitly invoke matsFactory.start() later at"
-                    + " ContextRefreshedEvent, so that they do not start processing messages until the entire"
-                    + " application is ready for service. We also sets the name to the beanName if not already set.");
             MatsFactory matsFactory = (MatsFactory) bean;
+            // ?: However, have we already had the ContextRefreshedEvent presented?
+            if (_contextHasBeenRefreshed) {
+                // -> Yes, so then we should not hold anyway.
+                log.info(LOG_PREFIX + "postProcessBeforeInitialization(bean) invoked, and the bean is a MatsFactory."
+                        + " However, the context is already refreshed, so we won't invoke"
+                        + " matsFactory.holdEndpointsUntilFactoryIsStarted() - but instead invoke matsFactory.start()."
+                        + " This means that any not yet started endpoints will start, and any subsequently registered"
+                        + " endpoints will start immediately. The reason why this has happened is most probably due"
+                        + " to lazy initialization, where beans are being instantiated \"on demand\" after the "
+                        + " life cycle processing has happened (i.e. we got ContextRefreshedEvent already).");
+                matsFactory.start();
+            }
+            else {
+                // -> No, have not had ContextRefreshedEvent presented yet - so hold endpoints.
+                log.info(LOG_PREFIX + "postProcessBeforeInitialization(bean) invoked, and the bean is a MatsFactory."
+                        + " We invoke matsFactory.holdEndpointsUntilFactoryIsStarted(), ensuring that any subsequently"
+                        + " registered endpoints is held until we explicitly invoke matsFactory.start() later at"
+                        + " ContextRefreshedEvent, so that they do not start processing messages until the entire"
+                        + " application is ready for service. We also sets the name to the beanName if not already"
+                        + " set.");
+                // Ensure that any subsequently registered endpoints won't start until we hit matsFactory.start()
+                matsFactory.holdEndpointsUntilFactoryIsStarted();
+            }
             // Add to map for later use
             _matsFactories.put(beanName, matsFactory);
             _matsFactoriesToName.put(matsFactory, beanName);
-            // Ensure that any subsequently registered endpoints won't start until we hit matsFactory.start()
-            matsFactory.holdEndpointsUntilFactoryIsStarted();
             // Set the name of the MatsFactory to the Spring bean name if it is not already set.
             if ("".equals(matsFactory.getFactoryConfig().getName())) {
                 matsFactory.getFactoryConfig().setName(beanName);
@@ -161,6 +223,10 @@ public class MatsSpringAnnotationRegistration implements
                 for (MatsMapping matsMapping : entry.getValue()) {
                     log.info("Found @MatsMapping [" + matsMapping + "] on method [" + method + "].");
                     _matsMappings.add(new MatsMappingHolder(matsMapping, method, bean));
+                    if (_contextHasBeenRefreshed) {
+                        log.info(" \\- ContextRefreshedEvent already run! Process right away!");
+                        processMatsMapping(matsMapping, method, bean);
+                    }
                 }
             }
         }
@@ -172,6 +238,10 @@ public class MatsSpringAnnotationRegistration implements
                 for (MatsStaged matsStaged : entry.getValue()) {
                     log.info("Found @MatsStaged [" + matsStaged + "] on method [" + method + "].");
                     _matsStageds.add(new MatsStagedHolder(matsStaged, method, bean));
+                    if (_contextHasBeenRefreshed) {
+                        log.info(" \\- ContextRefreshedEvent already run! Process right away!");
+                        processMatsStaged(matsStaged, method, bean);
+                    }
                 }
             }
         }
@@ -217,76 +287,33 @@ public class MatsSpringAnnotationRegistration implements
         }
     }
 
-    // ===== SmartLifeCycle, as a test to be compliant with Remock.
-    // A problem still is that ordering of bean creation makes for problems: Since all @MatsMappings are constructed
-    // and started by the onContextRefreshedEvent(..) method, any bean that is registered LATER than this (which does
-    // not occur when using Spring normally) will NOT have its endpoints constructed and started.
-
-    @Override
-    public int getPhase() {
-        // Returning a quite low number to be STARTED early (but later than ConnectionFactoryScenarioWrapper),
-        // and STOPPED late (but earlier than ConnectionFactoryScenarioWrapper).
-        return -1_000_000;
-    }
-
-    private boolean _started;
-
-    @Override
-    public boolean isAutoStartup() {
-        return true;
-    }
-
-    @Override
-    public void start() {
-        log.info(LOG_PREFIX + "SmartLifeCycle.start on [" + this.getClass().getSimpleName()
-                + "]: Running registration and starting of endpoints");
-        onContextRefreshedEvent(null);
-        _started = true;
-    }
-
-    @Override
-    public boolean isRunning() {
-        return _started;
-    }
-
-    @Override
-    public void stop() {
-        _started = false;
-        onContextClosedEvent(null);
-    }
-
-    @Override
-    public void stop(Runnable callback) {
-        log.info(LOG_PREFIX + "SmartLifeCycle.stop(callback) on [" + this.getClass().getSimpleName()
-                + "]: Stopping MatsLocalVmActiveMq's BrokerService.");
-        stop();
-        callback.run();
-    }
-
-    // ===== /end SmartLifeCycle
-
-
-    // ===== ApplicationListener implementation
-
-//    @Override
-//    public void onApplicationEvent(ApplicationEvent event) {
-//        if (event instanceof ContextRefreshedEvent) {
-//            onContextRefreshedEvent((ContextRefreshedEvent) event);
-//        }
-//        else if (event instanceof ContextClosedEvent) {
-//            onContextClosedEvent((ContextClosedEvent) event);
-//        }
-//    }
+    private boolean _contextHasBeenRefreshed;
 
     /**
      * {@link ContextRefreshedEvent} runs pretty much as the latest step in the Spring life cycle starting process:
      * Processes all {@link MatsMapping} and {@link MatsStaged} annotations, then starts the MatsFactory, which will
      * start any "hanging" MATS Endpoints, which will then start consuming messages.
      */
-    // @EventListener
+    @EventListener
     public void onContextRefreshedEvent(ContextRefreshedEvent e) {
-        log.info(LOG_PREFIX + "ContextRefreshedEvent, registering all Endpoints, then running MatsFactory.start()"
+        log.info(LOG_PREFIX + "ContextRefreshedEvent: Registering all Endpoints, then running MatsFactory.start()"
                 + " on all MatsFactories in the Spring Context to start all registered MATS Endpoints.");
+
+        /*
+         * This is a mega-hack to handle the situation where the entire Spring context's bean definitions has been put
+         * in lazy-init mode, like "Remock" does. It forces all bean defined MatsFactories to be instantiated if they
+         * have not yet been depended on by the beans that so far has been pulled in. This serves two purposes a) They
+         * will be registered in the postProcessBeforeInitialization() above, and b) any endpoint that depends on a
+         * not-yet instantiated MatsFactory will not crash (as can happen otherwise, as our Qualification-trickery
+         * evidently uses methods of Spring that does not force instantiation of beans, specifically this method:
+         * BeanFactoryAnnotationUtils.qualifiedBeanOfType(BeanFactory beanFactory, Class<T> beanType, String qualifier)
+         */
+        _configurableListableBeanFactory.getBeansOfType(MatsFactory.class);
+
+        // Now set the flag that denotes that ContextRefreshedEvent has been run, so that any subsequent beans with
+        // @MatsMapping and friends will be insta-registered (as there won't be a second run of the present method,
+        // which otherwise has responsibility of registering these).
+        _contextHasBeenRefreshed = true;
 
         // :: Register Mats endpoints for all @MatsMapping and @MatsStaged annotated methods.
         _matsMappings.forEach(h -> processMatsMapping(h.matsMapping, h.method, h.bean));
@@ -306,15 +333,20 @@ public class MatsSpringAnnotationRegistration implements
      * Stop the MatsFactory, which will stop all MATS Endpoints, which will have them release their JMS resources - and
      * then the MatsFactory will clean out the JmsMatsJmsSessionHandler.
      */
-    // @EventListener
+    @EventListener
     public void onContextClosedEvent(ContextClosedEvent e) {
         log.info(LOG_PREFIX
-                + "ContextClosedEvent, running MatsFactory.stop() on all MatsFactories in the Spring Context"
+                + "ContextClosedEvent: Running MatsFactory.stop() on all MatsFactories in the Spring Context"
                 + " to stop all registered MATS Endpoints and clean out the JmsMatsJmsSessionHandler.");
         _matsFactories.forEach((name, factory) -> {
             log.info(LOG_PREFIX + "  \\- MatsFactory '" + name + "'.stop()");
             factory.stop();
         });
+
+        // Reset the state. Not that I ever believe this will ever be refreshed again afterwards.
+        _contextHasBeenRefreshed = false;
+        _matsMappings.clear();
+        _matsStageds.clear();
     }
 
     /**
@@ -712,7 +744,8 @@ public class MatsSpringAnnotationRegistration implements
             matsFactories.add((MatsFactory) annotatedBean);
         }
 
-        String qualifierString = (customQualifier != null ? customQualifier.toString() : customQualifierType.getSimpleName());
+        String qualifierString = (customQualifier != null ? customQualifier.toString()
+                : customQualifierType.getSimpleName());
         if (matsFactories.size() > 1) {
             throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
                     .getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available in the"

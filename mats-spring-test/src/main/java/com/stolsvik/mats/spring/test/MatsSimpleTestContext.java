@@ -23,7 +23,6 @@ import org.springframework.test.context.ContextConfiguration;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.spring.EnableMats;
-import com.stolsvik.mats.spring.MatsSpringConfiguration;
 import com.stolsvik.mats.spring.test.MatsSimpleTestContext.MatsSimpleTestInfrastructureContextInitializer;
 import com.stolsvik.mats.spring.test.MatsSimpleTestContext.MatsTestInfrastructureConfiguration;
 import com.stolsvik.mats.test.MatsTestLatch;
@@ -112,9 +111,9 @@ public @interface MatsSimpleTestContext {
 
     /**
      * The reason for this obscure way to add the {@link MatsTestInfrastructureConfiguration} (as opposed to just point
-     * to it with "classes=..") is that otherwise the default {@literal @Configuration} lookup is thwarted, i.e. if you
-     * specify classes= or location=, it will not find the typical static inner class annotated with
-     * {@literal @Configuration}.
+     * to it with "classes=..") is as follows: Spring has this feature where any static inner @Configuration class of
+     * the test class is automatically loaded. If we specify specify classes= or location=, this default will be
+     * thwarted.
      * 
      * @see <a href=
      *      "https://docs.spring.io/spring/docs/current/spring-framework-reference/testing.html#testcontext-ctx-management-initializers">Test
@@ -124,11 +123,11 @@ public @interface MatsSimpleTestContext {
             ApplicationContextInitializer<ConfigurableApplicationContext> {
         // Use clogging, since that's what Spring does.
         private static final Log log = LogFactory.getLog(MatsSimpleTestInfrastructureContextInitializer.class);
+        private static final String LOG_PREFIX = "#SPRINGMATS# ";
 
         @Override
         public void initialize(ConfigurableApplicationContext applicationContext) {
-            log.debug(MatsSpringConfiguration.LOG_PREFIX + "Registering "
-                    + MatsTestInfrastructureConfiguration.class.getSimpleName()
+            log.debug(LOG_PREFIX + "Registering " + MatsTestInfrastructureConfiguration.class.getSimpleName()
                     + " on: " + applicationContext);
 
             /*
