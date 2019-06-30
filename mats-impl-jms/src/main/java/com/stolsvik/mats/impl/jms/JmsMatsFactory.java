@@ -337,8 +337,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
     @Override
     public String idThis() {
         String name = _factoryConfig.getName();
-        return this.getClass().getSimpleName()
-                + ("".equals(name) ? "" : ("'" + name + "'"))
+        return ("".equals(name) ? this.getClass().getSimpleName() : name)
                 + '@' + Integer.toHexString(System.identityHashCode(this));
     }
 

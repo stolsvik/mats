@@ -303,9 +303,10 @@ public class MatsSpringAnnotationRegistration implements
          * This is a mega-hack to handle the situation where the entire Spring context's bean definitions has been put
          * in lazy-init mode, like "Remock" does. It forces all bean defined MatsFactories to be instantiated if they
          * have not yet been depended on by the beans that so far has been pulled in. This serves two purposes a) They
-         * will be registered in the postProcessBeforeInitialization() above, and b) any endpoint that depends on a
-         * not-yet instantiated MatsFactory will not crash (as can happen otherwise, as our Qualification-trickery
-         * evidently uses methods of Spring that does not force instantiation of beans, specifically this method:
+         * will be registered in the postProcessBeforeInitialization() above, and b) any endpoint whose containing bean
+         * is instantiated later (after ContextRefreshedEvent) and which depends on a not-yet instantiated MatsFactory
+         * will not crash (as can happen otherwise, as our @MatsMapping Qualification-trickery evidently uses methods of
+         * Spring that does not force instantiation of beans, specifically this method:
          * BeanFactoryAnnotationUtils.qualifiedBeanOfType(BeanFactory beanFactory, Class<T> beanType, String qualifier)
          */
         _configurableListableBeanFactory.getBeansOfType(MatsFactory.class);

@@ -48,7 +48,7 @@ public class ATest_AbstractConcurrency extends MatsBasicTest {
          * Remedy by napping a little before firing off the messages, hoping that all the StageProcessors gets one
          * message each, which is a requirement for the test to pass.
          */
-        takeNap(PROCESSING_TIME / 4);
+        takeNap(PROCESSING_TIME / 2);
 
         // .. Now fire off the messages.
         matsRule.getMatsInitiator().initiateUnchecked((msg) -> {
