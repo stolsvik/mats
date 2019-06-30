@@ -309,12 +309,12 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         @Override
-        public void request(Object requestDto) {
-            request(requestDto, null);
+        public MessageReference request(Object requestDto) {
+            return request(requestDto, null);
         }
 
         @Override
-        public void request(Object requestDto, Object initialTargetSto) {
+        public MessageReference request(Object requestDto, Object initialTargetSto) {
             long nanosStart = System.nanoTime();
             String msg = "All of 'traceId', 'from', 'to' and 'replyTo' must be set when request(..)";
             checkCommon(msg);
@@ -337,10 +337,13 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             copyOverAnyExistingTraceProperties(matsTrace);
 
+            String matsMessageId = createMatsMessageId();
+
             // TODO: Add debug info!
             matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                     _parentFactory.getFactoryConfig().getAppVersion(),
-                    _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
+                    _parentFactory.getFactoryConfig().getNodename(), now, matsMessageId,
+                    "Callalala!");
 
             // Produce the new REQUEST JmsMatsMessage to send
             JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
@@ -350,15 +353,17 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             // Reset, in preparation for more messages
             reset();
+
+            return new MessageReferenceImpl(matsMessageId);
         }
 
         @Override
-        public void send(Object messageDto) {
-            send(messageDto, null);
+        public MessageReference send(Object messageDto) {
+            return send(messageDto, null);
         }
 
         @Override
-        public void send(Object messageDto, Object initialTargetSto) {
+        public MessageReference send(Object messageDto, Object initialTargetSto) {
             long nanosStart = System.nanoTime();
             checkCommon("All of 'traceId', 'from' and 'to' must be set when send(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
@@ -374,10 +379,13 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             copyOverAnyExistingTraceProperties(matsTrace);
 
+            String matsMessageId = createMatsMessageId();
+
             // TODO: Add debug info!
             matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                     _parentFactory.getFactoryConfig().getAppVersion(),
-                    _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
+                    _parentFactory.getFactoryConfig().getNodename(), now, matsMessageId,
+                    "Callalala!");
 
             // Produce the new SEND JmsMatsMessage to send
             JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
@@ -387,15 +395,17 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             // Reset, in preparation for more messages
             reset();
+
+            return new MessageReferenceImpl(matsMessageId);
         }
 
         @Override
-        public void publish(Object messageDto) {
-            publish(messageDto, null);
+        public MessageReference publish(Object messageDto) {
+            return publish(messageDto, null);
         }
 
         @Override
-        public void publish(Object messageDto, Object initialTargetSto) {
+        public MessageReference publish(Object messageDto, Object initialTargetSto) {
             long nanosStart = System.nanoTime();
             checkCommon("All of 'traceId', 'from' and 'to' must be set when publish(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
@@ -411,10 +421,13 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             copyOverAnyExistingTraceProperties(matsTrace);
 
+            String matsMessageId = createMatsMessageId();
+
             // TODO: Add debug info!
             matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                     _parentFactory.getFactoryConfig().getAppVersion(),
-                    _parentFactory.getFactoryConfig().getNodename(), now, "Callalala!");
+                    _parentFactory.getFactoryConfig().getNodename(), now, matsMessageId,
+                    "Callalala!");
 
             // Produce the new PUBLISH JmsMatsMessage to send
             JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
@@ -424,6 +437,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             // Reset, in preparation for more messages
             reset();
+
+            return new MessageReferenceImpl(matsMessageId);
         }
 
         private static final Charset CHARSET_UTF8 = Charset.forName("UTF-8");
@@ -458,14 +473,14 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             // just have older versions "jump over" the ones it does not know.
             int howManyZeros = stash[9];
 
-            // :: Find zeros (field delimiters)
+            // :: Find zeros (field delimiters) - UTF-8 does not have zeros: https://stackoverflow.com/a/6907327/39334
             int zstartEndpointId = findZero(stash, 10); // Should currently be right there, at pos#10.
             int zstartStageId = findZero(stash, zstartEndpointId + 1);
             int zstartNextStageId = findZero(stash, zstartStageId + 1);
             int zstartMatsTraceMeta = findZero(stash, zstartNextStageId + 1);
-            int zstartMessageId = findZero(stash, zstartMatsTraceMeta + 1);
+            int zstartSystemMessageId = findZero(stash, zstartMatsTraceMeta + 1);
             // :: Here we'll jump over fields that we do not know, to be able to add more metadata in later revisions.
-            int zstartMatsTrace = zstartMessageId;
+            int zstartMatsTrace = zstartSystemMessageId;
             for (int i = 5; i < howManyZeros; i++) {
                 zstartMatsTrace = findZero(stash, zstartMatsTrace + 1);
             }
@@ -486,10 +501,10 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                                     zstartMatsTraceMeta - zstartNextStageId - 1, CHARSET_UTF8);
             // :MatsTrace Meta
             String matsTraceMeta = new String(stash, zstartMatsTraceMeta + 1,
-                    zstartMessageId - zstartMatsTraceMeta - 1, CHARSET_UTF8);
+                    zstartSystemMessageId - zstartMatsTraceMeta - 1, CHARSET_UTF8);
             // :MessageId
-            String messageId = new String(stash, zstartMessageId + 1,
-                    zstartMatsTrace - zstartMessageId - 1, CHARSET_UTF8);
+            String messageId = new String(stash, zstartSystemMessageId + 1,
+                    zstartMatsTrace - zstartSystemMessageId - 1, CHARSET_UTF8);
 
             // :Actual MatsTrace:
             DeserializedMatsTrace<Z> deserializedMatsTrace = _parentFactory.getMatsSerializer()
@@ -588,6 +603,19 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public String toString() {
             return idThis();
+        }
+    }
+
+    static class MessageReferenceImpl implements MessageReference {
+        private final String _matsMessageId;
+
+        public MessageReferenceImpl(String matsMessageId) {
+            _matsMessageId = matsMessageId;
+        }
+
+        @Override
+        public String getMatsMessageId() {
+            return _matsMessageId;
         }
     }
 }

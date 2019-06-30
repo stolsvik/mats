@@ -4,6 +4,7 @@ import java.io.Closeable;
 
 import org.slf4j.MDC;
 
+import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
@@ -286,18 +287,24 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate interactive();
 
         /**
-         * Sets the fictive originating/initiating "endpointId" - only used for tracing/debugging. If this message is
-         * initiated from within a stage, i.e. by use of {@link ProcessContext#initiate(InitiateLambda)}, the 'from'
-         * property is already set to the stageId of the currently processing Stage, but it can be overridden if
+         * Sets the fictive originating/initiating free-form "endpointId" - only used for tracing/debugging. If this
+         * message is initiated from within a stage, i.e. by use of {@link ProcessContext#initiate(InitiateLambda)}, the
+         * 'from' property is already set to the stageId of the currently processing Stage, but it can be overridden if
          * desired.
          * <p>
          * A typical value that would be of use when debugging a call trace is something following a structure like
          * <code>"OrderService.initiator.processOrder"</code>.
+         * <p>
+         * NOTE: This is only used for tracing/debugging, and is free-form. If the initiation is based on a HTTP call,
+         * e.g. a REST endpoint, it is suggested toto add the URL, e.g.
+         * <code>"OrderService.initiator./orders/place_order?cartId=12345"</code>
          *
          * @param initiatorId
-         *            a fictive "endpointId" representing the "initiating endpoint" - only used for tracing/debugging. A
-         *            typical value that would be of use when debugging a call trace is something following a structure
-         *            like <code>"OrderService.initiator.processOrder"</code>.
+         *            a fictive, free-form "endpointId" representing the "initiating endpoint" - only used for
+         *            tracing/debugging. A typical value that would be of use when debugging a call trace is something
+         *            following a structure like <code>"OrderService.initiator.processOrder"</code>, or if the
+         *            initiation is based on a HTTP call, e.g. a REST endpoint, it is suggested to add the URL, e.g.
+         *            <code>"OrderService.initiator./orders/place_order?cartId=12345"</code>
          * @return the {@link MatsInitiate} for chaining.
          */
         MatsInitiate from(String initiatorId);
@@ -400,7 +407,7 @@ public interface MatsInitiator extends Closeable {
          * @param requestDto
          *            the object which the endpoint will get as its incoming DTO (Data Transfer Object).
          */
-        void request(Object requestDto);
+        MessageReference request(Object requestDto);
 
         /**
          * <b>Variation of the request initiation method</b>, where the incoming state is sent along.
@@ -415,7 +422,7 @@ public interface MatsInitiator extends Closeable {
          * @param initialTargetSto
          *            the object which the target endpoint will get as its STO (State Transfer Object).
          */
-        void request(Object requestDto, Object initialTargetSto);
+        MessageReference request(Object requestDto, Object initialTargetSto);
 
         /**
          * Sends a message to an endpoint, without expecting any reply ("fire-and-forget"). The 'reply' parameter must
@@ -427,7 +434,7 @@ public interface MatsInitiator extends Closeable {
          * @param messageDto
          *            the object which the target endpoint will get as its incoming DTO (Data Transfer Object).
          */
-        void send(Object messageDto);
+        MessageReference send(Object messageDto);
 
         /**
          * <b>Variation of the {@link #send(Object)} method</b>, where the incoming state is sent along.
@@ -442,7 +449,7 @@ public interface MatsInitiator extends Closeable {
          * @param initialTargetSto
          *            the object which the target endpoint will get as its STO (State Transfer Object).
          */
-        void send(Object messageDto, Object initialTargetSto);
+        MessageReference send(Object messageDto, Object initialTargetSto);
 
         /**
          * Sends a message to a
@@ -461,7 +468,7 @@ public interface MatsInitiator extends Closeable {
          * @param messageDto
          *            the object which the target endpoint will get as its incoming DTO (Data Transfer Object).
          */
-        void publish(Object messageDto);
+        MessageReference publish(Object messageDto);
 
         /**
          * <b>Variation of the {@link #publish(Object)} method</b>, where the incoming state is sent along.
@@ -483,7 +490,7 @@ public interface MatsInitiator extends Closeable {
          * @param initialTargetSto
          *            the object which the target endpoint will get as its STO (State Transfer Object).
          */
-        void publish(Object messageDto, Object initialTargetSto);
+        MessageReference publish(Object messageDto, Object initialTargetSto);
 
         /**
          * Unstashes a Mats Flow that have been previously {@link ProcessContext#stash() stashed}. To be able to
@@ -513,6 +520,20 @@ public interface MatsInitiator extends Closeable {
                 Class<S> stateClass,
                 Class<I> incomingClass,
                 ProcessLambda<R, S, I> lambda);
+    }
+
+    /**
+     * Reference information about the outgoing message.
+     */
+    interface MessageReference {
+        /**
+         * @return the globally unique Mats MessageId of the outgoing message - which will be available on the incoming
+         *         side as {@link DetachedProcessContext#getMatsMessageId()} (where it could also be used to catch
+         *         double deliveries, as it shall be utterly unique to this particular sent message). You could
+         *         conceivably store this along with the order row in the database or something like this, i.e. "this is
+         *         the Id of the particular Mats Message that sent this order on its way".
+         */
+        String getMatsMessageId();
     }
 
     /**

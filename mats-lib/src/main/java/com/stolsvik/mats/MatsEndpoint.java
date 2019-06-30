@@ -6,6 +6,7 @@ import java.util.function.Consumer;
 import com.stolsvik.mats.MatsConfig.StartStoppable;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
+import com.stolsvik.mats.MatsInitiator.MessageReference;
 import com.stolsvik.mats.MatsStage.StageConfig;
 
 /**
@@ -198,12 +199,16 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         String getFromStageId();
 
         /**
+         * @return the unique messageId for the incoming message from Mats - which can be used to catch
+         *         double-deliveries.
+         */
+        String getMatsMessageId();
+
+        /**
          * @return the unique messageId for the incoming message, from the underlying message system - which can be used
          *         to catch double-deliveries. (For a JMS Implementation, this will be the "JMSMessageID").
-         * @throws IllegalStateException
-         *             if this is within an initialization, where there is no incoming message.
          */
-        String getMessageId() throws IllegalStateException;
+        String getSystemMessageId();
 
         /**
          * This is relevant if stashing or otherwise when a stage is accessing an external system (e.g. another MQ)
@@ -434,12 +439,13 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * @param requestDto
          *            the message that should be sent to the specified endpoint.
          */
-        void request(String endpointId, Object requestDto);
+        MessageReference request(String endpointId, Object requestDto);
 
         /**
-         * Sends a reply to the requesting service. This will be ignored if there is no endpointId on the stack, which
-         * obviously is the case if this is a terminator, but also if it is the last stage of an endpoint that was
-         * invoked directly.
+         * Sends a reply to the requesting service. This will be ignored if there is no endpointId on the stack, i.e. if
+         * this endpoint it is semantically a terminator (the <code>replyTo</code> of an initiation's request), or if it
+         * is the last stage of an endpoint that was invoked directly (using {@link MatsInitiate#send(Object)
+         * MatsInitiate.send(msg)}).
          * <p>
          * It is possible to do "early return" in a multi-stage endpoint by invoking this method in a stage that is not
          * the last. (You should then obviously not also invoke {@link #request(String, Object)} or
@@ -449,20 +455,20 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * @param replyDto
          *            the reply DTO to return to the invoker.
          */
-        void reply(R replyDto);
+        MessageReference reply(R replyDto);
 
         /**
          * Invokes the next stage of a multi-stage endpoint directly, instead of going through a request-reply to some
          * service. The rationale for this method is that in certain situation you might not need to invoke some service
-         * after all: Basically, you can do something like <code>if (condition) { request service } else { next }</code>
-         * .
+         * after all (e.g. in situation X, you do not need the holding information of the customer): Basically, you can
+         * do something like <code>if (condition) { request service } else { next }</code>.
          *
          * @param incomingDto
          *            the object for the next stage's incoming DTO, which must match what the next stage expects. When
          *            using this method to skip a request, it probably often makes sense to set it to <code>null</code>,
          *            which the next stage then must handle correctly.
          */
-        void next(Object incomingDto);
+        MessageReference next(Object incomingDto);
 
         /**
          * Initiates a new message out to an endpoint. This is effectively the same as invoking

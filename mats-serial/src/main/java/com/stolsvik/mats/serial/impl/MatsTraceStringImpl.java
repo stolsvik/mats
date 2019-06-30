@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.TimeZone;
 
@@ -409,6 +410,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         private String av; // Calling AppVersion
         private String h; // Calling Host
         private long ts; // Calling TimeStamp
+        private String id; // MatsMessageId.
 
         private String x; // Debug Info (free-form)
 
@@ -436,12 +438,33 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             this.s = stack;
         }
 
+        /**
+         * Deprecated. Sets MatsMessageId to a random String.
+         */
         public CallImpl setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
                 long calledTimestamp, String debugInfo) {
             an = callingAppName;
             av = callingAppVersion;
             h = callingHost;
             ts = calledTimestamp;
+            x = debugInfo;
+
+            // Since it was called without a MatsMessageId, we generate one here.
+            Random random = new Random();
+            id = "mats_" + Long.toUnsignedString(System.currentTimeMillis(), 36)
+                    + "_" + Long.toUnsignedString(random.nextLong(), 36)
+                    + Long.toUnsignedString(random.nextLong(), 36);
+
+            return this;
+        }
+
+        public CallImpl setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
+                long calledTimestamp, String matsMessageId, String debugInfo) {
+            an = callingAppName;
+            av = callingAppVersion;
+            h = callingHost;
+            ts = calledTimestamp;
+            id = matsMessageId;
             x = debugInfo;
             return this;
         }
@@ -472,14 +495,22 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             return av;
         }
 
+        @Override
         public String getCallingHost() {
             return h;
         }
 
+        @Override
         public long getCalledTimestamp() {
             return ts;
         }
 
+        @Override
+        public String getMatsMessageId() {
+            return id;
+        }
+
+        @Override
         public String getDebugInfo() {
             return x;
         }
@@ -542,7 +573,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
         private String fromStackData(boolean printNullData) {
             return "#from:" + (an != null ? an : "") + (av != null ? "[" + av + "]" : "")
-                    + (h != null ? "@" + h : "") + (f != null ? ':' + f : "")
+                    + (h != null ? "@" + h : "") + (f != null ? ':' + f : "") + (id != null ? ':' + id : "")
                     + (s != null ? ", #stack:" + s : "")
                     + (((d != null) || printNullData) ? ", #data:" + d : "");
         }

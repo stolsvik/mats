@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Random;
 
 import javax.jms.DeliveryMode;
 import javax.jms.Destination;
@@ -83,7 +84,7 @@ public interface JmsMatsStatics {
     }
 
     /**
-     * Common message enqueuing method - handles commonalities.
+     * Common message production method - handles commonalities.
      *
      * <b>Notice that the props-, bytes- and Strings-Maps come back cleared.</b>
      */
@@ -206,6 +207,13 @@ public interface JmsMatsStatics {
         double millisTotal = (nanosFinal - nanosStart) / 1_000_000d;
         log.info(LOG_PREFIX + "SENT [" + messagesToSend.size() + "] messages, took:[" + millisSendingMessags
                 + "] - total since recv/init:[" + millisTotal + "].");
+    }
+
+    default String createMatsMessageId() {
+        Random random = new Random();
+        return "mats_" + Long.toUnsignedString(System.currentTimeMillis(), 36)
+                + "_" + Long.toUnsignedString(random.nextLong(), 36)
+                + Long.toUnsignedString(random.nextLong(), 36);
     }
 
     default String id(String what, Object obj) {

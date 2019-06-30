@@ -85,6 +85,10 @@ public interface MatsTrace<Z> {
 
     String getInitializingHost();
 
+    /**
+     * @return a fictive free-form "endpointId" of the initiator, see
+     *         <code>MatsInitiator.MatsInitiate.from(String)</code> - can include arbitrary characters.
+     */
     String getInitiatorId();
 
     long getInitializedTimestamp();
@@ -271,10 +275,16 @@ public interface MatsTrace<Z> {
      */
     interface Call<Z> {
         /**
-         * Can only be set once..
+         * DEPRECATED! Use {@link #setDebugInfo(String, String, String, long, String, String)} (the right below).
          */
         Call<Z> setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
                 long calledTimestamp, String debugInfo);
+
+        /**
+         * Can only be set once.
+         */
+        Call<Z> setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
+                long calledTimestamp, String matsMessageId, String debugInfo);
 
         String getCallingAppName();
 
@@ -283,6 +293,8 @@ public interface MatsTrace<Z> {
         String getCallingHost();
 
         long getCalledTimestamp();
+
+        String getMatsMessageId();
 
         String getDebugInfo();
 

@@ -34,7 +34,7 @@ public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
             sto.number1 = Integer.MAX_VALUE;
             sto.number2 = Math.E;
 
-            Assert.assertNotNull(context.getMessageId());
+            Assert.assertNotNull(context.getSystemMessageId());
 
             byte[] bytes = context.getBytes("bytes");
             String string = context.getString("string");
@@ -47,7 +47,7 @@ public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
         ep.lastStage(DataTO.class, (context, sto, dto) -> {
             Assert.assertEquals(new StateTO(Integer.MAX_VALUE, Math.E), sto);
 
-            Assert.assertNotNull(context.getMessageId());
+            Assert.assertNotNull(context.getSystemMessageId());
 
             byte[] bytes = context.getBytes("bytes");
             String string = context.getString("string");
@@ -67,7 +67,7 @@ public class Test_PropertiesBytesAndStrings extends MatsBasicTest {
                     _bytes = context.getBytes("bytes");
                     _string = context.getString("string");
 
-                    Assert.assertNotNull(context.getMessageId());
+                    Assert.assertNotNull(context.getSystemMessageId());
 
                     matsTestLatch.resolve(sto, dto);
                 });

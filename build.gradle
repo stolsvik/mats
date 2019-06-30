@@ -23,7 +23,7 @@ subprojects {
     apply plugin: 'java'
     apply plugin: 'maven'
     apply plugin: 'eclipse'
-    
+
     repositories { mavenCentral() }
 
     group = 'com.stolsvik.mats'
@@ -50,7 +50,7 @@ subprojects {
         classifier = 'javadoc'
         from javadoc
     }
-    
+
     task sourceJar(type: Jar) {
         classifier = 'sources'
         from sourceSets.main.allSource
@@ -59,7 +59,7 @@ subprojects {
     jar {
         manifest {
             attributes 'Implementation-Title': 'MATS',
-               'Implementation-Version': version
+                    'Implementation-Version': version
         }
     }
 

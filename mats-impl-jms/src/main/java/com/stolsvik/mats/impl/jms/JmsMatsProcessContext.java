@@ -9,8 +9,10 @@ import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
+import com.stolsvik.mats.MatsInitiator.MessageReference;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
+import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MessageReferenceImpl;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call;
@@ -31,7 +33,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     private final String _endpointId;
     private final String _stageId;
-    private final String _messageId;
+    private final String _systemMessageId;
     private final String _nextStageId;
 
     private final byte[] _incomingSerializedMatsTrace;
@@ -48,7 +50,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     JmsMatsProcessContext(JmsMatsFactory<Z> parentFactory,
             String endpointId,
             String stageId,
-            String messageId,
+            String systemMessageId,
             String nextStageId,
             byte[] incomingSerializedMatsTrace, int mtSerOffset, int mtSerLength,
             String incomingSerializedMatsTraceMeta,
@@ -59,7 +61,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
         _endpointId = endpointId;
         _stageId = stageId;
-        _messageId = messageId;
+        _systemMessageId = systemMessageId;
         _nextStageId = nextStageId;
 
         _incomingSerializedMatsTrace = incomingSerializedMatsTrace;
@@ -106,8 +108,13 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     }
 
     @Override
-    public String getMessageId() {
-        return _messageId;
+    public String getMatsMessageId() {
+        return _incomingMatsTrace.getCurrentCall().getMatsMessageId();
+    }
+
+    @Override
+    public String getSystemMessageId() {
+        return _systemMessageId;
     }
 
     @Override
@@ -175,9 +182,11 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         // .. serialized MatsTrace's meta info:
         byte[] b_meta = _incomingSerializedMatsTraceMeta.getBytes(StandardCharsets.UTF_8);
         // .. messageId
-        byte[] b_messageId = _messageId.getBytes(StandardCharsets.UTF_8);
+        byte[] b_systemMessageId = _systemMessageId.getBytes(StandardCharsets.UTF_8);
 
         // :: Create the byte array in one go
+
+        // NOTICE: We use 0-delimiting, UTF-8 does not have zeros: https://stackoverflow.com/a/6907327/39334
 
         // Total length:
         // = 8 for the 2 x FourCC's "MATSjmts"
@@ -200,8 +209,8 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
                 // + b_meta.length
                 + 1 + b_meta.length
                 // + 1 for the 0-delimiter
-                // + b_messageId.length
-                + 1 + b_messageId.length
+                // + b_systemMessageId.length
+                + 1 + b_systemMessageId.length
                 // + 1 for the 0-delimiter
                 // + length of incoming serialized MatsTrace, _mtSerLength
                 + 1 + _mtSerLength;
@@ -245,10 +254,10 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         // ZERO 5: All bytes in new initialized array is 0 already
         // MessageId start pos:
         int startPos_MessageId = startPos_Meta + b_meta.length + 1;
-        System.arraycopy(b_messageId, 0, b_fullStash, startPos_MessageId, b_messageId.length);
+        System.arraycopy(b_systemMessageId, 0, b_fullStash, startPos_MessageId, b_systemMessageId.length);
         // ZERO 6: All bytes in new initialized array is 0 already
         // Actual Serialized MatsTrace start pos:
-        int startPos_MatsTrace = startPos_MessageId + b_messageId.length + 1;
+        int startPos_MatsTrace = startPos_MessageId + b_systemMessageId.length + 1;
         System.arraycopy(_incomingSerializedMatsTrace, _mtSerOffset,
                 b_fullStash, startPos_MatsTrace, _mtSerLength);
 
@@ -269,8 +278,10 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         return _parentFactory.getMatsSerializer().deserializeObject(value, clazz);
     }
 
+    private static final String REPLY_TO_VOID = "REPLY_TO_VOID_NO_MESSAGE_SENT";
+
     @Override
-    public void request(String endpointId, Object requestDto) {
+    public MessageReference request(String endpointId, Object requestDto) {
         long nanosStart = System.nanoTime();
         // :: Assert that we have a next-stage
         if (_nextStageId == null) {
@@ -286,20 +297,25 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
                 matsSerializer.serializeObject(requestDto),
                 matsSerializer.serializeObject(_incomingAndOutgoingState), null);
 
+        String matsMessageId = createMatsMessageId();
+
         // TODO: Add debug info!
         requestMatsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                 _parentFactory.getFactoryConfig().getAppVersion(),
-                _parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), "Callalala!");
+                _parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), matsMessageId,
+                "Callalala!");
 
         // Produce the REQUEST JmsMatsMessage to send
         JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
                 requestMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "REQUEST",
                 _parentFactory.getFactoryConfig().getName());
         _messagesToSend.add(request);
+
+        return new MessageReferenceImpl(matsMessageId);
     }
 
     @Override
-    public void reply(Object replyDto) {
+    public MessageReference reply(Object replyDto) {
         long nanosStart = System.nanoTime();
         // :: Short-circuit the reply (to no-op) if there is nothing on the stack to reply to.
         List<Channel> stack = _incomingMatsTrace.getCurrentCall().getStack();
@@ -307,9 +323,9 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
             // This is OK, it is just like a normal java call where you do not use the return value, e.g. map.put(k, v).
             // It happens if you use "send" (aka "fire-and-forget") to an endpoint which has reply-semantics, which
             // is legal.
-            log.info("Stage [" + _stageId + " invoked context.reply(..), but there are no elements"
+            log.info("Stage [" + _stageId + "] invoked context.reply(..), but there are no elements"
                     + " on the stack, hence no one to reply to, ignoring.");
-            return;
+            return new MessageReferenceImpl(REPLY_TO_VOID);
         }
 
         // :: Create next MatsTrace
@@ -317,21 +333,26 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         MatsTrace<Z> replyMatsTrace = _incomingMatsTrace.addReplyCall(_stageId,
                 matsSerializer.serializeObject(replyDto));
 
+        String matsMessageId = createMatsMessageId();
+
         // TODO: Add debug info!
         Call<Z> currentCall = replyMatsTrace.getCurrentCall();
         currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                 _parentFactory.getFactoryConfig().getAppVersion(),
-                _parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), "Callalala!");
+                _parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), matsMessageId,
+                "Callalala!");
 
         // Produce the REPLY JmsMatsMessage to send
         JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
                 replyMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "REPLY",
                 _parentFactory.getFactoryConfig().getName());
         _messagesToSend.add(request);
+
+        return new MessageReferenceImpl(matsMessageId);
     }
 
     @Override
-    public void next(Object incomingDto) {
+    public MessageReference next(Object incomingDto) {
         long nanosStart = System.nanoTime();
         // :: Assert that we have a next-stage
         if (_nextStageId == null) {
@@ -344,21 +365,27 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         MatsTrace<Z> nextMatsTrace = _incomingMatsTrace.addNextCall(_stageId, _nextStageId,
                 matsSerializer.serializeObject(incomingDto), matsSerializer.serializeObject(_incomingAndOutgoingState));
 
+        String matsMessageId = createMatsMessageId();
+
         // TODO: Add debug info!
         nextMatsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                 _parentFactory.getFactoryConfig().getAppVersion(),
-                _parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), "Callalala!");
+                _parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), matsMessageId,
+                "Callalala!");
 
         // Produce the NEXT JmsMatsMessage to send
         JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
                 nextMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "NEXT",
                 _parentFactory.getFactoryConfig().getName());
         _messagesToSend.add(request);
+
+        return new MessageReferenceImpl(matsMessageId);
     }
 
     @Override
     public void initiate(InitiateLambda lambda) {
-        lambda.initiate(new JmsMatsInitiate<>(_parentFactory, _messagesToSend, _doAfterCommitRunnableHolder, _incomingMatsTrace, _outgoingProps));
+        lambda.initiate(new JmsMatsInitiate<>(_parentFactory, _messagesToSend, _doAfterCommitRunnableHolder,
+                _incomingMatsTrace, _outgoingProps));
     }
 
     @Override
