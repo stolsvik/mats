@@ -2,6 +2,7 @@ package com.stolsvik.mats.spring.test.apptest;
 
 import javax.inject.Inject;
 
+import no.saua.remock.DisableLazyInit;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -41,32 +42,11 @@ import no.saua.remock.RemockBootstrapper;
 @RunWith(SpringRunner.class)
 @MatsTestProfile
 // Using Remock
+@DisableLazyInit(Mats_SingleEndpoint.class)
 @BootstrapWith(RemockBootstrapper.class)
 public class UseFullApplicationConfiguration_WithRemock {
     private static final Logger log = LoggerFactory.getLogger(UseFullApplicationConfiguration_WithRemock.class);
     private static final String TERMINATOR = "UseFullApplicationConfiguration_WithRemock.TERMINATOR";
-
-    /**
-     * This is @Inject'ed here to get its @MatsMapping endpoint to register, as otherwise there is nothing that depends
-     * on this bean being instantiated - and since everything is lazy-init with Remock, it will not be instantiated
-     * unless something depends on it. We depend on it /indirectly/: We don't need the /bean/, but the "contents" of the
-     * bean, which is the Mats endpoint. Therefore, we @Inject it here, even though we do not need the instance in the
-     * test. Okay. Do you get it now?
-     */
-    @Inject
-    private Mats_SingleEndpoint _dependency1;
-
-    /**
-     * This bean must also be @Inject'ed here due to the same reason as above (we need the @MatsMapping terminator
-     * endpoint specified in it). However, I find this ridiculous, as it is the "default Configuration lookup" , i.e. it
-     * is a /part of the test/, and Remock should most definitely assume that it is a dependency that must be
-     * instantiated. Wrt. "default Configuration lookup": It doesn't help to explicitly define it in
-     * a @ContextConfiguration either, mkay?
-     */
-    @Inject
-    private TestConfig _dependency2;
-
-    // ===== The rest is identical to UseFullApplicationConfiguration
 
     @Configuration
     // This is where we import the application's main configuration class
