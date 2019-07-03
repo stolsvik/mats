@@ -23,7 +23,7 @@ public class ConnectionFactoryScenarioWrapper
         implements EnvironmentAware, BeanNameAware, SmartLifecycle {
     // Use clogging, since that's what Spring does.
     private static final Log log = LogFactory.getLog(ConnectionFactoryScenarioWrapper.class);
-    private static final String LOG_PREFIX = "#SPRINGMATS# ";
+    private static final String LOG_PREFIX = "#SPRINGJMATS# ";
 
     /**
      * A ConnectionFactory provider which can throw Exceptions - if it returns a
@@ -118,7 +118,7 @@ public class ConnectionFactoryScenarioWrapper
          * such scenarios.
          */
         if (_targetConnectionFactory == null) {
-            log.info("Whoops! TargetConnectionFactory is null! - perform lazy-init!");
+            log.info(LOG_PREFIX + "Whoops! TargetConnectionFactory is null! - perform lazy-init!");
             synchronized (this) {
                 if (_targetConnectionFactory == null) {
                     createTargetConnectionFactoryBasedOnScenarioDecider();
@@ -130,7 +130,7 @@ public class ConnectionFactoryScenarioWrapper
 
     protected void createTargetConnectionFactoryBasedOnScenarioDecider() {
         if (_targetConnectionFactory != null) {
-            log.info("  \\- Target ConnectionFactory already present, not creating again.");
+            log.info(LOG_PREFIX + "  \\- Target ConnectionFactory already present, not creating again.");
         }
         ConnectionFactoryProvider provider;
         MatsScenario scenario = _scenarioDecider.decision(_environment);
@@ -147,8 +147,8 @@ public class ConnectionFactoryScenarioWrapper
             default:
                 throw new AssertionError("Unknown MatsScenario enum value [" + scenario + "]!");
         }
-        log.info("Creating ConnectionFactory decided by MatsScenario [" + scenario + "] from provider [" + provider
-                + "].");
+        log.info(LOG_PREFIX + "Creating ConnectionFactory decided by MatsScenario [" + scenario + "] from provider ["
+                + provider + "].");
 
         // :: Actually get the ConnectionFactory.
 
@@ -166,7 +166,7 @@ public class ConnectionFactoryScenarioWrapper
         // ?: Is it a start-stoppable ConnectionFactory?
         if (_targetConnectionFactory instanceof ConnectionFactoryWithStartStopWrapper) {
             // -> Yes, start-stoppable, so start it now (and set any returned target ConnectionFactory..)
-            log.info("The provided ConnectionFactory from Scenario [" + scenario + "] implements "
+            log.info(LOG_PREFIX + "The provided ConnectionFactory from Scenario [" + scenario + "] implements "
                     + ConnectionFactoryWithStartStopWrapper.class.getSimpleName() + ", so invoking start(..) on it.");
             ConnectionFactoryWithStartStopWrapper startStopWrapper = (ConnectionFactoryWithStartStopWrapper) _targetConnectionFactory;
             try {
@@ -237,7 +237,7 @@ public class ConnectionFactoryScenarioWrapper
         if ((_targetConnectionFactory != null)
                 && (_targetConnectionFactory instanceof ConnectionFactoryWithStartStopWrapper)) {
             try {
-                log.info("The current target ConnectionFactory implements "
+                log.info(LOG_PREFIX + "The current target ConnectionFactory implements "
                         + ConnectionFactoryWithStartStopWrapper.class.getSimpleName()
                         + ", so invoking stop(..) on it.");
                 ((ConnectionFactoryWithStartStopWrapper) _targetConnectionFactory).stop();

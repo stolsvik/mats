@@ -201,10 +201,9 @@ public class MatsSpringAnnotationRegistration implements
         if (methodsWithMatsMappingAnnotations.isEmpty() && methodsWithMatsStagedAnnotations.isEmpty()) {
             // -> No, so cache that fact, to short-circuit discovery next time for this class (e.g. prototype beans)
             _classesWithNoMatsMappingAnnotations.add(targetClass);
-            if (log.isDebugEnabled()) {
-                log.debug(LOG_PREFIX + "No @MatsMapping or @MatsStaged annotations found on bean class ["
-                        + bean.getClass() + "].");
-            }
+            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "No @MatsMapping or @MatsStaged annotations found"
+                    + " on bean class [" + bean.getClass() + "].");
+
             return bean;
         }
 
@@ -221,10 +220,10 @@ public class MatsSpringAnnotationRegistration implements
             for (Entry<Method, Set<MatsMapping>> entry : methodsWithMatsMappingAnnotations.entrySet()) {
                 Method method = entry.getKey();
                 for (MatsMapping matsMapping : entry.getValue()) {
-                    log.info("Found @MatsMapping [" + matsMapping + "] on method [" + method + "].");
+                    log.info(LOG_PREFIX + "Found @MatsMapping [" + matsMapping + "] on method [" + method + "].");
                     _matsMappings.add(new MatsMappingHolder(matsMapping, method, bean));
                     if (_contextHasBeenRefreshed) {
-                        log.info(" \\- ContextRefreshedEvent already run! Process right away!");
+                        log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
                         processMatsMapping(matsMapping, method, bean);
                     }
                 }
@@ -236,10 +235,10 @@ public class MatsSpringAnnotationRegistration implements
             for (Entry<Method, Set<MatsStaged>> entry : methodsWithMatsStagedAnnotations.entrySet()) {
                 Method method = entry.getKey();
                 for (MatsStaged matsStaged : entry.getValue()) {
-                    log.info("Found @MatsStaged [" + matsStaged + "] on method [" + method + "].");
+                    log.info(LOG_PREFIX + "Found @MatsStaged [" + matsStaged + "] on method [" + method + "].");
                     _matsStageds.add(new MatsStagedHolder(matsStaged, method, bean));
                     if (_contextHasBeenRefreshed) {
-                        log.info(" \\- ContextRefreshedEvent already run! Process right away!");
+                        log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
                         processMatsStaged(matsStaged, method, bean);
                     }
                 }
@@ -355,10 +354,8 @@ public class MatsSpringAnnotationRegistration implements
      * annotations, and this method will be invoked for each of them.
      */
     private void processMatsMapping(MatsMapping matsMapping, Method method, Object bean) {
-        if (log.isDebugEnabled()) {
-            log.debug(LOG_PREFIX + "Processing @MatsMapping [" + matsMapping + "] on method ["
-                    + method + "], of bean: " + bean);
-        }
+        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsMapping [" + matsMapping + "] on method ["
+                + method + "], of bean: " + bean);
 
         // Override accessibility
         method.setAccessible(true);
@@ -569,7 +566,8 @@ public class MatsSpringAnnotationRegistration implements
                 ? specifiedMatsFactories.get(0)
                 : getMatsFactoryUnspecified();
 
-        log.debug(".. using MatsFactory [" + _matsFactoriesToName.get(matsFactory) + "]: [" + matsFactory + "].");
+        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + ".. using MatsFactory ["
+                + _matsFactoriesToName.get(matsFactory) + "]: [" + matsFactory + "].");
 
         return matsFactory;
     }
@@ -711,8 +709,8 @@ public class MatsSpringAnnotationRegistration implements
                     // ?: Can we introspect that method?
                     if (!(factoryMethodMetadata instanceof StandardMethodMetadata)) {
                         // -> No, so just skip it after logging.
-                        log.warn("AnnotatedBeanDefinition.getFactoryMethodMetadata() returned a MethodMetadata which"
-                                + " is not of type StandardMethodMetadata - therefore cannot run"
+                        log.warn(LOG_PREFIX + "AnnotatedBeanDefinition.getFactoryMethodMetadata() returned a"
+                                + " MethodMetadata which is not of type StandardMethodMetadata - therefore cannot run"
                                 + " getIntrospectedMethod() on it to find annotations on the factory method."
                                 + " AnnotatedBeanDefinition: [" + beanDefinition + "],"
                                 + " MethodMetadata: [" + factoryMethodMetadata + "]");
@@ -738,8 +736,8 @@ public class MatsSpringAnnotationRegistration implements
         List<MatsFactory> matsFactories = new ArrayList<>();
         for (Object annotatedBean : annotatedBeans) {
             if (!(annotatedBean instanceof MatsFactory)) {
-                log.info("Found bean annotated with correct custom qualifier [" + customQualifierType + "], but it was"
-                        + "not a MatsFactory. Ignoring. Bean: [" + annotatedBean + "].");
+                log.info(LOG_PREFIX + "Found bean annotated with correct custom qualifier [" + customQualifierType
+                        + "], but it was not a MatsFactory. Ignoring. Bean: [" + annotatedBean + "].");
                 continue;
             }
             matsFactories.add((MatsFactory) annotatedBean);
@@ -816,10 +814,8 @@ public class MatsSpringAnnotationRegistration implements
      * annotations, and this method will be invoked for each of them.
      */
     private void processMatsStaged(MatsStaged matsStaged, Method method, Object bean) {
-        if (log.isDebugEnabled()) {
-            log.debug(LOG_PREFIX + "Processing @MatsStaged [" + matsStaged + "] on method ["
-                    + method + "], of bean: " + bean);
-        }
+        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsStaged [" + matsStaged + "] on method ["
+                + method + "], of bean: " + bean);
 
         // Override accessibility
         method.setAccessible(true);
@@ -890,11 +886,9 @@ public class MatsSpringAnnotationRegistration implements
                     + descString(matsStaged, method, bean) + ".", e);
         }
 
-        if (log.isInfoEnabled()) {
-            log.info(LOG_PREFIX + "Processed Staged Mats Spring endpoint by "
-                    + descString(matsStaged, method, bean) + " :: MatsEndpoint:[param#" + endpointParam
-                    + "], EndpointConfig:[param#" + endpointParam + "]");
-        }
+        log.info(LOG_PREFIX + "Processed Staged Mats Spring endpoint by "
+                + descString(matsStaged, method, bean) + " :: MatsEndpoint:[param#" + endpointParam
+                + "], EndpointConfig:[param#" + endpointParam + "]");
     }
 
     /**

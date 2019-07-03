@@ -122,11 +122,11 @@ public interface JmsMatsStatics {
         log.info(LOG_PREFIX + "PRODUCED [" + what + "] message to [" + matsFactoryName + "|"
                 + outgoingMatsTrace.getCurrentCall().getTo()
                 + "], MT->serialize:[" + serializedOutgoingMatsTrace.getSizeUncompressed()
-                + " B, " + serializedOutgoingMatsTrace.getMillisSerialization()
+                + " B, " + ms3(serializedOutgoingMatsTrace.getMillisSerialization())
                 + " ms]->comp:[" + serializedOutgoingMatsTrace.getMeta()
-                + " " + serializedOutgoingMatsTrace.getMillisCompression()
+                + " " + ms3(serializedOutgoingMatsTrace.getMillisCompression())
                 + " ms]->final:[" + serializedOutgoingMatsTrace.getMatsTraceBytes().length
-                + " B] - tot.prod.time w/DTO&STO:[" + totalProductionTimeMillis + " ms]");
+                + " B] - tot.prod.time w/DTO&STO:[" + ms3(totalProductionTimeMillis) + " ms]");
 
         // Return masterpiece
         return jmsMatsMessage;
@@ -193,8 +193,8 @@ public interface JmsMatsStatics {
                 double millisSend = (System.nanoTime() - nanosStartSend) / 1_000_000d;
                 log.info(LOG_PREFIX + "SENDING [" + jmsMatsMessage.getWhat() + "] message to ["
                         + jmsMatsFactory.getFactoryConfig().getName() + "|" + destination
-                        + "], send took:[" + millisSend + " ms] (production was:[" + jmsMatsMessage
-                                .getTotalProductionTimeMillis() + " ms]).");
+                        + "], send took:[" + ms3(millisSend) + " ms] (production was:[" + ms3(jmsMatsMessage
+                                .getTotalProductionTimeMillis()) + " ms]).");
             }
             catch (JMSException e) {
                 throw new JmsMatsJmsException("Got problems sending [" + jmsMatsMessage.getWhat() + "] to [" + toChannel
@@ -205,8 +205,8 @@ public interface JmsMatsStatics {
         double millisSendingMessags = (nanosFinal - nanosStartSendingMessages) / 1_000_000d;
 
         double millisTotal = (nanosFinal - nanosStart) / 1_000_000d;
-        log.info(LOG_PREFIX + "SENT [" + messagesToSend.size() + "] messages, took:[" + millisSendingMessags
-                + "] - total since recv/init:[" + millisTotal + "].");
+        log.info(LOG_PREFIX + "SENT [" + messagesToSend.size() + "] messages, took:[" + ms3(millisSendingMessags)
+                + "] - total since recv/init:[" + ms3(millisTotal) + "].");
     }
 
     default String createMatsMessageId() {
@@ -233,5 +233,12 @@ public interface JmsMatsStatics {
             return "StageProcessor for [" + txContextKey.getStage() + "]";
         }
         return "Initiation";
+    }
+
+    /**
+     * Truncate milliseconds to 3 decimals.
+     */
+    default double ms3(double ms) {
+        return Math.round(ms * 1000d) / 1000d;
     }
 }

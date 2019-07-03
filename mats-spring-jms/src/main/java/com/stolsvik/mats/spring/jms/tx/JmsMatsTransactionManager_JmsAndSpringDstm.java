@@ -33,7 +33,7 @@ import com.stolsvik.mats.util.MatsTxSqlConnection;
  * <li><b>JMS transaction is entered</b> (a transactional JMS Connection is always within a transaction)
  * <li>JMS Message is retrieved.
  * <li><b>SQL transaction is entered</b>
- * <li>Code is executed, including SQL statements.
+ * <li>Code is executed, <i>including SQL statements and production of new "outgoing" JMS Messages.</i>
  * <li><b>SQL transaction is committed - <font color="red">Any errors also rollbacks the JMS Transaction, so that none
  * of them have happened.</font></b>
  * <li><b>JMS transaction is committed.</b>
@@ -493,7 +493,7 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
                                 + " that you have performed your own Spring transaction management within the Mats"
                                 + " Stage, which is not supported. Will now rollback the SQL, and throw out.";
                         log.error(msg);
-                        // If this throws, it was a rollback (parse the Exception-throwing at final catch).
+                        // If the rollback throws, it was a rollback (read the Exception-throwing at final catch).
                         commit = false;
                         // Do rollback.
                         _dataSourceTransactionManager.rollback(transactionStatus);

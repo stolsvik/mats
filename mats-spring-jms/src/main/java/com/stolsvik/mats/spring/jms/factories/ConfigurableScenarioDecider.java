@@ -3,6 +3,9 @@ package com.stolsvik.mats.spring.jms.factories;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +23,7 @@ import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.S
  */
 public class ConfigurableScenarioDecider implements ScenarioDecider {
     private static final Logger log = LoggerFactory.getLogger(ConfigurableScenarioDecider.class);
+    private static final String LOG_PREFIX = "#SPRINGJMATS# ";
 
     /**
      * Configures a {@link ScenarioDecider} that implements the logic described in
@@ -62,22 +66,20 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
 
     @Override
     public MatsScenario decision(Environment env) {
-        String envString = "  Active Spring Profiles: " + Arrays.asList(env.getActiveProfiles());
+        String envString = "Active Spring Profiles: " + Arrays.asList(env.getActiveProfiles());
         if (env instanceof ConfigurableEnvironment) {
-            envString += "\n  Spring Environment instanceof ConfigurableEnvironment (" + env.getClass()
-                    .getSimpleName() + "), listing each PropertySource:";
-            ConfigurableEnvironment confEnv = (ConfigurableEnvironment) env;
-            MutablePropertySources propertySources = confEnv.getPropertySources();
-            for (PropertySource<?> propSource : propertySources) {
-                envString += "\n    " + propSource.getClass().getSimpleName() + "{name=" + propSource.getName()
-                        + "}:" + propSource.getSource();
-            }
+            ConfigurableEnvironment configurableEnvironment = (ConfigurableEnvironment) env;
+            MutablePropertySources propertySources = configurableEnvironment.getPropertySources();
+            Stream<PropertySource<?>> stream = StreamSupport.stream(propertySources.spliterator(), false);
+            envString += ", Spring Environment instanceof ConfigurableEnvironment ("
+                    + env.getClass().getSimpleName() + "); PropertySources: "
+                    + stream.map(source -> source.getClass().getSimpleName() + "{" + source.getName() + "}")
+                            .collect(Collectors.joining(", ", "[", "]"));
         }
         else {
-            envString += "  Spring Environment !instanceOf ConfigurableEnvironment, env.toString(): " + env;
+            envString += ", Spring Environment !instanceOf ConfigurableEnvironment, env.toString(): " + env;
         }
-        log.info("Finding which MatsScenario is active. Using Spring Profiles and"
-                + " Spring Environment properties:\n" + envString);
+        log.info(LOG_PREFIX + "Finding which MatsScenario is active, " + envString);
 
         int activeScenarios = 0;
         // :: Find which MatsScenario is active
@@ -86,22 +88,23 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
         if ((match = _regular.scenarioActive(env).orElse(null)) != null) {
             scenario = MatsScenario.REGULAR;
             activeScenarios++;
-            log.info("  \\- " + match + ": choosing MatsScenario '" + scenario + "'");
+            log.info(LOG_PREFIX + "  \\- " + match + ": choosing MatsScenario '" + scenario + "'");
         }
         if ((match = _localhost.scenarioActive(env).orElse(null)) != null) {
             scenario = MatsScenario.LOCALHOST;
             activeScenarios++;
-            log.info("  \\- " + match + ": choosing MatsScenario '" + scenario + "'");
+            log.info(LOG_PREFIX + "  \\- " + match + ": choosing MatsScenario '" + scenario + "'");
         }
         if ((match = _localVm.scenarioActive(env).orElse(null)) != null) {
             scenario = MatsScenario.LOCALVM;
             activeScenarios++;
-            log.info("  \\- " + match + ": choosing MatsScenario '" + scenario + "'");
+            log.info(LOG_PREFIX + "  \\- " + match + ": choosing MatsScenario '" + scenario + "'");
         }
         // ?: Was no scenario decided?
         if (scenario == null) {
             // -> No scenario was decided, so go for LOCALVM, because this is the least dangerous.
-            log.info("  \\- NO Scenario explicitly specified - invoking the default MatsScenario Supplier.");
+            log.info(LOG_PREFIX
+                    + "  \\- NO Scenario explicitly specified - invoking the default MatsScenario Supplier.");
             scenario = _defaultScenario.get();
         }
         // ?: If more than one Mats MatsScenario is active, throw.
