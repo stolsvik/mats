@@ -7,5 +7,4 @@ dependencies {
 
     testCompile project(":mats-lib")
     testCompile project(":mats-util")
-
 }

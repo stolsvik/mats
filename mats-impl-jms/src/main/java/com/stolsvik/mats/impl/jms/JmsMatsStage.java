@@ -434,8 +434,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                         matsTraceMeta = mapMessage.getString(matsTraceKey
                                                 + MatsSerializer.META_KEY_POSTFIX);
                                         jmsMessageId = mapMessage.getJMSMessageID();
-                                        // Adding this to the MDC, using "mats." prefix for Mats-specific parts of MDC
-                                        MDC.put("mats.JMSMessageId", jmsMessageId);
+                                        MDC.put(MDC_JMS_MESSAGE_ID, jmsMessageId);
 
                                         // :: Assert that we got some values
                                         if (matsTraceBytes == null) {
@@ -467,11 +466,8 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                     MatsTrace<Z> matsTrace = matsTraceDeserialized.getMatsTrace();
 
                                     // :: Setting MDC values from MatsTrace
-                                    // Not using "mats." prefix for "traceId", as it is hopefully generic yet specific
-                                    // enough that it might be used in similar applications.
-                                    MDC.put("traceId", matsTrace.getTraceId());
-                                    // Using "mats." prefix for the more Mats-specific parts of MDC
-                                    MDC.put("mats.MatsMessageId", matsTrace.getCurrentCall().getMatsMessageId());
+                                    MDC.put(MDC_TRACE_ID, matsTrace.getTraceId());
+                                    MDC.put(MDC_MATS_MESSAGE_ID, matsTrace.getCurrentCall().getMatsMessageId());
 
                                     // :: Current Call
                                     Call<Z> currentCall = matsTrace.getCurrentCall();

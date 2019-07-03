@@ -85,8 +85,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 doAfterCommitRunnableHolder.runDoAfterCommitIfAny();
             }
             catch (RuntimeException re) {
-                log.error(LOG_PREFIX
-                        + "Got RuntimeException when running the doAfterCommit Runnable."
+                log.error(LOG_PREFIX + "Got RuntimeException when running the doAfterCommit Runnable."
                         + " Ignoring.", re);
             }
         }
