@@ -103,7 +103,7 @@ public class JmsSpringConnectionFactoryProducer implements MatsProfiles {
     /**
      * Optional: Provide a ConnectionFactoryProvider lambda for the "localhost" scenario. If this is not provided, it
      * will be a somewhat specially tailored ActiveMQ ConnectionFactory with the URL
-     * <code>"tcp://localhost:61616?threadName"</code>, read more in the
+     * <code>"tcp://localhost:61616"</code>, read more in the
      * <a href="https://activemq.apache.org/tcp-transport-reference">ActiveMQ documentation</a>. The tailoring entails
      * DLQ after 1 retry, and 100 ms delay between delivery and the sole redelivery attempt.
      *
@@ -195,7 +195,7 @@ public class JmsSpringConnectionFactoryProducer implements MatsProfiles {
     {
         // :: The "mats-localhost" variant directly returns a ActiveMQConnectionFactory to standard localhost.
         localhostConnectionFactory((springEnvironment) -> new ActiveMQConnectionFactory(
-                "tcp://localhost:61616?threadName"));
+                "tcp://localhost:61616"));
 
         // :: The "mats-localvm" fires up an ActiveMQ Broker instance, and creates a ConnectionFactory to that.
         localVmConnectionFactory((springEnvironment) -> new ConnectionFactoryWithStartStopWrapper() {
