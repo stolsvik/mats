@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 import javax.jms.DeliveryMode;
 import javax.jms.Destination;
@@ -35,8 +36,14 @@ public interface JmsMatsStatics {
     // enough that it might be used in similar applications.
     String MDC_TRACE_ID = "traceId";
     // Using "mats." prefix for the more Mats-specific parts of MDC
-    String MDC_JMS_MESSAGE_ID = "mats.JMSMessageId";
-    String MDC_MATS_MESSAGE_ID = "mats.MatsMessageId";
+    // Capitalization of JMSMessageID as they do in the JMS API.
+    String MDC_JMS_MESSAGE_ID_IN = "mats.JMSMessageID.In";
+    String MDC_MATS_MESSAGE_ID_IN = "mats.MatsMessageId.In";
+    String MDC_JMS_MESSAGE_ID_OUT = "mats.JMSMessageID.Out";
+    String MDC_MATS_MESSAGE_ID_OUT = "mats.MatsMessageId.Out";
+    String MDC_MATS_INCOMING = "mats.Incoming";
+    String MDC_MATS_OUTGOING = "mats.Outgoing";
+    String MDC_MATS_INITIATE = "mats.Initiate";
 
     /**
      * Holds the entire contents of a "Mats Message" - so that it can be sent later.
@@ -101,10 +108,10 @@ public interface JmsMatsStatics {
             HashMap<String, byte[]> bytes,
             HashMap<String, String> strings, String what, String matsFactoryName) {
         String existingTraceId = MDC.get(MDC_TRACE_ID);
-        String existingMatsMessageId = MDC.get(MDC_MATS_MESSAGE_ID);
-        try {
+        try { // :: try-finally: Restore MDC
             MDC.put(MDC_TRACE_ID, outgoingMatsTrace.getTraceId());
-            MDC.put(MDC_MATS_MESSAGE_ID, outgoingMatsTrace.getCurrentCall().getMatsMessageId());
+            MDC.put(MDC_MATS_MESSAGE_ID_OUT, outgoingMatsTrace.getCurrentCall().getMatsMessageId());
+            MDC.put(MDC_MATS_OUTGOING, "true");
             // :: Add the MatsTrace properties
             for (Entry<String, Object> entry : props.entrySet()) {
                 outgoingMatsTrace.setTraceProperty(entry.getKey(), serializer.serializeObject(entry.getValue()));
@@ -152,12 +159,9 @@ public interface JmsMatsStatics {
                 MDC.put(MDC_TRACE_ID, existingTraceId);
             }
             // MatsMessageId
-            if (existingMatsMessageId == null) {
-                MDC.remove(MDC_MATS_MESSAGE_ID);
-            }
-            else {
-                MDC.put(MDC_MATS_MESSAGE_ID, existingMatsMessageId);
-            }
+            MDC.remove(MDC_MATS_MESSAGE_ID_OUT);
+            // Outgoing
+            MDC.remove(MDC_MATS_OUTGOING);
         }
     }
 
@@ -166,118 +170,126 @@ public interface JmsMatsStatics {
      */
     default <Z> void sendMatsMessages(Logger log, long nanosStart, JmsSessionHolder jmsSessionHolder,
             JmsMatsFactory<Z> jmsMatsFactory, List<JmsMatsMessage<Z>> messagesToSend) throws JmsMatsJmsException {
-        if (messagesToSend.isEmpty()) {
-            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "No messages to send.");
-            return;
+        try { // :: try-finally: Remove MDC_MATS_OUTGOING
+            MDC.put(MDC_MATS_OUTGOING, "true");
+            if (messagesToSend.isEmpty()) {
+                if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "No messages to send.");
+                return;
+            }
+            Session jmsSession = jmsSessionHolder.getSession();
+            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Sending [" + messagesToSend.size() + "] messages.");
+
+            MessageProducer messageProducer = jmsSessionHolder.getDefaultNoDestinationMessageProducer();
+
+            long nanosStartSendingMessages = System.nanoTime();
+            for (JmsMatsMessage<Z> jmsMatsMessage : messagesToSend) {
+                long nanosStartSend = System.nanoTime();
+                Channel toChannel = jmsMatsMessage.getMatsTrace().getCurrentCall().getTo();
+                // :: Keep MDC to restore
+                String existingTraceId = MDC.get(MDC_TRACE_ID);
+                try { // :: try-finally: Restore MDC
+                    MatsTrace<Z> outgoingMatsTrace = jmsMatsMessage.getMatsTrace();
+                    // Set MDC for this outgoing message
+                    MDC.put(MDC_TRACE_ID, outgoingMatsTrace.getTraceId());
+                    MDC.put(MDC_MATS_MESSAGE_ID_OUT, outgoingMatsTrace.getCurrentCall().getMatsMessageId());
+                    byte[] matsTraceBytes = jmsMatsMessage.getSerializedOutgoingMatsTrace().getMatsTraceBytes();
+
+                    // Get FactoryConfig
+                    FactoryConfig factoryConfig = jmsMatsFactory.getFactoryConfig();
+
+                    // Create the JMS Message that will be sent.
+                    MapMessage mm = jmsSession.createMapMessage();
+                    // Set the MatsTrace.
+                    mm.setBytes(factoryConfig.getMatsTraceKey(), matsTraceBytes);
+                    mm.setString(factoryConfig.getMatsTraceKey() + MatsSerializer.META_KEY_POSTFIX,
+                            jmsMatsMessage.getSerializedOutgoingMatsTrace().getMeta());
+
+                    // :: Add the properties to the MapMessage
+                    for (Entry<String, byte[]> entry : jmsMatsMessage.getBytes().entrySet()) {
+                        mm.setBytes(entry.getKey(), entry.getValue());
+                    }
+                    for (Entry<String, String> entry : jmsMatsMessage.getStrings().entrySet()) {
+                        mm.setString(entry.getKey(), entry.getValue());
+                    }
+
+                    // :: Create the JMS Queue or Topic.
+                    Destination destination = toChannel.getMessagingModel() == MessagingModel.QUEUE
+                            ? jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + toChannel.getId())
+                            : jmsSession.createTopic(factoryConfig.getMatsDestinationPrefix() + toChannel.getId());
+
+                    // TODO: OPTIMIZE: Use "asynchronous sends", i.e. register completion listeners (catch exceptions)
+                    // and close at the end.
+
+                    // Setting DeliveryMode: NonPersistent or Persistent
+                    int deliveryMode = outgoingMatsTrace.isNonPersistent()
+                            ? DeliveryMode.NON_PERSISTENT
+                            : DeliveryMode.PERSISTENT;
+                    // Setting Priority: 4 is default, 9 is highest.
+                    int priority = outgoingMatsTrace.isInteractive() ? 9 : 4;
+                    // TODO: Set time-to-live (Issue #23)
+                    // Send the message (but since transactional, won't be committed until TransactionContext does).
+                    messageProducer.send(destination, mm, deliveryMode, priority, 0);
+                    // We now have a JMSMessageID, so set it on MDC for outgoing.
+                    MDC.put(MDC_JMS_MESSAGE_ID_OUT, mm.getJMSMessageID());
+
+                    // Log it.
+                    double millisSend = (System.nanoTime() - nanosStartSend) / 1_000_000d;
+                    log.info(LOG_PREFIX + "SENDING [" + jmsMatsMessage.getWhat() + "] message to ["
+                            + jmsMatsFactory.getFactoryConfig().getName() + "|" + destination
+                            + "], send took:[" + ms3(millisSend) + " ms] (production was:["
+                            + ms3(jmsMatsMessage.getTotalProductionTimeMillis()) + " ms]).");
+                }
+                catch (JMSException e) {
+                    throw new JmsMatsJmsException("Got problems sending [" + jmsMatsMessage.getWhat()
+                            + "] to [" + toChannel + "] via JMS API.", e);
+                }
+                finally {
+                    // :: Restore MDC
+                    // TraceId
+                    if (existingTraceId == null) {
+                        MDC.remove(MDC_TRACE_ID);
+                    }
+                    else {
+                        MDC.put(MDC_TRACE_ID, existingTraceId);
+                    }
+                    // JMSMessageId
+                    MDC.remove(MDC_JMS_MESSAGE_ID_OUT);
+                    // MatsMessageId
+                    MDC.remove(MDC_MATS_MESSAGE_ID_OUT);
+                }
+            }
+            long nanosFinal = System.nanoTime();
+            double millisSendingMessags = (nanosFinal - nanosStartSendingMessages) / 1_000_000d;
+
+            double millisTotal = (nanosFinal - nanosStart) / 1_000_000d;
+            log.info(LOG_PREFIX + "SENT [" + messagesToSend.size() + "] messages, took:[" + ms3(millisSendingMessags)
+                    + "] - total since recv/init:[" + ms3(millisTotal) + "].");
         }
-        Session jmsSession = jmsSessionHolder.getSession();
-        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Sending [" + messagesToSend.size() + "] messages.");
-
-        MessageProducer messageProducer = jmsSessionHolder.getDefaultNoDestinationMessageProducer();
-
-        long nanosStartSendingMessages = System.nanoTime();
-        for (JmsMatsMessage<Z> jmsMatsMessage : messagesToSend) {
-            long nanosStartSend = System.nanoTime();
-            Channel toChannel = jmsMatsMessage.getMatsTrace().getCurrentCall().getTo();
-            // :: Keep MDC to restore
-            String existingTraceId = MDC.get(MDC_TRACE_ID);
-            String existingMatsMessageId = MDC.get(MDC_MATS_MESSAGE_ID);
-            String existingJmsMessageId = MDC.get(MDC_JMS_MESSAGE_ID);
-            try {
-                MatsTrace<Z> outgoingMatsTrace = jmsMatsMessage.getMatsTrace();
-                // Set MDC for this outgoing message
-                MDC.put(MDC_TRACE_ID, outgoingMatsTrace.getTraceId());
-                MDC.put(MDC_MATS_MESSAGE_ID, outgoingMatsTrace.getCurrentCall().getMatsMessageId());
-                byte[] matsTraceBytes = jmsMatsMessage.getSerializedOutgoingMatsTrace().getMatsTraceBytes();
-
-                // Get FactoryConfig
-                FactoryConfig factoryConfig = jmsMatsFactory.getFactoryConfig();
-
-                // Create the JMS Message that will be sent.
-                MapMessage mm = jmsSession.createMapMessage();
-                // Set the MatsTrace.
-                mm.setBytes(factoryConfig.getMatsTraceKey(), matsTraceBytes);
-                mm.setString(factoryConfig.getMatsTraceKey() + MatsSerializer.META_KEY_POSTFIX,
-                        jmsMatsMessage.getSerializedOutgoingMatsTrace().getMeta());
-
-                // :: Add the properties to the MapMessage
-                for (Entry<String, byte[]> entry : jmsMatsMessage.getBytes().entrySet()) {
-                    mm.setBytes(entry.getKey(), entry.getValue());
-                }
-                for (Entry<String, String> entry : jmsMatsMessage.getStrings().entrySet()) {
-                    mm.setString(entry.getKey(), entry.getValue());
-                }
-
-                // :: Create the JMS Queue or Topic.
-                Destination destination = toChannel.getMessagingModel() == MessagingModel.QUEUE
-                        ? jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + toChannel.getId())
-                        : jmsSession.createTopic(factoryConfig.getMatsDestinationPrefix() + toChannel.getId());
-
-                // TODO: OPTIMIZE: Use "asynchronous sends", i.e. register completion listeners (catch exceptions) and
-                // close at the end.
-
-                // Setting DeliveryMode: NonPersistent or Persistent
-                int deliveryMode = outgoingMatsTrace.isNonPersistent()
-                        ? DeliveryMode.NON_PERSISTENT
-                        : DeliveryMode.PERSISTENT;
-                // Setting Priority: 4 is default, 9 is highest.
-                int priority = outgoingMatsTrace.isInteractive() ? 9 : 4;
-                // TODO: Set time-to-live (Issue #23)
-                // Send the message (but since transactional, won't be committed until TransactionContext does).
-                messageProducer.send(destination, mm, deliveryMode, priority, 0);
-                // We now have a JMSMessageID, so set it on MDC for outgoing.
-                MDC.put(MDC_JMS_MESSAGE_ID, mm.getJMSMessageID());
-
-                // Log it.
-                double millisSend = (System.nanoTime() - nanosStartSend) / 1_000_000d;
-                log.info(LOG_PREFIX + "SENDING [" + jmsMatsMessage.getWhat() + "] message to ["
-                        + jmsMatsFactory.getFactoryConfig().getName() + "|" + destination
-                        + "], send took:[" + ms3(millisSend) + " ms] (production was:[" + ms3(jmsMatsMessage
-                                .getTotalProductionTimeMillis()) + " ms]).");
-            }
-            catch (JMSException e) {
-                throw new JmsMatsJmsException("Got problems sending [" + jmsMatsMessage.getWhat() + "] to [" + toChannel
-                        + "] via JMS API.", e);
-            }
-            finally {
-                // :: Restore MDC
-                // TraceId
-                if (existingTraceId == null) {
-                    MDC.remove(MDC_TRACE_ID);
-                }
-                else {
-                    MDC.put(MDC_TRACE_ID, existingTraceId);
-                }
-                // JMSMessageId
-                if (existingJmsMessageId == null) {
-                    MDC.remove(MDC_JMS_MESSAGE_ID);
-                }
-                else {
-                    MDC.put(MDC_JMS_MESSAGE_ID, existingJmsMessageId);
-                }
-                // MatsMessageId
-                if (existingMatsMessageId == null) {
-                    MDC.remove(MDC_MATS_MESSAGE_ID);
-                }
-                else {
-                    MDC.put(MDC_MATS_MESSAGE_ID, existingMatsMessageId);
-                }
-            }
+        finally {
+            // :: Clean MDC: Outgoing
+            MDC.remove(MDC_MATS_OUTGOING);
         }
-        long nanosFinal = System.nanoTime();
-        double millisSendingMessags = (nanosFinal - nanosStartSendingMessages) / 1_000_000d;
-
-        double millisTotal = (nanosFinal - nanosStart) / 1_000_000d;
-        log.info(LOG_PREFIX + "SENT [" + messagesToSend.size() + "] messages, took:[" + ms3(millisSendingMessags)
-                + "] - total since recv/init:[" + ms3(millisTotal) + "].");
     }
 
     default String createMatsMessageId() {
         Random random = new Random();
         return "mats_" + Long.toUnsignedString(System.currentTimeMillis(), 36)
-                + "_" + Long.toUnsignedString(random.nextLong(), 36)
-                + Long.toUnsignedString(random.nextLong(), 36);
+                + "_" + randomString(10);
     }
+
+    String RANDOM_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+    /**
+     * @param length the desired length of the returned random string.
+     * @return a random string of the specified length.
+     */
+    default String randomString(int length) {
+        StringBuilder buf = new StringBuilder(length);
+        for( int i = 0; i < length; i++ )
+            buf.append( RANDOM_ALPHABET.charAt( ThreadLocalRandom.current().nextInt(RANDOM_ALPHABET.length()) ) );
+        return buf.toString();
+    }
+
 
     default String id(String what, Object obj) {
         return what + '@' + Integer.toHexString(System.identityHashCode(obj));

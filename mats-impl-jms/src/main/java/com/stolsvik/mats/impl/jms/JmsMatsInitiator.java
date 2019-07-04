@@ -23,6 +23,7 @@ import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call;
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
 import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
+import org.slf4j.MDC;
 
 class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsInitiator.class);
@@ -63,50 +64,57 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         // that is, "turn off" a MatsInitiator: Either hang requsts, or probably more interesting, fail them. And
         // that would be nice to use "close()" for: As long as it is closed, it can't be used. Need to evaluate.
 
-        long nanosStart = System.nanoTime();
-        JmsSessionHolder jmsSessionHolder;
-        try {
-            jmsSessionHolder = _jmsMatsJmsSessionHandler.getSessionHolder(this);
-        }
-        catch (JmsMatsJmsException e) {
-            // Could not get hold of JMS *Connection* - Read the JavaDoc of JmsMatsJmsSessionHandler.getSessionHolder()
-            throw new MatsBackendException("Could not get hold of JMS Connection.", e);
-        }
-        try {
-            DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
-            _transactionContext.doTransaction(jmsSessionHolder, () -> {
-                List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
-                lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend, doAfterCommitRunnableHolder));
-                sendMatsMessages(log, nanosStart, jmsSessionHolder, _parentFactory, messagesToSend);
-            });
-            jmsSessionHolder.release();
-            // :: Handle the context.doAfterCommit(Runnable) lambda.
+        try { // :: try-finally: Remove MDC_MATS_INITIATE
+            MDC.put(MDC_MATS_INITIATE, "true");
+
+            long nanosStart = System.nanoTime();
+            JmsSessionHolder jmsSessionHolder;
             try {
-                doAfterCommitRunnableHolder.runDoAfterCommitIfAny();
+                jmsSessionHolder = _jmsMatsJmsSessionHandler.getSessionHolder(this);
             }
-            catch (RuntimeException re) {
-                log.error(LOG_PREFIX + "Got RuntimeException when running the doAfterCommit Runnable."
-                        + " Ignoring.", re);
+            catch (JmsMatsJmsException e) {
+                // Could not get hold of JMS *Connection* - Read the JavaDoc of JmsMatsJmsSessionHandler.getSessionHolder()
+                throw new MatsBackendException("Could not get hold of JMS Connection.", e);
+            }
+            try {
+                DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
+                _transactionContext.doTransaction(jmsSessionHolder, () -> {
+                    List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
+                    lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend, doAfterCommitRunnableHolder));
+                    sendMatsMessages(log, nanosStart, jmsSessionHolder, _parentFactory, messagesToSend);
+                });
+                jmsSessionHolder.release();
+                // :: Handle the context.doAfterCommit(Runnable) lambda.
+                try {
+                    doAfterCommitRunnableHolder.runDoAfterCommitIfAny();
+                }
+                catch (RuntimeException re) {
+                    log.error(LOG_PREFIX + "Got RuntimeException when running the doAfterCommit Runnable."
+                            + " Ignoring.", re);
+                }
+            }
+            catch (JmsMatsMessageSendException e) {
+                // JmsMatsMessageSendException is a JmsMatsJmsException, and that indicates that there was a problem with
+                // JMS - so we should "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
+                jmsSessionHolder.crashed(e);
+                // This is a special variant of JmsMatsJmsException which is the "VERY BAD!" scenario.
+                // TODO: Do retries if it fails!
+                throw new MatsMessageSendException("Evidently got problems sending out the JMS message after having run the"
+                        + " process lambda and potentially committed other resources, typically database.", e);
+            }
+            catch (JmsMatsJmsException e) {
+                // Catch any JmsMatsJmsException, as that indicates that there was a problem with JMS - so we should
+                // "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
+                // Notice that we shall NOT have committed "external resources" at this point, meaning database.
+                jmsSessionHolder.crashed(e);
+                // .. then throw on. This is a lesser evil than JmsMatsMessageSendException, as it probably have happened
+                // before we committed database etc.
+                throw new MatsBackendException("Evidently have problems talking with our backend, which is a JMS Broker.",
+                        e);
             }
         }
-        catch (JmsMatsMessageSendException e) {
-            // JmsMatsMessageSendException is a JmsMatsJmsException, and that indicates that there was a problem with
-            // JMS - so we should "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
-            jmsSessionHolder.crashed(e);
-            // This is a special variant of JmsMatsJmsException which is the "VERY BAD!" scenario.
-            // TODO: Do retries if it fails!
-            throw new MatsMessageSendException("Evidently got problems sending out the JMS message after having run the"
-                    + " process lambda and potentially committed other resources, typically database.", e);
-        }
-        catch (JmsMatsJmsException e) {
-            // Catch any JmsMatsJmsException, as that indicates that there was a problem with JMS - so we should
-            // "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
-            // Notice that we shall NOT have committed "external resources" at this point, meaning database.
-            jmsSessionHolder.crashed(e);
-            // .. then throw on. This is a lesser evil than JmsMatsMessageSendException, as it probably have happened
-            // before we committed database etc.
-            throw new MatsBackendException("Evidently have problems talking with our backend, which is a JMS Broker.",
-                    e);
+        finally {
+            MDC.remove(MDC_MATS_INITIATE);
         }
     }
 

@@ -387,31 +387,34 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
                     // :: INNER RECEIVE-LOOP, where we'll use the JMS Session and MessageConsumer.receive().
                     while (_runFlag) {
-                        _processorInReceive = true;
-                        // Check whether Session/Connection is ok (per contract with JmsSessionHolder)
-                        _jmsSessionHolder.isSessionOk();
-                        // :: GET NEW MESSAGE!! THIS IS THE MESSAGE PUMP!
-                        Message message;
-                        try {
-                            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Going into JMS consumer.receive() for ["
-                                    + destination + "].");
-                            message = jmsConsumer.receive();
-                        }
-                        finally {
-                            _processorInReceive = false;
-                        }
-                        if (message == null) {
-                            log.info(LOG_PREFIX + "!! Got null from JMS consumer.receive(), JMS Session"
-                                    + " was probably closed due to shutdown or JMS error. Looping to check run-flag.");
-                            continue;
-                        }
-                        // Check whether Session/Connection is still ok (per contract with JmsSessionHolder)
-                        _jmsSessionHolder.isSessionOk();
-
-                        // :: Perform the work inside the TransactionContext
-                        DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
-                        long nanosStart = System.nanoTime();
                         try { // :: Cleanup of MDC
+                            MDC.put(MDC_MATS_INCOMING, "true");
+                            _processorInReceive = true;
+                            // Check whether Session/Connection is ok (per contract with JmsSessionHolder)
+                            _jmsSessionHolder.isSessionOk();
+                            // :: GET NEW MESSAGE!! THIS IS THE MESSAGE PUMP!
+                            Message message;
+                            try {
+                                if (log.isDebugEnabled()) log.debug(LOG_PREFIX
+                                        + "Going into JMS consumer.receive() for ["
+                                        + destination + "].");
+                                message = jmsConsumer.receive();
+                            }
+                            finally {
+                                _processorInReceive = false;
+                            }
+                            if (message == null) {
+                                log.info(LOG_PREFIX + "!! Got null from JMS consumer.receive(), JMS Session"
+                                        + " was probably closed due to shutdown or JMS error."
+                                        + " Looping to check run-flag.");
+                                continue;
+                            }
+                            // Check whether Session/Connection is still ok (per contract with JmsSessionHolder)
+                            _jmsSessionHolder.isSessionOk();
+
+                            // :: Perform the work inside the TransactionContext
+                            DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
+                            long nanosStart = System.nanoTime();
                             try { // :: Going into Mats Transaction
                                 _transactionContext.doTransaction(_jmsSessionHolder, () -> {
                                     // Assert that this is indeed a JMS MapMessage.
@@ -434,7 +437,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                         matsTraceMeta = mapMessage.getString(matsTraceKey
                                                 + MatsSerializer.META_KEY_POSTFIX);
                                         jmsMessageId = mapMessage.getJMSMessageID();
-                                        MDC.put(MDC_JMS_MESSAGE_ID, jmsMessageId);
+                                        MDC.put(MDC_JMS_MESSAGE_ID_IN, jmsMessageId);
 
                                         // :: Assert that we got some values
                                         if (matsTraceBytes == null) {
@@ -467,7 +470,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
                                     // :: Setting MDC values from MatsTrace
                                     MDC.put(MDC_TRACE_ID, matsTrace.getTraceId());
-                                    MDC.put(MDC_MATS_MESSAGE_ID, matsTrace.getCurrentCall().getMatsMessageId());
+                                    MDC.put(MDC_MATS_MESSAGE_ID_IN, matsTrace.getCurrentCall().getMatsMessageId());
 
                                     // :: Current Call
                                     Call<Z> currentCall = matsTrace.getCurrentCall();
@@ -572,15 +575,15 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                 log.error(LOG_PREFIX + "Got [" + e.getClass().getSimpleName()
                                         + "] when running the doAfterCommit Runnable. Ignoring.", e);
                             }
+
+                            // :: Log final stats
+                            double millisTotal = (System.nanoTime() - nanosStart) / 1_000_000d;
+                            log.info(LOG_PREFIX + "Total time from received till finished processing: ["
+                                    + ms3(millisTotal) + "].");
                         }
                         finally {
                             MDC.clear();
                         }
-
-                        double millisTotal = (System.nanoTime() - nanosStart) / 1_000_000d;
-                        log.info(LOG_PREFIX + "Total time from received till finished processing: ["
-                                + ms3(millisTotal) + "].");
-
                     } // End: INNER RECEIVE-LOOP
                 }
                 catch (JmsMatsJmsException | JMSException | RuntimeException | Error e) {
