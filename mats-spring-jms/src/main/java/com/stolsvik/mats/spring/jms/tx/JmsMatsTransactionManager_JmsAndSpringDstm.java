@@ -91,13 +91,13 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
         // the stage or init actually does any data access.
         // NOTICE: If the DataSource we are provided with already is a LazyConnectionDataSourceProxy, this is not a
         // problem: We will have two levels of lazy-ness, which is an absolutely minuscule cost.
-        // NOTICE: We use the variant of NOT providing the DataSource at construction, because if we do, it leads to a
-        // Connection being gotten from the DataSource to determine default constants, which is not needed in our case.
-        // (We set those in the TransactionDefinition before commencing stage/init processing anyway)
+        // NOTICE: We use the variant of NOT providing the DataSource at construction, because if we do provide it, it
+        // leads to a Connection being gotten from the DataSource to determine default constants, which is not needed in
+        // our case. (We set those in the TransactionDefinition before commencing stage/init processing anyway)
         LazyConnectionDataSourceProxy_InfrastructureProxy lazyConnectionDataSourceProxy = new LazyConnectionDataSourceProxy_InfrastructureProxy();
         lazyConnectionDataSourceProxy.setDefaultAutoCommit(false);
         lazyConnectionDataSourceProxy.setDefaultTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
-        // ... now setting the DataSource, and this will not trigger fetching of a Connection.
+        // ... now setting the DataSource, and this will NOT trigger fetching of a Connection.
         lazyConnectionDataSourceProxy.setTargetDataSource(_monitorConnectionGettingDataSourceWrapper);
         log.info(LOG_PREFIX + ".. then wrapped the DataSource again in a LazyConnectionDataSourceProxy, so that we will"
                 + " not actually get a physical SQL Connection from the underlying DataSource unless the stage or"
@@ -187,7 +187,7 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
      * - do note that the {@link DataSource} within the <code>{@link DataSourceTransactionManager}</code> definitely
      * should be wrapped in a {@link LazyConnectionDataSourceProxy}, and do also note that Mats with this factory will
      * not be able to know whether the stage or initiation actually performed data access.
-     * 
+     * <p>
      * Uses the supplied {@link TransactionDefinition} Function to define the transactions - consider
      * {@link #create(DataSourceTransactionManager)} if you are OK with the defaults.
      * <p>
@@ -289,7 +289,7 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
 
         @Override
         public String toString() {
-            return "MonitorConnectionGettingDataSourceWrapper_InfrastructureProxy for target DataSource ["
+            return this.getClass().getSimpleName() + " for target DataSource ["
                     + getTargetDataSource()
                     + "], ThreadLocal Connection:[" + _connectionThreadLocal.get() + "]";
         }
@@ -328,9 +328,9 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
     private static Function<JmsMatsTxContextKey, DefaultTransactionDefinition> __defaultTransactionDefinitionFunction = (
             txContextKey) -> {
         DefaultTransactionDefinition transDef = new DefaultTransactionDefinition();
-        transDef.setName(txContextKey.toString());
         transDef.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         transDef.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        transDef.setName(txContextKey.toString());
         return transDef;
     };
 
@@ -383,8 +383,8 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
                             _transactionDefinitionForThisContext);
 
                     try {
-                        log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_txContextKey)
-                                + ", within Spring SQL Transactional demarcation.");
+                        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "About to run ProcessingLambda for "
+                                + stageOrInit(_txContextKey) + ", within Spring SQL Transactional demarcation.");
                         /*
                          * Invoking the provided ProcessingLambda, which typically will be the actual user code (albeit
                          * wrapped with some minor code from the JmsMatsStage to parse the MapMessage, deserialize the
@@ -434,7 +434,8 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
 
                     // ----- The ProcessingLambda went OK, no Exception was raised.
 
-                    log.debug(LOG_PREFIX + "COMMIT SQL: ProcessingLambda finished, committing SQL Connection.");
+                    if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "COMMIT SQL: ProcessingLambda finished,"
+                            + " committing SQL Connection.");
 
                     // Check whether Session/Connection is ok before committing DB (per contract with JmsSessionHolder).
                     jmsSessionHolder.isSessionOk();
@@ -521,12 +522,12 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
         /**
          * Raised if commit or rollback of the SQL Connection failed.
          */
-        public static final class MatsSqlCommitOrRollbackFailedException extends RuntimeException {
-            public MatsSqlCommitOrRollbackFailedException(String message, Throwable cause) {
+        static final class MatsSqlCommitOrRollbackFailedException extends RuntimeException {
+            MatsSqlCommitOrRollbackFailedException(String message, Throwable cause) {
                 super(message, cause);
             }
 
-            public MatsSqlCommitOrRollbackFailedException(String message) {
+            MatsSqlCommitOrRollbackFailedException(String message) {
                 super(message);
             }
         }
