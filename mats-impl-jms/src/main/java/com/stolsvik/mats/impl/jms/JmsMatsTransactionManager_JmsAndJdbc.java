@@ -8,9 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
-import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
-import com.stolsvik.mats.util.MatsTxSqlConnection;
-import com.stolsvik.mats.util.MatsTxSqlConnection.MatsSqlConnectionCreationException;
+import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 
 /**
  * Implementation of {@link JmsMatsTransactionManager} that in addition to the JMS transaction also handles a JDBC SQL
@@ -40,12 +38,13 @@ import com.stolsvik.mats.util.MatsTxSqlConnection.MatsSqlConnectionCreationExcep
  * <p>
  * Wise tip when working with <i>Message Oriented Middleware</i>: Code idempotent! Handle double-deliveries!
  * <p>
- * The transactionally demarcated SQL Connection can be retrieved from the {@link MatsTxSqlConnection} utility class.
+ * The transactionally demarcated SQL Connection can be retrieved from user code using
+ * {@link ProcessContext#getAttribute(Class, String...) ProcessContext.getAttribute(Connection.class)}.
  * <p>
  * It requires a {@link JdbcConnectionSupplier} upon construction. The {@link JdbcConnectionSupplier} will be asked for
  * a SQL Connection in any MatsStage's StageProcessor that requires it: The fetching of the SQL Connection is lazy in
  * that it won't be retrieved (nor entered into transaction with), until it is actually requested by the user code by
- * means of {@link MatsTxSqlConnection#getConnection()}.
+ * means of <code>ProcessContext.getAttribute(Connection.class)</code>.
  * <p>
  * The SQL Connection will be {@link Connection#close() closed} after each stage processing (after each transaction,
  * either committed or rollbacked) - if it was requested during the user code.
@@ -100,14 +99,16 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
         }
 
         @Override
-        public void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda)
+        public void doTransaction(JmsMatsMessageContext jmsMatsMessageContext, ProcessingLambda lambda)
                 throws JmsMatsJmsException {
             // :: First make the potential Connection available
             LazyJdbcConnectionSupplier lazyConnectionSupplier = new LazyJdbcConnectionSupplier();
-            MatsTxSqlConnection.setThreadLocalConnectionSupplier(lazyConnectionSupplier);
+            jmsMatsMessageContext.setSqlConnection(() -> lazyConnectionSupplier.get());
+            jmsMatsMessageContext.setSqllConnectionEmployed(() -> lazyConnectionSupplier
+                    .getAnyGottenConnection() != null);
 
             // :: We invoke the "outer" transaction, which is the JMS transaction.
-            super.doTransaction(jmsSessionHolder, () -> {
+            super.doTransaction(jmsMatsMessageContext, () -> {
                 // ----- We're *within* the JMS Transaction demarcation.
 
                 /*
@@ -167,7 +168,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 // ----- The ProcessingLambda went OK, no Exception was raised.
 
                 // Check whether Session/Connection is ok before committing DB (per contract with JmsSessionHolder).
-                jmsSessionHolder.isSessionOk();
+                jmsMatsMessageContext.getJmsSessionHolder().isSessionOk();
 
                 // TODO: Also somehow check runFlag of StageProcessor before committing.
 
@@ -232,8 +233,8 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
         /**
          * Performs Lazy-getting (and setting AutoCommit false) of SQL Connection for the StageProcessor thread, by
-         * means of being set as the ThreadLocal supplier using
-         * {@link MatsTxSqlConnection#setThreadLocalConnectionSupplier(Supplier)}.
+         * means of being set on the {@link JmsMatsMessageContext}, which makes it available via
+         * {@link JmsMatsProcessContext#getAttribute(Class, String...)}.
          */
         private class LazyJdbcConnectionSupplier implements Supplier<Connection> {
             private Connection _gottenConnection;
@@ -269,6 +270,16 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
             private Connection getAnyGottenConnection() {
                 return _gottenConnection;
+            }
+        }
+
+        /**
+         * A {@link RuntimeException} that should be raised by the {@literal Supplier<Connection>} if it can't get SQL
+         * Connections.
+         */
+        static class MatsSqlConnectionCreationException extends RuntimeException {
+            MatsSqlConnectionCreationException(String message, Throwable cause) {
+                super(message, cause);
             }
         }
     }

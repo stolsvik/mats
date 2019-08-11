@@ -15,7 +15,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
  * transaction managers).
  * <p>
  * The JMS Connection and Session handling is performed in calling code, where the resulting {@link JmsSessionHolder} is
- * provided to the {@link TransactionalContext_JmsOnly#doTransaction(JmsSessionHolder, ProcessingLambda)}.
+ * provided to the {@link TransactionalContext_JmsOnly#doTransaction(JmsMatsMessageContext, ProcessingLambda)}.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
@@ -47,17 +47,17 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
             _txContextKey = txContextKey;
         }
 
-        @Override
-        public void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda)
-                throws JmsMatsJmsException {
 
+        @Override
+        public void doTransaction(JmsMatsMessageContext jmsSessionMessageContext, ProcessingLambda lambda)
+                throws JmsMatsJmsException {
             /*
              * We're always within a JMS transaction (as that is the nature of the JMS API when in transactional mode).
              *
              * ----- Therefore, we're now *within* the JMS Transaction demarcation.
              */
 
-            Session jmsSession = jmsSessionHolder.getSession();
+            Session jmsSession = jmsSessionMessageContext.getJmsSessionHolder().getSession();
 
             try {
                 log.debug(LOG_PREFIX + "About to run ProcessingLambda for " + stageOrInit(_txContextKey)

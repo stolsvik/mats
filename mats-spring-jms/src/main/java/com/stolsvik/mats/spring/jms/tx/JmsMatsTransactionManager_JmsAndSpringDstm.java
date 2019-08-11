@@ -6,6 +6,7 @@ import java.util.function.Function;
 
 import javax.sql.DataSource;
 
+import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.InfrastructureProxy;
@@ -20,10 +21,9 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsException;
-import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
+import com.stolsvik.mats.impl.jms.JmsMatsMessageContext;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly;
-import com.stolsvik.mats.util.MatsTxSqlConnection;
 
 /**
  * Implementation of {@link JmsMatsTransactionManager} that in addition to the JMS transaction keeps a Spring
@@ -53,7 +53,8 @@ import com.stolsvik.mats.util.MatsTxSqlConnection;
  * <p>
  * Wise tip when working with <i>Message Oriented Middleware</i>: Code idempotent! Handle double-deliveries!
  * <p>
- * The transactionally demarcated SQL Connection can be retrieved from the {@link MatsTxSqlConnection} utility class.
+ * The transactionally demarcated SQL Connection can be retrieved from user code using
+ * {@link ProcessContext#getAttribute(Class, String...) ProcessContext.getAttribute(Connection.class)}.
  *
  * @author Endre Stølsvik 2019-05-09 20:27 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -365,17 +366,19 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
         }
 
         @Override
-        public void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda)
+        public void doTransaction(JmsMatsMessageContext jmsMatsMessageContext, ProcessingLambda lambda)
                 throws JmsMatsJmsException {
             try {
                 // :: First make the potential SQL Connection available
                 // Notice how we here use the DataSourceUtils class, so that we get the tx ThreadLocal Connection.
                 // Read more at both DataSourceUtils and DataSourceTransactionManager.
-                MatsTxSqlConnection.setThreadLocalConnectionSupplier(() -> DataSourceUtils
+                jmsMatsMessageContext.setSqlConnection(() -> DataSourceUtils
                         .getConnection(_dataSourceTransactionManager.getDataSource()));
+                jmsMatsMessageContext.setSqllConnectionEmployed(() -> _monitorConnectionGettingDataSourceWrapper
+                        .getThreadLocalGottenConnection() != null);
 
                 // :: We invoke the "outer" transaction, which is the JMS transaction.
-                super.doTransaction(jmsSessionHolder, () -> {
+                super.doTransaction(jmsMatsMessageContext, () -> {
                     // ----- We're *within* the JMS Transaction demarcation.
 
                     // :: Now go into the SQL Transaction demarcation
@@ -438,7 +441,7 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
                             + " committing SQL Connection.");
 
                     // Check whether Session/Connection is ok before committing DB (per contract with JmsSessionHolder).
-                    jmsSessionHolder.isSessionOk();
+                    jmsMatsMessageContext.getJmsSessionHolder().isSessionOk();
 
                     // TODO: Also somehow check runFlag of StageProcessor before committing.
 

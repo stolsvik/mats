@@ -51,7 +51,8 @@ public interface JmsMatsTransactionManager {
     TransactionContext getTransactionContext(JmsMatsTxContextKey txContextKey);
 
     /**
-     * Implementors shall do the transactional processing and handle any Throwable that comes out by rolling back.
+     * Implementors shall do the transactional processing and handle any Throwable that comes out of the
+     * {@link ProcessingLambda} by rolling back.
      */
     @FunctionalInterface
     interface TransactionContext {
@@ -69,15 +70,17 @@ public interface JmsMatsTransactionManager {
          * world), and also google "sneakyThrows" for a way to do it using "pure java" that was invented with
          * Generics.)</i>
          * 
-         * @param jmsSessionHolder
-         *            the JMS Session upon which this transaction should run. Gotten from
+         * @param jmsSessionMessageContext
+         *            holds, amongst possibly other stuff, the {@link JmsSessionHolder} instance which contains the JMS
+         *            Session upon which this transaction should run. Gotten from
          *            {@link JmsMatsJmsSessionHandler#getSessionHolder(JmsMatsStageProcessor)} or
          *            {@link JmsMatsJmsSessionHandler#getSessionHolder(JmsMatsInitiator)}.
          * @param lambda
          *            the stuff that shall be done within transaction, i.e. the {@link MatsStage} or the
          *            {@link MatsInitiator}.
          */
-        void doTransaction(JmsSessionHolder jmsSessionHolder, ProcessingLambda lambda) throws JmsMatsJmsException;
+        void doTransaction(JmsMatsMessageContext jmsSessionMessageContext, ProcessingLambda lambda)
+                throws JmsMatsJmsException;
     }
 
     /**

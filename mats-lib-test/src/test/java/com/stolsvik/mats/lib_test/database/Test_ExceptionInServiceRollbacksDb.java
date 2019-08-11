@@ -1,18 +1,18 @@
 package com.stolsvik.mats.lib_test.database;
 
+import java.sql.Connection;
 import java.util.UUID;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsDbTest;
 import com.stolsvik.mats.lib_test.StateTO;
+import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.test.Rule_MatsWithDb.DatabaseException;
-import com.stolsvik.mats.util.MatsTxSqlConnection;
 
 /**
  * Tests that if a Mats stage throws RTE, any SQL INSERT shall be rolled back.
@@ -35,7 +35,8 @@ public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
                 (context, dto) -> {
                     // Insert the data into the datatable
-                    matsRule.insertDataIntoDataTable(MatsTxSqlConnection.getConnection(), "FromService:" + dto.string);
+                    matsRule.insertDataIntoDataTable(context.getAttribute(Connection.class).get(),
+                            "FromService:" + dto.string);
                     // ?: Are we requested to throw RTE?
                     if (dto.number == 1) {
                         // -> Yes, so do!

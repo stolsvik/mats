@@ -1,10 +1,12 @@
 package com.stolsvik.mats.impl.jms;
 
 import java.nio.charset.Charset;
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,9 +80,10 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             }
             try {
                 DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
-                _transactionContext.doTransaction(jmsSessionHolder, () -> {
+                JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(jmsSessionHolder);
+                _transactionContext.doTransaction(jmsMatsMessageContext, () -> {
                     List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
-                    lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend, doAfterCommitRunnableHolder));
+                    lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend, jmsMatsMessageContext, doAfterCommitRunnableHolder));
                     sendMatsMessages(log, nanosStart, jmsSessionHolder, _parentFactory, messagesToSend);
                 });
                 jmsSessionHolder.release();
@@ -159,12 +162,15 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
         private final JmsMatsFactory<Z> _parentFactory;
         private final List<JmsMatsMessage<Z>> _messagesToSend;
+        private final JmsMatsMessageContext _jmsMatsMessageContext;
         private final DoAfterCommitRunnableHolder _doAfterCommitRunnableHolder;
 
         JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
+                JmsMatsMessageContext jmsMatsMessageContext,
                 DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
             _parentFactory = parentFactory;
             _messagesToSend = messagesToSend;
+            _jmsMatsMessageContext = jmsMatsMessageContext;
             _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
 
             reset();
@@ -174,10 +180,12 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         private Map<String, Object> _tracePropertiesSetSoFarInStage;
 
         JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
+                JmsMatsMessageContext jmsMatsMessageContext,
                 DoAfterCommitRunnableHolder doAfterCommitRunnableHolder,
                 MatsTrace<Z> existingMatsTrace, Map<String, Object> tracePropertiesSetSoFarInStage) {
             _parentFactory = parentFactory;
             _messagesToSend = messagesToSend;
+            _jmsMatsMessageContext = jmsMatsMessageContext;
             _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
 
             _existingMatsTrace = existingMatsTrace;
@@ -551,7 +559,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                         stash, zstartMatsTrace + 1, stash.length - zstartMatsTrace - 1,
                         matsTraceMeta, matsTrace,
                         currentSto, new LinkedHashMap<>(), new LinkedHashMap<>(),
-                        _messagesToSend, _doAfterCommitRunnableHolder),
+                        _messagesToSend, _jmsMatsMessageContext, _doAfterCommitRunnableHolder),
                         currentSto, incomingDto);
             }
             catch (MatsRefuseMessageException e) {
@@ -561,6 +569,18 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             }
 
             // No need to reset() here, as we've not touched the _from, _to, etc..
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> Optional<T> getAttribute(Class<T> type, String... name) {
+            // TODO: Way to stick in MatsFactory-configured attributes. Notice: both in ProcessContext and Initiate.
+            // ?: Is this a query for SQL Connection, without any names?
+            if ((type == Connection.class) && (name.length == 0)) {
+                // -> Yes, then it is the default transactional SQL Connection.
+                return (Optional<T>) _jmsMatsMessageContext.getSqlConnection();
+            }
+            return Optional.empty();
         }
 
         private static void validateByte(byte[] stash, int idx, int value) {

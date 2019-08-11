@@ -1,6 +1,7 @@
 package com.stolsvik.mats;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import com.stolsvik.mats.MatsConfig.StartStoppable;
@@ -506,6 +507,22 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          *            committed. Setting to <code>null</code> "cancels" any previously set Runnable.
          */
         void doAfterCommit(Runnable runnable);
+
+        /**
+         * Provides a way to get hold of (optional) attributes/objects from the Mats implementation, either specific
+         * to the Mats implementation in use, or configured into this instance of the Mats implementation. Is mirrored
+         * by the same method at {@link MatsInitiate#getAttribute(Class, String...)}.
+         * <p>
+         * Mandatory: If the Mats implementation has a transactional SQL Connection, it shall be available by
+         * <code>'context.getAttribute(Connection.class)'</code>.
+         * 
+         * @param type The expected type of the attribute
+         * @param name The (optional) (hierarchical) name(s) of the attribute.
+         * @param <T> The type of the attribute.
+         * @return Optional of the attribute in question, the optionality pointing out that it depends on the Mats
+         * implementation or configuration whether it is available.
+         */
+        <T> Optional<T> getAttribute(Class<T> type, String... name);
     }
 
     /**

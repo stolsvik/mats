@@ -1,5 +1,6 @@
 package com.stolsvik.mats.lib_test.database;
 
+import java.sql.Connection;
 import java.util.UUID;
 
 import org.junit.Assert;
@@ -11,7 +12,6 @@ import com.stolsvik.mats.lib_test.MatsDbTest;
 import com.stolsvik.mats.lib_test.StateTO;
 import com.stolsvik.mats.lib_test.basics.Test_SimplestServiceRequest;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
-import com.stolsvik.mats.util.MatsTxSqlConnection;
 
 /**
  * Simple test that looks quite a bit like {@link Test_SimplestServiceRequest}, only the Initiator now populate a table
@@ -33,7 +33,7 @@ public class Test_SimpleDbTest extends MatsDbTest {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
                 (context, dto) -> {
                     // :: Get the data from the SQL table
-                    String data = matsRule.getDataFromDataTable(MatsTxSqlConnection.getConnection());
+                    String data = matsRule.getDataFromDataTable(context.getAttribute(Connection.class).get());
                     return new DataTO(dto.number * 2, dto.string + ":FromService:" + data);
                 });
     }
@@ -60,7 +60,7 @@ public class Test_SimpleDbTest extends MatsDbTest {
         // :: Insert into 'datatable' and send the request to SERVICE.
         matsRule.getMatsInitiator().initiateUnchecked(
                 (msg) -> {
-                    matsRule.insertDataIntoDataTable(MatsTxSqlConnection.getConnection(), randomData);
+                    matsRule.insertDataIntoDataTable(msg.getAttribute(Connection.class).get(), randomData);
                     // :: Send the request
                     msg.traceId(randomId())
                             .from(INITIATOR)

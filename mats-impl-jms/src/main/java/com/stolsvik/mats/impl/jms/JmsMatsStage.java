@@ -403,6 +403,8 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                             finally {
                                 _processorInReceive = false;
                             }
+                            // Need to check whether the JMS Message gotten is null, as that signals that the
+                            // Consumer, Session or Connection was closed from another thread.
                             if (message == null) {
                                 log.info(LOG_PREFIX + "!! Got null from JMS consumer.receive(), JMS Session"
                                         + " was probably closed due to shutdown or JMS error."
@@ -416,7 +418,10 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                             DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
                             long nanosStart = System.nanoTime();
                             try { // :: Going into Mats Transaction
-                                _transactionContext.doTransaction(_jmsSessionHolder, () -> {
+
+                                JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(_jmsSessionHolder);
+
+                                _transactionContext.doTransaction(jmsMatsMessageContext, () -> {
                                     // Assert that this is indeed a JMS MapMessage.
                                     if (!(message instanceof MapMessage)) {
                                         String msg = "Got some JMS Message that is not instanceof JMS MapMessage"
@@ -427,6 +432,8 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
                                     // ----- This is a MapMessage
                                     MapMessage mapMessage = (MapMessage) message;
+
+                                    // :: Fetch Mats-specific message data from the JMS Message.
 
                                     byte[] matsTraceBytes;
                                     String matsTraceMeta;
@@ -463,6 +470,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                                 + " Pretty crazy.", e);
                                     }
 
+                                    // :: Deserialize the MatsTrace from the message data.
                                     MatsSerializer<Z> matsSerializer = getFactory().getMatsSerializer();
                                     DeserializedMatsTrace<Z> matsTraceDeserialized = matsSerializer
                                             .deserializeMatsTrace(matsTraceBytes, matsTraceMeta);
@@ -540,8 +548,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
                                     // :: Invoke the process lambda (the actual user code).
                                     List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
-
-                                    _jmsMatsStage._processLambda.process(new JmsMatsProcessContext<>(
+                                    JmsMatsProcessContext<R, S, Z> processContext = new JmsMatsProcessContext<>(
                                             getFactory(),
                                             _jmsMatsStage.getParentEndpoint().getEndpointId(),
                                             _jmsMatsStage.getStageId(),
@@ -551,10 +558,13 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
                                             matsTrace,
                                             currentSto,
                                             incomingBinaries, incomingStrings,
-                                            messagesToSend, doAfterCommitRunnableHolder),
-                                            currentSto, incomingDto);
+                                            messagesToSend, jmsMatsMessageContext, doAfterCommitRunnableHolder);
 
+                                    _jmsMatsStage._processLambda.process(processContext, currentSto, incomingDto);
+
+                                    // :: Send any outgoing Mats messages (replies, requests, new messages etc..)
                                     sendMatsMessages(log, nanosStart, _jmsSessionHolder, getFactory(), messagesToSend);
+
                                 }); // End: Mats Transaction
                             }
                             catch (RuntimeException e) {

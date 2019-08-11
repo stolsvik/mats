@@ -1,8 +1,10 @@
 package com.stolsvik.mats.impl.jms;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +47,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     private final LinkedHashMap<String, String> _incomingStrings;
     private final S _incomingAndOutgoingState;
     private final List<JmsMatsMessage<Z>> _messagesToSend;
+    private final JmsMatsMessageContext _jmsMatsMessageContext;
     private final DoAfterCommitRunnableHolder _doAfterCommitRunnableHolder;
 
     JmsMatsProcessContext(JmsMatsFactory<Z> parentFactory,
@@ -56,7 +59,9 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
             String incomingSerializedMatsTraceMeta,
             MatsTrace<Z> incomingMatsTrace, S incomingAndOutgoingState,
             LinkedHashMap<String, byte[]> incomingBinaries, LinkedHashMap<String, String> incomingStrings,
-            List<JmsMatsMessage<Z>> out_messagesToSend, DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
+            List<JmsMatsMessage<Z>> out_messagesToSend,
+            JmsMatsMessageContext jmsMatsMessageContext,
+            DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
         _parentFactory = parentFactory;
 
         _endpointId = endpointId;
@@ -73,6 +78,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         _incomingStrings = incomingStrings;
         _incomingAndOutgoingState = incomingAndOutgoingState;
         _messagesToSend = out_messagesToSend;
+        _jmsMatsMessageContext = jmsMatsMessageContext;
         _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
     }
 
@@ -384,12 +390,24 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     @Override
     public void initiate(InitiateLambda lambda) {
-        lambda.initiate(new JmsMatsInitiate<>(_parentFactory, _messagesToSend, _doAfterCommitRunnableHolder,
+        lambda.initiate(new JmsMatsInitiate<>(_parentFactory, _messagesToSend, _jmsMatsMessageContext, _doAfterCommitRunnableHolder,
                 _incomingMatsTrace, _outgoingProps));
     }
 
     @Override
     public void doAfterCommit(Runnable runnable) {
         _doAfterCommitRunnableHolder.setDoAfterCommit(runnable);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> Optional<T> getAttribute(Class<T> type, String... name) {
+        // TODO: Way to stick in MatsFactory-configured attributes. Notice: both in ProcessContext and Initiate.
+        // ?: Is this a query for SQL Connection, without any names?
+        if ((type == Connection.class) && (name.length == 0)) {
+            // -> Yes, then it is the default transactional SQL Connection.
+            return (Optional<T>) _jmsMatsMessageContext.getSqlConnection();
+        }
+        return Optional.empty();
     }
 }
