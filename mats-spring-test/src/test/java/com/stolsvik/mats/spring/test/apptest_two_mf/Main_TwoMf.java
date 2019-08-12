@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.test.testapp_two_mf;
+package com.stolsvik.mats.spring.test.apptest_two_mf;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

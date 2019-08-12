@@ -17,11 +17,11 @@ import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsTestProfile;
+import com.stolsvik.mats.spring.test.apptest_two_mf.Main_TwoMf;
+import com.stolsvik.mats.spring.test.apptest_two_mf.Main_TwoMf.TestQualifier;
+import com.stolsvik.mats.spring.test.apptest_two_mf.Mats_SingleEndpoint;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
-import com.stolsvik.mats.spring.test.testapp_two_mf.Main_TwoMf;
-import com.stolsvik.mats.spring.test.testapp_two_mf.Main_TwoMf.TestQualifier;
-import com.stolsvik.mats.spring.test.testapp_two_mf.Mats_SingleEndpoint;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.util.RandomString;
@@ -34,7 +34,7 @@ import no.saua.remock.RemockBootstrapper;
  * into <i>lazy initialization</i> mode to make tests (in particular those pointing to the entire application's Spring
  * Context (i.e. dependency injection) configuration) as fast as possible by only firing up beans that are actually
  * "touched" by the tests. There was an issue with some of Mats' SpringConfig elements relying on eager init - and this
- * test tries to weed out these dependencies.
+ * test was made to weed out those dependencies.
  *
  * @author Endre Stølsvik 2019-06-25 23:31 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -51,20 +51,14 @@ public class UseFullApplicationConfiguration_WithRemock {
      * on this bean being instantiated - and since everything is lazy-init with Remock, it will not be instantiated
      * unless something depends on it. We depend on it /indirectly/: We don't need the /bean/, but the "contents" of the
      * bean, which is the Mats endpoint. Therefore, we @Inject it here, even though we do not need the instance in the
-     * test. Okay. Do you get it now?
+     * test. Okay. You got this, right?
+     * 
+     * Note: Another way to get the same effect through a different route, is to annotate the class with
+     * "@DisableLazyInit(Mats_SingleEndpoint.class)". This tells Remock to disable lazy-init for this particular
+     * class, and thus it will be "booted", taking up the Mats endpoint.
      */
     @Inject
     private Mats_SingleEndpoint _dependency1;
-
-    /**
-     * This bean must also be @Inject'ed here due to the same reason as above (we need the @MatsMapping terminator
-     * endpoint specified in it). However, I find this ridiculous, as it is the "default Configuration lookup" , i.e. it
-     * is a /part of the test/, and Remock should most definitely assume that it is a dependency that must be
-     * instantiated. Wrt. "default Configuration lookup": It doesn't help to explicitly define it in
-     * a @ContextConfiguration either, mkay?
-     */
-    @Inject
-    private TestConfig _dependency2;
 
     // ===== The rest is identical to UseFullApplicationConfiguration
 

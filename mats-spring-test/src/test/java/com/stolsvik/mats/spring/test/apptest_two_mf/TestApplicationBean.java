@@ -1,20 +1,15 @@
-package com.stolsvik.mats.spring.test.testapp_two_mf;
+package com.stolsvik.mats.spring.test.apptest_two_mf;
 
 import javax.inject.Inject;
 
-import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.spring.Dto;
-import com.stolsvik.mats.spring.MatsMapping;
-import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
-import com.stolsvik.mats.spring.test.testapp_two_mf.Main_TwoMf.TestQualifier;
+import com.stolsvik.mats.spring.test.apptest_two_mf.Main_TwoMf.TestQualifier;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 

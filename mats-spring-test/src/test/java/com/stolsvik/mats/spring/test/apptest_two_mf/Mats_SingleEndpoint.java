@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.test.testapp_two_mf;
+package com.stolsvik.mats.spring.test.apptest_two_mf;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
