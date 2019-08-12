@@ -18,7 +18,7 @@ public class Mats_SingleEndpoint {
     /**
      * Test "Single" endpoint.
      */
-    @MatsMapping(endpointId = Main_TwoMf.ENDPOINT_ID + ".single")
+    @MatsMapping(endpointId = Main.ENDPOINT_ID + ".single")
     @Qualifier("matsFactoryX")
     public SpringTestDataTO springMatsSingleEndpoint(@Dto SpringTestDataTO msg) throws MatsRefuseMessageException {
         if (msg.string.equals(THROW)) {

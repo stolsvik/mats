@@ -9,19 +9,19 @@ import org.springframework.stereotype.Component;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Main_TwoMf.TestQualifier;
+import com.stolsvik.mats.spring.test.apptest_two_mf.Main.TestQualifier;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 @Component
-public class TestApplicationBean {
-    private static final Logger log = LoggerFactory.getLogger(TestApplicationBean.class);
+public class AppBean {
+    private static final Logger log = LoggerFactory.getLogger(AppBean.class);
 
     @Inject
     private MatsTestLatch _latch;
 
     @Inject
-    @TestQualifier(endre="Elg")
+    @TestQualifier(name = "Endre Stølsvik")
     private MatsFactory _matsFactory;
 
     void run() {
@@ -30,8 +30,8 @@ public class TestApplicationBean {
         _matsFactory.getDefaultInitiator().initiateUnchecked(
                 msg -> msg.traceId("TraceId")
                         .from("FromId")
-                        .to(Main_TwoMf.ENDPOINT_ID + ".single")
-                        .replyTo(Main_TwoMf.ENDPOINT_ID + ".terminator", sto)
+                        .to(Main.ENDPOINT_ID + ".single")
+                        .replyTo(Main.ENDPOINT_ID + ".terminator", sto)
                         .request(dto));
 
         Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();

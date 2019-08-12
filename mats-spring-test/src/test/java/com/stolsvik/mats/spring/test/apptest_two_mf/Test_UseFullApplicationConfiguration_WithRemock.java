@@ -1,13 +1,13 @@
-package com.stolsvik.mats.spring.test.apptest;
+package com.stolsvik.mats.spring.test.apptest_two_mf;
 
 import javax.inject.Inject;
 
+import com.stolsvik.mats.spring.ConfigurationForTest;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.BootstrapWith;
 import org.springframework.test.context.junit4.SpringRunner;
@@ -17,9 +17,7 @@ import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsTestProfile;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Main_TwoMf;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Main_TwoMf.TestQualifier;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Mats_SingleEndpoint;
+import com.stolsvik.mats.spring.test.apptest_two_mf.Main.TestQualifier;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch;
@@ -29,7 +27,7 @@ import com.stolsvik.mats.util.RandomString;
 import no.saua.remock.RemockBootstrapper;
 
 /**
- * As identical to {@link UseFullApplicationConfiguration} as possible, but now using
+ * As identical to {@link Test_UseFullApplicationConfiguration} as possible, but now using
  * <a href="https://github.com/ksaua/remock">Remock</a>. The issue when using Remock is that this library puts all beans
  * into <i>lazy initialization</i> mode to make tests (in particular those pointing to the entire application's Spring
  * Context (i.e. dependency injection) configuration) as fast as possible by only firing up beans that are actually
@@ -39,12 +37,13 @@ import no.saua.remock.RemockBootstrapper;
  * @author Endre Stølsvik 2019-06-25 23:31 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
+// This overrides the configured ConnectionFactories in the app to be LocalVM testing instances.
 @MatsTestProfile
 // Using Remock
 @BootstrapWith(RemockBootstrapper.class)
-public class UseFullApplicationConfiguration_WithRemock {
-    private static final Logger log = LoggerFactory.getLogger(UseFullApplicationConfiguration_WithRemock.class);
-    private static final String TERMINATOR = "UseFullApplicationConfiguration_WithRemock.TERMINATOR";
+public class Test_UseFullApplicationConfiguration_WithRemock {
+    private static final Logger log = LoggerFactory.getLogger(Test_UseFullApplicationConfiguration_WithRemock.class);
+    private static final String TERMINATOR = "Test.TERMINATOR";
 
     /**
      * This is @Inject'ed here to get its @MatsMapping endpoint to register, as otherwise there is nothing that depends
@@ -60,14 +59,14 @@ public class UseFullApplicationConfiguration_WithRemock {
     @Inject
     private Mats_SingleEndpoint _dependency1;
 
-    // ===== The rest is identical to UseFullApplicationConfiguration
+    // ===== The rest is identical to Test_UseFullApplicationConfiguration
 
-    @Configuration
+    @ConfigurationForTest
     // This is where we import the application's main configuration class
     // 1. It is annotated with @EnableMats
     // 2. It configures two ConnectionFactories, and two MatsFactories.
     // 3. It configures classpath scanning, and thus gets the Mats endpoints configured.
-    @Import(Main_TwoMf.class)
+    @Import(Main.class)
     public static class TestConfig {
         @Inject
         private MatsTestLatch _latch;
@@ -83,7 +82,7 @@ public class UseFullApplicationConfiguration_WithRemock {
     }
 
     @Inject
-    @TestQualifier(endre = "Elg")
+    @TestQualifier(name = "Endre Stølsvik")
     private MatsFactory _matsFactory;
 
     @Inject
@@ -95,7 +94,7 @@ public class UseFullApplicationConfiguration_WithRemock {
         _matsFactory.getDefaultInitiator().initiateUnchecked(msg -> {
             msg.traceId(RandomString.randomCorrelationId())
                     .from("TestInitiate")
-                    .to(Main_TwoMf.ENDPOINT_ID + ".single")
+                    .to(Main.ENDPOINT_ID + ".single")
                     .replyTo(TERMINATOR, null)
                     .request(dto);
         });

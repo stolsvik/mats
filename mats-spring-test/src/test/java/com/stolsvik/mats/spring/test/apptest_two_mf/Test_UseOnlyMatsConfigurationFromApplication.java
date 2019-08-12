@@ -1,26 +1,24 @@
-package com.stolsvik.mats.spring.test.apptest;
+package com.stolsvik.mats.spring.test.apptest_two_mf;
 
 import javax.inject.Inject;
 
-import com.stolsvik.mats.spring.EnableMats;
-import com.stolsvik.mats.spring.test.TestSpringMatsFactoryProvider;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Mats_SingleEndpoint;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.junit4.SpringRunner;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.Dto;
+import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
+import com.stolsvik.mats.spring.ConfigurationForTest;
+import com.stolsvik.mats.spring.test.TestSpringMatsFactoryProvider;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Main_TwoMf;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.util.RandomString;
@@ -32,10 +30,10 @@ import com.stolsvik.mats.util.RandomString;
  * @author Endre Stølsvik 2019-06-06 21:53 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class UseOnlyMatsConfigurationFromApplication {
-    private static final String TERMINATOR = "UseOnlyMatsConfigurationFromApplication.TERMINATOR";
+public class Test_UseOnlyMatsConfigurationFromApplication {
+    private static final String TERMINATOR = "Test_UseOnlyMatsConfigurationFromApplication.TERMINATOR";
 
-    @Configuration
+    @ConfigurationForTest
     // This is where we import the application's endpoint configurations
     @Import(Mats_SingleEndpoint.class)
     // Nobody else is doing it.
@@ -64,7 +62,6 @@ public class UseOnlyMatsConfigurationFromApplication {
         }
     }
 
-
     @Inject
     @Qualifier("matsFactoryX")
     private MatsFactory _matsFactory;
@@ -78,7 +75,7 @@ public class UseOnlyMatsConfigurationFromApplication {
         _matsFactory.getDefaultInitiator().initiateUnchecked(msg -> {
             msg.traceId(RandomString.randomCorrelationId())
                     .from("TestInitiate")
-                    .to(Main_TwoMf.ENDPOINT_ID + ".single")
+                    .to(Main.ENDPOINT_ID + ".single")
                     .replyTo(TERMINATOR, null)
                     .request(dto);
         });

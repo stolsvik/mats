@@ -12,16 +12,18 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.spring.EnableMats;
+import com.stolsvik.mats.spring.jms.factories.ConfigurableScenarioDecider;
+import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.MatsScenario;
 import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryWithStartStopWrapper;
 import com.stolsvik.mats.spring.jms.factories.JmsSpringConnectionFactoryProducer;
 import com.stolsvik.mats.spring.jms.factories.JmsSpringMatsFactoryProducer;
+import com.stolsvik.mats.spring.ComponentScanExcludingConfigurationForTest;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
@@ -31,25 +33,27 @@ import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
  * PLEASE NOTE: In this "application", we set up two MatsLocalVmActiveMq in-vm "LocalVM" instances to simulate a
  * production setup where there are two external Message Brokers that this application wants to connect to. The reason
  * is that it should be possible to run this test-application without external resources set up. To connect to these
- * brokers, start the application with Spring Profile "mats-regular" active, or set the system property "mats.regular"
- * (i.e. "-Dmats.regular" on the Java command line). However, if the Spring Profile "mats-test" is active (which you do
- * in integration tests), the JmsSpringConnectionFactoryProducer will instead of using the specified ConnectionFactory
- * to these two message brokers, make new LocalVM instances and return a ConnectionFactory to those. Had this been a
- * real application, where the ConnectionFactory specified in those beans pointed to the production brokers, this would
- * make it possible to switch between connecting to the production setup, and the integration testing setup.
- * 
+ * brokers, you may start the application with Spring Profile "mats-regular" active, or set the system property
+ * "mats.regular" (i.e. "-Dmats.regular" on the Java command line) - or just run it directly, as the default scenario
+ * when nothing is specified is set up to be "regular". <i>However</i>, if the Spring Profile "mats-test" is active
+ * (which you do in integration tests), the JmsSpringConnectionFactoryProducer will instead of using the specified
+ * ConnectionFactory to these two message brokers, make new LocalVM instances and return a ConnectionFactory to those.
+ * Had this been a real application, where the ConnectionFactory specified in those beans pointed to the production
+ * brokers, this would make it possible to switch between connecting to the production setup, and the integration
+ * testing setup (employing LocalVM instances).
+ *
  * @author Endre Stølsvik 2019-05-17 21:42 - http://stolsvik.com/, endre@stolsvik.com
  */
 @Configuration
 @EnableMats
-@ComponentScan(basePackageClasses = Main_TwoMf.class)
-public class Main_TwoMf {
+@ComponentScanExcludingConfigurationForTest
+public class Main {
     public static final String ENDPOINT_ID = "TestApp_TwoMf";
 
-    private static final Logger log = LoggerFactory.getLogger(Main_TwoMf.class);
+    private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     public static void main(String... args) {
-        new Main_TwoMf().start();
+        new Main().start();
     }
 
     private void start() {
@@ -64,8 +68,8 @@ public class Main_TwoMf {
 
         log.info("Starting application.");
         try {
-            TestApplicationBean testApplicationBean = ctx.getBean(TestApplicationBean.class);
-            testApplicationBean.run();
+            AppBean appBean = ctx.getBean(AppBean.class);
+            appBean.run();
         }
         catch (Throwable t) {
             String msg = "Got some Exception when running app.";
@@ -110,6 +114,9 @@ public class Main_TwoMf {
                         _amq.close();
                     }
                 })
+                // Choose Regular MatsScenario if none presented.
+                .scenarioDecider(ConfigurableScenarioDecider.getDefaultScenarioDecider()
+                        .setDefaultScenario(() -> MatsScenario.REGULAR))
                 .create();
     }
 
@@ -133,11 +140,14 @@ public class Main_TwoMf {
                         _amq.close();
                     }
                 })
+                // Choose Regular MatsScenario if none presented.
+                .scenarioDecider(ConfigurableScenarioDecider.getDefaultScenarioDecider()
+                        .setDefaultScenario(() -> MatsScenario.REGULAR))
                 .create();
     }
 
     @Bean
-    @TestQualifier(endre = "Elg")
+    @TestQualifier(name = "Endre Stølsvik")
     @Qualifier("matsFactoryX")
     protected MatsFactory matsFactory1(@Qualifier("connectionFactoryA") ConnectionFactory connectionFactory,
             MatsSerializer<String> matsSerializer) {
@@ -159,6 +169,6 @@ public class Main_TwoMf {
     @Retention(RetentionPolicy.RUNTIME)
     @Qualifier
     public @interface TestQualifier {
-        String endre() default "";
+        String name() default "";
     }
 }

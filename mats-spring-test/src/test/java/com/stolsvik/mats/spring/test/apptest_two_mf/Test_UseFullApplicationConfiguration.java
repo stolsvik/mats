@@ -1,14 +1,14 @@
-package com.stolsvik.mats.spring.test.apptest;
+package com.stolsvik.mats.spring.test.apptest_two_mf;
 
 import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
 
+import com.stolsvik.mats.spring.ConfigurationForTest;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.junit4.SpringRunner;
 
@@ -21,8 +21,7 @@ import com.stolsvik.mats.spring.jms.factories.MatsProfiles;
 import com.stolsvik.mats.spring.test.MatsTestProfile;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Main_TwoMf;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Main_TwoMf.TestQualifier;
+import com.stolsvik.mats.spring.test.apptest_two_mf.Main.TestQualifier;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.util.RandomString;
@@ -40,16 +39,16 @@ import com.stolsvik.mats.util.RandomString;
 @RunWith(SpringRunner.class)
 // This overrides the configured ConnectionFactories in the app to be LocalVM testing instances.
 @MatsTestProfile
-public class UseFullApplicationConfiguration {
-    private static final Logger log = LoggerFactory.getLogger(UseFullApplicationConfiguration.class);
-    private static final String TERMINATOR = "UseFullApplicationConfiguration.TERMINATOR";
+public class Test_UseFullApplicationConfiguration {
+    private static final Logger log = LoggerFactory.getLogger(Test_UseFullApplicationConfiguration.class);
+    private static final String TERMINATOR = "Test.TERMINATOR";
 
-    @Configuration
+    @ConfigurationForTest
     // This is where we import the application's main configuration class
     // 1. It is annotated with @EnableMats
     // 2. It configures two ConnectionFactories, and two MatsFactories.
     // 3. It configures classpath scanning, and thus gets the Mats endpoints configured.
-    @Import(Main_TwoMf.class)
+    @Import(Main.class)
     public static class TestConfig {
         @Inject
         private MatsTestLatch _latch;
@@ -65,7 +64,7 @@ public class UseFullApplicationConfiguration {
     }
 
     @Inject
-    @TestQualifier(endre = "Elg")
+    @TestQualifier(name = "Endre Stølsvik")
     private MatsFactory _matsFactory;
 
     @Inject
@@ -77,7 +76,7 @@ public class UseFullApplicationConfiguration {
         _matsFactory.getDefaultInitiator().initiateUnchecked(msg -> {
             msg.traceId(RandomString.randomCorrelationId())
                     .from("TestInitiate")
-                    .to(Main_TwoMf.ENDPOINT_ID + ".single")
+                    .to(Main.ENDPOINT_ID + ".single")
                     .replyTo(TERMINATOR, null)
                     .request(dto);
         });

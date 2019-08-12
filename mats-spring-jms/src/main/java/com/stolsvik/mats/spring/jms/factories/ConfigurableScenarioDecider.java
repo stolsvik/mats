@@ -48,7 +48,7 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
     protected SpecificScenarioDecider _regular;
     protected SpecificScenarioDecider _localhost;
     protected SpecificScenarioDecider _localVm;
-    private Supplier<MatsScenario> _defaultScenario;
+    protected Supplier<MatsScenario> _defaultScenario;
 
     /**
      * Takes a {@link SpecificScenarioDecider} for each of the {@link MatsScenario}s, and a default MatsScenario if none
@@ -58,10 +58,36 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
      */
     public ConfigurableScenarioDecider(SpecificScenarioDecider regular, SpecificScenarioDecider localhost,
             SpecificScenarioDecider localVm, Supplier<MatsScenario> defaultScenario) {
+        setRegularDecider(regular);
+        setLocalhostDecider(localhost);
+        setLocalVmDecier(localVm);
+        setDefaultScenario(defaultScenario);
+    }
+
+    /**
+     * No-args constructor - must set all the {@link SpecificScenarioDecider} and default MatsScenario by setters.
+     */
+    public ConfigurableScenarioDecider() {
+    }
+
+    public ConfigurableScenarioDecider setRegularDecider(SpecificScenarioDecider regular) {
         _regular = regular;
+        return this;
+    }
+
+    public ConfigurableScenarioDecider setLocalhostDecider(SpecificScenarioDecider localhost) {
         _localhost = localhost;
+        return this;
+    }
+
+    public ConfigurableScenarioDecider setLocalVmDecier(SpecificScenarioDecider localVm) {
         _localVm = localVm;
+        return this;
+    }
+
+    public ConfigurableScenarioDecider setDefaultScenario(Supplier<MatsScenario> defaultScenario) {
         _defaultScenario = defaultScenario;
+        return this;
     }
 
     @Override
@@ -147,7 +173,7 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
          * @param env
          *            the Spring {@link Environment}, from which Spring Profiles and properties/variables can be gotten.
          *            Notice that in the default Spring configuration, the Environment is populated by System Properties
-         *            (Java command line "-Dproperty=vale"-properties) and System Environment.
+         *            (Java command line "-Dproperty=value"-properties) and System Environment.
          * @return an {@link Optional}, which if present means that the specific Mats Scenario is active - and the
          *         returned String is used in logging to show why this Scenario was chosen (a string like e.g.
          *         <code>"Found Spring Profile 'mats-test'"</code> would make sense). If {@link Optional#empty()}, this
