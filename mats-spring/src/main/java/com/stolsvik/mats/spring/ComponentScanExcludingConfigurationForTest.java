@@ -19,29 +19,81 @@ import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.core.annotation.AliasFor;
 
 /**
- * A convenience @ComponentScan-meta-annotated which excludes any configuration classes using the special
+ * A simple convenience replacement for @ComponentScan which excludes any configuration classes using the special
  * {@link ConfigurationForTest @ConfigurationForTest} annotation instead of the standard <code>@Configuration</code>
- * annotation. By employing the {@link ConfigurationForTest} for tests' configuration classes (typically static inner),
- * and this annotation as the application's component scan, you avoid the problem whereby when running tests, a
- * component scan of the base package of the application will also include any configuration classes from the tests
- * (assuming that they, as customary is, resides in the same package as the application, but in "src/test/java". Thus,
- * this is not a problem when running the application normally, only when running any tests that include the
- * application's spring context setup that does a component scan).
+ * annotation. This is meant as a solution for a rather common problem that arises when your application
+ * uses @ComponentScan to find @Services, @Components etc, and have integration tests that reside in "src/test/java",
+ * but has the same package as the application code. In the tests, you might want to include the entire application's
+ * Spring configuration, thus you include the same @ComponentScan. The problem now is that since all the test classes
+ * are included on the classpath when running a test, and at the same time reside in the same package structure, the
+ * component scan will pick up all tests' @Configuration classes too. This is absolutely not what you wanted - in
+ * particular if e.g. two different tests tries to set up two different variants of a mock collaborating Mats endpoint
+ * (that is, an application-external service that this application communicates with): You'll end up trying to take up
+ * both variants at the same time, and since they have the same endpointId, Mats will refuse this.
  * <p>
- * Notice: All the properties of the @ComponentScan as of Spring 4.x is included using @AliasFor. However, if you want
- * need something from a future @ComponentScan which is not included here, you can just use the standard @ComponentScan,
- * making sure you include this excludeFilters property:
+ * If you employ this annotation (@ComponentScanExcludingConfigurationForTest) - or set up the same "excludeFilters" as
+ * this annotation does - you will <i>not</i> include any configuration classes that are annotated with
+ * {@link ConfigurationForTest @ConfigurationForTest} instead of the ordinary @Configuration. However, each test will
+ * still pick up its own inner static @ConfigurationForTest class(es).
+ * <p>
+ * A test class employing @ConfigurationForTest would look something like this:
+ * 
+ * <pre>
+ * &#64;MatsTestProfile // <- If you employ the JmsSpringConnectionFactoryProducer's logic to handle JMS ConnectionFactory
+ * &#64;RunWith(SpringRunner.class)
+ * public class IntegrationTestClass {
+ *
+ *     &#64;ConfigurationForTest
+ *     &#64;Import(ApplicationSpringConfigurationClass_Using_ComponentScanExcludingConfigurationForTest.class)
+ *     public static class InnerStaticConfigurationClassForTest {
+ *         // &#64;Bean definitions
+ *         // &#64;MatsMapping definitions
+ *     }
+ *
+ *     // @Inject'ed fields..
+ *     // @Test-methods..
+ * }
+ * </pre>
+ * <p>
+ * If you want to do the exclusion on your own, you can use the standard @ComponentScan, making sure you include this
+ * excludeFilters property:
  * 
  * <pre>
  *  &#64;ComponentScan(excludeFilters = {
  *      &#64;Filter(type = FilterType.ANNOTATION, value = ConfigurationForTest.class)
  *  })
  * </pre>
+ * <p>
+ * This class has @AliasFor all properties that Spring 4.x has on @ComponentScan. If new properties arrive later which
+ * you want to use, you will have to do the exclusion on your own.
+ * <p>
+ * <b>NOTICE:</b> An alternative way to achieve the same effect is to annotate the integration test class
+ * with @ContextConfiguration, pointing to both the application's Spring setup, and also the configuration class
+ * residing within the test class - <i>but where the test's configuration class is <b>not</b> annotated
+ * with @Configuration.</i> Such an integration test class would look something like this:
  * 
+ * <pre>
+ * &#64;MatsTestProfile // <- If you employ the JmsSpringConnectionFactoryProducer's logic to handle JMS ConnectionFactory
+ * &#64;RunWith(SpringRunner.class)
+ * &#64;ContextConfiguration(classes = { ApplicationSpringConfigurationClass_Using_ComponentScan.class,
+ *         InnerStaticConfigurationClassForTest.class })
+ * public class IntegrationTestClass {
+ * 
+ *     // Notice how this configuration class is NOT annotated with &#64;Configuration, to avoid being picked up by
+ *     // application's &#64;ComponentScan
+ *     public static class InnerStaticConfigurationClassForTest {
+ *         // &#64;Bean definitions
+ *         // &#64;MatsMapping definitions
+ *     }
+ * 
+ *     // @Inject'ed fields..
+ *     // @Test-methods..
+ * }
+ * </pre>
  *
  * @see ConfigurationForTest
- * @see <a href="https://stackoverflow.com/a/51194221/39334">Stackoverflow 1</a>
- * @see <a href="https://stackoverflow.com/a/46344822/39334">Stackoverflow 2</a>
+ * @see <a href="https://stackoverflow.com/a/46344822/39334">Stackoverflow answer to question about this problem, where
+ *      the idea for this pair of annotations is ripped from.</a>
  *
  * @author Endre Stølsvik 2019-08-12 22:33 - http://stolsvik.com/, endre@stolsvik.com
  */
