@@ -92,7 +92,7 @@ public class MatsSpringDefined_StagedEndpoint {
         /**
          * Sets up a Terminator-style endpoint using Staged, where both the state STO and reply DTO defaults to Void.
          */
-        @MatsStaged(endpointId = ENDPOINT_ID + SINGLE_VOID_VOID)
+        @MatsStaged(ENDPOINT_ID + SINGLE_VOID_VOID)
         public void springMatsStagedEndpointWithVoidStateAndVoidReply(MatsEndpoint<Void, Void> ep,
                 EndpointConfig<Void, Void> config) {
             // Just invoke something on the config instance to check that it is sane

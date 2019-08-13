@@ -9,6 +9,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.annotation.AliasFor;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.MatsStaged.MatsStageds;
@@ -33,7 +34,17 @@ public @interface MatsStaged {
      *
      * @return the Mats <em>Endpoint Id</em> which this endpoint listens to.
      */
-    String endpointId();
+    @AliasFor("value")
+    String endpointId() default "";
+
+    /**
+     * Alias for "endpointId", so that if you only need to set the endpointId, you can do so directly:
+     * <code>@MatsStaged("endpointId")</code>
+     *
+     * @return the endpointId.
+     */
+    @AliasFor("endpointId")
+    String value() default "";
 
     /**
      * The Mats <em>State Transfer Object</em> class that should be employed for all of the stages for this endpoint.

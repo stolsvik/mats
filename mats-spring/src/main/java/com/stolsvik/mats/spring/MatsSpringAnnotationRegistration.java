@@ -357,6 +357,13 @@ public class MatsSpringAnnotationRegistration implements
         if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsMapping [" + matsMapping + "] on method ["
                 + method + "], of bean: " + bean);
 
+        // ?: Is the endpointId == ""?
+        if (matsMapping.endpointId().equals("")) {
+            // -> Yes, and it is not allowed to have empty endpointId.
+            throw new MatsSpringConfigException("The " + descString(matsMapping, method, bean)
+                    + " is missing endpointId (or 'value')");
+        }
+
         // Override accessibility
         method.setAccessible(true);
 
@@ -446,12 +453,6 @@ public class MatsSpringAnnotationRegistration implements
         final Class<?> replyType = method.getReturnType();
 
         String typeEndpoint;
-
-        // :: Assert that endpointId is set
-        if (matsMapping.endpointId().equals("")) {
-            throw new MatsSpringConfigException("The " + descString(matsMapping, method, bean)
-                    + " is missing endpointId (or 'value')");
-        }
 
         // ?: Do we have a void return value?
         if (replyType.getName().equals("void")) {
@@ -822,6 +823,13 @@ public class MatsSpringAnnotationRegistration implements
     private void processMatsStaged(MatsStaged matsStaged, Method method, Object bean) {
         if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsStaged [" + matsStaged + "] on method ["
                 + method + "], of bean: " + bean);
+
+        // ?: Is the endpointId == ""?
+        if (matsStaged.endpointId().equals("")) {
+            // -> Yes, and it is not allowed to have empty endpointId.
+            throw new MatsSpringConfigException("The " + descString(matsStaged, method, bean)
+                    + " is missing endpointId (or 'value')");
+        }
 
         // Override accessibility
         method.setAccessible(true);

@@ -10,12 +10,12 @@ import java.lang.annotation.Target;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Primary;
+import org.springframework.core.annotation.AliasFor;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
-import org.springframework.core.annotation.AliasFor;
 
 /**
  * A method annotated with this repeatable annotation directly becomes a
@@ -71,6 +71,12 @@ public @interface MatsMapping {
     @AliasFor("value")
     String endpointId() default "";
 
+    /**
+     * Alias for "endpointId", so that if you only need to set the endpointId, you can do so directly:
+     * <code>@MatsMapping("endpointId")</code>
+     *
+     * @return the endpointId.
+     */
     @AliasFor("endpointId")
     String value() default "";
 

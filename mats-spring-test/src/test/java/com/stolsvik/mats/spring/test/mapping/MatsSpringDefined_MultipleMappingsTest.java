@@ -36,8 +36,8 @@ public class MatsSpringDefined_MultipleMappingsTest {
         @Inject
         private MatsTestLatch _latch;
 
-        @MatsMapping(endpointId = ENDPOINT_ID + SINGLE1)
-        @MatsMapping(endpointId = ENDPOINT_ID + SINGLE2)
+        @MatsMapping(ENDPOINT_ID + SINGLE1)
+        @MatsMapping(ENDPOINT_ID + SINGLE2)
         public SpringTestDataTO springMatsSingleEndpoint(ProcessContext<SpringTestDataTO> ctx, SpringTestDataTO msg) {
             return new SpringTestDataTO(msg.number * 2, msg.string + ctx.getEndpointId());
         }
