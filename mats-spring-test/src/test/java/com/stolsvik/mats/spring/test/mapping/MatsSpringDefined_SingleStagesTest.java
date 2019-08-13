@@ -45,7 +45,7 @@ public class MatsSpringDefined_SingleStagesTest {
         /**
          * Single-stage endpoint (return value specified) - non-specified param, thus Dto.
          */
-        @MatsMapping(endpointId = ENDPOINT_ID + SINGLE)
+        @MatsMapping(ENDPOINT_ID + SINGLE)
         public SpringTestDataTO springMatsSingleEndpoint(SpringTestDataTO msg) {
             return new SpringTestDataTO(msg.number * 2, msg.string + SINGLE);
         }
@@ -53,7 +53,7 @@ public class MatsSpringDefined_SingleStagesTest {
         /**
          * Single-stage endpoint (return value specified) - specified params: Dto.
          */
-        @MatsMapping(endpointId = ENDPOINT_ID + SINGLE_DTO)
+        @MatsMapping(ENDPOINT_ID + SINGLE_DTO)
         public SpringTestDataTO springMatsSingleEndpoint_Dto(@Dto SpringTestDataTO msg) {
             return new SpringTestDataTO(msg.number * 2, msg.string + SINGLE_DTO);
         }
@@ -61,7 +61,7 @@ public class MatsSpringDefined_SingleStagesTest {
         /**
          * "Single w/State"-endpoint (return value specified) - specified params: Dto, Sto
          */
-        @MatsMapping(endpointId = ENDPOINT_ID + SINGLE_DTO_STO)
+        @MatsMapping(ENDPOINT_ID + SINGLE_DTO_STO)
         public SpringTestDataTO springMatsSingleWithStateEndpoint_Dto_Sto(@Dto SpringTestDataTO msg,
                 @Sto SpringTestStateTO state) {
             return new SpringTestDataTO(msg.number * state.number,
@@ -71,7 +71,7 @@ public class MatsSpringDefined_SingleStagesTest {
         /**
          * "Single w/State"-endpoint (return value specified) - specified params: Sto, Dto
          */
-        @MatsMapping(endpointId = ENDPOINT_ID + SINGLE_STO_DTO)
+        @MatsMapping(ENDPOINT_ID + SINGLE_STO_DTO)
         public SpringTestDataTO springMatsSingleWithStateEndpoint_Sto_Dto(@Sto SpringTestStateTO state,
                 @Dto SpringTestDataTO msg) {
             return new SpringTestDataTO(msg.number * state.number,

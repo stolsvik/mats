@@ -447,6 +447,12 @@ public class MatsSpringAnnotationRegistration implements
 
         String typeEndpoint;
 
+        // :: Assert that endpointId is set
+        if (matsMapping.endpointId().equals("")) {
+            throw new MatsSpringConfigException("The " + descString(matsMapping, method, bean)
+                    + " is missing endpointId (or 'value')");
+        }
+
         // ?: Do we have a void return value?
         if (replyType.getName().equals("void")) {
             // -> Yes, void return: Setup Terminator.

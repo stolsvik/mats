@@ -15,6 +15,7 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
+import org.springframework.core.annotation.AliasFor;
 
 /**
  * A method annotated with this repeatable annotation directly becomes a
@@ -67,7 +68,11 @@ public @interface MatsMapping {
      *
      * @return the Mats <em>Endpoint Id</em> which this endpoint listens to.
      */
-    String endpointId();
+    @AliasFor("value")
+    String endpointId() default "";
+
+    @AliasFor("endpointId")
+    String value() default "";
 
     /**
      * Specifies the {@link MatsFactory} to use by means of a specific qualifier annotation type (which thus must be

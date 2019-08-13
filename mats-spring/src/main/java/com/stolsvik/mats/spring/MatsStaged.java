@@ -25,7 +25,7 @@ import com.stolsvik.mats.spring.MatsStaged.MatsStageds;
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
-@Target({ ElementType.METHOD, ElementType.ANNOTATION_TYPE })
+@Target({ ElementType.METHOD, ElementType.TYPE, ElementType.ANNOTATION_TYPE })
 @Repeatable(MatsStageds.class)
 public @interface MatsStaged {
     /**
@@ -43,7 +43,7 @@ public @interface MatsStaged {
     Class<?> state() default Void.class;
 
     /**
-     * The Mats <em>Data Transfer Object</em> class that should be employed for all of the stages for this endpoint.
+     * The Mats <em>Data Transfer Object</em> class that will be returned by the last stage of the staged endpoint.
      *
      * @return the <em>Data Transfer Object</em> class that will be returned by the last stage of the staged endpoint.
      */
