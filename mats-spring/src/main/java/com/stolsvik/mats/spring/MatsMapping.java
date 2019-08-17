@@ -23,33 +23,35 @@ import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
  * Endpoint} or a
  * {@link MatsFactory#terminator(String, Class, Class, com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda) Mats
  * Terminator Endpoint}, depending on whether the method specifies a return type, or is void.
- * <p>
- * For the Single-Stage endpoint (where the return type is set), one method parameter should be annotated with
- * {@link Dto @Dto}: When the endpoint is invoked, it will be set to the incoming (request) Data Transfer Object - and
- * the argument's type thus also specifies its expected deserialization class. The method's return type represent the
- * outgoing reply Data Transfer Object.
- * <p>
- * For the Terminator endpoint (where the return type is <code>void</code>), one method parameter should be annotated
- * with {@link Dto @Dto}: When the endpoint is invoked, it will be set to the incoming (typically request - or just
- * "message") Data Transfer Object - and the argument's type thus also specifies its expected deserialization class. The
- * method's return type represent the outgoing reply Data Transfer Object. In addition, another method parameter can be
- * annotated with {@link Sto @Sto}, which will be the "State Transfer Object" - this is typically the object which an
- * initiator supplied to the {@link MatsInitiator#initiate(com.stolsvik.mats.MatsInitiator.InitiateLambda) initiate
- * call} when it set this Terminator endpoint as the {@link MatsInitiate#replyTo(String, Object) replyTo} endpointId.
- * <p>
- * If you have a setup with multiple {@link MatsFactory}s, you must either have one (and only one) of the factories
- * denoted as {@link Primary @Primary}, or you must qualify which MatsFactory to use. This can be done by the following
- * means:
+ * <p/>
+ * <h2>Single-stage (service) endpoint</h2> For the Single-Stage endpoint (where the return type is set), one method
+ * parameter should be annotated with {@link Dto @Dto}: When the endpoint is invoked, it will be set to the incoming
+ * (request) Data Transfer Object - and the argument's type thus also specifies its expected deserialization class. The
+ * method's return type represent the outgoing reply Data Transfer Object.
+ * <p/>
+ * <h2>Terminator endpoint</h2> For the Terminator endpoint (where the return type is <code>void</code>), one method
+ * parameter should be annotated with {@link Dto @Dto}: When the endpoint is invoked, it will be set to the incoming
+ * (typically request - or just "message") Data Transfer Object - and the argument's type thus also specifies its
+ * expected deserialization class. The method's return type represent the outgoing reply Data Transfer Object. In
+ * addition, another method parameter can be annotated with {@link Sto @Sto}, which will be the "State Transfer Object"
+ * - this is the object which an initiator supplied to the
+ * {@link MatsInitiator#initiate(com.stolsvik.mats.MatsInitiator.InitiateLambda) initiate call} when it set this
+ * Terminator endpoint as the {@link MatsInitiate#replyTo(String, Object) replyTo} endpointId.
+ * <p/>
+ * <h2>Which {@link MatsFactory} the endpoint is created on</h2> If you have a setup with multiple {@link MatsFactory}s,
+ * you must either have one (and only one) of the factories denoted as {@link Primary @Primary}, or you must qualify
+ * which MatsFactory to use. This can be done by the following means:
  * <ul>
  * <li>Add a {@link Qualifier @Qualifier(qualifiervalue)} annotation to the @MatsMapping-annotated method - this both
- * matches a MatsFactory with the same <code>@Qualifier</code>-annotation, and a MatsFactory whose bean name is the
- * 'qualifierValue' (this is the Spring default logic).
- * <li>Add a custom qualifier annotation (e.g. <code>@SpecialMatsFactory</code> or potentially
- * <code>@SpecialMatsFactory(location="somevalue")</code>
- * <li>Use the {@link #matsFactoryBeanName()} annotation value
- * <li>Use the {@link #matsFactoryQualifierValue()} annotation value
+ * matches a MatsFactory with the same <code>@Qualifier(qualifiervalue)</code>-annotation, and a MatsFactory whose bean
+ * name is the 'qualifierValue' (this dual-logic is Spring's standard).</li>
+ * <li>Add a custom qualifier annotation, e.g. <code>@SpecialMatsFactory</code>, or you can make a custom qualification
+ * taking parameters like <code>@SpecialMatsFactory(location="somevalue")</code>. Whether a qualification matches or not
+ * is evaluated by .equals(..)-semantics.</li>
+ * <li>Use the {@link #matsFactoryBeanName()} annotation value</li>
+ * <li>Use the {@link #matsFactoryQualifierValue()} annotation value</li>
  * <li>Use the {@link #matsFactoryCustomQualifierType()} annotation value (please read the JavaDoc for special
- * considerations with this).
+ * considerations with this).</li>
  * </ul>
  * You cannot specify more than one qualification per @MatsMapping. As mentioned, @MatsMapping is repeatable, so you can
  * specify multiple mappings on one method. However, the two first ways to qualify which MatsFactory to use (that is, by

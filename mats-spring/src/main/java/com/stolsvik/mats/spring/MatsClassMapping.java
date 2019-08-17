@@ -10,25 +10,22 @@ import java.lang.annotation.Target;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.annotation.AliasFor;
+import org.springframework.stereotype.Service;
 
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.spring.MatsEndpointSetup.MatsEndpointSetups;
+import com.stolsvik.mats.spring.MatsClassMapping.MatsClassMappings;
 
 /**
- * A method annotated with this repeatable annotation specifies a method that shall <em>set up</em> a (usually)
- * Multi-Staged Mats Endpoint. Note that as opposed to {@link MatsMapping @MatsMapping}, this method will be invoked
- * <em>once</em> to <i>set up</i> the endpoint, and will not be invoked each time when the Mats endpoint is invoked (as
- * is the case with {@literal @MatsMapping}).
- * <p>
- * Read about qualifying which MatsFactory to use on the JavaDoc of {@link MatsMapping}.
+ * This is pure magic.
  *
- * @author Endre Stølsvik - 2016-08-07 - http://endre.stolsvik.com
+ * @author Endre Stølsvik 2019-08-17 21:53 - http://stolsvik.com/, endre@stolsvik.com
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
-@Target({ ElementType.METHOD, ElementType.ANNOTATION_TYPE })
-@Repeatable(MatsEndpointSetups.class)
-public @interface MatsEndpointSetup {
+@Target({ ElementType.TYPE, ElementType.ANNOTATION_TYPE })
+@Repeatable(MatsClassMappings.class)
+@Service
+public @interface MatsClassMapping {
     /**
      * The Mats <em>Endpoint Id</em> that this endpoint should listen to.
      *
@@ -47,25 +44,11 @@ public @interface MatsEndpointSetup {
     String value() default "";
 
     /**
-     * The Mats <em>State Transfer Object</em> class that should be employed for all of the stages for this endpoint.
-     *
-     * @return the <em>State Transfer Object</em> class that should be employed for all of the stages for this endpoint.
-     */
-    Class<?> state() default Void.class;
-
-    /**
-     * The Mats <em>Data Transfer Object</em> class that will be returned by the last stage of the staged endpoint.
-     *
-     * @return the <em>Data Transfer Object</em> class that will be returned by the last stage of the staged endpoint.
-     */
-    Class<?> reply() default Void.class;
-
-    /**
      * Specifies the {@link MatsFactory} to use by means of a specific qualifier annotation type (which thus must be
      * meta-annotated with {@link Qualifier}). Notice that this will search for the custom qualifier annotation
-     * <i>type</i>, as opposed to if you add the annotation to the @MatsEndpointSetup-annotated method directly, in which case
-     * it "equals" the annotation <i>instance</i> (as Spring also does when performing injection with such qualifiers).
-     * The difference comes into play if the annotation has values, where e.g. a
+     * <i>type</i>, as opposed to if you add the annotation to the @MatsEndpointSetup-annotated method directly, in
+     * which case it "equals" the annotation <i>instance</i> (as Spring also does when performing injection with such
+     * qualifiers). The difference comes into play if the annotation has values, where e.g. a
      * <code>@SpecialMatsFactory(location="central")</code> is not equal to
      * <code>@SpecialMatsFactory(location="region_west")</code> - but they are equal when comparing types, as the
      * qualification here does. Thus, if using this qualifier-approach, you should probably not use values on your
@@ -93,10 +76,54 @@ public @interface MatsEndpointSetup {
      */
     String matsFactoryBeanName() default "";
 
+    /**
+     * The method representing the initial Stage of the endpoint - the one that receives the message when a message is
+     * sent to {@link MatsClassMapping#endpointId()} - must be annotated with this annotation.
+     */
     @Target({ ElementType.METHOD, ElementType.ANNOTATION_TYPE })
     @Retention(RetentionPolicy.RUNTIME)
     @Documented
-    @interface MatsEndpointSetups {
-        MatsEndpointSetup[] value();
+    @interface Initial {
+
+    }
+
+    /**
+     * Annotation that needs to be on all the endpoint's Stages, except the initial stage, which shall be annotated
+     * with @{@link Initial}.
+     */
+    @Target({ ElementType.METHOD, ElementType.ANNOTATION_TYPE })
+    @Retention(RetentionPolicy.RUNTIME)
+    @Documented
+    @interface Stage {
+        /**
+         * The ordinal of this Stage in the sequence of stages of this endpoint - that is, an integer that expresses the
+         * relative position of this Stage wrt. to the other stages. The magnitude of the number does not matter, only
+         * the "sort order", so 10, 20, 30 is just as good as 1, 2, 3, which is just as good as 7, 4527890 and 4527990.
+         * An idea is the cool'n'retro Commodore BASIC-style of line numbers, which commonly was "tens". The rationale
+         * is that you then quickly can add a line between 10 and 20 by sticking in a 15 there.
+         *
+         * @return the ordinal of this Stage in the sequence of stages of this endpoint.
+         */
+        @AliasFor("value")
+        int ordinal() default -1;
+
+        /**
+         * Alias for "ordinal", so that if you only need to set the ordinal (which relative position in the sequence of
+         * stages this Stage is), you can do so directly: <code>@Stage(15)</code>.
+         * 
+         * @see #ordinal()
+         *
+         * @return the ordinal of this Stage in the sequence of stages of this endpoint.
+         */
+        @AliasFor("endpointId")
+        int value() default -1;
+
+    }
+
+    @Target({ ElementType.TYPE, ElementType.ANNOTATION_TYPE })
+    @Retention(RetentionPolicy.RUNTIME)
+    @Documented
+    @interface MatsClassMappings {
+        MatsClassMapping[] value();
     }
 }

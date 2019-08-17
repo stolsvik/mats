@@ -48,18 +48,19 @@ import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
+import com.stolsvik.mats.spring.MatsClassMapping.MatsClassMappings;
 import com.stolsvik.mats.spring.MatsEndpointSetup.MatsEndpointSetups;
+import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
 
 /**
  * The {@link BeanPostProcessor}-class specified by the {@link EnableMats @EnableMats} annotation.
  * <p>
  * It checks all Spring beans in the current Spring {@link ApplicationContext} for whether they have methods annotated
- * with {@link MatsMapping @MatsMapping} or {@link MatsEndpointSetup @MatsEndpointSetup}, and if so configures Mats endpoints for them
- * on the (possibly specified) {@link MatsFactory}. It will also control any registered {@link MatsFactory} beans,
- * invoking {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} early in the startup procedure before adding the
- * endpoints, and then {@link MatsFactory#start()} as late as possible in the startup procedure, then
- * {@link MatsFactory#stop()} as early as possible in the shutdown procedure.
+ * with {@link MatsMapping @MatsMapping} or {@link MatsEndpointSetup @MatsEndpointSetup}, and if so configures Mats
+ * endpoints for them on the (possibly specified) {@link MatsFactory}. It will also control any registered
+ * {@link MatsFactory} beans, invoking {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} early in the startup
+ * procedure before adding the endpoints, and then {@link MatsFactory#start()} as late as possible in the startup
+ * procedure, then {@link MatsFactory#stop()} as early as possible in the shutdown procedure.
  *
  * <h3>This is the startup procedure:</h3>
  * <ol>
@@ -196,8 +197,9 @@ public class MatsSpringAnnotationRegistration implements
                 MatsMapping.class, MatsMappings.class);
         Map<Method, Set<MatsEndpointSetup>> methodsWithMatsStagedAnnotations = findAnnotatedMethods(targetClass,
                 MatsEndpointSetup.class, MatsEndpointSetups.class);
-        Set<MatsEndpointSetup> matsEndpointSetupAnnotationsOnClasses = AnnotationUtils.getRepeatableAnnotations(targetClass,
-                MatsEndpointSetup.class, MatsEndpointSetups.class);
+        Set<MatsClassMapping> matsEndpointSetupAnnotationsOnClasses = AnnotationUtils.getRepeatableAnnotations(
+                targetClass,
+                MatsClassMapping.class, MatsClassMappings.class);
 
         // ?: Are there any Mats annotated methods on this class?
         if (methodsWithMatsMappingAnnotations.isEmpty()
@@ -240,8 +242,9 @@ public class MatsSpringAnnotationRegistration implements
             for (Entry<Method, Set<MatsEndpointSetup>> entry : methodsWithMatsStagedAnnotations.entrySet()) {
                 Method method = entry.getKey();
                 for (MatsEndpointSetup matsEndpointSetup : entry.getValue()) {
-                    log.info(LOG_PREFIX + "Found method-@MatsEndpointSetup [" + matsEndpointSetup + "] on method [" + method + "].");
-                    _matsStagedMethods.add(new MatsStagedHolder(matsEndpointSetup, method, bean));
+                    log.info(LOG_PREFIX + "Found method-@MatsEndpointSetup [" + matsEndpointSetup + "] on method ["
+                            + method + "].");
+                    _matsStagedMethods.add(new MatsEndpointSetupHolder(matsEndpointSetup, method, bean));
                     // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
                     if (_contextHasBeenRefreshed) {
                         // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
@@ -254,9 +257,10 @@ public class MatsSpringAnnotationRegistration implements
         // ?: Any @MatsEndpointSetup annotations on class?
         if (!matsEndpointSetupAnnotationsOnClasses.isEmpty()) {
             // -> Yes, there are @MatsEndpointSetup annotation(s) on class. Add them for processing.
-            for (MatsEndpointSetup matsEndpointSetup : matsEndpointSetupAnnotationsOnClasses) {
-                log.info(LOG_PREFIX + "Found class-@MatsEndpointSetup [" + matsEndpointSetup + "] on class [" + targetClass + "].");
-                _matsStagedClasses.add(new MatsStagedHolder(matsEndpointSetup, null, bean));
+            for (MatsClassMapping matsEndpointSetup : matsEndpointSetupAnnotationsOnClasses) {
+                log.info(LOG_PREFIX + "Found class-@MatsEndpointSetup [" + matsEndpointSetup + "] on class ["
+                        + targetClass + "].");
+                _matsStagedClasses.add(new MatsClassMappingHolder(matsEndpointSetup, bean));
                 // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
                 if (_contextHasBeenRefreshed) {
                     // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
@@ -281,8 +285,8 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     private final List<MatsMappingHolder> _matsMappingMethods = new ArrayList<>();
-    private final List<MatsStagedHolder> _matsStagedMethods = new ArrayList<>();
-    private final List<MatsStagedHolder> _matsStagedClasses = new ArrayList<>();
+    private final List<MatsEndpointSetupHolder> _matsStagedMethods = new ArrayList<>();
+    private final List<MatsClassMappingHolder> _matsStagedClasses = new ArrayList<>();
 
     private static class MatsMappingHolder {
         private final MatsMapping matsMapping;
@@ -296,14 +300,24 @@ public class MatsSpringAnnotationRegistration implements
         }
     }
 
-    private static class MatsStagedHolder {
-        private final MatsEndpointSetup _matsEndpointSetup;
+    private static class MatsEndpointSetupHolder {
+        private final MatsEndpointSetup matsEndpointSetup;
         private final Method method;
         private final Object bean;
 
-        public MatsStagedHolder(MatsEndpointSetup matsEndpointSetup, Method method, Object bean) {
-            this._matsEndpointSetup = matsEndpointSetup;
+        public MatsEndpointSetupHolder(MatsEndpointSetup matsEndpointSetup, Method method, Object bean) {
+            this.matsEndpointSetup = matsEndpointSetup;
             this.method = method;
+            this.bean = bean;
+        }
+    }
+
+    private static class MatsClassMappingHolder {
+        private final MatsClassMapping matsClassMapping;
+        private final Object bean;
+
+        public MatsClassMappingHolder(MatsClassMapping matsClassMapping, Object bean) {
+            this.matsClassMapping = matsClassMapping;
             this.bean = bean;
         }
     }
@@ -312,8 +326,8 @@ public class MatsSpringAnnotationRegistration implements
 
     /**
      * {@link ContextRefreshedEvent} runs pretty much as the latest step in the Spring life cycle starting process:
-     * Processes all {@link MatsMapping} and {@link MatsEndpointSetup} annotations, then starts the MatsFactory, which will
-     * start any "hanging" MATS Endpoints, which will then start consuming messages.
+     * Processes all {@link MatsMapping} and {@link MatsEndpointSetup} annotations, then starts the MatsFactory, which
+     * will start any "hanging" MATS Endpoints, which will then start consuming messages.
      */
     @EventListener
     public void onContextRefreshedEvent(ContextRefreshedEvent e) {
@@ -339,8 +353,8 @@ public class MatsSpringAnnotationRegistration implements
 
         // :: Register Mats endpoints for all @MatsMapping and @MatsEndpointSetup annotated methods.
         _matsMappingMethods.forEach(h -> processMatsMapping(h.matsMapping, h.method, h.bean));
-        _matsStagedMethods.forEach(h -> processMatsStagedOnMethod(h._matsEndpointSetup, h.method, h.bean));
-        _matsStagedClasses.forEach(h -> processMatsStagedOnClass(h._matsEndpointSetup, h.bean));
+        _matsStagedMethods.forEach(h -> processMatsStagedOnMethod(h.matsEndpointSetup, h.method, h.bean));
+        _matsStagedClasses.forEach(h -> processMatsStagedOnClass(h.matsClassMapping, h.bean));
 
         // :: Start the MatsFactories
         log.info(LOG_PREFIX + "Invoking matsFactory.start() on all MatsFactories in Spring Context to start"
@@ -374,8 +388,8 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     /**
-     * Processes a method annotated with {@link MatsEndpointSetup @MatsMapping} - note that one method can have multiple such
-     * annotations, and this method will be invoked for each of them.
+     * Processes a method annotated with {@link MatsEndpointSetup @MatsMapping} - note that one method can have multiple
+     * such annotations, and this method will be invoked for each of them.
      */
     private void processMatsMapping(MatsMapping matsMapping, Method method, Object bean) {
         if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsMapping [" + matsMapping + "] on method ["
@@ -580,11 +594,12 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     /**
-     * Process a method annotated with {@link MatsEndpointSetup @MatsEndpointSetup} - note that one method can have multiple such
-     * annotations, and this method will be invoked for each of them.
+     * Process a method annotated with {@link MatsEndpointSetup @MatsEndpointSetup} - note that one method can have
+     * multiple such annotations, and this method will be invoked for each of them.
      */
     private void processMatsStagedOnMethod(MatsEndpointSetup matsEndpointSetup, Method method, Object bean) {
-        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsEndpointSetup [" + matsEndpointSetup + "] on method ["
+        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsEndpointSetup [" + matsEndpointSetup
+                + "] on method ["
                 + method + "], of bean: " + bean);
 
         // ?: Is the endpointId == ""?
@@ -669,11 +684,11 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     /**
-     * Process a class annotated with {@link MatsEndpointSetup @MatsEndpointSetup} - note that one class can have multiple such
-     * annotations, and this method will be invoked for each of them.
+     * Process a class annotated with {@link MatsClassMapping @MatsClassMapping} - note that one class can have multiple
+     * such annotations, and this method will be invoked for each of them.
      */
-    private void processMatsStagedOnClass(MatsEndpointSetup matsEndpointSetup, Object bean) {
-        log.info("ABC!\n" + matsEndpointSetup + "\n" + bean);
+    private void processMatsStagedOnClass(MatsClassMapping matsEndpointSetup, Object bean) {
+        log.info("@MatsClassMapping processing!\n" + matsEndpointSetup + "\n" + bean);
     }
 
     private MatsFactory getMatsFactoryToUse(Method method, Class<? extends Annotation> aeCustomQualifierType,
@@ -950,8 +965,9 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     /**
-     * Thrown if the invocation of a {@link MatsMapping @MatsMapping} or {@link MatsEndpointSetup @MatsEndpointSetup} annotated method
-     * raises {@link InvocationTargetException} and the underlying exception is not a {@link RuntimeException}.
+     * Thrown if the invocation of a {@link MatsMapping @MatsMapping} or {@link MatsEndpointSetup @MatsEndpointSetup}
+     * annotated method raises {@link InvocationTargetException} and the underlying exception is not a
+     * {@link RuntimeException}.
      */
     public static class MatsSpringInvocationTargetException extends RuntimeException {
         public MatsSpringInvocationTargetException(String message, Throwable cause) {
