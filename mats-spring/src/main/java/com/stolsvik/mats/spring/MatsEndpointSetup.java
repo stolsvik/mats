@@ -12,7 +12,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.annotation.AliasFor;
 
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.spring.MatsStaged.MatsStageds;
+import com.stolsvik.mats.spring.MatsEndpointSetup.MatsEndpointSetups;
 
 /**
  * A method annotated with this repeatable annotation specifies a method that shall <em>set up</em> a (usually)
@@ -27,8 +27,8 @@ import com.stolsvik.mats.spring.MatsStaged.MatsStageds;
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ ElementType.METHOD, ElementType.TYPE, ElementType.ANNOTATION_TYPE })
-@Repeatable(MatsStageds.class)
-public @interface MatsStaged {
+@Repeatable(MatsEndpointSetups.class)
+public @interface MatsEndpointSetup {
     /**
      * The Mats <em>Endpoint Id</em> that this endpoint should listen to.
      *
@@ -39,7 +39,7 @@ public @interface MatsStaged {
 
     /**
      * Alias for "endpointId", so that if you only need to set the endpointId, you can do so directly:
-     * <code>@MatsStaged("endpointId")</code>
+     * <code>@MatsEndpointSetup("endpointId")</code>
      *
      * @return the endpointId.
      */
@@ -63,7 +63,7 @@ public @interface MatsStaged {
     /**
      * Specifies the {@link MatsFactory} to use by means of a specific qualifier annotation type (which thus must be
      * meta-annotated with {@link Qualifier}). Notice that this will search for the custom qualifier annotation
-     * <i>type</i>, as opposed to if you add the annotation to the @MatsStaged-annotated method directly, in which case
+     * <i>type</i>, as opposed to if you add the annotation to the @MatsEndpointSetup-annotated method directly, in which case
      * it "equals" the annotation <i>instance</i> (as Spring also does when performing injection with such qualifiers).
      * The difference comes into play if the annotation has values, where e.g. a
      * <code>@SpecialMatsFactory(location="central")</code> is not equal to
@@ -96,7 +96,7 @@ public @interface MatsStaged {
     @Target({ ElementType.METHOD, ElementType.ANNOTATION_TYPE })
     @Retention(RetentionPolicy.RUNTIME)
     @Documented
-    @interface MatsStageds {
-        MatsStaged[] value();
+    @interface MatsEndpointSetups {
+        MatsEndpointSetup[] value();
     }
 }

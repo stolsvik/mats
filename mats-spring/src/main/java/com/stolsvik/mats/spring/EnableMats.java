@@ -13,7 +13,7 @@ import com.stolsvik.mats.MatsFactory;
 
 /**
  * Enables Mats "SpringConfig", which is bean-scanning for methods on Spring beans annotated with {@link MatsMapping}
- * and {@link MatsStaged}, conceptually inspired by the {@literal @EnableWebMvc} annotation. One (or several)
+ * and {@link MatsEndpointSetup}, conceptually inspired by the {@literal @EnableWebMvc} annotation. One (or several)
  * {@link MatsFactory}s must be set up in the Spring context. Methods having the specified annotations will get Mats
  * endpoints set up for them on the <code>MatsFactory</code>.
  * <p>

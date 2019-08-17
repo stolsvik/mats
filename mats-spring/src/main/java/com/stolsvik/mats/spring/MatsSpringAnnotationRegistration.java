@@ -49,13 +49,13 @@ import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
-import com.stolsvik.mats.spring.MatsStaged.MatsStageds;
+import com.stolsvik.mats.spring.MatsEndpointSetup.MatsEndpointSetups;
 
 /**
  * The {@link BeanPostProcessor}-class specified by the {@link EnableMats @EnableMats} annotation.
  * <p>
  * It checks all Spring beans in the current Spring {@link ApplicationContext} for whether they have methods annotated
- * with {@link MatsMapping @MatsMapping} or {@link MatsStaged @MatsStaged}, and if so configures Mats endpoints for them
+ * with {@link MatsMapping @MatsMapping} or {@link MatsEndpointSetup @MatsEndpointSetup}, and if so configures Mats endpoints for them
  * on the (possibly specified) {@link MatsFactory}. It will also control any registered {@link MatsFactory} beans,
  * invoking {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} early in the startup procedure before adding the
  * endpoints, and then {@link MatsFactory#start()} as late as possible in the startup procedure, then
@@ -194,16 +194,19 @@ public class MatsSpringAnnotationRegistration implements
         // E-> Must check this bean.
         Map<Method, Set<MatsMapping>> methodsWithMatsMappingAnnotations = findAnnotatedMethods(targetClass,
                 MatsMapping.class, MatsMappings.class);
-        Map<Method, Set<MatsStaged>> methodsWithMatsStagedAnnotations = findAnnotatedMethods(targetClass,
-                MatsStaged.class, MatsStageds.class);
+        Map<Method, Set<MatsEndpointSetup>> methodsWithMatsStagedAnnotations = findAnnotatedMethods(targetClass,
+                MatsEndpointSetup.class, MatsEndpointSetups.class);
+        Set<MatsEndpointSetup> matsEndpointSetupAnnotationsOnClasses = AnnotationUtils.getRepeatableAnnotations(targetClass,
+                MatsEndpointSetup.class, MatsEndpointSetups.class);
 
         // ?: Are there any Mats annotated methods on this class?
-        if (methodsWithMatsMappingAnnotations.isEmpty() && methodsWithMatsStagedAnnotations.isEmpty()) {
+        if (methodsWithMatsMappingAnnotations.isEmpty()
+                && methodsWithMatsStagedAnnotations.isEmpty()
+                && matsEndpointSetupAnnotationsOnClasses.isEmpty()) {
             // -> No, so cache that fact, to short-circuit discovery next time for this class (e.g. prototype beans)
             _classesWithNoMatsMappingAnnotations.add(targetClass);
-            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "No @MatsMapping or @MatsStaged annotations found"
+            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "No @MatsMapping or @MatsEndpointSetup annotations found"
                     + " on bean class [" + bean.getClass() + "].");
-
             return bean;
         }
 
@@ -221,26 +224,44 @@ public class MatsSpringAnnotationRegistration implements
                 Method method = entry.getKey();
                 for (MatsMapping matsMapping : entry.getValue()) {
                     log.info(LOG_PREFIX + "Found @MatsMapping [" + matsMapping + "] on method [" + method + "].");
-                    _matsMappings.add(new MatsMappingHolder(matsMapping, method, bean));
+                    _matsMappingMethods.add(new MatsMappingHolder(matsMapping, method, bean));
+                    // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
                     if (_contextHasBeenRefreshed) {
+                        // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
                         log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
                         processMatsMapping(matsMapping, method, bean);
                     }
                 }
             }
         }
-        // ?: Any @MatsStaged annotated methods?
+        // ?: Any @MatsEndpointSetup annotated methods?
         if (!methodsWithMatsStagedAnnotations.isEmpty()) {
-            // -> Yes, there are @MatsStaged annotations. Add them for processing.
-            for (Entry<Method, Set<MatsStaged>> entry : methodsWithMatsStagedAnnotations.entrySet()) {
+            // -> Yes, there are @MatsEndpointSetup annotations on methods. Add them for processing.
+            for (Entry<Method, Set<MatsEndpointSetup>> entry : methodsWithMatsStagedAnnotations.entrySet()) {
                 Method method = entry.getKey();
-                for (MatsStaged matsStaged : entry.getValue()) {
-                    log.info(LOG_PREFIX + "Found @MatsStaged [" + matsStaged + "] on method [" + method + "].");
-                    _matsStageds.add(new MatsStagedHolder(matsStaged, method, bean));
+                for (MatsEndpointSetup matsEndpointSetup : entry.getValue()) {
+                    log.info(LOG_PREFIX + "Found method-@MatsEndpointSetup [" + matsEndpointSetup + "] on method [" + method + "].");
+                    _matsStagedMethods.add(new MatsStagedHolder(matsEndpointSetup, method, bean));
+                    // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
                     if (_contextHasBeenRefreshed) {
+                        // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
                         log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
-                        processMatsStaged(matsStaged, method, bean);
+                        processMatsStagedOnMethod(matsEndpointSetup, method, bean);
                     }
+                }
+            }
+        }
+        // ?: Any @MatsEndpointSetup annotations on class?
+        if (!matsEndpointSetupAnnotationsOnClasses.isEmpty()) {
+            // -> Yes, there are @MatsEndpointSetup annotation(s) on class. Add them for processing.
+            for (MatsEndpointSetup matsEndpointSetup : matsEndpointSetupAnnotationsOnClasses) {
+                log.info(LOG_PREFIX + "Found class-@MatsEndpointSetup [" + matsEndpointSetup + "] on class [" + targetClass + "].");
+                _matsStagedClasses.add(new MatsStagedHolder(matsEndpointSetup, null, bean));
+                // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
+                if (_contextHasBeenRefreshed) {
+                    // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
+                    log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
+                    processMatsStagedOnClass(matsEndpointSetup, bean);
                 }
             }
         }
@@ -259,8 +280,9 @@ public class MatsSpringAnnotationRegistration implements
         });
     }
 
-    private final List<MatsMappingHolder> _matsMappings = new ArrayList<>();
-    private final List<MatsStagedHolder> _matsStageds = new ArrayList<>();
+    private final List<MatsMappingHolder> _matsMappingMethods = new ArrayList<>();
+    private final List<MatsStagedHolder> _matsStagedMethods = new ArrayList<>();
+    private final List<MatsStagedHolder> _matsStagedClasses = new ArrayList<>();
 
     private static class MatsMappingHolder {
         private final MatsMapping matsMapping;
@@ -275,12 +297,12 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     private static class MatsStagedHolder {
-        private final MatsStaged matsStaged;
+        private final MatsEndpointSetup _matsEndpointSetup;
         private final Method method;
         private final Object bean;
 
-        public MatsStagedHolder(MatsStaged matsStaged, Method method, Object bean) {
-            this.matsStaged = matsStaged;
+        public MatsStagedHolder(MatsEndpointSetup matsEndpointSetup, Method method, Object bean) {
+            this._matsEndpointSetup = matsEndpointSetup;
             this.method = method;
             this.bean = bean;
         }
@@ -290,7 +312,7 @@ public class MatsSpringAnnotationRegistration implements
 
     /**
      * {@link ContextRefreshedEvent} runs pretty much as the latest step in the Spring life cycle starting process:
-     * Processes all {@link MatsMapping} and {@link MatsStaged} annotations, then starts the MatsFactory, which will
+     * Processes all {@link MatsMapping} and {@link MatsEndpointSetup} annotations, then starts the MatsFactory, which will
      * start any "hanging" MATS Endpoints, which will then start consuming messages.
      */
     @EventListener
@@ -315,9 +337,10 @@ public class MatsSpringAnnotationRegistration implements
         // which otherwise has responsibility of registering these).
         _contextHasBeenRefreshed = true;
 
-        // :: Register Mats endpoints for all @MatsMapping and @MatsStaged annotated methods.
-        _matsMappings.forEach(h -> processMatsMapping(h.matsMapping, h.method, h.bean));
-        _matsStageds.forEach(h -> processMatsStaged(h.matsStaged, h.method, h.bean));
+        // :: Register Mats endpoints for all @MatsMapping and @MatsEndpointSetup annotated methods.
+        _matsMappingMethods.forEach(h -> processMatsMapping(h.matsMapping, h.method, h.bean));
+        _matsStagedMethods.forEach(h -> processMatsStagedOnMethod(h._matsEndpointSetup, h.method, h.bean));
+        _matsStagedClasses.forEach(h -> processMatsStagedOnClass(h._matsEndpointSetup, h.bean));
 
         // :: Start the MatsFactories
         log.info(LOG_PREFIX + "Invoking matsFactory.start() on all MatsFactories in Spring Context to start"
@@ -345,12 +368,13 @@ public class MatsSpringAnnotationRegistration implements
 
         // Reset the state. Not that I ever believe this will ever be refreshed again afterwards.
         _contextHasBeenRefreshed = false;
-        _matsMappings.clear();
-        _matsStageds.clear();
+        _matsMappingMethods.clear();
+        _matsStagedMethods.clear();
+        _matsStagedClasses.clear();
     }
 
     /**
-     * Processes a method annotated with {@link MatsStaged @MatsMapping} - note that one method can have multiple such
+     * Processes a method annotated with {@link MatsEndpointSetup @MatsMapping} - note that one method can have multiple such
      * annotations, and this method will be invoked for each of them.
      */
     private void processMatsMapping(MatsMapping matsMapping, Method method, Object bean) {
@@ -374,7 +398,7 @@ public class MatsSpringAnnotationRegistration implements
         if (transactionalAnnotation != null) {
             throw new MatsSpringConfigException("The " + descString(matsMapping, method, bean)
                     + " shall not be annotated with @Transactional,"
-                    + " as it does its own transaction management, method:" + method + ", @Transactional:"
+                    + " as Mats does its own transaction management, method:" + method + ", @Transactional:"
                     + transactionalAnnotation);
         }
         // E-> Good to go, set up the endpoint.
@@ -460,10 +484,10 @@ public class MatsSpringAnnotationRegistration implements
             typeEndpoint = "Terminator";
             matsFactoryToUse.terminator(matsMapping.endpointId(), stoType, dtoType,
                     (processContext, state, incomingDto) -> {
-                        invokeMatsMappingMethod(matsMapping, method, bean,
-                                paramsLength, processContextParamF,
-                                processContext, dtoParamF,
-                                incomingDto, stoParamF, state);
+                        invokeMatsMappingMethod(matsMapping, method, bean, paramsLength,
+                                processContextParamF, processContext,
+                                dtoParamF, incomingDto,
+                                stoParamF, state);
                     });
         }
         else {
@@ -474,10 +498,10 @@ public class MatsSpringAnnotationRegistration implements
                 typeEndpoint = "Single w/State";
                 MatsEndpoint<?, ?> ep = matsFactoryToUse.staged(matsMapping.endpointId(), replyType, stoType);
                 ep.lastStage(dtoType, (processContext, state, incomingDto) -> {
-                    Object reply = invokeMatsMappingMethod(matsMapping, method, bean,
-                            paramsLength, processContextParamF,
-                            processContext, dtoParamF,
-                            incomingDto, stoParamF, state);
+                    Object reply = invokeMatsMappingMethod(matsMapping, method, bean, paramsLength,
+                            processContextParamF, processContext,
+                            dtoParamF, incomingDto,
+                            stoParamF, state);
                     return helperCast(reply);
                 });
             }
@@ -486,10 +510,10 @@ public class MatsSpringAnnotationRegistration implements
                 typeEndpoint = "Single";
                 matsFactoryToUse.single(matsMapping.endpointId(), replyType, dtoType,
                         (processContext, incomingDto) -> {
-                            Object reply = invokeMatsMappingMethod(matsMapping, method, bean,
-                                    paramsLength, processContextParamF,
-                                    processContext, dtoParamF,
-                                    incomingDto, stoParamF, null);
+                            Object reply = invokeMatsMappingMethod(matsMapping, method, bean, paramsLength,
+                                    processContextParamF, processContext,
+                                    dtoParamF, incomingDto,
+                                    -1, null);
                             return helperCast(reply);
                         });
             }
@@ -507,6 +531,149 @@ public class MatsSpringAnnotationRegistration implements
                     + "], STO:[" + stoParamDesc
                     + "], DTO:[" + dtoParamDesc + "]");
         }
+    }
+
+    /**
+     * Helper for invoking the "method ref" @MatsMapping-annotated method that constitute the Mats process-lambda for
+     * SingleStage, SingleStage w/ State, and Terminator mappings.
+     */
+    private static Object invokeMatsMappingMethod(MatsMapping matsMapping, Method method, Object bean,
+            int paramsLength, int processContextParamIdx,
+            ProcessContext<?> processContext, int dtoParamIdx,
+            Object dto, int stoParamIdx, Object sto)
+            throws MatsRefuseMessageException {
+        Object[] args = new Object[paramsLength];
+        if (processContextParamIdx != -1) {
+            args[processContextParamIdx] = processContext;
+        }
+        if (dtoParamIdx != -1) {
+            args[dtoParamIdx] = dto;
+        }
+        if (stoParamIdx != -1) {
+            args[stoParamIdx] = sto;
+        }
+        try {
+            return method.invoke(bean, args);
+        }
+        catch (IllegalAccessException | IllegalArgumentException e) {
+            throw new MatsRefuseMessageException("Problem with invoking "
+                    + descString(matsMapping, method, bean) + ".", e);
+        }
+        catch (InvocationTargetException e) {
+            if (e.getTargetException() instanceof MatsRefuseMessageException) {
+                throw (MatsRefuseMessageException) e.getTargetException();
+            }
+            if (e.getTargetException() instanceof RuntimeException) {
+                throw (RuntimeException) e.getTargetException();
+            }
+            throw new MatsSpringInvocationTargetException("Got InvocationTargetException when invoking "
+                    + descString(matsMapping, method, bean) + ".", e);
+        }
+    }
+
+    /**
+     * Insane cast helper. <i>Please... help. me.</i>.
+     */
+    @SuppressWarnings("unchecked")
+    private static <R> R helperCast(Object reply) {
+        return (R) reply;
+    }
+
+    /**
+     * Process a method annotated with {@link MatsEndpointSetup @MatsEndpointSetup} - note that one method can have multiple such
+     * annotations, and this method will be invoked for each of them.
+     */
+    private void processMatsStagedOnMethod(MatsEndpointSetup matsEndpointSetup, Method method, Object bean) {
+        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsEndpointSetup [" + matsEndpointSetup + "] on method ["
+                + method + "], of bean: " + bean);
+
+        // ?: Is the endpointId == ""?
+        if (matsEndpointSetup.endpointId().equals("")) {
+            // -> Yes, and it is not allowed to have empty endpointId.
+            throw new MatsSpringConfigException("The " + descString(matsEndpointSetup, method, bean)
+                    + " is missing endpointId (or 'value')");
+        }
+
+        // Override accessibility
+        method.setAccessible(true);
+
+        // Find parameters: MatsEndpoint and potentially EndpointConfig
+        Parameter[] params = method.getParameters();
+        final int paramsLength = params.length;
+        int endpointParam = -1;
+        int configParam = -1;
+        // ?: Check params
+        if (paramsLength == 0) {
+            // -> No params, not allowed
+            throw new IllegalStateException("The " + descString(matsEndpointSetup, method, bean)
+                    + " must have at least one parameter: A MatsEndpoint.");
+        }
+        else if (paramsLength == 1) {
+            // -> One param, must be the MatsEndpoint instances
+            if (!params[0].getType().equals(MatsEndpoint.class)) {
+                throw new IllegalStateException("The " + descString(matsEndpointSetup, method, bean)
+                        + " must have one parameter of type MatsEndpoint.");
+            }
+            endpointParam = 0;
+        }
+        else {
+            // -> More than one param - find each parameter
+            // Find MatsEndpoint and EndpointConfig parameters:
+            for (int i = 0; i < paramsLength; i++) {
+                if (params[i].getType().equals(MatsEndpoint.class)) {
+                    endpointParam = i;
+                }
+                if (params[i].getType().equals(EndpointConfig.class)) {
+                    configParam = i;
+                }
+            }
+            if (endpointParam == -1) {
+                throw new IllegalStateException("The " + descString(matsEndpointSetup, method, bean)
+                        + " consists of several parameters, one of which needs to be the MatsEndpoint.");
+            }
+        }
+
+        // ----- We've found the parameters.
+
+        // :: Invoke the @MatsEndpointSetup-annotated staged endpoint setup method
+
+        MatsFactory matsFactoryToUse = getMatsFactoryToUse(method, matsEndpointSetup.matsFactoryCustomQualifierType(),
+                matsEndpointSetup.matsFactoryQualifierValue(), matsEndpointSetup.matsFactoryBeanName());
+        MatsEndpoint<?, ?> endpoint = matsFactoryToUse
+                .staged(matsEndpointSetup.endpointId(), matsEndpointSetup.reply(), matsEndpointSetup.state());
+
+        // Invoke the @MatsEndpointSetup-annotated setup method
+        Object[] args = new Object[paramsLength];
+        args[endpointParam] = endpoint;
+        if (configParam != -1) {
+            args[configParam] = endpoint.getEndpointConfig();
+        }
+        try {
+            method.invoke(bean, args);
+        }
+        catch (IllegalAccessException | IllegalArgumentException e) {
+            throw new MatsSpringConfigException("Problem with invoking "
+                    + descString(matsEndpointSetup, method, bean) + ".", e);
+        }
+        catch (InvocationTargetException e) {
+            if (e.getTargetException() instanceof RuntimeException) {
+                throw (RuntimeException) e.getTargetException();
+            }
+            throw new MatsSpringConfigException("Got InvocationTargetException when invoking "
+                    + descString(matsEndpointSetup, method, bean) + ".", e);
+        }
+
+        log.info(LOG_PREFIX + "Processed Staged Mats Spring endpoint by "
+                + descString(matsEndpointSetup, method, bean) + " :: MatsEndpoint:[param#" + endpointParam
+                + "], EndpointConfig:[param#" + endpointParam + "]");
+    }
+
+    /**
+     * Process a class annotated with {@link MatsEndpointSetup @MatsEndpointSetup} - note that one class can have multiple such
+     * annotations, and this method will be invoked for each of them.
+     */
+    private void processMatsStagedOnClass(MatsEndpointSetup matsEndpointSetup, Object bean) {
+        log.info("ABC!\n" + matsEndpointSetup + "\n" + bean);
     }
 
     private MatsFactory getMatsFactoryToUse(Method method, Class<? extends Annotation> aeCustomQualifierType,
@@ -634,30 +801,30 @@ public class MatsSpringAnnotationRegistration implements
 
     private final Map<String, MatsFactory> _cache_MatsFactoryByQualifierValue = new HashMap<>();
 
-    private MatsFactory getMatsFactoryByQualifierValue(String qualifier) {
+    private MatsFactory getMatsFactoryByQualifierValue(String qualifierValue) {
         // :: Cache lookup
-        MatsFactory matsFactory = _cache_MatsFactoryByQualifierValue.get(qualifier);
+        MatsFactory matsFactory = _cache_MatsFactoryByQualifierValue.get(qualifierValue);
         if (matsFactory != null) {
             return matsFactory;
         }
         // E-> Didn't find in cache, see if we can find it now.
         try {
             matsFactory = BeanFactoryAnnotationUtils.qualifiedBeanOfType(_configurableListableBeanFactory,
-                    MatsFactory.class, qualifier);
+                    MatsFactory.class, qualifierValue);
             // Cache, and return
-            _cache_MatsFactoryByQualifierValue.put(qualifier, matsFactory);
+            _cache_MatsFactoryByQualifierValue.put(qualifierValue, matsFactory);
             return matsFactory;
         }
         catch (NoUniqueBeanDefinitionException e) {
             throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
                     .getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available in the"
-                    + " Spring ApplicationContext with the qualifier '" + qualifier + "', this is probably not"
-                    + " what you want.", e);
+                    + " Spring ApplicationContext with the qualifier value '" + qualifierValue + "', this is probably"
+                    + " not what you want.", e);
         }
         catch (NoSuchBeanDefinitionException e) {
             throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
-                    .getClass().getSimpleName() + " found that there is no MatsFactory with the qualifier '" + qualifier
-                    + "' available in the Spring ApplicationContext", e);
+                    .getClass().getSimpleName() + " found that there is no MatsFactory with the qualifier value '"
+                    + qualifierValue + "' available in the Spring ApplicationContext", e);
         }
     }
 
@@ -770,142 +937,6 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     /**
-     * Insane cast helper. <i>Please... help. me.</i>.
-     */
-    @SuppressWarnings("unchecked")
-    private static <R> R helperCast(Object reply) {
-        return (R) reply;
-    }
-
-    /**
-     * Helper for invoking the "method ref" @MatsMapping-annotated method that constitute the Mats process-lambda for
-     * SingleStage, SingleStage w/ State, and Terminator mappings.
-     */
-    private static Object invokeMatsMappingMethod(MatsMapping matsMapping, Method method, Object bean,
-            int paramsLength, int processContextParamIdx,
-            ProcessContext<?> processContext, int dtoParamIdx,
-            Object dto, int stoParamIdx, Object sto)
-            throws MatsRefuseMessageException {
-        Object[] args = new Object[paramsLength];
-        args[dtoParamIdx] = processContext;
-        if (processContextParamIdx != -1) {
-            args[processContextParamIdx] = processContext;
-        }
-        if (dtoParamIdx != -1) {
-            args[dtoParamIdx] = dto;
-        }
-        if (stoParamIdx != -1) {
-            args[stoParamIdx] = sto;
-        }
-        try {
-            return method.invoke(bean, args);
-        }
-        catch (IllegalAccessException | IllegalArgumentException e) {
-            throw new MatsRefuseMessageException("Problem with invoking "
-                    + descString(matsMapping, method, bean) + ".", e);
-        }
-        catch (InvocationTargetException e) {
-            if (e.getTargetException() instanceof MatsRefuseMessageException) {
-                throw (MatsRefuseMessageException) e.getTargetException();
-            }
-            if (e.getTargetException() instanceof RuntimeException) {
-                throw (RuntimeException) e.getTargetException();
-            }
-            throw new MatsSpringInvocationTargetException("Got InvocationTargetException when invoking "
-                    + descString(matsMapping, method, bean) + ".", e);
-        }
-    }
-
-    /**
-     * Process a method annotated with {@link MatsStaged @MatsStaged} - note that one method can have multiple such
-     * annotations, and this method will be invoked for each of them.
-     */
-    private void processMatsStaged(MatsStaged matsStaged, Method method, Object bean) {
-        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsStaged [" + matsStaged + "] on method ["
-                + method + "], of bean: " + bean);
-
-        // ?: Is the endpointId == ""?
-        if (matsStaged.endpointId().equals("")) {
-            // -> Yes, and it is not allowed to have empty endpointId.
-            throw new MatsSpringConfigException("The " + descString(matsStaged, method, bean)
-                    + " is missing endpointId (or 'value')");
-        }
-
-        // Override accessibility
-        method.setAccessible(true);
-
-        // Find parameters: MatsEndpoint and potentially EndpointConfig
-        Parameter[] params = method.getParameters();
-        final int paramsLength = params.length;
-        int endpointParam = -1;
-        int configParam = -1;
-        // ?: Check params
-        if (paramsLength == 0) {
-            // -> No params, not allowed
-            throw new IllegalStateException("The " + descString(matsStaged, method, bean)
-                    + " must have at least one parameter: A MatsEndpoint.");
-        }
-        else if (paramsLength == 1) {
-            // -> One param, must be the MatsEndpoint instances
-            if (!params[0].getType().equals(MatsEndpoint.class)) {
-                throw new IllegalStateException("The " + descString(matsStaged, method, bean)
-                        + " must have one parameter of type MatsEndpoint.");
-            }
-            endpointParam = 0;
-        }
-        else {
-            // -> More than one param - find each parameter
-            // Find MatsEndpoint and EndpointConfig parameters:
-            for (int i = 0; i < paramsLength; i++) {
-                if (params[i].getType().equals(MatsEndpoint.class)) {
-                    endpointParam = i;
-                }
-                if (params[i].getType().equals(EndpointConfig.class)) {
-                    configParam = i;
-                }
-            }
-            if (endpointParam == -1) {
-                throw new IllegalStateException("The " + descString(matsStaged, method, bean)
-                        + " consists of several parameters, one of which needs to be the MatsEndpoint.");
-            }
-        }
-
-        // ----- We've found the parameters.
-
-        // :: Invoke the @MatsStaged-annotated staged endpoint setup method
-
-        MatsFactory matsFactoryToUse = getMatsFactoryToUse(method, matsStaged.matsFactoryCustomQualifierType(),
-                matsStaged.matsFactoryQualifierValue(), matsStaged.matsFactoryBeanName());
-        MatsEndpoint<?, ?> endpoint = matsFactoryToUse
-                .staged(matsStaged.endpointId(), matsStaged.reply(), matsStaged.state());
-
-        // Invoke the @MatsStaged-annotated setup method
-        Object[] args = new Object[paramsLength];
-        args[endpointParam] = endpoint;
-        if (configParam != -1) {
-            args[configParam] = endpoint.getEndpointConfig();
-        }
-        try {
-            method.invoke(bean, args);
-        }
-        catch (IllegalAccessException | IllegalArgumentException e) {
-            throw new MatsSpringConfigException("Problem with invoking "
-                    + descString(matsStaged, method, bean) + ".", e);
-        }
-        catch (InvocationTargetException e) {
-            if (e.getTargetException() instanceof RuntimeException) {
-                throw (RuntimeException) e.getTargetException();
-            }
-            throw new MatsSpringConfigException("Got InvocationTargetException when invoking "
-                    + descString(matsStaged, method, bean) + ".", e);
-        }
-
-        log.info(LOG_PREFIX + "Processed Staged Mats Spring endpoint by "
-                + descString(matsStaged, method, bean) + " :: MatsEndpoint:[param#" + endpointParam
-                + "], EndpointConfig:[param#" + endpointParam + "]");
-    }
-
-    /**
      * Thrown if the setup of a Mats Spring endpoint fails.
      */
     public static class MatsSpringConfigException extends RuntimeException {
@@ -919,7 +950,7 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     /**
-     * Thrown if the invocation of a {@link MatsMapping @MatsMapping} or {@link MatsStaged @MatsStaged} annotated method
+     * Thrown if the invocation of a {@link MatsMapping @MatsMapping} or {@link MatsEndpointSetup @MatsEndpointSetup} annotated method
      * raises {@link InvocationTargetException} and the underlying exception is not a {@link RuntimeException}.
      */
     public static class MatsSpringInvocationTargetException extends RuntimeException {

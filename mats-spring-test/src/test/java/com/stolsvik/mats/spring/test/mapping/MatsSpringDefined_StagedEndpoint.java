@@ -2,6 +2,7 @@ package com.stolsvik.mats.spring.test.mapping;
 
 import javax.inject.Inject;
 
+import com.stolsvik.mats.spring.MatsEndpointSetup;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -13,14 +14,13 @@ import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
-import com.stolsvik.mats.spring.MatsStaged;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsSimpleTestContext;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
- * Basic test of the {@link MatsStaged @MatsStaged} annotation, both without and with {@link EndpointConfig} in the
+ * Basic test of the {@link MatsEndpointSetup @MatsEndpointSetup} annotation, both without and with {@link EndpointConfig} in the
  * setup method, and also testing the default-to-Void for state STO and reply-DTO.
  *
  * @author Endre Stølsvik - 2016-08-07 - http://endre.stolsvik.com
@@ -39,9 +39,9 @@ public class MatsSpringDefined_StagedEndpoint {
     static class MultipleMappingsConfiguration {
 
         /**
-         * Sets up a multi-staged endpoint using the @MatsStaged facility.
+         * Sets up a multi-staged endpoint using the @MatsEndpointSetup facility.
          */
-        @MatsStaged(endpointId = ENDPOINT_ID + MULTI, state = SpringTestStateTO.class, reply = SpringTestDataTO.class)
+        @MatsEndpointSetup(endpointId = ENDPOINT_ID + MULTI, state = SpringTestStateTO.class, reply = SpringTestDataTO.class)
         public void springMatsStagedEndpoint(MatsEndpoint<SpringTestDataTO, SpringTestStateTO> ep) {
             ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(0, null), sto);
@@ -64,7 +64,7 @@ public class MatsSpringDefined_StagedEndpoint {
         /**
          * Sets up a multi-stage endpoint, where the EndpointConfig is supplied directly to the annotated method.
          */
-        @MatsStaged(endpointId = ENDPOINT_ID
+        @MatsEndpointSetup(endpointId = ENDPOINT_ID
                 + MULTI_WITH_CONFIG, state = SpringTestStateTO.class, reply = SpringTestDataTO.class)
         public void springMatsStagedEndpointWithConfig(EndpointConfig<SpringTestDataTO, SpringTestStateTO> config,
                 MatsEndpoint<SpringTestDataTO, SpringTestStateTO> ep) {
@@ -92,7 +92,7 @@ public class MatsSpringDefined_StagedEndpoint {
         /**
          * Sets up a Terminator-style endpoint using Staged, where both the state STO and reply DTO defaults to Void.
          */
-        @MatsStaged(ENDPOINT_ID + SINGLE_VOID_VOID)
+        @MatsEndpointSetup(ENDPOINT_ID + SINGLE_VOID_VOID)
         public void springMatsStagedEndpointWithVoidStateAndVoidReply(MatsEndpoint<Void, Void> ep,
                 EndpointConfig<Void, Void> config) {
             // Just invoke something on the config instance to check that it is sane
