@@ -28,8 +28,8 @@ import com.stolsvik.mats.util.RandomString;
 @RunWith(SpringRunner.class)
 @MatsTestProfile
 @ContextConfiguration(classes = Main.class)
-public class Test_EmplyingTheOtherMatsFactory {
-    private static final Logger log = LoggerFactory.getLogger(Test_EmplyingTheOtherMatsFactory.class);
+public class Test_EmployingTheOtherMatsFactory {
+    private static final Logger log = LoggerFactory.getLogger(Test_EmployingTheOtherMatsFactory.class);
     private static final String TERMINATOR = "Test.TERMINATOR";
 
     @Inject
