@@ -17,7 +17,6 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanCreationException;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
@@ -42,15 +41,15 @@ import org.springframework.core.type.MethodMetadata;
 import org.springframework.core.type.StandardMethodMetadata;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.ClassUtils;
 
 import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.spring.MatsClassMapping.MatsClassMappings;
-import com.stolsvik.mats.spring.MatsEndpointSetup.MatsEndpointSetups;
-import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
+import com.stolsvik.mats.spring.MatsClassMapping.Initial;
+import com.stolsvik.mats.spring.MatsClassMapping.Stage;
 
 /**
  * The {@link BeanPostProcessor}-class specified by the {@link EnableMats @EnableMats} annotation.
@@ -182,10 +181,25 @@ public class MatsSpringAnnotationRegistration implements
 
     private final Set<Class<?>> _classesWithNoMatsMappingAnnotations = ConcurrentHashMap.newKeySet();
 
+    private static Class<?> getClassOfBean(Object bean) {
+        /*
+         * There are just too many of these "get the underlying class" stuff in Spring. Since none of these made any
+         * difference in the unit tests, I'll go for the one giving the actual underlying "user class", thus having the
+         * least amount of added crazy proxy methods to search through. Not sure if this disables any cool Spring magic
+         * that could be of interest, e.g. that Spring resolves some meta-annotation stuff by putting the actual
+         * annotation on the proxied/generated class or some such.
+         */
+        // return AopUtils.getTargetClass(bean);
+        // return AopProxyUtils.ultimateTargetClass(bean);
+        // return bean.getClass();  // Standard Java
+        return ClassUtils.getUserClass(bean);
+        // Of interest, notice also "AopTestUtils" that does the same thing for Spring beans - the objects themselves.
+    }
+
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         // Find actual class of bean (in case of AOPed bean)
-        Class<?> targetClass = AopUtils.getTargetClass(bean);
+        Class<?> targetClass = getClassOfBean(bean);
         // ?: Have we checked this bean before and found no @Mats..-annotations? (might happen with prototype beans)
         if (_classesWithNoMatsMappingAnnotations.contains(targetClass)) {
             // -> Yes, we've checked it before, and it has no @Mats..-annotations.
@@ -193,13 +207,12 @@ public class MatsSpringAnnotationRegistration implements
         }
 
         // E-> Must check this bean.
-        Map<Method, Set<MatsMapping>> methodsWithMatsMappingAnnotations = findAnnotatedMethods(targetClass,
-                MatsMapping.class, MatsMappings.class);
-        Map<Method, Set<MatsEndpointSetup>> methodsWithMatsStagedAnnotations = findAnnotatedMethods(targetClass,
-                MatsEndpointSetup.class, MatsEndpointSetups.class);
+        Map<Method, Set<MatsMapping>> methodsWithMatsMappingAnnotations = findRepeatableAnnotatedMethods(targetClass,
+                MatsMapping.class);
+        Map<Method, Set<MatsEndpointSetup>> methodsWithMatsStagedAnnotations = findRepeatableAnnotatedMethods(
+                targetClass, MatsEndpointSetup.class);
         Set<MatsClassMapping> matsEndpointSetupAnnotationsOnClasses = AnnotationUtils.getRepeatableAnnotations(
-                targetClass,
-                MatsClassMapping.class, MatsClassMappings.class);
+                targetClass, MatsClassMapping.class);
 
         // ?: Are there any Mats annotated methods on this class?
         if (methodsWithMatsMappingAnnotations.isEmpty()
@@ -207,8 +220,8 @@ public class MatsSpringAnnotationRegistration implements
                 && matsEndpointSetupAnnotationsOnClasses.isEmpty()) {
             // -> No, so cache that fact, to short-circuit discovery next time for this class (e.g. prototype beans)
             _classesWithNoMatsMappingAnnotations.add(targetClass);
-            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "No @MatsMapping or @MatsEndpointSetup annotations found"
-                    + " on bean class [" + bean.getClass() + "].");
+            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "No @MatsMapping, @MatsClassMapping or @MatsEndpointSetup"
+                    + " annotations found on bean class [" + bean.getClass() + "].");
             return bean;
         }
 
@@ -225,7 +238,8 @@ public class MatsSpringAnnotationRegistration implements
             for (Entry<Method, Set<MatsMapping>> entry : methodsWithMatsMappingAnnotations.entrySet()) {
                 Method method = entry.getKey();
                 for (MatsMapping matsMapping : entry.getValue()) {
-                    log.info(LOG_PREFIX + "Found @MatsMapping [" + matsMapping + "] on method [" + method + "].");
+                    log.info(LOG_PREFIX + "Found @MatsMapping on method '" + getSimpleMethodDescription(method)
+                            + "' :#: Annotation:[" + matsMapping + "] :#: method:[" + method + "].");
                     _matsMappingMethods.add(new MatsMappingHolder(matsMapping, method, bean));
                     // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
                     if (_contextHasBeenRefreshed) {
@@ -242,8 +256,8 @@ public class MatsSpringAnnotationRegistration implements
             for (Entry<Method, Set<MatsEndpointSetup>> entry : methodsWithMatsStagedAnnotations.entrySet()) {
                 Method method = entry.getKey();
                 for (MatsEndpointSetup matsEndpointSetup : entry.getValue()) {
-                    log.info(LOG_PREFIX + "Found method-@MatsEndpointSetup [" + matsEndpointSetup + "] on method ["
-                            + method + "].");
+                    log.info(LOG_PREFIX + "Found @MatsMapping on method '" + getSimpleMethodDescription(method)
+                            + "' :#: Annotation:[" + matsEndpointSetup + "] :#: method:[" + method + "].");
                     _matsStagedMethods.add(new MatsEndpointSetupHolder(matsEndpointSetup, method, bean));
                     // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
                     if (_contextHasBeenRefreshed) {
@@ -257,29 +271,41 @@ public class MatsSpringAnnotationRegistration implements
         // ?: Any @MatsEndpointSetup annotations on class?
         if (!matsEndpointSetupAnnotationsOnClasses.isEmpty()) {
             // -> Yes, there are @MatsEndpointSetup annotation(s) on class. Add them for processing.
-            for (MatsClassMapping matsEndpointSetup : matsEndpointSetupAnnotationsOnClasses) {
-                log.info(LOG_PREFIX + "Found class-@MatsEndpointSetup [" + matsEndpointSetup + "] on class ["
-                        + targetClass + "].");
-                _matsStagedClasses.add(new MatsClassMappingHolder(matsEndpointSetup, bean));
+            for (MatsClassMapping matsClassMapping : matsEndpointSetupAnnotationsOnClasses) {
+                log.info(LOG_PREFIX + "Found @MatsEndpointSetup on class '"
+                        + getClassNameWithoutPackage(ClassUtils.getUserClass(targetClass))
+                        + "' :#: Annotation:[" + matsClassMapping + "] :#: class:[" + targetClass + "].");
+                _matsStagedClasses.add(new MatsClassMappingHolder(matsClassMapping, bean));
                 // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
                 if (_contextHasBeenRefreshed) {
                     // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
                     log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
-                    processMatsStagedOnClass(matsEndpointSetup, bean);
+                    processMatsStagedOnClass(matsClassMapping, bean);
                 }
             }
         }
         return bean;
     }
 
+    private static String getClassNameWithoutPackage(Class<?> clazz) {
+        String typeName = clazz.getTypeName();
+        String packageName = clazz.getPackage().getName();
+        return typeName.replace(packageName + ".", "");
+    }
+
+    private static String getSimpleMethodDescription(Method method) {
+        return method.getReturnType().getSimpleName() + ' ' + getClassNameWithoutPackage(method.getDeclaringClass())
+                + '.' + method.getName() + "(..)";
+    }
+
     /**
      * @return a Map [Method, Set-of-Annotations] handling repeatable annotations, e.g. @MatsMapping from the supplied
      *         class, returning an empty map if none.
      */
-    private <A extends Annotation> Map<Method, Set<A>> findAnnotatedMethods(Class<?> targetClass,
-            Class<A> single, Class<? extends Annotation> plural) {
+    private <A extends Annotation> Map<Method, Set<A>> findRepeatableAnnotatedMethods(Class<?> targetClass,
+            Class<A> repeatableAnnotationClass) {
         return MethodIntrospector.selectMethods(targetClass, (MetadataLookup<Set<A>>) method -> {
-            Set<A> matsMappingAnnotations = AnnotationUtils.getRepeatableAnnotations(method, single, plural);
+            Set<A> matsMappingAnnotations = AnnotationUtils.getRepeatableAnnotations(method, repeatableAnnotationClass);
             return (!matsMappingAnnotations.isEmpty() ? matsMappingAnnotations : null);
         });
     }
@@ -340,15 +366,18 @@ public class MatsSpringAnnotationRegistration implements
          * have not yet been depended on by the beans that so far has been pulled in. This serves two purposes a) They
          * will be registered in the postProcessBeforeInitialization() above, and b) any endpoint whose containing bean
          * is instantiated later (after ContextRefreshedEvent) and which depends on a not-yet instantiated MatsFactory
-         * will not crash (as can happen otherwise, as our @MatsMapping Qualification-trickery evidently uses methods of
+         * will not crash (as can happen otherwise, as our @MatsFactory Qualification-trickery evidently uses methods of
          * Spring that does not force instantiation of beans, specifically this method:
          * BeanFactoryAnnotationUtils.qualifiedBeanOfType(BeanFactory beanFactory, Class<T> beanType, String qualifier)
          */
         _configurableListableBeanFactory.getBeansOfType(MatsFactory.class);
 
-        // Now set the flag that denotes that ContextRefreshedEvent has been run, so that any subsequent beans with
-        // @MatsMapping and friends will be insta-registered (as there won't be a second run of the present method,
-        // which otherwise has responsibility of registering these).
+        /*
+         * Now set the flag that denotes that ContextRefreshedEvent has been run, so that any subsequent beans with any
+         * of Mats' Spring annotations will be insta-registered - as there won't be a second ContextRefreshedEvent which
+         * otherwise has responsibility of registering these (this method). Again, this can happen if the beans in the
+         * Spring context are in lazy-init mode.
+         */
         _contextHasBeenRefreshed = true;
 
         // :: Register Mats endpoints for all @MatsMapping and @MatsEndpointSetup annotated methods.
@@ -688,7 +717,24 @@ public class MatsSpringAnnotationRegistration implements
      * such annotations, and this method will be invoked for each of them.
      */
     private void processMatsStagedOnClass(MatsClassMapping matsEndpointSetup, Object bean) {
-        log.info("@MatsClassMapping processing!\n" + matsEndpointSetup + "\n" + bean);
+        // Find actual class of bean (in case of AOPed bean)
+        Class<?> targetClass = getClassOfBean(bean);
+        log.info("@MatsClassMapping processing!"
+                + "\nMatsClassMapping: " + matsEndpointSetup
+                + "\nBean: " + bean
+                + "\nBean class: " + targetClass);
+        Map<Method, Initial> initials = MethodIntrospector.selectMethods(targetClass,
+                (MetadataLookup<Initial>) method -> {
+                    log.info("Method to search for @Initial: " + method);
+                    return AnnotationUtils.findAnnotation(method, Initial.class);
+                });
+        Map<Method, Stage> stages = MethodIntrospector.selectMethods(targetClass,
+                (MetadataLookup<Stage>) method -> {
+                    log.info("Method to search for @Stage: " + method);
+                    return AnnotationUtils.findAnnotation(method, Stage.class);
+                });
+        log.info("Initials:\n" + initials);
+        log.info("Stages:\n" + stages);
     }
 
     private MatsFactory getMatsFactoryToUse(Method method, Class<? extends Annotation> aeCustomQualifierType,

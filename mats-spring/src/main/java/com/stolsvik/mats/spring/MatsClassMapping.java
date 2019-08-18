@@ -77,8 +77,9 @@ public @interface MatsClassMapping {
     String matsFactoryBeanName() default "";
 
     /**
-     * The method representing the initial Stage of the endpoint - the one that receives the message when a message is
-     * sent to {@link MatsClassMapping#endpointId()} - must be annotated with this annotation.
+     * The method representing the initial Stage of the endpoint must be annotated with this annotation - the initial
+     * Stage is the one that receives the message when sent to this Mats endpoint's
+     * {@link MatsClassMapping#endpointId()}.
      */
     @Target({ ElementType.METHOD, ElementType.ANNOTATION_TYPE })
     @Retention(RetentionPolicy.RUNTIME)
@@ -88,8 +89,10 @@ public @interface MatsClassMapping {
     }
 
     /**
-     * Annotation that needs to be on all the endpoint's Stages, except the initial stage, which shall be annotated
-     * with @{@link Initial}.
+     * Each method in the class that shall correspond to a Stage on the endpoint must be annotated with this
+     * <code>@Stage</code> annotation, except the initial stage, which shall be annotated with @{@link Initial}. An
+     * {@link #ordinal() ordinal) must be assigned to each stage, so that Mats knows which order the stages are in -
+     * read more about the ordinal number at {@link #ordinal()}.
      */
     @Target({ ElementType.METHOD, ElementType.ANNOTATION_TYPE })
     @Retention(RetentionPolicy.RUNTIME)
@@ -98,9 +101,11 @@ public @interface MatsClassMapping {
         /**
          * The ordinal of this Stage in the sequence of stages of this endpoint - that is, an integer that expresses the
          * relative position of this Stage wrt. to the other stages. The magnitude of the number does not matter, only
-         * the "sort order", so 10, 20, 30 is just as good as 1, 2, 3, which is just as good as 7, 4527890 and 4527990.
-         * An idea is the cool'n'retro Commodore BASIC-style of line numbers, which commonly was "tens". The rationale
-         * is that you then quickly can add a line between 10 and 20 by sticking in a 15 there.
+         * the "sort order", so 1, 2, 3 is just as good as 3, 5, 7, which is just as good as 4517890, 4527890 and
+         * 4527990 - although one can definitely discuss the relative merits between each approach. An idea is the
+         * cool'n'retro Commodore BASIC-style of line numbers, which commonly was to use values in multiple of 10, i.e.
+         * 10, 20, 30. The rationale is that you then quickly can add a line between 10 and 20 by sticking in a 15
+         * there.
          *
          * @return the ordinal of this Stage in the sequence of stages of this endpoint.
          */
@@ -115,7 +120,7 @@ public @interface MatsClassMapping {
          *
          * @return the ordinal of this Stage in the sequence of stages of this endpoint.
          */
-        @AliasFor("endpointId")
+        @AliasFor("ordinal")
         int value() default -1;
 
     }
