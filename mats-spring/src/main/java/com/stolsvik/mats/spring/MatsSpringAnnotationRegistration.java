@@ -1,17 +1,24 @@
 package com.stolsvik.mats.spring;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedElement;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -42,13 +49,13 @@ import org.springframework.core.type.StandardMethodMetadata;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.ClassUtils;
+import org.springframework.util.ReflectionUtils;
 
 import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.spring.MatsClassMapping.Initial;
 import com.stolsvik.mats.spring.MatsClassMapping.Stage;
 
 /**
@@ -191,7 +198,7 @@ public class MatsSpringAnnotationRegistration implements
          */
         // return AopUtils.getTargetClass(bean);
         // return AopProxyUtils.ultimateTargetClass(bean);
-        // return bean.getClass();  // Standard Java
+        // return bean.getClass(); // Standard Java
         return ClassUtils.getUserClass(bean);
         // Of interest, notice also "AopTestUtils" that does the same thing for Spring beans - the objects themselves.
     }
@@ -263,7 +270,7 @@ public class MatsSpringAnnotationRegistration implements
                     if (_contextHasBeenRefreshed) {
                         // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
                         log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
-                        processMatsStagedOnMethod(matsEndpointSetup, method, bean);
+                        processMatsEndpointSetup(matsEndpointSetup, method, bean);
                     }
                 }
             }
@@ -285,17 +292,6 @@ public class MatsSpringAnnotationRegistration implements
             }
         }
         return bean;
-    }
-
-    private static String getClassNameWithoutPackage(Class<?> clazz) {
-        String typeName = clazz.getTypeName();
-        String packageName = clazz.getPackage().getName();
-        return typeName.replace(packageName + ".", "");
-    }
-
-    private static String getSimpleMethodDescription(Method method) {
-        return method.getReturnType().getSimpleName() + ' ' + getClassNameWithoutPackage(method.getDeclaringClass())
-                + '.' + method.getName() + "(..)";
     }
 
     /**
@@ -382,7 +378,7 @@ public class MatsSpringAnnotationRegistration implements
 
         // :: Register Mats endpoints for all @MatsMapping and @MatsEndpointSetup annotated methods.
         _matsMappingMethods.forEach(h -> processMatsMapping(h.matsMapping, h.method, h.bean));
-        _matsStagedMethods.forEach(h -> processMatsStagedOnMethod(h.matsEndpointSetup, h.method, h.bean));
+        _matsStagedMethods.forEach(h -> processMatsEndpointSetup(h.matsEndpointSetup, h.method, h.bean));
         _matsStagedClasses.forEach(h -> processMatsStagedOnClass(h.matsClassMapping, h.bean));
 
         // :: Start the MatsFactories
@@ -538,7 +534,7 @@ public class MatsSpringAnnotationRegistration implements
             // ?: Is a State parameter specified?
             if (stoParamF != -1) {
                 // -> Yes, so then we need to hack together a "single" endpoint out of a staged with single lastStage.
-                typeEndpoint = "Single w/State";
+                typeEndpoint = "SingleStage w/State";
                 MatsEndpoint<?, ?> ep = matsFactoryToUse.staged(matsMapping.endpointId(), replyType, stoType);
                 ep.lastStage(dtoType, (processContext, state, incomingDto) -> {
                     Object reply = invokeMatsMappingMethod(matsMapping, method, bean, paramsLength,
@@ -550,7 +546,7 @@ public class MatsSpringAnnotationRegistration implements
             }
             else {
                 // -> No state parameter, so use the proper Single endpoint.
-                typeEndpoint = "Single";
+                typeEndpoint = "SingleStage";
                 matsFactoryToUse.single(matsMapping.endpointId(), replyType, dtoType,
                         (processContext, incomingDto) -> {
                             Object reply = invokeMatsMappingMethod(matsMapping, method, bean, paramsLength,
@@ -580,10 +576,11 @@ public class MatsSpringAnnotationRegistration implements
      * Helper for invoking the "method ref" @MatsMapping-annotated method that constitute the Mats process-lambda for
      * SingleStage, SingleStage w/ State, and Terminator mappings.
      */
-    private static Object invokeMatsMappingMethod(MatsMapping matsMapping, Method method, Object bean,
-            int paramsLength, int processContextParamIdx,
-            ProcessContext<?> processContext, int dtoParamIdx,
-            Object dto, int stoParamIdx, Object sto)
+    private static Object invokeMatsMappingMethod(Annotation matsAnnotation, Method method, Object bean,
+            int paramsLength,
+            int processContextParamIdx, ProcessContext<?> processContext,
+            int dtoParamIdx, Object dto,
+            int stoParamIdx, Object sto)
             throws MatsRefuseMessageException {
         Object[] args = new Object[paramsLength];
         if (processContextParamIdx != -1) {
@@ -600,7 +597,7 @@ public class MatsSpringAnnotationRegistration implements
         }
         catch (IllegalAccessException | IllegalArgumentException e) {
             throw new MatsRefuseMessageException("Problem with invoking "
-                    + descString(matsMapping, method, bean) + ".", e);
+                    + descString(matsAnnotation, method, bean) + ".", e);
         }
         catch (InvocationTargetException e) {
             if (e.getTargetException() instanceof MatsRefuseMessageException) {
@@ -610,7 +607,7 @@ public class MatsSpringAnnotationRegistration implements
                 throw (RuntimeException) e.getTargetException();
             }
             throw new MatsSpringInvocationTargetException("Got InvocationTargetException when invoking "
-                    + descString(matsMapping, method, bean) + ".", e);
+                    + descString(matsAnnotation, method, bean) + ".", e);
         }
     }
 
@@ -626,7 +623,7 @@ public class MatsSpringAnnotationRegistration implements
      * Process a method annotated with {@link MatsEndpointSetup @MatsEndpointSetup} - note that one method can have
      * multiple such annotations, and this method will be invoked for each of them.
      */
-    private void processMatsStagedOnMethod(MatsEndpointSetup matsEndpointSetup, Method method, Object bean) {
+    private void processMatsEndpointSetup(MatsEndpointSetup matsEndpointSetup, Method method, Object bean) {
         if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsEndpointSetup [" + matsEndpointSetup
                 + "] on method ["
                 + method + "], of bean: " + bean);
@@ -707,9 +704,9 @@ public class MatsSpringAnnotationRegistration implements
                     + descString(matsEndpointSetup, method, bean) + ".", e);
         }
 
-        log.info(LOG_PREFIX + "Processed Staged Mats Spring endpoint by "
+        log.info(LOG_PREFIX + "Processed Mats Endpoint Configuration by "
                 + descString(matsEndpointSetup, method, bean) + " :: MatsEndpoint:[param#" + endpointParam
-                + "], EndpointConfig:[param#" + endpointParam + "]");
+                + "], EndpointConfig:[param#" + configParam + "]");
     }
 
     /**
@@ -723,27 +720,259 @@ public class MatsSpringAnnotationRegistration implements
                 + "\nMatsClassMapping: " + matsEndpointSetup
                 + "\nBean: " + bean
                 + "\nBean class: " + targetClass);
-        Map<Method, Initial> initials = MethodIntrospector.selectMethods(targetClass,
-                (MetadataLookup<Initial>) method -> {
-                    log.info("Method to search for @Initial: " + method);
-                    return AnnotationUtils.findAnnotation(method, Initial.class);
-                });
+
+        // Find all methods annotated with Stage
         Map<Method, Stage> stages = MethodIntrospector.selectMethods(targetClass,
-                (MetadataLookup<Stage>) method -> {
-                    log.info("Method to search for @Stage: " + method);
-                    return AnnotationUtils.findAnnotation(method, Stage.class);
-                });
-        log.info("Initials:\n" + initials);
-        log.info("Stages:\n" + stages);
+                (MetadataLookup<Stage>) method -> AnnotationUtils.findAnnotation(method, Stage.class));
+
+        // :: Get Stages sorted in order by ordinal, and assert that all are <0 and that no ordinal is duplicated.
+        SortedMap<Integer, Method> stagesByOrdinal = new TreeMap<>();
+        stages.forEach((method, stageAnnotation) -> {
+            int ordinal = stageAnnotation.ordinal();
+            // ?: ASSERT: Negative ordinal?
+            if (ordinal < 0) {
+                // -> Yes, negative -> error.
+                throw new MatsSpringConfigException("On @MatsClassMapping endpoint at class '"
+                        + getClassNameWithoutPackage(bean) + "', the Stage ordinal is negative (" + ordinal
+                        + ") on @Stage annotation of method '" + getSimpleMethodDescription(method)
+                        + "' - all ordinals must be >=0 and unique within this endpoint"
+                        + " (The ordinal defines the order of stages of this endpoint)."
+                        + " @Stage annotation:[" + stageAnnotation + "]");
+            }
+            // ?: ASSERT: Duplicate ordinal?
+            if (stagesByOrdinal.containsKey(ordinal)) {
+                // -> Yes, duplicate -> error.
+                Method prevMethod = stagesByOrdinal.get(ordinal);
+                throw new MatsSpringConfigException("The Stage with ordinal [" + ordinal
+                        + "] of @MatsClassMapping endpoint at class '" + getClassNameWithoutPackage(bean)
+                        + "' is duplicated on another Stage of the same endpoint."
+                        + " All Stages of an endpoint must have ordinal set, and must be unique within the endpoint"
+                        + " (The ordinal defines the order of stages of this endpoint)."
+                        + "\n  - This method:     '" + getSimpleMethodDescription(method)
+                        + "' with @Stage annotation: [" + stageAnnotation + "]"
+                        + "\n  - Previous method: '" + getSimpleMethodDescription(prevMethod)
+                        + "' with @Stage annotation:[" + stages.get(prevMethod) + "]");
+            }
+            stagesByOrdinal.put(ordinal, method);
+        });
+        // ?: ASSERT: Do we have an INITIAL Stage?
+        if (!stagesByOrdinal.containsKey(0)) {
+            // -> No, INITIAL Stage not present -> error.
+            throw new MatsSpringConfigException("The @MatsClassMapping endpoint at class '"
+                    + getClassNameWithoutPackage(bean) + "' is missing initial stage:"
+                    + " No method is annotated with '@Stage(Stage.INITIAL)' (i.e. ordinal=0)");
+        }
+
+        // :: ASSERT: Check that only the last stage has a return type
+        int lastOrdinal = stagesByOrdinal.lastKey();
+        for (Entry<Integer, Method> entry : stagesByOrdinal.entrySet()) {
+            int ordinal = entry.getKey();
+            Method method = entry.getValue();
+            // ?: Is this the last ordinal?
+            if (ordinal == lastOrdinal) {
+                // -> Last, so ignore.
+                continue;
+            }
+            // ?: ASSERT: Does this non-last Stage return something else than void?
+            if (method.getReturnType() != void.class) {
+                // -> Yes, returns non-void -> error.
+                throw new MatsSpringConfigException("The Stage with ordinal [" + ordinal
+                        + "] of @MatsClassMapping endpoint at class '" + getClassNameWithoutPackage(bean)
+                        + "' has a return type '" + getClassNameWithoutPackage(method.getReturnType())
+                        + "' (not void), but it is not the last stage. Only the last stage shall have a return type,"
+                        + " which is the return type for the endpoint. Method: '"
+                        + getSimpleMethodDescription(method) + "'");
+            }
+        }
+
+        // Find reply type: Get return type of last Stage
+        Method lastStageMethod = stagesByOrdinal.get(stagesByOrdinal.lastKey());
+        // .. modify replyClass if it is void.class to Void.class.. Nuances.. They matter..
+        Class<?> replyClass = lastStageMethod.getReturnType() == void.class
+                ? Void.class
+                : lastStageMethod.getReturnType();
+
+        // :: Find request type: Get DTO-type of first Stage
+
+        Method initialStageMethod = stagesByOrdinal.get(stagesByOrdinal.firstKey());
+        int dtoParamPosOfInitial = findDtoPosition(initialStageMethod);
+        if (dtoParamPosOfInitial == -1) {
+            throw new MatsSpringConfigException("The Initial Stage of @MatsClassMapping endpoint at class '"
+                    + getClassNameWithoutPackage(bean) + "' does not have a incoming DTO (message) parameter."
+                    + " Either it must be the sole parameter, or it must be marked by annotation @Dto."
+                    + " Method: [" + initialStageMethod + "]");
+        }
+        Class<?> requestClass = initialStageMethod.getParameters()[dtoParamPosOfInitial].getType();
+
+        log.info(LOG_PREFIX + "The @MatsClassMapping endpoint at class '" + getClassNameWithoutPackage(targetClass)
+                + "' has request DTO [" + getClassNameWithoutPackage(requestClass)
+                + "] and reply DTO [" + getClassNameWithoutPackage(replyClass) + "].");
+
+        // :: Find all non-null fields of the bean - these are what Spring has injected.
+        Field[] processContextField_hack = new Field[1];
+        LinkedHashMap<Field, Object> templateFields = new LinkedHashMap<>();
+        ReflectionUtils.doWithFields(targetClass, field -> {
+            String name = field.getName();
+            Class<?> clazz = field.getType();
+            if (clazz.isPrimitive()) {
+                log.info(LOG_PREFIX + " - Field [" + name + "] is primitive (" + clazz
+                        + "): Assuming state field, ignoring.");
+                return;
+            }
+            if (clazz.isAssignableFrom(ProcessContext.class)) {
+                // ProcessContext shall return a ParameterizedType, as it has a type parameter
+                ParameterizedType genericType = (ParameterizedType) field.getGenericType();
+                Type typeArgument = genericType.getActualTypeArguments()[0];
+                log.info(LOG_PREFIX + " - Field [" + name + "] is Mats' ProcessContext<..>, with reply type ["
+                        + typeArgument + "]");
+                if (processContextField_hack[0] != null) {
+                    throw new MatsSpringConfigException("The @MatsClassMapping endpoint at class '"
+                            + getClassNameWithoutPackage(bean) + "' evidently has more than one ProcessContext field."
+                            + " Only one is allowed."
+                            + "\n  - This field:     [" + field + "]"
+                            + "\n  - Previous field: [" + processContextField_hack[0] + "]");
+                }
+                if (typeArgument != replyClass) {
+                    throw new MatsSpringConfigException("The @MatsClassMapping endpoint at class '"
+                            + getClassNameWithoutPackage(bean) + "' has a ProcessContext field where the reply type"
+                            + " does not match the resolved reply type from the Stages."
+                            + " ProcessContext Field: [" + field + "]"
+                            + "\n  - Type from field:   ProcessContext<" + typeArgument + ">"
+                            + "\n  - Reply type resolved from Stages: [" + replyClass + "]");
+                }
+                processContextField_hack[0] = field;
+                return;
+            }
+
+            field.setAccessible(true);
+            Object value = field.get(bean);
+            if (value == null) {
+                log.info(LOG_PREFIX + " - Field [" + name + "] is null: Assuming state field, ignoring. (Type: ["
+                        + field.getGenericType() + "])");
+                return;
+            }
+
+            // ----- This is a Spring Dependency Injected field. We assume.
+            // (Or the idiot developer initialized a state field with a value. Please explain me why this makes sense.)
+
+            log.info(LOG_PREFIX + " - Field [" + name + "] is non-null: Assuming Spring Dependency Injection has set it"
+                    + " - storing as template. (Type:[" + field.getGenericType() + "], Value:[" + value + "])");
+            templateFields.put(field, value);
+        });
+
+        Field processContextField = processContextField_hack[0];
+        processContextField.setAccessible(true);
+
+        // :: Find which MatsFactory to use
+
+        MatsFactory matsFactoryToUse = getMatsFactoryToUse(targetClass, matsEndpointSetup
+                .matsFactoryCustomQualifierType(),
+                matsEndpointSetup.matsFactoryQualifierValue(), matsEndpointSetup.matsFactoryBeanName());
+
+        // :: Create the Staged Endpoint
+
+        MatsEndpoint<?, ?> ep = matsFactoryToUse.staged(matsEndpointSetup.endpointId(), replyClass, targetClass);
+
+        stagesByOrdinal.forEach((ordinal, method) -> {
+            log.info(LOG_PREFIX + "  -> Stage '" + ordinal + "': '" + getSimpleMethodDescription(method) + "");
+            int dtoParamPos = findDtoPosition(method);
+            Parameter[] parameters = method.getParameters();
+            Class<?> incomingClass = dtoParamPos == -1
+                    ? Void.class
+                    : parameters[dtoParamPosOfInitial].getType();
+            int paramsLength = parameters.length;
+
+            ep.stage(incomingClass, (processContext, state, incomingDto) -> {
+                for (Entry<Field, Object> entry : templateFields.entrySet()) {
+                    Field templateField = entry.getKey();
+                    try {
+                        templateField.set(state, entry.getValue());
+                    }
+                    catch (IllegalAccessException e) {
+                        throw new MatsSpringInvocationTargetException("Didn't manage to set \"template field\" '"
+                                + templateField.getName() + "' assumed coming from Spring Dependency Injection into the "
+                                + " @MatsClassMapping combined state/@Service class upon invocation of Mats Stage.", e);
+                    }
+                }
+
+                // :: Set the ProcessContext for this processing.
+
+                try {
+                    processContextField.set(state, processContext);
+                }
+                catch (IllegalAccessException e) {
+                    throw new MatsSpringInvocationTargetException("Didn't manage to set the ProcessContext '"
+                            + processContextField.getName() + "' into the "
+                            + " @MatsClassMapping combined state/@Service class upon invocation of Mats Stage.", e);
+                }
+
+                // :: Make the invocation
+                Object o = invokeMatsMappingMethod(matsEndpointSetup, method, state, paramsLength,
+                        -1, null,
+                        dtoParamPos, incomingDto,
+                        -1, null);
+
+                // :: Null out the template fields again, before serializing the state.
+                for (Entry<Field, Object> entry : templateFields.entrySet()) {
+                    Field templateField = entry.getKey();
+                    try {
+                        templateField.set(state, null);
+                    }
+                    catch (IllegalAccessException e) {
+                        throw new MatsSpringInvocationTargetException("Didn't manage to null \"template field\" '"
+                                + templateField.getName() + "'.", e);
+                    }
+                }
+
+                // :: Null out the ProcessContext
+                try {
+                    processContextField.set(state, null);
+                }
+                catch (IllegalAccessException e) {
+                    throw new MatsSpringInvocationTargetException("Didn't manage to null the ProcessContext '"
+                            + processContextField.getName() + "'.", e);
+                }
+
+                log.info("Testing 1, 2, 3");
+
+                // ?: Is this the last stage?
+                if (method == lastStageMethod) {
+                    // -> Yes, this is the last stage - so return whatever the invocation came up with.
+                    processContext.reply(helperCast(o));
+                }
+            });
+        });
+
     }
 
-    private MatsFactory getMatsFactoryToUse(Method method, Class<? extends Annotation> aeCustomQualifierType,
+    private int findDtoPosition(Method method) {
+        Parameter[] parameters = method.getParameters();
+        int dtoParamPos = -1;
+        if (parameters.length == 1) {
+            dtoParamPos = 0;
+        }
+        else {
+            for (int i = 0; i < parameters.length; i++) {
+                if (parameters[i].getAnnotation(Dto.class) != null) {
+                    if (dtoParamPos != -1) {
+                        throw new MatsSpringConfigException("More than one parameter of method '"
+                                + getSimpleMethodDescription(method) + "' is annotated with @Dto");
+                    }
+                    dtoParamPos = i;
+                }
+            }
+        }
+        return dtoParamPos;
+    }
+
+    private MatsFactory getMatsFactoryToUse(AnnotatedElement annotatedElement,
+            Class<? extends Annotation> aeCustomQualifierType,
             String aeQualifierValue, String aeBeanName) {
         List<MatsFactory> specifiedMatsFactories = new ArrayList<>();
 
         int numberOfQualifications = 0;
 
-        Annotation[] annotations = AnnotationUtils.getAnnotations(method);
+        Annotation[] annotations = AnnotationUtils.getAnnotations(annotatedElement);
         for (Annotation annotation : annotations) {
             // ?: Is this a @Qualifier
             if (annotation.annotationType() == Qualifier.class) {
@@ -785,7 +1014,7 @@ public class MatsSpringAnnotationRegistration implements
             throw new BeanCreationException("When trying to get specific MatsFactory based on @Mats..-annotation"
                     + " properties; and @Qualifier-annotations and custom qualifier annotations on the"
                     + " @Mats..-annotated method, we found that there was more than one qualification style present."
-                    + " Check your specifications on the method [" + method + "].");
+                    + " Check your specifications on the element [" + annotatedElement + "].");
         }
 
         // ?: Did the specific MatsFactory logic end up with more than one MatsFactory?
@@ -794,7 +1023,7 @@ public class MatsSpringAnnotationRegistration implements
             throw new BeanCreationException("When trying to get specific MatsFactory based on @Mats..-annotation"
                     + " properties; and @Qualifier-annotations and custom qualifier annotations on the"
                     + " @Mats..-annotated method, we ended up with more than one MatsFactory."
-                    + " Check your specifications on the method [" + method + "].");
+                    + " Check your specifications on the element [" + annotatedElement + "].");
         }
         // ?: If there was one specified MatsFactory, use that, otherwise find any MatsFactory (fails if more than one).
         MatsFactory matsFactory = specifiedMatsFactories.size() == 1
@@ -1021,8 +1250,32 @@ public class MatsSpringAnnotationRegistration implements
         }
     }
 
+    private static String getClassNameWithoutPackage(Object object) {
+        if (object == null) {
+            return "<null instance>";
+        }
+        return getClassNameWithoutPackage(object.getClass());
+    }
+
+    private static String getClassNameWithoutPackage(Class<?> clazz) {
+        if (clazz == null) {
+            return "<null class>";
+        }
+        if (clazz == void.class) {
+            return "void";
+        }
+        String typeName = ClassUtils.getUserClass(clazz).getTypeName();
+        String packageName = clazz.getPackage().getName();
+        return typeName.replace(packageName + ".", "");
+    }
+
+    private static String getSimpleMethodDescription(Method method) {
+        return method.getReturnType().getSimpleName() + ' ' + getClassNameWithoutPackage(method.getDeclaringClass())
+                + '.' + method.getName() + "(..)";
+    }
+
     private static String descString(Annotation annotation, Method method, Object bean) {
-        return "@" + annotation.annotationType().getSimpleName() + "-annotated method '" + bean.getClass()
-                .getSimpleName() + "." + method.getName() + "(...)'";
+        return "@" + annotation.annotationType().getSimpleName() + "-annotated method '"
+                + getSimpleMethodDescription(method) + '\'';
     }
 }

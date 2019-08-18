@@ -77,34 +77,30 @@ public @interface MatsClassMapping {
     String matsFactoryBeanName() default "";
 
     /**
-     * The method representing the initial Stage of the endpoint must be annotated with this annotation - the initial
-     * Stage is the one that receives the message when sent to this Mats endpoint's
-     * {@link MatsClassMapping#endpointId()}.
-     */
-    @Target({ ElementType.METHOD, ElementType.ANNOTATION_TYPE })
-    @Retention(RetentionPolicy.RUNTIME)
-    @Documented
-    @interface Initial {
-
-    }
-
-    /**
-     * Each method in the class that shall correspond to a Stage on the endpoint must be annotated with this
-     * <code>@Stage</code> annotation, except the initial stage, which shall be annotated with @{@link Initial}. An
-     * {@link #ordinal() ordinal) must be assigned to each stage, so that Mats knows which order the stages are in -
-     * read more about the ordinal number at {@link #ordinal()}.
+     * Each method in the class that shall correspond to a Stage on the Mats endpoint must be annotated with this
+     * <code>@Stage</code> annotation. An {@link #ordinal() ordinal} must be assigned to each stage, so that Mats knows
+     * which order the stages are in - read more about the ordinal number at {@link #ordinal()}. The initial stage must
+     * have the ordinal zero, which also shall be the first stage in the resulting sorted list of Stages (i.e. negative
+     * values are not allowed) - this is the Stage which gets incoming messages targeted at the
+     * {@link MatsClassMapping#endpointId() endpointId} of this endpoint.
      */
     @Target({ ElementType.METHOD, ElementType.ANNOTATION_TYPE })
     @Retention(RetentionPolicy.RUNTIME)
     @Documented
     @interface Stage {
         /**
+         * Constant for 0 (zero), the initial Stage's ordinal.
+         */
+        int INITIAL = 0;
+
+        /**
          * The ordinal of this Stage in the sequence of stages of this endpoint - that is, an integer that expresses the
-         * relative position of this Stage wrt. to the other stages. The magnitude of the number does not matter, only
-         * the "sort order", so 1, 2, 3 is just as good as 3, 5, 7, which is just as good as 4517890, 4527890 and
-         * 4527990 - although one can definitely discuss the relative merits between each approach. An idea is the
-         * cool'n'retro Commodore BASIC-style of line numbers, which commonly was to use values in multiple of 10, i.e.
-         * 10, 20, 30. The rationale is that you then quickly can add a line between 10 and 20 by sticking in a 15
+         * relative position of this Stage wrt. to the other stages. The initial Stage must have the ordinal zero, you
+         * may use the constant {@link #INITIAL}. The magnitude of the number does not matter, only the "sort order", so
+         * 0, 1, 2 is just as good as 0, 3, 5, which is just as good as 0, 4527890, 4527990 - although one can
+         * definitely discuss the relative merits between each approach. An idea is the cool'n'retro Commodore
+         * BASIC-style of line numbers, which commonly was to use values in multiple of 10, i.e. 0 (for the Initial),
+         * then 10, 20, 30. The rationale is that you then quickly can add a line between 10 and 20 by sticking in a 15
          * there.
          *
          * @return the ordinal of this Stage in the sequence of stages of this endpoint.
