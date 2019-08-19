@@ -17,7 +17,7 @@ import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsTestProfile;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Main.TestQualifier;
+import com.stolsvik.mats.spring.test.apptest_two_mf.AppMain.TestQualifier;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch;
@@ -53,11 +53,11 @@ public class Test_UseFullApplicationConfiguration_WithRemock {
      * test. Okay. You got this, right?
      * 
      * Note: Another way to get the same effect through a different route, is to annotate the class with
-     * "@DisableLazyInit(Mats_SingleEndpoint.class)". This tells Remock to disable lazy-init for this particular
+     * "@DisableLazyInit(Mats_Endpoints.class)". This tells Remock to disable lazy-init for this particular
      * class, and thus it will be "booted", taking up the Mats endpoint.
      */
     @Inject
-    private Mats_SingleEndpoint _dependency1;
+    private Mats_Endpoints _dependency1;
 
     // ===== The rest is identical to Test_UseFullApplicationConfiguration
 
@@ -66,7 +66,7 @@ public class Test_UseFullApplicationConfiguration_WithRemock {
     // 1. It is annotated with @EnableMats
     // 2. It configures two ConnectionFactories, and two MatsFactories.
     // 3. It configures classpath scanning, and thus gets the Mats endpoints configured.
-    @Import(Main.class)
+    @Import(AppMain.class)
     public static class TestConfig {
         @Inject
         private MatsTestLatch _latch;
@@ -94,7 +94,7 @@ public class Test_UseFullApplicationConfiguration_WithRemock {
         _matsFactory.getDefaultInitiator().initiateUnchecked(msg -> {
             msg.traceId(RandomString.randomCorrelationId())
                     .from("TestInitiate")
-                    .to(Main.ENDPOINT_ID + ".single")
+                    .to(AppMain.ENDPOINT_ID + ".single")
                     .replyTo(TERMINATOR, null)
                     .request(dto);
         });

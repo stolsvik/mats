@@ -257,5 +257,4 @@ public class ConnectionFactoryScenarioWrapper
         stop();
         callback.run();
     }
-
 }

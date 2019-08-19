@@ -20,6 +20,7 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.apache.commons.logging.Log;
@@ -43,6 +44,7 @@ import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.MethodIntrospector;
 import org.springframework.core.MethodIntrospector.MetadataLookup;
+import org.springframework.core.SpringVersion;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.type.MethodMetadata;
 import org.springframework.core.type.StandardMethodMetadata;
@@ -55,7 +57,9 @@ import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
+import com.stolsvik.mats.MatsEndpoint.ProcessContextWrapper;
 import com.stolsvik.mats.MatsFactory;
+import com.stolsvik.mats.MatsInitiator.MessageReference;
 import com.stolsvik.mats.spring.MatsClassMapping.Stage;
 
 /**
@@ -125,7 +129,8 @@ public class MatsSpringAnnotationRegistration implements
     @Override
     public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
         log.info(LOG_PREFIX + "ApplicationContextAware.setApplicationContext('" + applicationContext.getClass()
-                .getSimpleName() + "'): " + applicationContext);
+                .getSimpleName() + "'). Spring Version: [" + SpringVersion.getVersion()
+                + "]. ApplicationContext: " + applicationContext);
         if (!(applicationContext instanceof ConfigurableApplicationContext)) {
             throw new IllegalStateException("The ApplicationContext when using Mats' SpringConfig"
                     + " must implement " + ConfigurableApplicationContext.class.getSimpleName()
@@ -239,56 +244,47 @@ public class MatsSpringAnnotationRegistration implements
                     + " when it comes to beans that has methods annotated with @Mats..-annotations.");
         }
 
-        // ?: Any @MatsMapping annotated methods?
-        if (!methodsWithMatsMappingAnnotations.isEmpty()) {
-            // -> Yes, there are @MatsMapping annotations. Add them for processing.
-            for (Entry<Method, Set<MatsMapping>> entry : methodsWithMatsMappingAnnotations.entrySet()) {
-                Method method = entry.getKey();
-                for (MatsMapping matsMapping : entry.getValue()) {
-                    log.info(LOG_PREFIX + "Found @MatsMapping on method '" + getSimpleMethodDescription(method)
-                            + "' :#: Annotation:[" + matsMapping + "] :#: method:[" + method + "].");
-                    _matsMappingMethods.add(new MatsMappingHolder(matsMapping, method, bean));
-                    // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
-                    if (_contextHasBeenRefreshed) {
-                        // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
-                        log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
-                        processMatsMapping(matsMapping, method, bean);
-                    }
-                }
-            }
-        }
-        // ?: Any @MatsEndpointSetup annotated methods?
-        if (!methodsWithMatsStagedAnnotations.isEmpty()) {
-            // -> Yes, there are @MatsEndpointSetup annotations on methods. Add them for processing.
-            for (Entry<Method, Set<MatsEndpointSetup>> entry : methodsWithMatsStagedAnnotations.entrySet()) {
-                Method method = entry.getKey();
-                for (MatsEndpointSetup matsEndpointSetup : entry.getValue()) {
-                    log.info(LOG_PREFIX + "Found @MatsMapping on method '" + getSimpleMethodDescription(method)
-                            + "' :#: Annotation:[" + matsEndpointSetup + "] :#: method:[" + method + "].");
-                    _matsStagedMethods.add(new MatsEndpointSetupHolder(matsEndpointSetup, method, bean));
-                    // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
-                    if (_contextHasBeenRefreshed) {
-                        // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
-                        log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
-                        processMatsEndpointSetup(matsEndpointSetup, method, bean);
-                    }
-                }
-            }
-        }
-        // ?: Any @MatsEndpointSetup annotations on class?
-        if (!matsEndpointSetupAnnotationsOnClasses.isEmpty()) {
-            // -> Yes, there are @MatsEndpointSetup annotation(s) on class. Add them for processing.
-            for (MatsClassMapping matsClassMapping : matsEndpointSetupAnnotationsOnClasses) {
-                log.info(LOG_PREFIX + "Found @MatsEndpointSetup on class '"
-                        + getClassNameWithoutPackage(ClassUtils.getUserClass(targetClass))
-                        + "' :#: Annotation:[" + matsClassMapping + "] :#: class:[" + targetClass + "].");
-                _matsStagedClasses.add(new MatsClassMappingHolder(matsClassMapping, bean));
+        // :: Process any @MatsMapping methods
+        for (Entry<Method, Set<MatsMapping>> entry : methodsWithMatsMappingAnnotations.entrySet()) {
+            Method method = entry.getKey();
+            for (MatsMapping matsMapping : entry.getValue()) {
+                log.info(LOG_PREFIX + "Found @MatsMapping on method '" + simpleMethodDescription(method)
+                        + "' :#: Annotation:[" + matsMapping + "] :#: method:[" + method + "].");
+                _matsMappingMethods.add(new MatsMappingHolder(matsMapping, method, bean));
                 // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
                 if (_contextHasBeenRefreshed) {
                     // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
                     log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
-                    processMatsStagedOnClass(matsClassMapping, bean);
+                    processMatsMapping(matsMapping, method, bean);
                 }
+            }
+        }
+        // :: Process any @MatsEndpointSetup methods
+        for (Entry<Method, Set<MatsEndpointSetup>> entry : methodsWithMatsStagedAnnotations.entrySet()) {
+            Method method = entry.getKey();
+            for (MatsEndpointSetup matsEndpointSetup : entry.getValue()) {
+                log.info(LOG_PREFIX + "Found @MatsMapping on method '" + simpleMethodDescription(method)
+                        + "' :#: Annotation:[" + matsEndpointSetup + "] :#: method:[" + method + "].");
+                _matsStagedMethods.add(new MatsEndpointSetupHolder(matsEndpointSetup, method, bean));
+                // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
+                if (_contextHasBeenRefreshed) {
+                    // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
+                    log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
+                    processMatsEndpointSetup(matsEndpointSetup, method, bean);
+                }
+            }
+        }
+        // :: Process any @MatsClassMapping beans
+        for (MatsClassMapping matsClassMapping : matsEndpointSetupAnnotationsOnClasses) {
+            log.info(LOG_PREFIX + "Found @MatsClassMapping on bean '"
+                    + classNameWithoutPackage(ClassUtils.getUserClass(targetClass))
+                    + "' :#: Annotation:[" + matsClassMapping + "] :#: class:[" + targetClass + "].");
+            _matsStagedClasses.add(new MatsClassMappingHolder(matsClassMapping, bean));
+            // ?: Has context already been refreshed? This might happen if using lazy init, e.g. Remock.
+            if (_contextHasBeenRefreshed) {
+                // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
+                log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
+                processMatsStagedOnClass(matsClassMapping, bean);
             }
         }
         return bean;
@@ -368,6 +364,11 @@ public class MatsSpringAnnotationRegistration implements
          */
         _configurableListableBeanFactory.getBeansOfType(MatsFactory.class);
 
+        // :: Register Mats endpoints for all @MatsMapping and @MatsEndpointSetup annotated methods.
+        _matsMappingMethods.forEach(h -> processMatsMapping(h.matsMapping, h.method, h.bean));
+        _matsStagedMethods.forEach(h -> processMatsEndpointSetup(h.matsEndpointSetup, h.method, h.bean));
+        _matsStagedClasses.forEach(h -> processMatsStagedOnClass(h.matsClassMapping, h.bean));
+
         /*
          * Now set the flag that denotes that ContextRefreshedEvent has been run, so that any subsequent beans with any
          * of Mats' Spring annotations will be insta-registered - as there won't be a second ContextRefreshedEvent which
@@ -375,11 +376,6 @@ public class MatsSpringAnnotationRegistration implements
          * Spring context are in lazy-init mode.
          */
         _contextHasBeenRefreshed = true;
-
-        // :: Register Mats endpoints for all @MatsMapping and @MatsEndpointSetup annotated methods.
-        _matsMappingMethods.forEach(h -> processMatsMapping(h.matsMapping, h.method, h.bean));
-        _matsStagedMethods.forEach(h -> processMatsEndpointSetup(h.matsEndpointSetup, h.method, h.bean));
-        _matsStagedClasses.forEach(h -> processMatsStagedOnClass(h.matsClassMapping, h.bean));
 
         // :: Start the MatsFactories
         log.info(LOG_PREFIX + "Invoking matsFactory.start() on all MatsFactories in Spring Context to start"
@@ -417,13 +413,13 @@ public class MatsSpringAnnotationRegistration implements
      * such annotations, and this method will be invoked for each of them.
      */
     private void processMatsMapping(MatsMapping matsMapping, Method method, Object bean) {
-        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsMapping [" + matsMapping + "] on method ["
-                + method + "], of bean: " + bean);
+        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsMapping method '"
+                + simpleMethodDescription(method) + "':#: Annotation:[" + matsMapping + "]");
 
         // ?: Is the endpointId == ""?
         if (matsMapping.endpointId().equals("")) {
             // -> Yes, and it is not allowed to have empty endpointId.
-            throw new MatsSpringConfigException("The " + descString(matsMapping, method, bean)
+            throw new MatsSpringConfigException("The " + simpleAnnotationAndMethodDescription(matsMapping, method)
                     + " is missing endpointId (or 'value')");
         }
 
@@ -435,7 +431,7 @@ public class MatsSpringAnnotationRegistration implements
         // to use XML config in 2016?! Let alone 2018?!)
         Transactional transactionalAnnotation = AnnotationUtils.findAnnotation(method, Transactional.class);
         if (transactionalAnnotation != null) {
-            throw new MatsSpringConfigException("The " + descString(matsMapping, method, bean)
+            throw new MatsSpringConfigException("The " + simpleAnnotationAndMethodDescription(matsMapping, method)
                     + " shall not be annotated with @Transactional,"
                     + " as Mats does its own transaction management, method:" + method + ", @Transactional:"
                     + transactionalAnnotation);
@@ -450,14 +446,14 @@ public class MatsSpringAnnotationRegistration implements
         // ?: Check params
         if (paramsLength == 0) {
             // -> No params, not allowed
-            throw new MatsSpringConfigException("The " + descString(matsMapping, method, bean)
+            throw new MatsSpringConfigException("The " + simpleAnnotationAndMethodDescription(matsMapping, method)
                     + " must have at least one parameter: The DTO class.");
         }
         else if (paramsLength == 1) {
             // -> One param, must be the DTO
             // (No need for @Dto-annotation)
             if (params[0].getType().equals(ProcessContext.class)) {
-                throw new MatsSpringConfigException("The " + descString(matsMapping, method, bean)
+                throw new MatsSpringConfigException("The " + simpleAnnotationAndMethodDescription(matsMapping, method)
                         + " must have one parameter that is not the"
                         + " ProcessContext: The DTO class");
             }
@@ -490,7 +486,8 @@ public class MatsSpringAnnotationRegistration implements
                     }
                 }
                 if (dtoParam == -1) {
-                    throw new MatsSpringConfigException("The " + descString(matsMapping, method, bean)
+                    throw new MatsSpringConfigException("The " + simpleAnnotationAndMethodDescription(matsMapping,
+                            method)
                             + " consists of several parameters, one of which needs to be annotated with @Dto");
                 }
             }
@@ -500,8 +497,12 @@ public class MatsSpringAnnotationRegistration implements
 
         // :: Find which MatsFactory to use
 
-        MatsFactory matsFactoryToUse = getMatsFactoryToUse(method, matsMapping.matsFactoryCustomQualifierType(),
-                matsMapping.matsFactoryQualifierValue(), matsMapping.matsFactoryBeanName());
+        MatsFactory matsFactoryToUse = getMatsFactoryToUse(
+                simpleAnnotationAndMethodDescription(matsMapping, method),
+                method,
+                matsMapping.matsFactoryCustomQualifierType(),
+                matsMapping.matsFactoryQualifierValue(),
+                matsMapping.matsFactoryBeanName());
 
         // :: Set up the Endpoint
 
@@ -517,13 +518,16 @@ public class MatsSpringAnnotationRegistration implements
 
         String typeEndpoint;
 
+        // Get an argument array for the method populated with default values for all types: Primitives cannot be null.
+        Object[] defaultArgsArray = defaultArgsArray(method);
+
         // ?: Do we have a void return value?
         if (replyType.getName().equals("void")) {
             // -> Yes, void return: Setup Terminator.
             typeEndpoint = "Terminator";
             matsFactoryToUse.terminator(matsMapping.endpointId(), stoType, dtoType,
                     (processContext, state, incomingDto) -> {
-                        invokeMatsMappingMethod(matsMapping, method, bean, paramsLength,
+                        invokeMatsLambdaMethod(matsMapping, method, bean, defaultArgsArray,
                                 processContextParamF, processContext,
                                 dtoParamF, incomingDto,
                                 stoParamF, state);
@@ -537,7 +541,7 @@ public class MatsSpringAnnotationRegistration implements
                 typeEndpoint = "SingleStage w/State";
                 MatsEndpoint<?, ?> ep = matsFactoryToUse.staged(matsMapping.endpointId(), replyType, stoType);
                 ep.lastStage(dtoType, (processContext, state, incomingDto) -> {
-                    Object reply = invokeMatsMappingMethod(matsMapping, method, bean, paramsLength,
+                    Object reply = invokeMatsLambdaMethod(matsMapping, method, bean, defaultArgsArray,
                             processContextParamF, processContext,
                             dtoParamF, incomingDto,
                             stoParamF, state);
@@ -549,7 +553,7 @@ public class MatsSpringAnnotationRegistration implements
                 typeEndpoint = "SingleStage";
                 matsFactoryToUse.single(matsMapping.endpointId(), replyType, dtoType,
                         (processContext, incomingDto) -> {
-                            Object reply = invokeMatsMappingMethod(matsMapping, method, bean, paramsLength,
+                            Object reply = invokeMatsLambdaMethod(matsMapping, method, bean, defaultArgsArray,
                                     processContextParamF, processContext,
                                     dtoParamF, incomingDto,
                                     -1, null);
@@ -564,7 +568,7 @@ public class MatsSpringAnnotationRegistration implements
             String dtoParamDesc = dtoParam != -1 ? "param#" + dtoParam + ":" + dtoType.getSimpleName()
                     : "<not present>";
             log.info(LOG_PREFIX + "Processed " + typeEndpoint + " Mats Spring endpoint by "
-                    + descString(matsMapping, method, bean)
+                    + simpleAnnotationAndMethodDescription(matsMapping, method)
                     + " :: ReplyType:[" + replyType.getSimpleName()
                     + "], ProcessContext:[" + procCtxParamDesc
                     + "], STO:[" + stoParamDesc
@@ -573,65 +577,17 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     /**
-     * Helper for invoking the "method ref" @MatsMapping-annotated method that constitute the Mats process-lambda for
-     * SingleStage, SingleStage w/ State, and Terminator mappings.
-     */
-    private static Object invokeMatsMappingMethod(Annotation matsAnnotation, Method method, Object bean,
-            int paramsLength,
-            int processContextParamIdx, ProcessContext<?> processContext,
-            int dtoParamIdx, Object dto,
-            int stoParamIdx, Object sto)
-            throws MatsRefuseMessageException {
-        Object[] args = new Object[paramsLength];
-        if (processContextParamIdx != -1) {
-            args[processContextParamIdx] = processContext;
-        }
-        if (dtoParamIdx != -1) {
-            args[dtoParamIdx] = dto;
-        }
-        if (stoParamIdx != -1) {
-            args[stoParamIdx] = sto;
-        }
-        try {
-            return method.invoke(bean, args);
-        }
-        catch (IllegalAccessException | IllegalArgumentException e) {
-            throw new MatsRefuseMessageException("Problem with invoking "
-                    + descString(matsAnnotation, method, bean) + ".", e);
-        }
-        catch (InvocationTargetException e) {
-            if (e.getTargetException() instanceof MatsRefuseMessageException) {
-                throw (MatsRefuseMessageException) e.getTargetException();
-            }
-            if (e.getTargetException() instanceof RuntimeException) {
-                throw (RuntimeException) e.getTargetException();
-            }
-            throw new MatsSpringInvocationTargetException("Got InvocationTargetException when invoking "
-                    + descString(matsAnnotation, method, bean) + ".", e);
-        }
-    }
-
-    /**
-     * Insane cast helper. <i>Please... help. me.</i>.
-     */
-    @SuppressWarnings("unchecked")
-    private static <R> R helperCast(Object reply) {
-        return (R) reply;
-    }
-
-    /**
      * Process a method annotated with {@link MatsEndpointSetup @MatsEndpointSetup} - note that one method can have
      * multiple such annotations, and this method will be invoked for each of them.
      */
     private void processMatsEndpointSetup(MatsEndpointSetup matsEndpointSetup, Method method, Object bean) {
-        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsEndpointSetup [" + matsEndpointSetup
-                + "] on method ["
-                + method + "], of bean: " + bean);
+        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsEndpointSetup method '"
+                + simpleMethodDescription(method) + "':#: Annotation:[" + matsEndpointSetup + "]");
 
         // ?: Is the endpointId == ""?
         if (matsEndpointSetup.endpointId().equals("")) {
             // -> Yes, and it is not allowed to have empty endpointId.
-            throw new MatsSpringConfigException("The " + descString(matsEndpointSetup, method, bean)
+            throw new MatsSpringConfigException("The " + simpleAnnotationAndMethodDescription(matsEndpointSetup, method)
                     + " is missing endpointId (or 'value')");
         }
 
@@ -646,13 +602,13 @@ public class MatsSpringAnnotationRegistration implements
         // ?: Check params
         if (paramsLength == 0) {
             // -> No params, not allowed
-            throw new IllegalStateException("The " + descString(matsEndpointSetup, method, bean)
+            throw new IllegalStateException("The " + simpleAnnotationAndMethodDescription(matsEndpointSetup, method)
                     + " must have at least one parameter: A MatsEndpoint.");
         }
         else if (paramsLength == 1) {
             // -> One param, must be the MatsEndpoint instances
             if (!params[0].getType().equals(MatsEndpoint.class)) {
-                throw new IllegalStateException("The " + descString(matsEndpointSetup, method, bean)
+                throw new IllegalStateException("The " + simpleAnnotationAndMethodDescription(matsEndpointSetup, method)
                         + " must have one parameter of type MatsEndpoint.");
             }
             endpointParam = 0;
@@ -669,7 +625,7 @@ public class MatsSpringAnnotationRegistration implements
                 }
             }
             if (endpointParam == -1) {
-                throw new IllegalStateException("The " + descString(matsEndpointSetup, method, bean)
+                throw new IllegalStateException("The " + simpleAnnotationAndMethodDescription(matsEndpointSetup, method)
                         + " consists of several parameters, one of which needs to be the MatsEndpoint.");
             }
         }
@@ -678,8 +634,12 @@ public class MatsSpringAnnotationRegistration implements
 
         // :: Invoke the @MatsEndpointSetup-annotated staged endpoint setup method
 
-        MatsFactory matsFactoryToUse = getMatsFactoryToUse(method, matsEndpointSetup.matsFactoryCustomQualifierType(),
-                matsEndpointSetup.matsFactoryQualifierValue(), matsEndpointSetup.matsFactoryBeanName());
+        MatsFactory matsFactoryToUse = getMatsFactoryToUse(
+                simpleAnnotationAndMethodDescription(matsEndpointSetup, method),
+                method,
+                matsEndpointSetup.matsFactoryCustomQualifierType(),
+                matsEndpointSetup.matsFactoryQualifierValue(),
+                matsEndpointSetup.matsFactoryBeanName());
         MatsEndpoint<?, ?> endpoint = matsFactoryToUse
                 .staged(matsEndpointSetup.endpointId(), matsEndpointSetup.reply(), matsEndpointSetup.state());
 
@@ -694,33 +654,31 @@ public class MatsSpringAnnotationRegistration implements
         }
         catch (IllegalAccessException | IllegalArgumentException e) {
             throw new MatsSpringConfigException("Problem with invoking "
-                    + descString(matsEndpointSetup, method, bean) + ".", e);
+                    + simpleAnnotationAndMethodDescription(matsEndpointSetup, method) + ".", e);
         }
         catch (InvocationTargetException e) {
             if (e.getTargetException() instanceof RuntimeException) {
                 throw (RuntimeException) e.getTargetException();
             }
             throw new MatsSpringConfigException("Got InvocationTargetException when invoking "
-                    + descString(matsEndpointSetup, method, bean) + ".", e);
+                    + simpleAnnotationAndMethodDescription(matsEndpointSetup, method) + ".", e);
         }
 
         log.info(LOG_PREFIX + "Processed Mats Endpoint Configuration by "
-                + descString(matsEndpointSetup, method, bean) + " :: MatsEndpoint:[param#" + endpointParam
-                + "], EndpointConfig:[param#" + configParam + "]");
+                + simpleAnnotationAndMethodDescription(matsEndpointSetup, method)
+                + " :: MatsEndpoint:[param#" + endpointParam + "], EndpointConfig:[param#" + configParam + "]");
     }
 
     /**
      * Process a class annotated with {@link MatsClassMapping @MatsClassMapping} - note that one class can have multiple
      * such annotations, and this method will be invoked for each of them.
      */
-    private void processMatsStagedOnClass(MatsClassMapping matsEndpointSetup, Object bean) {
+    private void processMatsStagedOnClass(MatsClassMapping matsClassMapping, Object bean) {
+        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsClassMapping bean '"
+                + classNameWithoutPackage(bean) + "':#: Annotation:[" + matsClassMapping + "]");
+
         // Find actual class of bean (in case of AOPed bean)
         Class<?> targetClass = getClassOfBean(bean);
-        log.info("@MatsClassMapping processing!"
-                + "\nMatsClassMapping: " + matsEndpointSetup
-                + "\nBean: " + bean
-                + "\nBean class: " + targetClass);
-
         // Find all methods annotated with Stage
         Map<Method, Stage> stages = MethodIntrospector.selectMethods(targetClass,
                 (MetadataLookup<Stage>) method -> AnnotationUtils.findAnnotation(method, Stage.class));
@@ -733,8 +691,8 @@ public class MatsSpringAnnotationRegistration implements
             if (ordinal < 0) {
                 // -> Yes, negative -> error.
                 throw new MatsSpringConfigException("On @MatsClassMapping endpoint at class '"
-                        + getClassNameWithoutPackage(bean) + "', the Stage ordinal is negative (" + ordinal
-                        + ") on @Stage annotation of method '" + getSimpleMethodDescription(method)
+                        + classNameWithoutPackage(bean) + "', the Stage ordinal is negative (" + ordinal
+                        + ") on @Stage annotation of method '" + simpleMethodDescription(method)
                         + "' - all ordinals must be >=0 and unique within this endpoint"
                         + " (The ordinal defines the order of stages of this endpoint)."
                         + " @Stage annotation:[" + stageAnnotation + "]");
@@ -744,13 +702,13 @@ public class MatsSpringAnnotationRegistration implements
                 // -> Yes, duplicate -> error.
                 Method prevMethod = stagesByOrdinal.get(ordinal);
                 throw new MatsSpringConfigException("The Stage with ordinal [" + ordinal
-                        + "] of @MatsClassMapping endpoint at class '" + getClassNameWithoutPackage(bean)
+                        + "] of @MatsClassMapping endpoint at class '" + classNameWithoutPackage(bean)
                         + "' is duplicated on another Stage of the same endpoint."
                         + " All Stages of an endpoint must have ordinal set, and must be unique within the endpoint"
                         + " (The ordinal defines the order of stages of this endpoint)."
-                        + "\n  - This method:     '" + getSimpleMethodDescription(method)
+                        + "\n  - This method:     '" + simpleMethodDescription(method)
                         + "' with @Stage annotation: [" + stageAnnotation + "]"
-                        + "\n  - Previous method: '" + getSimpleMethodDescription(prevMethod)
+                        + "\n  - Previous method: '" + simpleMethodDescription(prevMethod)
                         + "' with @Stage annotation:[" + stages.get(prevMethod) + "]");
             }
             stagesByOrdinal.put(ordinal, method);
@@ -759,7 +717,7 @@ public class MatsSpringAnnotationRegistration implements
         if (!stagesByOrdinal.containsKey(0)) {
             // -> No, INITIAL Stage not present -> error.
             throw new MatsSpringConfigException("The @MatsClassMapping endpoint at class '"
-                    + getClassNameWithoutPackage(bean) + "' is missing initial stage:"
+                    + classNameWithoutPackage(bean) + "' is missing initial stage:"
                     + " No method is annotated with '@Stage(Stage.INITIAL)' (i.e. ordinal=0)");
         }
 
@@ -777,11 +735,11 @@ public class MatsSpringAnnotationRegistration implements
             if (method.getReturnType() != void.class) {
                 // -> Yes, returns non-void -> error.
                 throw new MatsSpringConfigException("The Stage with ordinal [" + ordinal
-                        + "] of @MatsClassMapping endpoint at class '" + getClassNameWithoutPackage(bean)
-                        + "' has a return type '" + getClassNameWithoutPackage(method.getReturnType())
+                        + "] of @MatsClassMapping endpoint at class '" + classNameWithoutPackage(bean)
+                        + "' has a return type '" + classNameWithoutPackage(method.getReturnType())
                         + "' (not void), but it is not the last stage. Only the last stage shall have a return type,"
                         + " which is the return type for the endpoint. Method: '"
-                        + getSimpleMethodDescription(method) + "'");
+                        + simpleMethodDescription(method) + "'");
             }
         }
 
@@ -795,64 +753,77 @@ public class MatsSpringAnnotationRegistration implements
         // :: Find request type: Get DTO-type of first Stage
 
         Method initialStageMethod = stagesByOrdinal.get(stagesByOrdinal.firstKey());
-        int dtoParamPosOfInitial = findDtoPosition(initialStageMethod);
-        if (dtoParamPosOfInitial == -1) {
+        int dtoParamIdxOfInitial = findDtoParamIndexForMatsClassMappingLambdaMethod(initialStageMethod);
+        if (dtoParamIdxOfInitial == -1) {
             throw new MatsSpringConfigException("The Initial Stage of @MatsClassMapping endpoint at class '"
-                    + getClassNameWithoutPackage(bean) + "' does not have a incoming DTO (message) parameter."
+                    + classNameWithoutPackage(bean) + "' does not have a incoming DTO (message) parameter."
                     + " Either it must be the sole parameter, or it must be marked by annotation @Dto."
                     + " Method: [" + initialStageMethod + "]");
         }
-        Class<?> requestClass = initialStageMethod.getParameters()[dtoParamPosOfInitial].getType();
+        Class<?> requestClass = initialStageMethod.getParameters()[dtoParamIdxOfInitial].getType();
 
-        log.info(LOG_PREFIX + "The @MatsClassMapping endpoint at class '" + getClassNameWithoutPackage(targetClass)
-                + "' has request DTO [" + getClassNameWithoutPackage(requestClass)
-                + "] and reply DTO [" + getClassNameWithoutPackage(replyClass) + "].");
+        log.info(LOG_PREFIX + "The @MatsClassMapping endpoint at class '" + classNameWithoutPackage(bean)
+                + "' has request DTO [" + classNameWithoutPackage(requestClass)
+                + "] and reply DTO [" + classNameWithoutPackage(replyClass) + "].");
 
-        // :: Find all non-null fields of the bean - these are what Spring has injected.
+        // :: Hold on to all non-null fields of the bean - these are what Spring has injected. Make "template".
+
         Field[] processContextField_hack = new Field[1];
         LinkedHashMap<Field, Object> templateFields = new LinkedHashMap<>();
         ReflectionUtils.doWithFields(targetClass, field -> {
             String name = field.getName();
             Class<?> clazz = field.getType();
-            if (clazz.isPrimitive()) {
-                log.info(LOG_PREFIX + " - Field [" + name + "] is primitive (" + clazz
-                        + "): Assuming state field, ignoring.");
-                return;
-            }
+
+            // ?: Is this a field of type ProcessContext?
             if (clazz.isAssignableFrom(ProcessContext.class)) {
-                // ProcessContext shall return a ParameterizedType, as it has a type parameter
+                // -> Yes, ProcessContext - we store the reference for later, so that we can set it upon processing.
+                // Get ReplyType of ProcessContext. NOTE: It shall return a ParameterizedType, as it has type parameter.
                 ParameterizedType genericType = (ParameterizedType) field.getGenericType();
-                Type typeArgument = genericType.getActualTypeArguments()[0];
-                log.info(LOG_PREFIX + " - Field [" + name + "] is Mats' ProcessContext<..>, with reply type ["
-                        + typeArgument + "]");
+                Type replyTypeParameter = genericType.getActualTypeArguments()[0];
+                log.info(LOG_PREFIX + " - Field [" + name + "] is Mats ProcessContext<..>, with reply type ["
+                        + replyTypeParameter + "]");
                 if (processContextField_hack[0] != null) {
                     throw new MatsSpringConfigException("The @MatsClassMapping endpoint at class '"
-                            + getClassNameWithoutPackage(bean) + "' evidently has more than one ProcessContext field."
+                            + classNameWithoutPackage(bean) + "' evidently has more than one ProcessContext field."
                             + " Only one is allowed."
                             + "\n  - This field:     [" + field + "]"
                             + "\n  - Previous field: [" + processContextField_hack[0] + "]");
                 }
-                if (typeArgument != replyClass) {
+                if (replyTypeParameter != replyClass) {
                     throw new MatsSpringConfigException("The @MatsClassMapping endpoint at class '"
-                            + getClassNameWithoutPackage(bean) + "' has a ProcessContext field where the reply type"
-                            + " does not match the resolved reply type from the Stages."
+                            + classNameWithoutPackage(bean) + "' has a ProcessContext field where the reply type"
+                            + " does not match the resolved reply type from the last Stage."
                             + " ProcessContext Field: [" + field + "]"
-                            + "\n  - Type from field:   ProcessContext<" + typeArgument + ">"
+                            + "\n  - Type from field:   ProcessContext<" + replyTypeParameter + ">"
                             + "\n  - Reply type resolved from Stages: [" + replyClass + "]");
                 }
                 processContextField_hack[0] = field;
                 return;
             }
 
+            // ?: Is this field a primitive?
+            if (clazz.isPrimitive()) {
+                // -> Yes, primitive, and per contract for @MatsClassMapping, you cannot use dependency injection for
+                // primitives, as they are assumed to be state fields.
+                log.info(LOG_PREFIX + " - Field [" + name + "] is primitive: Assuming state field, ignoring. (Type: "
+                        + clazz + ").");
+                return;
+            }
+
+            // :: Get the field value
             field.setAccessible(true);
             Object value = field.get(bean);
+
+            // ?: Does this field have the value null?
             if (value == null) {
+                // -> Yes, null value, and we conclude that dependency injection didn't set them, thus state fields.
                 log.info(LOG_PREFIX + " - Field [" + name + "] is null: Assuming state field, ignoring. (Type: ["
                         + field.getGenericType() + "])");
                 return;
             }
 
-            // ----- This is a Spring Dependency Injected field. We assume.
+            // ----- This is not ProcessContext nor a State field, thus a Spring Dependency Injected field. We assume.
+
             // (Or the idiot developer initialized a state field with a value. Please explain me why this makes sense.)
 
             log.info(LOG_PREFIX + " - Field [" + name + "] is non-null: Assuming Spring Dependency Injection has set it"
@@ -860,92 +831,152 @@ public class MatsSpringAnnotationRegistration implements
             templateFields.put(field, value);
         });
 
+        // :: Keep ProcessContext field, and make it accessible.
+
         Field processContextField = processContextField_hack[0];
-        processContextField.setAccessible(true);
+        if (processContextField != null) {
+            processContextField.setAccessible(true);
+        }
 
         // :: Find which MatsFactory to use
 
-        MatsFactory matsFactoryToUse = getMatsFactoryToUse(targetClass, matsEndpointSetup
-                .matsFactoryCustomQualifierType(),
-                matsEndpointSetup.matsFactoryQualifierValue(), matsEndpointSetup.matsFactoryBeanName());
+        MatsFactory matsFactoryToUse = getMatsFactoryToUse(
+                "@MatsClassMapping-annotated bean '" + classNameWithoutPackage(bean) + "'",
+                targetClass,
+                matsClassMapping.matsFactoryCustomQualifierType(),
+                matsClassMapping.matsFactoryQualifierValue(),
+                matsClassMapping.matsFactoryBeanName());
 
         // :: Create the Staged Endpoint
 
-        MatsEndpoint<?, ?> ep = matsFactoryToUse.staged(matsEndpointSetup.endpointId(), replyClass, targetClass);
+        MatsEndpoint<?, ?> ep = matsFactoryToUse.staged(matsClassMapping.endpointId(), replyClass, targetClass);
 
         stagesByOrdinal.forEach((ordinal, method) -> {
-            log.info(LOG_PREFIX + "  -> Stage '" + ordinal + "': '" + getSimpleMethodDescription(method) + "");
-            int dtoParamPos = findDtoPosition(method);
+            int dtoParamIdx = findDtoParamIndexForMatsClassMappingLambdaMethod(method);
             Parameter[] parameters = method.getParameters();
-            Class<?> incomingClass = dtoParamPos == -1
+            Class<?> incomingClass = dtoParamIdx == -1
                     ? Void.class
-                    : parameters[dtoParamPosOfInitial].getType();
-            int paramsLength = parameters.length;
+                    : parameters[dtoParamIdx].getType();
+            log.info(LOG_PREFIX + "  -> Stage '" + ordinal + "': '" + simpleMethodDescription(method)
+                    + ", DTO paramIdx:" + dtoParamIdx + ", DTO class:"
+                    + classNameWithoutPackage(incomingClass) + ".");
 
-            ep.stage(incomingClass, (processContext, state, incomingDto) -> {
-                for (Entry<Field, Object> entry : templateFields.entrySet()) {
-                    Field templateField = entry.getKey();
-                    try {
-                        templateField.set(state, entry.getValue());
+            Object[] defaultArgsArray = defaultArgsArray(method);
+
+            // Force accessible, i.e. ignore visibility modifiers.
+            method.setAccessible(true);
+
+            ep.stage(incomingClass, (originalProcessContext, state, incomingDto) -> {
+                Consumer<ProcessContext<?>> setFields = (processContext) -> {
+                    // :: Set the "template fields" from original Dependency Injection of @Service.
+                    for (Entry<Field, Object> entry : templateFields.entrySet()) {
+                        Field templateField = entry.getKey();
+                        try {
+                            templateField.set(state, entry.getValue());
+                        }
+                        catch (IllegalAccessException e) {
+                            throw new MatsSpringInvocationTargetException("Didn't manage to set \"template field\" '"
+                                    + templateField.getName()
+                                    + "' assumed coming from Spring Dependency Injection into the "
+                                    + " @MatsClassMapping combined state/@Service class upon invocation of Mats Stage.",
+                                    e);
+                        }
                     }
-                    catch (IllegalAccessException e) {
-                        throw new MatsSpringInvocationTargetException("Didn't manage to set \"template field\" '"
-                                + templateField.getName() + "' assumed coming from Spring Dependency Injection into the "
-                                + " @MatsClassMapping combined state/@Service class upon invocation of Mats Stage.", e);
+
+                    // :: Set the ProcessContext for this processing.
+                    if (processContextField != null) {
+                        try {
+                            processContextField.set(state, processContext);
+                        }
+                        catch (IllegalAccessException e) {
+                            throw new MatsSpringInvocationTargetException("Didn't manage to set the ProcessContext '"
+                                    + processContextField.getName() + "' into the "
+                                    + " @MatsClassMapping combined state/@Service class upon invocation of Mats Stage.",
+                                    e);
+                        }
                     }
-                }
+                };
 
-                // :: Set the ProcessContext for this processing.
+                Runnable clearFields = () -> {
+                    // :: Null out the template fields
+                    for (Entry<Field, Object> entry : templateFields.entrySet()) {
+                        Field templateField = entry.getKey();
+                        try {
+                            templateField.set(state, null);
+                        }
+                        catch (IllegalAccessException e) {
+                            throw new MatsSpringInvocationTargetException("Didn't manage to null \"template field\" '"
+                                    + templateField.getName() + "'.", e);
+                        }
+                    }
 
-                try {
-                    processContextField.set(state, processContext);
-                }
-                catch (IllegalAccessException e) {
-                    throw new MatsSpringInvocationTargetException("Didn't manage to set the ProcessContext '"
-                            + processContextField.getName() + "' into the "
-                            + " @MatsClassMapping combined state/@Service class upon invocation of Mats Stage.", e);
-                }
+                    // :: Null out the ProcessContext
+                    if (processContextField != null) {
+                        try {
+                            processContextField.set(state, null);
+                        }
+                        catch (IllegalAccessException e) {
+                            throw new MatsSpringInvocationTargetException("Didn't manage to null the ProcessContext '"
+                                    + processContextField.getName() + "'.", e);
+                        }
+                    }
+                };
+
+                // :: Proxy the ProcessContext to handle nulling and re-setting the fields upon API-traversals
+                ProcessContextWrapper<Object> wrappedProcessContext = new ProcessContextWrapper<Object>(helperCast(
+                        originalProcessContext)) {
+
+                    @Override
+                    public MessageReference request(String endpointId, Object requestDto) {
+                        clearFields.run();
+                        MessageReference ref = super.request(endpointId, requestDto);
+                        setFields.accept(this);
+                        return ref;
+                    }
+
+                    @Override
+                    public MessageReference reply(Object replyDto) {
+                        clearFields.run();
+                        MessageReference ref = super.reply(replyDto);
+                        setFields.accept(this);
+                        return ref;
+                    }
+
+                    @Override
+                    public MessageReference next(Object incomingDto) {
+                        clearFields.run();
+                        MessageReference ref = super.next(incomingDto);
+                        setFields.accept(this);
+                        return ref;
+                    }
+                };
 
                 // :: Make the invocation
-                Object o = invokeMatsMappingMethod(matsEndpointSetup, method, state, paramsLength,
+                // .. first set the fields
+                setFields.accept(wrappedProcessContext);
+                // .. do the invocation
+                Object o = invokeMatsLambdaMethod(matsClassMapping, method, state, defaultArgsArray,
                         -1, null,
-                        dtoParamPos, incomingDto,
+                        dtoParamIdx, incomingDto,
                         -1, null);
-
-                // :: Null out the template fields again, before serializing the state.
-                for (Entry<Field, Object> entry : templateFields.entrySet()) {
-                    Field templateField = entry.getKey();
-                    try {
-                        templateField.set(state, null);
-                    }
-                    catch (IllegalAccessException e) {
-                        throw new MatsSpringInvocationTargetException("Didn't manage to null \"template field\" '"
-                                + templateField.getName() + "'.", e);
-                    }
-                }
-
-                // :: Null out the ProcessContext
-                try {
-                    processContextField.set(state, null);
-                }
-                catch (IllegalAccessException e) {
-                    throw new MatsSpringInvocationTargetException("Didn't manage to null the ProcessContext '"
-                            + processContextField.getName() + "'.", e);
-                }
-
-                log.info("Testing 1, 2, 3");
+                // .. then clear fields before going out of lambda.
+                clearFields.run();
 
                 // ?: Is this the last stage?
                 if (method == lastStageMethod) {
                     // -> Yes, this is the last stage - so return whatever the invocation came up with.
-                    processContext.reply(helperCast(o));
+                    originalProcessContext.reply(helperCast(o));
                 }
             });
         });
-
+        log.info(LOG_PREFIX + "Processed Mats \"Class Mapped\" Endpoint by @MatsClassMapping-annotated bean "
+                + classNameWithoutPackage(bean) + ".");
     }
 
-    private int findDtoPosition(Method method) {
+    /**
+     * Find which parameter is the DTO on a method in a @MatsClassMapping service.
+     */
+    private int findDtoParamIndexForMatsClassMappingLambdaMethod(Method method) {
         Parameter[] parameters = method.getParameters();
         int dtoParamPos = -1;
         if (parameters.length == 1) {
@@ -956,7 +987,7 @@ public class MatsSpringAnnotationRegistration implements
                 if (parameters[i].getAnnotation(Dto.class) != null) {
                     if (dtoParamPos != -1) {
                         throw new MatsSpringConfigException("More than one parameter of method '"
-                                + getSimpleMethodDescription(method) + "' is annotated with @Dto");
+                                + simpleMethodDescription(method) + "' is annotated with @Dto");
                     }
                     dtoParamPos = i;
                 }
@@ -965,7 +996,89 @@ public class MatsSpringAnnotationRegistration implements
         return dtoParamPos;
     }
 
-    private MatsFactory getMatsFactoryToUse(AnnotatedElement annotatedElement,
+    /**
+     * Creates an array with arguments for the supplied method which will invoke without {@link NullPointerException} -
+     * the problem being that primitive types cannot be null: Null are not coerced into the default value for the
+     * primitive as one might could think.
+     */
+    Object[] defaultArgsArray(Method method) {
+        Parameter[] parameters = method.getParameters();
+        Object[] args = new Object[parameters.length];
+        for (int i = 0; i < parameters.length; i++) {
+            Object defaultArg = null;
+            if (parameters[i].getType() == boolean.class) {
+                defaultArg = false;
+            }
+            else if (parameters[i].getType() == byte.class) {
+                defaultArg = (byte) 0;
+            }
+            else if (parameters[i].getType() == short.class) {
+                defaultArg = (short) 0;
+            }
+            else if (parameters[i].getType() == int.class) {
+                defaultArg = 0;
+            }
+            else if (parameters[i].getType() == long.class) {
+                defaultArg = 0L;
+            }
+            else if (parameters[i].getType() == float.class) {
+                defaultArg = 0f;
+            }
+            else if (parameters[i].getType() == double.class) {
+                defaultArg = 0d;
+            }
+            args[i] = defaultArg;
+        }
+        return args;
+    }
+
+    /**
+     * Helper for invoking the Method that constitute the Mats process-lambdas for @MatsMapping and @MatsClassMapping.
+     */
+    private static Object invokeMatsLambdaMethod(Annotation matsAnnotation, Method method, Object bean,
+            Object[] templateDefaultArgsArray,
+            int processContextParamIdx, ProcessContext<?> processContext,
+            int dtoParamIdx, Object dto,
+            int stoParamIdx, Object sto)
+            throws MatsRefuseMessageException {
+        Object[] args = templateDefaultArgsArray.clone();
+        if (processContextParamIdx != -1) {
+            args[processContextParamIdx] = processContext;
+        }
+        if (dtoParamIdx != -1) {
+            args[dtoParamIdx] = dto;
+        }
+        if (stoParamIdx != -1) {
+            args[stoParamIdx] = sto;
+        }
+        try {
+            return method.invoke(bean, args);
+        }
+        catch (IllegalAccessException | IllegalArgumentException e) {
+            throw new MatsRefuseMessageException("Problem with invoking "
+                    + simpleAnnotationAndMethodDescription(matsAnnotation, method) + ".", e);
+        }
+        catch (InvocationTargetException e) {
+            if (e.getTargetException() instanceof MatsRefuseMessageException) {
+                throw (MatsRefuseMessageException) e.getTargetException();
+            }
+            if (e.getTargetException() instanceof RuntimeException) {
+                throw (RuntimeException) e.getTargetException();
+            }
+            throw new MatsSpringInvocationTargetException("Got InvocationTargetException when invoking "
+                    + simpleAnnotationAndMethodDescription(matsAnnotation, method) + ".", e);
+        }
+    }
+
+    /**
+     * Insane cast helper. <i>Please... help. me.</i>.
+     */
+    @SuppressWarnings("unchecked")
+    private static <R> R helperCast(Object objectToCast) {
+        return (R) objectToCast;
+    }
+
+    private MatsFactory getMatsFactoryToUse(String forWhat, AnnotatedElement annotatedElement,
             Class<? extends Annotation> aeCustomQualifierType,
             String aeQualifierValue, String aeBeanName) {
         List<MatsFactory> specifiedMatsFactories = new ArrayList<>();
@@ -978,57 +1091,58 @@ public class MatsSpringAnnotationRegistration implements
             if (annotation.annotationType() == Qualifier.class) {
                 // -> Yes, @Qualifier - so get the correct MatsFactory by Qualifier.value()
                 Qualifier qualifier = (Qualifier) annotation;
-                specifiedMatsFactories.add(getMatsFactoryByQualifierValue(qualifier.value()));
+                specifiedMatsFactories.add(getMatsFactoryByQualifierValue(forWhat, qualifier.value()));
                 numberOfQualifications++;
             }
             // ?: Is this a custom qualifier annotation, meta-annotated with @Qualifier?
             else if (AnnotationUtils.isAnnotationMetaPresent(annotation.annotationType(),
                     Qualifier.class)) {
                 // -> Yes, @Qualifier-meta-annotated annotation - get the correct MatsFactory also annotated with this
-                specifiedMatsFactories.add(getMatsFactoryByCustomQualifier(annotation.annotationType(), annotation));
+                specifiedMatsFactories.add(getMatsFactoryByCustomQualifier(forWhat, annotation.annotationType(),
+                        annotation));
                 numberOfQualifications++;
             }
         }
 
         // Was the annotation element 'matsFactoryCustomQualifierType' specified?
         if (aeCustomQualifierType != Annotation.class) {
-            specifiedMatsFactories.add(getMatsFactoryByCustomQualifier(aeCustomQualifierType, null));
+            specifiedMatsFactories.add(getMatsFactoryByCustomQualifier(forWhat, aeCustomQualifierType, null));
             numberOfQualifications++;
         }
 
         // ?: Was the annotation element 'matsFactoryQualifierValue' specified?
         if (!"".equals(aeQualifierValue)) {
-            specifiedMatsFactories.add(getMatsFactoryByQualifierValue(aeQualifierValue));
+            specifiedMatsFactories.add(getMatsFactoryByQualifierValue(forWhat, aeQualifierValue));
             numberOfQualifications++;
         }
 
         // ?: Was the annotation element 'matsFactoryQualifierValue' specified?
         if (!"".equals(aeBeanName)) {
-            specifiedMatsFactories.add(getMatsFactoryByBeanName(aeBeanName));
+            specifiedMatsFactories.add(getMatsFactoryByBeanName(forWhat, aeBeanName));
             numberOfQualifications++;
         }
 
         // ?: Was more than one qualification style in use?
         if (numberOfQualifications > 1) {
             // -> Yes, and that's an ambiguous qualification, which we don't like.
-            throw new BeanCreationException("When trying to get specific MatsFactory based on @Mats..-annotation"
-                    + " properties; and @Qualifier-annotations and custom qualifier annotations on the"
-                    + " @Mats..-annotated method, we found that there was more than one qualification style present."
-                    + " Check your specifications on the element [" + annotatedElement + "].");
+            throw new BeanCreationException("When trying to get specific MatsFactory for " + forWhat + " based on"
+                    + " @Mats..-annotation properties; and @Qualifier-annotations and custom qualifier annotations on"
+                    + " the @Mats..-annotated method, we found that there was more than one qualification style"
+                    + " present. Check your specifications on the element [" + annotatedElement + "].");
         }
 
         // ?: Did the specific MatsFactory logic end up with more than one MatsFactory?
         if (specifiedMatsFactories.size() > 1) {
             // -> Yes, and that's an ambiguous qualification, which we don't like.
-            throw new BeanCreationException("When trying to get specific MatsFactory based on @Mats..-annotation"
-                    + " properties; and @Qualifier-annotations and custom qualifier annotations on the"
-                    + " @Mats..-annotated method, we ended up with more than one MatsFactory."
+            throw new BeanCreationException("When trying to get specific MatsFactory for " + forWhat + " based on"
+                    + " @Mats..-annotation properties; and @Qualifier-annotations and custom qualifier annotations on"
+                    + " the @Mats..-annotated method, we ended up with more than one MatsFactory."
                     + " Check your specifications on the element [" + annotatedElement + "].");
         }
         // ?: If there was one specified MatsFactory, use that, otherwise find any MatsFactory (fails if more than one).
         MatsFactory matsFactory = specifiedMatsFactories.size() == 1
                 ? specifiedMatsFactories.get(0)
-                : getMatsFactoryUnspecified();
+                : getMatsFactoryUnspecified(forWhat);
 
         if (log.isDebugEnabled()) log.debug(LOG_PREFIX + ".. using MatsFactory ["
                 + _matsFactoriesToName.get(matsFactory) + "]: [" + matsFactory + "].");
@@ -1040,14 +1154,14 @@ public class MatsSpringAnnotationRegistration implements
      * Using lazy getting of MatsFactory, as else we can get a whole heap of <i>"Bean of type is not eligible for
      * getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying)"</i> situations.
      */
-    private MatsFactory getMatsFactoryUnspecified() {
+    private MatsFactory getMatsFactoryUnspecified(String forWhat) {
         try {
             return _configurableApplicationContext.getBean(MatsFactory.class);
         }
         catch (NoUniqueBeanDefinitionException e) {
-            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
-                    .getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available in the"
-                    + " Spring ApplicationContext - You must specify which one to use: Using props on the"
+            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for " + forWhat
+                    + ", " + this.getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available"
+                    + " in the Spring ApplicationContext - You must specify which one to use: Using props on the"
                     + " @Mats..-annotation itself (read its JavaDoc); or further annotate the @Mats..-annotated method"
                     + " with a @Qualifier(value), which either matches the same @Qualifier(value)-annotation on a"
                     + " MatsFactory bean, or where the 'value' matches the bean name of a MatsFactory; or annotate both"
@@ -1056,15 +1170,15 @@ public class MatsSpringAnnotationRegistration implements
                     + " MatsFactories as @Primary", e);
         }
         catch (NoSuchBeanDefinitionException e) {
-            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
-                    .getClass().getSimpleName() + " found that there is no MatsFactory available in the"
+            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for " + forWhat
+                    + ", " + this.getClass().getSimpleName() + " found that there is no MatsFactory available in the"
                     + " Spring ApplicationContext", e);
         }
     }
 
     private final Map<String, MatsFactory> _cache_MatsFactoryByBeanName = new HashMap<>();
 
-    private MatsFactory getMatsFactoryByBeanName(String beanName) {
+    private MatsFactory getMatsFactoryByBeanName(String forWhat, String beanName) {
         // :: Cache lookup
         MatsFactory matsFactory = _cache_MatsFactoryByBeanName.get(beanName);
         if (matsFactory != null) {
@@ -1074,24 +1188,24 @@ public class MatsSpringAnnotationRegistration implements
         try {
             Object bean = _configurableApplicationContext.getBean(beanName);
             if (!(bean instanceof MatsFactory)) {
-                throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
-                        .getClass().getSimpleName() + " found that the @Mats..-annotation specified Spring bean '"
-                        + beanName + "' is not of type MatsFactory");
+                throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for "
+                        + forWhat + ", " + this.getClass().getSimpleName() + " found that the @Mats..-annotation"
+                        + " specified Spring bean '" + beanName + "' is not of type MatsFactory");
             }
             // Cache, and return
             _cache_MatsFactoryByBeanName.put(beanName, (MatsFactory) bean);
             return (MatsFactory) bean;
         }
         catch (NoSuchBeanDefinitionException e) {
-            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
-                    .getClass().getSimpleName() + " found that there is no MatsFactory with the name '" + beanName
-                    + "' available in the Spring ApplicationContext", e);
+            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for " + forWhat
+                    + ", " + this.getClass().getSimpleName() + " found that there is no MatsFactory with the name '"
+                    + beanName + "' available in the Spring ApplicationContext", e);
         }
     }
 
     private final Map<String, MatsFactory> _cache_MatsFactoryByQualifierValue = new HashMap<>();
 
-    private MatsFactory getMatsFactoryByQualifierValue(String qualifierValue) {
+    private MatsFactory getMatsFactoryByQualifierValue(String forWhat, String qualifierValue) {
         // :: Cache lookup
         MatsFactory matsFactory = _cache_MatsFactoryByQualifierValue.get(qualifierValue);
         if (matsFactory != null) {
@@ -1106,15 +1220,15 @@ public class MatsSpringAnnotationRegistration implements
             return matsFactory;
         }
         catch (NoUniqueBeanDefinitionException e) {
-            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
-                    .getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available in the"
-                    + " Spring ApplicationContext with the qualifier value '" + qualifierValue + "', this is probably"
-                    + " not what you want.", e);
+            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for " + forWhat
+                    + ", " + this.getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available"
+                    + " in the Spring ApplicationContext with the qualifier value '" + qualifierValue + "', this is"
+                    + " probably not what you want.", e);
         }
         catch (NoSuchBeanDefinitionException e) {
-            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
-                    .getClass().getSimpleName() + " found that there is no MatsFactory with the qualifier value '"
-                    + qualifierValue + "' available in the Spring ApplicationContext", e);
+            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for " + forWhat
+                    + ", " + this.getClass().getSimpleName() + " found that there is no MatsFactory with the qualifier"
+                    + " value '" + qualifierValue + "' available in the Spring ApplicationContext", e);
         }
     }
 
@@ -1128,7 +1242,7 @@ public class MatsSpringAnnotationRegistration implements
      *            mathces.
      * @return the matched bean - if more than one bean matches, {@link BeanCreationException} is raised.
      */
-    private MatsFactory getMatsFactoryByCustomQualifier(Class<? extends Annotation> customQualifierType,
+    private MatsFactory getMatsFactoryByCustomQualifier(String forWhat, Class<? extends Annotation> customQualifierType,
             Annotation customQualifier) {
         // :: Cache lookup
         Map<Annotation, MatsFactory> subCacheMap = _cache_MatsFactoryByCustomQualifier.get(customQualifierType);
@@ -1210,15 +1324,15 @@ public class MatsSpringAnnotationRegistration implements
         String qualifierString = (customQualifier != null ? customQualifier.toString()
                 : customQualifierType.getSimpleName());
         if (matsFactories.size() > 1) {
-            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
-                    .getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available in the"
-                    + " Spring ApplicationContext with the custom qualifier annotation '" + qualifierString
+            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for " + forWhat
+                    + ", " + this.getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available"
+                    + " in the Spring ApplicationContext with the custom qualifier annotation '" + qualifierString
                     + "', this is probably not what you want.");
         }
         if (matsFactories.isEmpty()) {
-            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation, " + this
-                    .getClass().getSimpleName() + " found that there is no MatsFactory with the custom qualifier"
-                    + " annotation '" + qualifierString + "' available in the Spring ApplicationContext");
+            throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for " + forWhat
+                    + ", " + this.getClass().getSimpleName() + " found that there is no MatsFactory with the custom"
+                    + " qualifier annotation '" + qualifierString + "' available in the Spring ApplicationContext");
         }
         // Cache, and return
         _cache_MatsFactoryByCustomQualifier.computeIfAbsent(customQualifierType, $ -> new HashMap<>())
@@ -1250,32 +1364,35 @@ public class MatsSpringAnnotationRegistration implements
         }
     }
 
-    private static String getClassNameWithoutPackage(Object object) {
+    private static String classNameWithoutPackage(Object object) {
         if (object == null) {
             return "<null instance>";
         }
-        return getClassNameWithoutPackage(object.getClass());
+        return classNameWithoutPackage(object.getClass()) + '@' + Integer.toHexString(System.identityHashCode(object));
     }
 
-    private static String getClassNameWithoutPackage(Class<?> clazz) {
+    private static String classNameWithoutPackage(Class<?> clazz) {
         if (clazz == null) {
             return "<null class>";
         }
         if (clazz == void.class) {
             return "void";
         }
+        if (clazz.isPrimitive()) {
+            return clazz.toString();
+        }
         String typeName = ClassUtils.getUserClass(clazz).getTypeName();
         String packageName = clazz.getPackage().getName();
         return typeName.replace(packageName + ".", "");
     }
 
-    private static String getSimpleMethodDescription(Method method) {
-        return method.getReturnType().getSimpleName() + ' ' + getClassNameWithoutPackage(method.getDeclaringClass())
+    private static String simpleMethodDescription(Method method) {
+        return method.getReturnType().getSimpleName() + ' ' + classNameWithoutPackage(method.getDeclaringClass())
                 + '.' + method.getName() + "(..)";
     }
 
-    private static String descString(Annotation annotation, Method method, Object bean) {
+    private static String simpleAnnotationAndMethodDescription(Annotation annotation, Method method) {
         return "@" + annotation.annotationType().getSimpleName() + "-annotated method '"
-                + getSimpleMethodDescription(method) + '\'';
+                + simpleMethodDescription(method) + '\'';
     }
 }

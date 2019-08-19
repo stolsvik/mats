@@ -4,21 +4,21 @@ package com.stolsvik.mats.spring.test.mapping;
  * A <i>State Transfer Object</i> meant for Spring unit tests.
  */
 public class SpringTestStateTO {
-    public int number;
-    public String string;
+    public int numero;
+    public String cuerda;
 
     public SpringTestStateTO() {
         // For Jackson JSON-lib which needs default constructor.
     }
 
-    public SpringTestStateTO(int number, String string) {
-        this.number = number;
-        this.string = string;
+    public SpringTestStateTO(int numero, String cuerda) {
+        this.numero = numero;
+        this.cuerda = cuerda;
     }
 
     @Override
     public int hashCode() {
-        return ((int) Double.doubleToLongBits(number) * 4549) + (string != null ? string.hashCode() : 0);
+        return ((int) Double.doubleToLongBits(numero) * 4549) + (cuerda != null ? cuerda.hashCode() : 0);
     }
 
     @Override
@@ -28,14 +28,14 @@ public class SpringTestStateTO {
                     + "].");
         }
         SpringTestStateTO other = (SpringTestStateTO) obj;
-        if ((this.string == null) ^ (other.string == null)) {
+        if ((this.cuerda == null) ^ (other.cuerda == null)) {
             return false;
         }
-        return (this.number == other.number) && ((this.string == null) || (this.string.equals(other.string)));
+        return (this.numero == other.numero) && ((this.cuerda == null) || (this.cuerda.equals(other.cuerda)));
     }
 
     @Override
     public String toString() {
-        return "StateTO [number=" + number + ", string=" + string + "]";
+        return "StateTO [number=" + numero + ", string=" + cuerda + "]";
     }
 }

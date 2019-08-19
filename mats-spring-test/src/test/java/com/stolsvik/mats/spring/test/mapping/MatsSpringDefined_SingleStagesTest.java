@@ -64,8 +64,8 @@ public class MatsSpringDefined_SingleStagesTest {
         @MatsMapping(ENDPOINT_ID + SINGLE_DTO_STO)
         public SpringTestDataTO springMatsSingleWithStateEndpoint_Dto_Sto(@Dto SpringTestDataTO msg,
                 @Sto SpringTestStateTO state) {
-            return new SpringTestDataTO(msg.number * state.number,
-                    msg.string + SINGLE_DTO_STO + '.' + state.string);
+            return new SpringTestDataTO(msg.number * state.numero,
+                    msg.string + SINGLE_DTO_STO + '.' + state.cuerda);
         }
 
         /**
@@ -74,8 +74,8 @@ public class MatsSpringDefined_SingleStagesTest {
         @MatsMapping(ENDPOINT_ID + SINGLE_STO_DTO)
         public SpringTestDataTO springMatsSingleWithStateEndpoint_Sto_Dto(@Sto SpringTestStateTO state,
                 @Dto SpringTestDataTO msg) {
-            return new SpringTestDataTO(msg.number * state.number,
-                    msg.string + SINGLE_STO_DTO + '.' + state.string);
+            return new SpringTestDataTO(msg.number * state.numero,
+                    msg.string + SINGLE_STO_DTO + '.' + state.cuerda);
         }
 
         // == Permutations WITH ProcessContext
@@ -107,8 +107,8 @@ public class MatsSpringDefined_SingleStagesTest {
         public SpringTestDataTO springMatsSingleEndpoint_Context_Dto_Sto(ProcessContext<SpringTestDataTO> context,
                 @Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
             Assert.assertEquals("test_trace_id" + SINGLE_CONTEXT_DTO_STO, context.getTraceId());
-            return new SpringTestDataTO(msg.number * state.number,
-                    msg.string + SINGLE_CONTEXT_DTO_STO + '.' + state.string);
+            return new SpringTestDataTO(msg.number * state.numero,
+                    msg.string + SINGLE_CONTEXT_DTO_STO + '.' + state.cuerda);
         }
 
         /**
@@ -118,8 +118,8 @@ public class MatsSpringDefined_SingleStagesTest {
         public SpringTestDataTO springMatsSingleEndpoint_Context_Sto_Dto(ProcessContext<SpringTestDataTO> context,
                 @Sto SpringTestStateTO state, @Dto SpringTestDataTO msg) {
             Assert.assertEquals("test_trace_id" + SINGLE_CONTEXT_STO_DTO, context.getTraceId());
-            return new SpringTestDataTO(msg.number * state.number,
-                    msg.string + SINGLE_CONTEXT_STO_DTO + '.' + state.string);
+            return new SpringTestDataTO(msg.number * state.numero,
+                    msg.string + SINGLE_CONTEXT_STO_DTO + '.' + state.cuerda);
         }
 
         // == A Terminator for all the tests.
@@ -205,8 +205,8 @@ public class MatsSpringDefined_SingleStagesTest {
         Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         if (requestSto != null) {
-            Assert.assertEquals(new SpringTestDataTO(dto.number * requestSto.number,
-                    dto.string + epId + '.' + requestSto.string), result.getData());
+            Assert.assertEquals(new SpringTestDataTO(dto.number * requestSto.numero,
+                    dto.string + epId + '.' + requestSto.cuerda), result.getData());
         }
         else {
             Assert.assertEquals(new SpringTestDataTO(dto.number * 2, dto.string + epId), result.getData());

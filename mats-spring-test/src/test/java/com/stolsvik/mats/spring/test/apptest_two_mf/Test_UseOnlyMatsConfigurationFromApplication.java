@@ -2,6 +2,7 @@ package com.stolsvik.mats.spring.test.apptest_two_mf;
 
 import javax.inject.Inject;
 
+import com.stolsvik.mats.spring.test.apptest_two_mf.AppMain.TestQualifier;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -23,6 +24,8 @@ import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.util.RandomString;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 /**
  * A test that points to only a specific @Configuration bean of an application, thus not taking up the entire
  * application - we have to provide the infrastructure (i.e. MatsFactories) in the test.
@@ -35,13 +38,20 @@ public class Test_UseOnlyMatsConfigurationFromApplication {
 
     @ConfigurationForTest
     // This is where we import the application's endpoint configurations
-    @Import(Mats_SingleEndpoint.class)
+    @Import(Mats_Endpoints.class)
     // Nobody else is doing it.
     @EnableMats
     public static class TestConfig {
         @Bean
+        @TestQualifier(name = "Endre Stølsvik")
         @Qualifier("matsFactoryX")
         protected MatsFactory matsFactory1() {
+            return TestSpringMatsFactoryProvider.createJmsTxOnlyTestMatsFactory();
+        }
+
+        @Bean
+        @Qualifier("matsFactoryY")
+        protected MatsFactory matsFactory2() {
             return TestSpringMatsFactoryProvider.createJmsTxOnlyTestMatsFactory();
         }
 
@@ -52,6 +62,11 @@ public class Test_UseOnlyMatsConfigurationFromApplication {
 
         @Inject
         private MatsTestLatch _latch;
+
+        @Bean
+        public AtomicInteger getAtomicInteger() {
+            return new AtomicInteger();
+        }
 
         /**
          * Test "Terminator" endpoint where we send the result of testing the endpoint in the application.
@@ -75,7 +90,7 @@ public class Test_UseOnlyMatsConfigurationFromApplication {
         _matsFactory.getDefaultInitiator().initiateUnchecked(msg -> {
             msg.traceId(RandomString.randomCorrelationId())
                     .from("TestInitiate")
-                    .to(Main.ENDPOINT_ID + ".single")
+                    .to(AppMain.ENDPOINT_ID + ".single")
                     .replyTo(TERMINATOR, null)
                     .request(dto);
         });

@@ -4,6 +4,7 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.jms.ConnectionFactory;
 
@@ -13,17 +14,18 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.SpringVersion;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
+import com.stolsvik.mats.spring.ComponentScanExcludingConfigurationForTest;
 import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.jms.factories.ConfigurableScenarioDecider;
 import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.MatsScenario;
 import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryWithStartStopWrapper;
 import com.stolsvik.mats.spring.jms.factories.JmsSpringConnectionFactoryProducer;
 import com.stolsvik.mats.spring.jms.factories.JmsSpringMatsFactoryProducer;
-import com.stolsvik.mats.spring.ComponentScanExcludingConfigurationForTest;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
@@ -47,18 +49,18 @@ import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 @Configuration
 @EnableMats
 @ComponentScanExcludingConfigurationForTest
-public class Main {
+public class AppMain {
     public static final String ENDPOINT_ID = "TestApp_TwoMf";
 
-    private static final Logger log = LoggerFactory.getLogger(Main.class);
+    private static final Logger log = LoggerFactory.getLogger(AppMain.class);
 
     public static void main(String... args) {
-        new Main().start();
+        new AppMain().start();
     }
 
     private void start() {
         long nanosStart = System.nanoTime();
-        log.info("Starting " + this.getClass().getSimpleName() + "!");
+        log.info("Starting " + this.getClass().getSimpleName() + "! Spring Version: " + SpringVersion.getVersion());
         log.info(" \\- new'ing up AnnotationConfigApplicationContext, giving class [" + this.getClass()
                 .getSimpleName() + "] as base.");
         AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext(this.getClass());
@@ -68,8 +70,8 @@ public class Main {
 
         log.info("Starting application.");
         try {
-            AppBean appBean = ctx.getBean(AppBean.class);
-            appBean.run();
+            Runner appRunner = ctx.getBean(Runner.class);
+            appRunner.run();
         }
         catch (Throwable t) {
             String msg = "Got some Exception when running app.";
@@ -92,6 +94,11 @@ public class Main {
     @Bean
     public MatsSerializer<String> matsSerializer() {
         return new MatsSerializer_DefaultJson();
+    }
+
+    @Bean
+    public AtomicInteger atomicInteger() {
+        return new AtomicInteger();
     }
 
     @Bean
@@ -165,7 +172,7 @@ public class Main {
                 matsSerializer, connectionFactory);
     }
 
-    @Target({ ElementType.FIELD, ElementType.METHOD, ElementType.PARAMETER })
+    @Target({ ElementType.FIELD, ElementType.METHOD, ElementType.TYPE })
     @Retention(RetentionPolicy.RUNTIME)
     @Qualifier
     public @interface TestQualifier {

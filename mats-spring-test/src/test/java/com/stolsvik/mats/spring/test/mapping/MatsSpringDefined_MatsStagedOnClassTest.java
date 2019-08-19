@@ -2,7 +2,6 @@ package com.stolsvik.mats.spring.test.mapping;
 
 import javax.inject.Inject;
 
-import com.stolsvik.mats.test.MatsTestLatch.Result;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -21,8 +20,7 @@ import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsSimpleTestContext;
 import com.stolsvik.mats.test.MatsTestLatch;
-
-import java.util.List;
+import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
  * @author Endre Stølsvik 2019-08-13 22:13 - http://stolsvik.com/, endre@stolsvik.com
@@ -32,7 +30,7 @@ import java.util.List;
 public class MatsSpringDefined_MatsStagedOnClassTest {
     private static final Logger log = LoggerFactory.getLogger(MatsSpringDefined_MatsStagedOnClassTest.class);
 
-    private static final String SERVICE_MAIN = "test.Main";
+    private static final String SERVICE_MAIN = "test.AppMain";
     private static final String SERVICE_LEAF = "test.Leaf";
     private static final String TERMINATOR = "test.Terminator";
 
@@ -91,7 +89,7 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
         // === ENDPOINT STAGES
 
         @Stage(Stage.INITIAL)
-        public void receiveAndCheckValidity(SpringTestDataTO in) {
+        void receiveAndCheckValidity(SpringTestDataTO in) {
             // Assert that state is empty (null, zero)
             Assert.assertEquals(0, _someStateInt);
             Assert.assertNull(_someStateString);
@@ -107,7 +105,7 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
         }
 
         @Stage(10)
-        public void evaluateSomeThings(@Dto SpringTestDataTO in, String someOtherParameterMaybeForTesting) {
+        void evaluateSomeThings(SpringTestDataTO in) {
             // Assert that state is kept from previous stage
             Assert.assertEquals(-10, _someStateInt);
             Assert.assertEquals("SetFromInitial", _someStateString);
@@ -118,12 +116,12 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             _someStateString = "SetFromStageA";
             _someStateObject = new SpringTestDataTO(57473, "state");
 
-            // Jump to next stage
-            _context.next(new SpringTestDataTO(in.number + 42, in.string + ":next"));
+            // Jump to next stage: Notice the use of a different DTO here (just using the STO since it was here)
+            _context.next(new SpringTestStateTO((int) in.number * 3, in.string + ":next"));
         }
 
         @Stage(20)
-        public void processSomeStuff(List<String> anotherParameter, @Dto SpringTestDataTO in) {
+        void processSomeStuff(@Dto SpringTestStateTO in, String anotherParameterMaybeUsedForTesting) {
             // Assert that state is kept from previous stage
             Assert.assertEquals(10, _someStateInt);
             Assert.assertEquals("SetFromStageA", _someStateString);
@@ -134,19 +132,24 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             _someStateString = "SetFromStageB";
             _someStateObject = new SpringTestDataTO(314159, "pi * 100.000");
 
+            // Do a stash, to check the ProcessContext wrapping (not handled, should not need).
+            _context.stash();
+
             // Do a request to a service
-            _context.request(SERVICE_LEAF, new SpringTestDataTO(in.number, in.string));
+            _context.request(SERVICE_LEAF, new SpringTestDataTO(in.numero, in.cuerda));
         }
 
         @Stage(30)
-        public SpringTestDataTO processMoreThenReply(int nativeParam, @Dto SpringTestDataTO in, boolean nativeParam2) {
+        SpringTestDataTO processMoreThenReply(boolean primitiveBooleanParameter,
+                byte byteP, short shortP, int intP, long longP, @Dto SpringTestDataTO in,
+                float floatP, double doubleP) {
             // Assert that state is kept from previous stage
             Assert.assertEquals(20, _someStateInt);
             Assert.assertEquals("SetFromStageB", _someStateString);
             Assert.assertEquals(new SpringTestDataTO(314159, "pi * 100.000"), _someStateObject);
 
             // Reply to caller with our amazing result.
-            return new SpringTestDataTO(in.number * 3, in.string + ':' + SERVICE_MAIN);
+            return new SpringTestDataTO(in.number * 5, in.string + ':' + SERVICE_MAIN);
         }
     }
 
@@ -169,8 +172,11 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
                     init.request(dto);
                 });
 
-//         Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
-//         Assert.assertEquals(sto, result.getState());
+        Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
+        Assert.assertEquals(sto, result.getState());
+        Assert.assertEquals(new SpringTestDataTO(dto.number * 2 * 3 * 2 * 5,
+                dto.string + ':' + SERVICE_LEAF + ":next" + ':' + SERVICE_LEAF + ':' + SERVICE_MAIN),
+                result.getData());
     }
 
 }

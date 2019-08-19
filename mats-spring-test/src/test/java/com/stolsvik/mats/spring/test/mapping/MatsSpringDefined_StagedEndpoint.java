@@ -45,14 +45,14 @@ public class MatsSpringDefined_StagedEndpoint {
         public void springMatsStagedEndpoint(MatsEndpoint<SpringTestDataTO, SpringTestStateTO> ep) {
             ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(0, null), sto);
-                sto.number = Integer.MAX_VALUE;
-                sto.string = "some state";
+                sto.numero = Integer.MAX_VALUE;
+                sto.cuerda = "some state";
                 context.request(ENDPOINT_ID + LEAF, dto);
             });
             ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(Integer.MAX_VALUE, "some state"), sto);
-                sto.number = Integer.MIN_VALUE;
-                sto.string = "new state";
+                sto.numero = Integer.MIN_VALUE;
+                sto.cuerda = "new state";
                 context.next(new SpringTestDataTO(dto.number * 3, dto.string + ":Nexted"));
             });
             ep.lastStage(SpringTestDataTO.class, (context, sto, dto) -> {
@@ -73,14 +73,14 @@ public class MatsSpringDefined_StagedEndpoint {
             // Set up the stages
             ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(0, null), sto);
-                sto.number = Integer.MAX_VALUE;
-                sto.string = "some state";
+                sto.numero = Integer.MAX_VALUE;
+                sto.cuerda = "some state";
                 context.request(ENDPOINT_ID + LEAF, dto);
             });
             ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(Integer.MAX_VALUE, "some state"), sto);
-                sto.number = Integer.MIN_VALUE;
-                sto.string = "new state";
+                sto.numero = Integer.MIN_VALUE;
+                sto.cuerda = "new state";
                 context.next(new SpringTestDataTO(dto.number * 7, dto.string + ":Nexted"));
             });
             ep.lastStage(SpringTestDataTO.class, (context, sto, dto) -> {

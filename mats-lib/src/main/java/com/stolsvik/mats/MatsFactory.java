@@ -7,6 +7,7 @@ import java.util.function.Consumer;
 import com.stolsvik.mats.MatsConfig.StartStoppable;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
+import com.stolsvik.mats.MatsEndpoint.ProcessContextWrapper;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
@@ -415,8 +416,9 @@ public interface MatsFactory extends StartStoppable {
     class MatsFactoryWrapper implements MatsFactory {
 
         /**
-         * This field is private - if you in extensions need the instance, invoke {@link #getTargetMatsFactory()}. If
-         * you want to take control of the wrapped MatsFactory instance, then override {@link #getTargetMatsFactory()}.
+         * This field is private - all methods invoke {@link #getTargetMatsFactory()} to get the instance, which you
+         * should too if you override any methods. If you want to take control of the wrapped MatsFactory instance, then
+         * override {@link #getTargetMatsFactory()}.
          */
         private MatsFactory _targetMatsFactory;
 
@@ -478,15 +480,10 @@ public interface MatsFactory extends StartStoppable {
          */
         public MatsFactory getEndTargetMatsFactory() {
             MatsFactory targetMatsFactory = getTargetMatsFactory();
-            // ?: Is this further wrapped?
-            if (targetMatsFactory instanceof MatsFactoryWrapper) {
-                // -> Yes, further wrapped, so recurse down.
-                MatsFactoryWrapper wrappedTarget = (MatsFactoryWrapper) targetMatsFactory;
-                // .. recurse down.
-                return wrappedTarget.getEndTargetMatsFactory();
-            }
-            // E-> No, not wrapped, so this should be the actual MatsFactory.
-            return targetMatsFactory;
+            // ?: If further wrapped, recurse down. Otherwise return.
+            return targetMatsFactory instanceof MatsFactoryWrapper
+                    ? ((MatsFactoryWrapper) targetMatsFactory).getEndTargetMatsFactory()
+                    : targetMatsFactory;
         }
 
         @Override

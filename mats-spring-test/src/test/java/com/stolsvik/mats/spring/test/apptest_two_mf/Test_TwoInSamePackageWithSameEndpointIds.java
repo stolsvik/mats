@@ -17,7 +17,7 @@ import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsTestProfile;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Main.TestQualifier;
+import com.stolsvik.mats.spring.test.apptest_two_mf.AppMain.TestQualifier;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch;
@@ -38,15 +38,14 @@ import com.stolsvik.mats.util.RandomString;
 @MatsTestProfile
 public class Test_TwoInSamePackageWithSameEndpointIds {
     private static final Logger log = LoggerFactory.getLogger(Test_TwoInSamePackageWithSameEndpointIds.class);
-    private static final String TERMINATOR = "Test.TERMINATOR";
 
     @ConfigurationForTest
-    @Import(Main.class)
+    @Import(AppMain.class)
     public static class TestConfig {
         @Inject
         private MatsTestLatch _latch;
 
-        @MatsMapping(endpointId = TERMINATOR, matsFactoryCustomQualifierType = TestQualifier.class)
+        @MatsMapping(endpointId = Test_UseFullApplicationConfiguration.TERMINATOR, matsFactoryCustomQualifierType = TestQualifier.class)
         public void testTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
             log.info("Got result, resolving latch [" + _latch + "]!");
             _latch.resolve(state, msg);
@@ -66,8 +65,8 @@ public class Test_TwoInSamePackageWithSameEndpointIds {
         _matsFactory.getDefaultInitiator().initiateUnchecked(msg -> {
             msg.traceId(RandomString.randomCorrelationId())
                     .from("TestInitiate")
-                    .to(Main.ENDPOINT_ID + ".single")
-                    .replyTo(TERMINATOR, null)
+                    .to(AppMain.ENDPOINT_ID + ".single")
+                    .replyTo(Test_UseFullApplicationConfiguration.TERMINATOR, null)
                     .request(dto);
         });
         log.info("Sent message, going into wait on latch [" + _latch + "]");

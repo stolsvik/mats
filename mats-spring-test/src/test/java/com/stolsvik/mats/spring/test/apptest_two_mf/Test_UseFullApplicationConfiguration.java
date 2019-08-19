@@ -21,7 +21,7 @@ import com.stolsvik.mats.spring.jms.factories.MatsProfiles;
 import com.stolsvik.mats.spring.test.MatsTestProfile;
 import com.stolsvik.mats.spring.test.mapping.SpringTestDataTO;
 import com.stolsvik.mats.spring.test.mapping.SpringTestStateTO;
-import com.stolsvik.mats.spring.test.apptest_two_mf.Main.TestQualifier;
+import com.stolsvik.mats.spring.test.apptest_two_mf.AppMain.TestQualifier;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.util.RandomString;
@@ -41,14 +41,14 @@ import com.stolsvik.mats.util.RandomString;
 @MatsTestProfile
 public class Test_UseFullApplicationConfiguration {
     private static final Logger log = LoggerFactory.getLogger(Test_UseFullApplicationConfiguration.class);
-    private static final String TERMINATOR = "Test.TERMINATOR";
+    static final String TERMINATOR = "Test.TERMINATOR";
 
     @ConfigurationForTest
     // This is where we import the application's main configuration class
     // 1. It is annotated with @EnableMats
     // 2. It configures two ConnectionFactories, and two MatsFactories.
     // 3. It configures classpath scanning, and thus gets the Mats endpoints configured.
-    @Import(Main.class)
+    @Import(AppMain.class)
     public static class TestConfig {
         @Inject
         private MatsTestLatch _latch;
@@ -76,7 +76,7 @@ public class Test_UseFullApplicationConfiguration {
         _matsFactory.getDefaultInitiator().initiateUnchecked(msg -> {
             msg.traceId(RandomString.randomCorrelationId())
                     .from("TestInitiate")
-                    .to(Main.ENDPOINT_ID + ".single")
+                    .to(AppMain.ENDPOINT_ID + ".single")
                     .replyTo(TERMINATOR, null)
                     .request(dto);
         });

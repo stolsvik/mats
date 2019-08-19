@@ -233,7 +233,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
             if (existingEndpoint.isPresent()) {
                 throw new IllegalStateException("An Endpoint with endpointId='"
                         + newEndpoint.getEndpointConfig().getEndpointId()
-                        + "' was already present. Existing: [" + existingEndpoint
+                        + "' was already present. Existing: [" + existingEndpoint.get()
                         + "], attempted registered:[" + newEndpoint + "].");
             }
             _createdEndpoints.add(newEndpoint);
