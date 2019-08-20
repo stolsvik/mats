@@ -27,7 +27,7 @@ public class Runner {
     private AtomicInteger _atomicInteger;
 
     @Inject
-    @TestQualifier(name = "Endre Stølsvik")
+    @TestQualifier(name = "SouthWest")
     private MatsFactory _matsFactory;
 
     void run() {

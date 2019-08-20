@@ -64,7 +64,7 @@ public class Test_UseFullApplicationConfiguration {
     }
 
     @Inject
-    @TestQualifier(name = "Endre Stølsvik")
+    @TestQualifier(name = "SouthWest")
     private MatsFactory _matsFactory;
 
     @Inject

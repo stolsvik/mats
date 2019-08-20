@@ -55,7 +55,7 @@ public class Mats_Endpoints {
      * Test Multi-Stage @MatsClassMapping endpoint.
      */
     @MatsClassMapping(AppMain.ENDPOINT_ID + ".multi")
-    @TestQualifier(name = "Endre Stølsvik") // This is the same as "matsFactoryX", the first.
+    @TestQualifier(name = "SouthWest") // This is the same as "matsFactoryX", the first.
     static class MultiEndPoint {
         @Inject
         private AtomicInteger _atomicInteger;
@@ -70,7 +70,7 @@ public class Mats_Endpoints {
             _statePi = Math.PI;
             _stateObject = new SpringTestDataTO(Math.E, "This is state.");
 
-            // Perform some advanced stuff with out Dependency Injected Service..!
+            // Perform some advanced stuff with our Dependency Injected Service..!
             _atomicInteger.incrementAndGet();
 
             _context.request(AppMain.ENDPOINT_ID + ".single", new SpringTestDataTO(in.number, in.string));

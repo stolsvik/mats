@@ -43,7 +43,7 @@ public class Test_UseOnlyMatsConfigurationFromApplication {
     @EnableMats
     public static class TestConfig {
         @Bean
-        @TestQualifier(name = "Endre Stølsvik")
+        @TestQualifier(name = "SouthWest")
         @Qualifier("matsFactoryX")
         protected MatsFactory matsFactory1() {
             return TestSpringMatsFactoryProvider.createJmsTxOnlyTestMatsFactory();

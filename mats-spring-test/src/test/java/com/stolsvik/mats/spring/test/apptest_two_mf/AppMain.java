@@ -154,7 +154,7 @@ public class AppMain {
     }
 
     @Bean
-    @TestQualifier(name = "Endre Stølsvik")
+    @TestQualifier(name = "SouthWest")
     @Qualifier("matsFactoryX")
     protected MatsFactory matsFactory1(@Qualifier("connectionFactoryA") ConnectionFactory connectionFactory,
             MatsSerializer<String> matsSerializer) {
