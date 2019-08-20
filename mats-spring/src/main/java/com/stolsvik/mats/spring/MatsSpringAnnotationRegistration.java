@@ -969,8 +969,8 @@ public class MatsSpringAnnotationRegistration implements
                 }
             });
         });
-        log.info(LOG_PREFIX + "Processed Mats \"Class Mapped\" Endpoint by @MatsClassMapping-annotated bean "
-                + classNameWithoutPackage(bean) + ".");
+        log.info(LOG_PREFIX + "Processed Mats Class Mapped Endpoint by @MatsClassMapping-annotated bean '"
+                + classNameWithoutPackage(bean) + "'.");
     }
 
     /**

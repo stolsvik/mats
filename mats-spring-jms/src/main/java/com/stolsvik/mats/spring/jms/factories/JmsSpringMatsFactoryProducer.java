@@ -13,7 +13,6 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly;
 import com.stolsvik.mats.serial.MatsSerializer;
-import com.stolsvik.mats.spring.SpringMatsFactory;
 import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringDstm;
 
 /**
@@ -28,8 +27,7 @@ public class JmsSpringMatsFactoryProducer {
      * If you need a {@link MatsFactory} employing Spring's DataSourceTransactionManager (which you probably do in a
      * Spring environment utilizing SQL), this is your factory method.
      * <p>
-     * Make a @Bean-annotated method which returns the result of this method. The created MatsFactory is wrapped in
-     * {@link SpringMatsFactory}, as it should be when running Mats in Spring.
+     * Usage: Make a @Bean-annotated method which returns the result of this method.
      * 
      * @param appName
      *            the containing application's name (for debugging purposes, you'll find it in the trace).
@@ -47,23 +45,21 @@ public class JmsSpringMatsFactoryProducer {
      *            the SQL DataSource which to stash into a Spring {@link DataSourceTransactionManager}, and from which
      *            SQL {@link Connection}s are fetched from, using {@link DataSource#getConnection()}. It is assumed that
      *            if username and password is needed, you have configured that on the DataSource.
-     * @return the produced {@link SpringMatsFactory}
+     * @return the produced {@link MatsFactory}
      */
-    public static SpringMatsFactory createSpringDataSourceTxMatsFactory(String appName, String appVersion,
+    public static MatsFactory createSpringDataSourceTxMatsFactory(String appName, String appVersion,
             MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory, DataSource sqlDataSource) {
-        return SpringMatsFactory.wrapTargetMatsFactory(() -> {
-            // :: Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
-            // JmsSessionHandler (pooler)
-            JmsMatsJmsSessionHandler_Pooling jmsSessionHandler = new JmsMatsJmsSessionHandler_Pooling((
-                    s) -> jmsConnectionFactory.createConnection());
-            // JMS + Spring's DataSourceTransactionManager-based MatsTransactionManager
-            JmsMatsTransactionManager_JmsAndSpringDstm transMgr_SpringSql = JmsMatsTransactionManager_JmsAndSpringDstm
-                    .create(sqlDataSource);
+        // :: Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
+        // JmsSessionHandler (pooler)
+        JmsMatsJmsSessionHandler_Pooling jmsSessionHandler = new JmsMatsJmsSessionHandler_Pooling((
+                s) -> jmsConnectionFactory.createConnection());
+        // JMS + Spring's DataSourceTransactionManager-based MatsTransactionManager
+        JmsMatsTransactionManager_JmsAndSpringDstm transMgr_SpringSql = JmsMatsTransactionManager_JmsAndSpringDstm
+                .create(sqlDataSource);
 
-            // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
-            return JmsMatsFactory
-                    .createMatsFactory(appName, appVersion, jmsSessionHandler, transMgr_SpringSql, matsSerializer);
-        });
+        // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
+        return JmsMatsFactory
+                .createMatsFactory(appName, appVersion, jmsSessionHandler, transMgr_SpringSql, matsSerializer);
     }
 
     /**
@@ -73,8 +69,7 @@ public class JmsSpringMatsFactoryProducer {
      * {@link #createSpringDataSourceTxMatsFactory(String, String, MatsSerializer, ConnectionFactory, DataSource)
      * createSpringDataSourceTxMatsFactory(..)} instead.
      * <p>
-     * Make a @Bean-annotated method which returns the result of this method. The created MatsFactory is wrapped in
-     * {@link SpringMatsFactory}, as it should be when running Mats in Spring.
+     * Usage: Make a @Bean-annotated method which returns the result of this method.
      *
      * @param appName
      *            the containing application's name (for debugging purposes, you'll find it in the trace).
@@ -88,21 +83,19 @@ public class JmsSpringMatsFactoryProducer {
      *            {@link ConnectionFactory#createConnection()}. It is assumed that if username and password is needed,
      *            you have configured that on the ConnectionFactory. Otherwise, you'll have to make the JmsMatsFactory
      *            yourself - check the code of this method, and you'll see where the JMS Connections are created.
-     * @return the produced {@link SpringMatsFactory}
+     * @return the produced {@link MatsFactory}
      */
-    public static SpringMatsFactory createJmsTxOnlyMatsFactory(String appName, String appVersion,
+    public static MatsFactory createJmsTxOnlyMatsFactory(String appName, String appVersion,
             MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory) {
-        return SpringMatsFactory.wrapTargetMatsFactory(() -> {
-            // :: Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
-            // JmsSessionHandler (pooler)
-            JmsMatsJmsSessionHandler_Pooling jmsSessionHandler = new JmsMatsJmsSessionHandler_Pooling((
-                    s) -> jmsConnectionFactory.createConnection());
-            // JMS only MatsTransactionManager
-            JmsMatsTransactionManager jmsOnlyTransMgr = JmsMatsTransactionManager_JmsOnly.create();
+        // :: Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
+        // JmsSessionHandler (pooler)
+        JmsMatsJmsSessionHandler_Pooling jmsSessionHandler = new JmsMatsJmsSessionHandler_Pooling((
+                s) -> jmsConnectionFactory.createConnection());
+        // JMS only MatsTransactionManager
+        JmsMatsTransactionManager jmsOnlyTransMgr = JmsMatsTransactionManager_JmsOnly.create();
 
-            // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
-            return JmsMatsFactory
-                    .createMatsFactory(appName, appVersion, jmsSessionHandler, jmsOnlyTransMgr, matsSerializer);
-        });
+        // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
+        return JmsMatsFactory
+                .createMatsFactory(appName, appVersion, jmsSessionHandler, jmsOnlyTransMgr, matsSerializer);
     }
 }
