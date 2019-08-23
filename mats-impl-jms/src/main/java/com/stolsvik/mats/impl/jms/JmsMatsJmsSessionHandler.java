@@ -5,7 +5,6 @@ import javax.jms.JMSException;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 
-import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 
 /**
@@ -79,14 +78,6 @@ public interface JmsMatsJmsSessionHandler {
          * be fetched. [This is to be able to signal to the StageProcessor that the underlying Connection might have
          * become unstable - start afresh]</li>
          *
-         * <li>(For StageProcessors) After exiting from MessageConsumer.receive() - if {@link JmsMatsJmsException} is
-         * raised, rollback shall be performed, {@link #close()} or {@link #crashed(Throwable)} shall be invoked, and
-         * then a new SessionHolder shall be fetched. [This is to be able to signal to the StageProcessor that the
-         * underlying Connection might have become unstable - start afresh] (NOTICE: The return from receive() shall
-         * obviously first be checked for null - which is returned when the Consumer, Session or Connection is closed -
-         * which signifies that the normal check for "running" shall be performed, and if it is still running, a new
-         * SessionHolder shall be fetched)].</li>
-         * 
          * <li>(For StageProcessors and Initiators) Before committing any resources other than the JMS Session - if
          * {@link JmsMatsJmsException} is raised, rollback shall be performed, {@link #close()} or
          * {@link #crashed(Throwable)} shall be invoked, and then a new SessionHolder shall be fetched. [This is to

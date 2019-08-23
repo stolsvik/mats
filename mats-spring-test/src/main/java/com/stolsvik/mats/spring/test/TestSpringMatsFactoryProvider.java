@@ -152,9 +152,10 @@ public class TestSpringMatsFactoryProvider {
         }
 
         @Override
-        public void stop() {
-            super.stop();
+        public boolean stop(int gracefulShutdownMillis) {
+            boolean stopped = super.stop(gracefulShutdownMillis);
             _matsLocalVmActiveMq.close();
+            return stopped;
         }
     }
 

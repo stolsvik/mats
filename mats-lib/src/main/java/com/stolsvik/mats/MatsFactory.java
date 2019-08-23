@@ -258,7 +258,7 @@ public interface MatsFactory extends StartStoppable {
      * rather either create one for the entire application, or e.g. for each component:</b> The {@code MatsInitiator}
      * can have underlying backend resources attached to it - which also means that it needs to be
      * {@link MatsInitiator#close() closed} for a clean application shutdown (Note that all MatsInitiators are closed
-     * when {@link #stop() MatsFactory.stop()} is invoked).
+     * when {@link #stop(int) MatsFactory.stop()} is invoked).
      *
      * @return the default <code>MatsInitiator</code>, whose name is 'default', on which messages can be
      *         {@link MatsInitiator#initiate(InitiateLambda) initiated}.
@@ -279,7 +279,7 @@ public interface MatsFactory extends StartStoppable {
      * rather either create one for the entire application, or e.g. for each component:</b> The {@code MatsInitiator}
      * can have underlying backend resources attached to it - which also means that it needs to be
      * {@link MatsInitiator#close() closed} for a clean application shutdown (Note that all MatsInitiators are closed
-     * when {@link #stop() MatsFactory.stop()} is invoked).
+     * when {@link #stop(int) MatsFactory.stop()} is invoked).
      *
      * @return a {@link MatsInitiator}, on which messages can be {@link MatsInitiator#initiate(InitiateLambda)
      *         initiated}.
@@ -311,21 +311,21 @@ public interface MatsFactory extends StartStoppable {
     void holdEndpointsUntilFactoryIsStarted();
 
     /**
-     * Waits until all endpoints are started, i.e. runs {@link MatsEndpoint#waitForStarted()} on all the endpoints
+     * Waits until all endpoints are started, i.e. runs {@link MatsEndpoint#waitForStarted(int)} on all the endpoints
      * started from this factory.
      */
     @Override
-    void waitForStarted();
+    boolean waitForStarted(int timeoutMillis);
 
     /**
-     * Stops all endpoints and initiators, by invoking {@link MatsEndpoint#stop()} on all the endpoints, and
+     * Stops all endpoints and initiators, by invoking {@link MatsEndpoint#stop(int)} on all the endpoints, and
      * {@link MatsInitiator#close()} on all initiators that has been created by this factory. They can be started again
      * individually, or all at once by invoking {@link #start()}
      * <p>
      * Should be invoked at application shutdown.
      */
     @Override
-    void stop();
+    boolean stop(int gracefulShutdownMillis);
 
     /**
      * Provides for a way to configure factory-wide elements and defaults.
@@ -580,13 +580,13 @@ public interface MatsFactory extends StartStoppable {
         }
 
         @Override
-        public void waitForStarted() {
-            getTargetMatsFactory().waitForStarted();
+        public boolean waitForStarted(int timeoutMillis) {
+            return getTargetMatsFactory().waitForStarted(timeoutMillis);
         }
 
         @Override
-        public void stop() {
-            getTargetMatsFactory().stop();
+        public boolean stop(int gracefulShutdownMillis) {
+            return getTargetMatsFactory().stop(gracefulShutdownMillis);
         }
     }
 }

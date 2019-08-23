@@ -266,7 +266,7 @@ public class MatsSynchronousAdapter<R> implements AutoCloseable {
 
         // :: Should not send requests until we know that the completing endpoint has started (since it is a topic, any
         // messages sent to it while not started will just be dumped on the floor by the MQ Broker).
-        _completingSubscriptionTerminator.waitForStarted();
+        _completingSubscriptionTerminator.waitForStarted(10_000);
 
         // :: Make the CompletableFuture that we'll return.
         CompletableFuture<Reply<R>> future = new CompletableFuture<>();

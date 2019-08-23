@@ -128,13 +128,13 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * {@link MatsStage}s of the endpoint.
      */
     @Override
-    void waitForStarted();
+    boolean waitForStarted(int timeoutMillis);
 
     /**
      * Stops the endpoint, invoking {@link MatsStage#stop()} on all {@link MatsStage}s.
      */
     @Override
-    void stop();
+    boolean stop(int gracefulShutdownMillis);
 
     /**
      * Provides for both configuring the endpoint (before it is started), and introspecting the configuration.

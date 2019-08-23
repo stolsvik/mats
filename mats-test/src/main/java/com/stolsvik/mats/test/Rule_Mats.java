@@ -99,7 +99,7 @@ public class Rule_Mats extends ExternalResource {
         log.info("+++ AFTER on JUnit Rule '" + id(Rule_Mats.class) + "':");
         // :: Close all MatsFactories (thereby closing all endpoints and initiators, and thus their connections).
         for (MatsFactory createdMatsFactory : _createdMatsFactories) {
-            createdMatsFactory.stop();
+            createdMatsFactory.stop(30_000);
         }
 
         // :: Close the AMQ Broker

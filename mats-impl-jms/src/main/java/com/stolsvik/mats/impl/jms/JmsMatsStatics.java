@@ -4,7 +4,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 
 import javax.jms.DeliveryMode;
@@ -44,6 +43,11 @@ public interface JmsMatsStatics {
     String MDC_MATS_INCOMING = "mats.Incoming";
     String MDC_MATS_OUTGOING = "mats.Outgoing";
     String MDC_MATS_INITIATE = "mats.Initiate";
+
+    /**
+     * Number of milliseconds to "extra wait" after timeoutMillis or gracefulShutdownMillis is gone.
+     */
+    int EXTRA_GRACE_MILLIS = 50;
 
     /**
      * Holds the entire contents of a "Mats Message" - so that it can be sent later.
@@ -271,25 +275,25 @@ public interface JmsMatsStatics {
         }
     }
 
-    default String createMatsMessageId() {
-        Random random = new Random();
-        return "mats_" + Long.toUnsignedString(System.currentTimeMillis(), 36)
-                + "_" + randomString(10);
-    }
-
     String RANDOM_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
     /**
-     * @param length the desired length of the returned random string.
+     * @param length
+     *            the desired length of the returned random string.
      * @return a random string of the specified length.
      */
     default String randomString(int length) {
         StringBuilder buf = new StringBuilder(length);
-        for( int i = 0; i < length; i++ )
-            buf.append( RANDOM_ALPHABET.charAt( ThreadLocalRandom.current().nextInt(RANDOM_ALPHABET.length()) ) );
+        ThreadLocalRandom tlRandom = ThreadLocalRandom.current();
+        for (int i = 0; i < length; i++)
+            buf.append(RANDOM_ALPHABET.charAt(tlRandom.nextInt(RANDOM_ALPHABET.length())));
         return buf.toString();
     }
 
+    default String createMatsMessageId() {
+        return "mats_" + Long.toUnsignedString(System.currentTimeMillis(), 36)
+                + "_" + randomString(10);
+    }
 
     default String id(String what, Object obj) {
         return what + '@' + Integer.toHexString(System.identityHashCode(obj));

@@ -38,8 +38,8 @@ public interface MatsConfig {
     boolean isConcurrencyDefault();
 
     /**
-     * @return whether the MATS entity has been started and not stopped. For the {@link MatsFactory}, it returns true
-     *         if any of the endpoints return true. For {@link MatsEndpoint}s, it returns true if any stage is running.
+     * @return whether the MATS entity has been started and not stopped. For the {@link MatsFactory}, it returns true if
+     *         any of the endpoints return true. For {@link MatsEndpoint}s, it returns true if any stage is running.
      */
     boolean isRunning();
 
@@ -56,14 +56,6 @@ public interface MatsConfig {
         void start();
 
         /**
-         * Will stop the entity - or the entities below it (the only "active" entity is a {@link MatsStage} Processor).
-         * This method is idempotent, calling it when the entity is already stopped has no effect.
-         * <p>
-         * Further documentation on extensions - note the special semantics for {@link MatsFactory}
-         */
-        void stop();
-
-        /**
          * If the entity is stopped or starting, it will wait till it is started (i.e. that some {@link MatsStage}
          * Processor has actually started its consume-loop of messages). If the entity is already started, this method
          * immediately returns.
@@ -72,7 +64,25 @@ public interface MatsConfig {
          * always immediately return - even though it is currently stopped.
          * <p>
          * Further documentation on extensions.
+         *
+         * @param timeoutMillis
+         *            number of milliseconds before giving up the wait, returning <code>false</code>. 0 is indefinite
+         *            wait, negative values are not allowed.
+         * @return <code>true</code> if the entity started within the timeout, <code>false</code> if it did not start.
          */
-        void waitForStarted();
+        boolean waitForStarted(int timeoutMillis);
+
+        /**
+         * Will stop the entity - or the entities below it (the only "active" entity is a {@link MatsStage} Processor).
+         * This method is idempotent, calling it when the entity is already stopped has no effect.
+         * <p>
+         * Further documentation on extensions - note the special semantics for {@link MatsFactory}
+         *
+         * @param gracefulShutdownMillis
+         *            number of milliseconds to let the stage processors wait after having asked for them to shut down,
+         *            and interrupting them if they have not shut down yet.
+         * @return <code>true</code> if the running thread(s) were dead when returning, <code>false</code> otherwise.
+         */
+        boolean stop(int gracefulShutdownMillis);
     }
 }

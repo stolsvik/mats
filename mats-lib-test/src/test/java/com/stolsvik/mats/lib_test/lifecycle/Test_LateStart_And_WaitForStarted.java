@@ -39,7 +39,7 @@ public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
         // Make and start thread that will wait for Endpoint to start.
         Thread waiter = new Thread(() -> {
             _waitThreadStarted.countDown();
-            _ep.waitForStarted();
+            _ep.waitForStarted(30_000);
             _waitedForStartupFinished.countDown();
         }, "UnitTestWaiter");
         waiter.start();

@@ -6,7 +6,6 @@ import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
-import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
 
 /**
  * Transactional aspects of the JMS MATS implementation. (It is the duty of the MATS implementation to ensure that the

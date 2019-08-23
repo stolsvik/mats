@@ -398,7 +398,7 @@ public class MatsSpringAnnotationRegistration implements
                 + " to stop all registered MATS Endpoints and clean out the JmsMatsJmsSessionHandler.");
         _matsFactories.forEach((name, factory) -> {
             log.info(LOG_PREFIX + "  \\- MatsFactory '" + name + "'.stop()");
-            factory.stop();
+            factory.stop(30_000);
         });
 
         // Reset the state. Not that I ever believe this will ever be refreshed again afterwards.

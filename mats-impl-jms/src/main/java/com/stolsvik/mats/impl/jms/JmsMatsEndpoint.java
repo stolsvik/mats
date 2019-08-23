@@ -1,5 +1,6 @@
 package com.stolsvik.mats.impl.jms;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
@@ -18,7 +19,7 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStatics {
+public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStatics, JmsMatsStartStoppable {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsEndpoint.class);
 
@@ -120,13 +121,18 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
     }
 
     @Override
-    public void waitForStarted() {
-        _stages.forEach(JmsMatsStage::waitForStarted);
+    public List<JmsMatsStartStoppable> getChildrenStartStoppable() {
+        return new ArrayList<>(_stages);
     }
 
     @Override
-    public void stop() {
-        _stages.forEach(JmsMatsStage::stop);
+    public boolean waitForStarted(int timeoutMillis) {
+        return JmsMatsStartStoppable.super.waitForStarted(timeoutMillis);
+    }
+
+    @Override
+    public boolean stop(int gracefulShutdownMillis) {
+        return JmsMatsStartStoppable.super.stop(gracefulShutdownMillis);
     }
 
     @Override

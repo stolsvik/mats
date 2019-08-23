@@ -237,7 +237,7 @@ public class ConnectionFactoryScenarioWrapper
         if ((_targetConnectionFactory != null)
                 && (_targetConnectionFactory instanceof ConnectionFactoryWithStartStopWrapper)) {
             try {
-                log.info(LOG_PREFIX + "The current target ConnectionFactory implements "
+                log.info(LOG_PREFIX + "  \\- The current target ConnectionFactory implements "
                         + ConnectionFactoryWithStartStopWrapper.class.getSimpleName()
                         + ", so invoking stop(..) on it.");
                 ((ConnectionFactoryWithStartStopWrapper) _targetConnectionFactory).stop();
@@ -253,7 +253,7 @@ public class ConnectionFactoryScenarioWrapper
     @Override
     public void stop(Runnable callback) {
         log.info(LOG_PREFIX + "SmartLifeCycle.stop(callback) on [" + _beanName
-                + "]: Stopping MatsLocalVmActiveMq's BrokerService.");
+                + "].");
         stop();
         callback.run();
     }

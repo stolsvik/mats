@@ -21,7 +21,7 @@ import com.stolsvik.mats.MatsStage.StageConfig;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
 import com.stolsvik.mats.serial.MatsSerializer;
 
-public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
+public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsStartStoppable {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsFactory.class);
 
@@ -98,8 +98,8 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         return _matsSerializer;
     }
 
-    private final List<MatsEndpoint<?, ?>> _createdEndpoints = new ArrayList<>();
-    private final List<MatsInitiator> _createdInitiators = new ArrayList<>();
+    private final List<JmsMatsEndpoint<?, ?, Z>> _createdEndpoints = new ArrayList<>();
+    private final List<JmsMatsInitiator<Z>> _createdInitiators = new ArrayList<>();
 
     @Override
     public FactoryConfig getFactoryConfig() {
@@ -226,7 +226,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         }
     }
 
-    private void addCreatedEndpoint(MatsEndpoint<?, ?> newEndpoint) {
+    private void addCreatedEndpoint(JmsMatsEndpoint<?, ?, Z> newEndpoint) {
         synchronized (_createdEndpoints) {
             Optional<MatsEndpoint<?, ?>> existingEndpoint = getEndpoint(newEndpoint.getEndpointConfig()
                     .getEndpointId());
@@ -259,7 +259,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         }
     }
 
-    private void addCreatedInitiator(MatsInitiator initiator) {
+    private void addCreatedInitiator(JmsMatsInitiator<Z> initiator) {
         synchronized (_createdInitiators) {
             _createdInitiators.add(initiator);
         }
@@ -290,48 +290,52 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics {
         _holdEndpointsUntilFactoryIsStarted = true;
     }
 
+    @Override
+    public List<JmsMatsStartStoppable> getChildrenStartStoppable() {
+        synchronized (_createdEndpoints) {
+            return new ArrayList<>(_createdEndpoints);
+        }
+    }
+
+    @Override
+    public boolean waitForStarted(int timeoutMillis) {
+        return JmsMatsStartStoppable.super.waitForStarted(timeoutMillis);
+    }
+
     public boolean isHoldEndpointsUntilFactoryIsStarted() {
         return _holdEndpointsUntilFactoryIsStarted;
     }
 
-    @Override
-    public void waitForStarted() {
-        getEndpoints().forEach(MatsEndpoint::waitForStarted);
-    }
-
     /**
-     * Method for Spring's default lifecycle - directly invokes {@link #stop()}.
+     * Method for Spring's default lifecycle - directly invokes {@link #stop(int) stop(30_000)}.
      */
     public void close() {
         log.info(LOG_PREFIX + getClass().getSimpleName() + ".close() invoked"
                 + " (probably via Spring's default lifecycle), forwarding to stop().");
-        stop();
+        stop(30_000);
     }
 
     @Override
-    public void stop() {
+    public boolean stop(int gracefulShutdownMillis) {
         log.info(LOG_PREFIX + "Stopping [" + idThis()
                 + "], thus stopping/closing all created endpoints and initiators.");
-        // :: Stopping all endpoints
-        for (MatsEndpoint<?, ?> endpoint : getEndpoints()) {
-            try {
-                endpoint.stop();
-            }
-            catch (Throwable t) {
-                log.warn("Got some throwable when stopping endpoint [" + endpoint + "].", t);
-            }
+        boolean stopped = JmsMatsStartStoppable.super.stop(gracefulShutdownMillis);
+
+        if (stopped) {
+            log.info(LOG_PREFIX + "Everything of [" + idThis() + "} stopped nicely. Now cleaning JMS Session pool.");
         }
-        // :: Closing all initiators
+        else {
+            log.warn(LOG_PREFIX + "Evidently some components of [" + idThis() + "} DIT NOT stop in ["
+                    + gracefulShutdownMillis + "] millis, giving up. Now cleaning JMS Session pool.");
+        }
+
         for (MatsInitiator initiator : getInitiators()) {
-            try {
-                initiator.close();
-            }
-            catch (Throwable t) {
-                log.warn("Got some throwable when closing initiator [" + initiator + "].", t);
-            }
+            initiator.close();
         }
+
         // :: "Closing the JMS pool"; closing all available SessionHolder, which should lead to the Connections closing.
         _jmsMatsJmsSessionHandler.closeAllAvailableSessions();
+        return stopped;
     }
 
     @Override

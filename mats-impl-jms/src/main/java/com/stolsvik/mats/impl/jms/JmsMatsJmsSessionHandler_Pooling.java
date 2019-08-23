@@ -16,7 +16,6 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.stolsvik.mats.impl.jms.JmsMatsStage.JmsMatsStageProcessor;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 
 public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandler, JmsMatsStatics {
@@ -425,7 +424,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         }
 
         /**
-         * Will be invoked by all SessionHolders at various times in {@link JmsMatsStage}.
+         * Will be invoked by all SessionHolders at various times in {@link JmsMatsStageProcessor}.
          */
         void isConnectionStillActive() throws JmsMatsJmsException {
             if (_crashed_StackTrace != null) {
