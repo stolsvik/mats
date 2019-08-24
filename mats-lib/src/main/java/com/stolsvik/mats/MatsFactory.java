@@ -430,7 +430,7 @@ public interface MatsFactory extends StartStoppable {
          *            forwarded methods will use).
          */
         public MatsFactoryWrapper(MatsFactory targetMatsFactory) {
-            _targetMatsFactory = targetMatsFactory;
+            setTargetMatsFactory(targetMatsFactory);
         }
 
         /**

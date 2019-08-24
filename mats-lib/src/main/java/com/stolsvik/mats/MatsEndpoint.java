@@ -568,7 +568,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          *            hence all forwarded methods will use).
          */
         public ProcessContextWrapper(ProcessContext<R> targetProcessContext) {
-            _targetProcessContext = targetProcessContext;
+            setTargetProcessContext(targetProcessContext);
         }
 
         /**

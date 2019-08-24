@@ -27,7 +27,7 @@ public class ConnectionFactoryWrapper implements ConnectionFactory {
      *            hence all forwarded methods will use).
      */
     public ConnectionFactoryWrapper(ConnectionFactory targetConnectionFactory) {
-        _targetConnectionFactory = targetConnectionFactory;
+        setTargetConnectionFactory(targetConnectionFactory);
     }
 
     /**
