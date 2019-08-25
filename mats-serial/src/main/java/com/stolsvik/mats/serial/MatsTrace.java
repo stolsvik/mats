@@ -79,6 +79,15 @@ public interface MatsTrace<Z> {
     MatsTrace<Z> setDebugInfo(String initializingAppName, String initializingAppVersion, String initializingHost,
             String initiatorId, long initializedTimestamp, String debugInfo);
 
+    /**
+     * Can only be set once..
+     *
+     * @param millis
+     *            the number of milliseconds the message should live before being time out. 0 means "forever", and is
+     *            the default.
+     */
+    MatsTrace<Z> setTimeToLive(long millis);
+
     String getInitializingAppName();
 
     String getInitializingAppVersion();
@@ -94,6 +103,12 @@ public interface MatsTrace<Z> {
     long getInitializedTimestamp();
 
     String getDebugInfo();
+
+    /**
+     * @return the number of milliseconds the message should live before being time out. 0 means "forever", and is the
+     *         default.
+     */
+    long getTimeToLive();
 
     /**
      * Sets a trace property, refer to <code>ProcessContext.setTraceProperty(String, Object)</code>. Notice that on the

@@ -86,7 +86,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * Specialization of {@link MatsEndpoint.ProcessLambda ProcessLambda} which does not have a state, and have the same
      * return-semantics as {@link MatsEndpoint.ProcessReturnLambda ProcessLambda} - used for single-stage endpoints as
      * these does not have multiple stages to transfer state between.
-     * <p>
+     * <p/>
      * However, since it is possible to send state along with the request, one may still use the
      * {@link MatsEndpoint.ProcessReturnLambda ProcessReturnLambda} for single-stage endpoints, but in this case you
      * need to code it up yourself by making a multi-stage and then just adding a single lastStage.
@@ -112,7 +112,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * {@link MatsFactory#terminator(String, Class, Class, ProcessTerminatorLambda) terminators} and
      * {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) subscription
      * terminators}.
-     * <p>
+     * <p/>
      * The sole functionality of this method is that it will invoke {@link #start()} on the endpoint, <b>unless</b>
      * {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} has been invoked prior to creating the endpoint.
      */
@@ -305,10 +305,10 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         /**
          * Attaches a binary payload to the next outgoing message, being it a request or a reply. Note that for
          * initiations, you have the same method on the {@link MatsInitiate} instance.
-         * <p>
+         * <p/>
          * The rationale for having this is to not have to encode a largish byte array inside the JSON structure that
          * carries the Request or Reply DTO - byte arrays represent very badly in JSON.
-         * <p>
+         * <p/>
          * Note: The byte array is not compressed (as might happen with the DTO), so if the payload is large, you might
          * want to consider compressing it before attaching it (and will then have to decompress it on the receiving
          * side).
@@ -328,10 +328,10 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         /**
          * Attaches a String payload to the next outgoing message, being it a request or a reply. Note that for
          * initiations, you have the same method on the {@link MatsInitiate} instance.
-         * <p>
+         * <p/>
          * The rationale for having this is to not have to encode a largish string document inside the JSON structure
          * that carries the Request or Reply DTO.
-         * <p>
+         * <p/>
          * Note: The String payload is not compressed (as might happen with the DTO), so if the payload is large, you
          * might want to consider compressing it before attaching it and instead use the
          * {@link #addBytes(String, byte[]) addBytes(..)} method (and will then have to decompress it on the receiving
@@ -356,7 +356,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * stages will see it, on any stack level, including the terminator. If a stage in a service nested some levels
          * down in the stack adds it, it will be present in all subsequent stages including all the way up to the
          * Terminator.
-         * <p>
+         * <p/>
          * Possible use cases: You can for example "sneak along" some property meant for Service X through an invocation
          * of intermediate Service A (which subsequently calls Service X), where the signature (DTO) of the intermediate
          * Service A does not provide such functionality. Another usage would be to add some "global context variable",
@@ -390,7 +390,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * {@link MatsInitiate#unstash(byte[], Class, Class, Class, ProcessLambda) unstash(stashBytes,...)} to get the
          * Mats flow going again. Notice that functionally, the unstash-operation is a kind of initiation, only that
          * this type of initiation doesn't start a <i>new</i> Mats flow, rather <i>continuing an existing flow</i>.
-         * <p>
+         * <p/>
          * <b>Notice that this feature should not typically be used to "park" a Mats flow for days.</b> One might have a
          * situation where a part of an order flow potentially needs manual handling, e.g. validating a person's
          * identity if this has not been validated before. It might (should!) be tempting to employ the stash function
@@ -411,7 +411,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * state classes are in practice really not that frequent). However, by stashing over days, instead of a normal
          * Mats flow that take seconds, you massively increase the time window in which such deserialization problems
          * can occur. You at least have to consider this if employing the stash-functionality.
-         * <p>
+         * <p/>
          * <b>Note about data and metadata which should be stored along with the stash-bytes:</b> You only get a binary
          * serialized incoming execution context in return from this method (which includes the incoming message,
          * incoming state, the execution stack and {@link ProcessContext#getTraceProperty(String, Class) trace
@@ -429,7 +429,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * stash and data. You should probably also have some kind of monitoring / health checks for stashes that have
          * become stale - i.e. stashes that have not been unstashed for a considerable time, and whose Mats flow have
          * thus stopped up, and where the downstream endpoints/stages therefore will not get invoked.
-         * <p>
+         * <p/>
          * <b>Notes:</b>
          * <ul>
          * <li>Invoking {@code stash()} will not affect the stage processing in any way other than producing a
@@ -471,7 +471,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * this endpoint it is semantically a terminator (the <code>replyTo</code> of an initiation's request), or if it
          * is the last stage of an endpoint that was invoked directly (using {@link MatsInitiate#send(Object)
          * MatsInitiate.send(msg)}).
-         * <p>
+         * <p/>
          * It is possible to do "early return" in a multi-stage endpoint by invoking this method in a stage that is not
          * the last. (You should then obviously not also invoke {@link #request(String, Object)} or
          * {@link #next(Object)} unless you have explicit handling of the messy result, either in the downward stages or
@@ -516,14 +516,14 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * there yet - as we're still within the SQL transaction demarcation. Therefore, if the process-service wakes up
          * really fast and tries to find the new work, it will not see anything yet. (It might then presume that e.g.
          * another node of the service-cluster took care of whatever woke it up, and go back to sleep.)
-         * <p>
+         * <p/>
          * Note: This is per processing; Setting it is only relevant for the current message. If you invoke the method
          * more than once, only the last Runnable will be run. If you set it to <code>null</code>, you "cancel" any
          * previously set Runnable.
-         * <p>
+         * <p/>
          * Note: If any Exception is raised from the code after the Runnable has been set, or any Exception is raised by
          * the processing or committing, the Runnable will not be run.
-         * <p>
+         * <p/>
          * Note: If the Runnable throws a {@link RuntimeException}, it will be logged on ERROR level, then ignored.
          *
          * @param runnable
@@ -536,7 +536,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * Provides a way to get hold of (optional) attributes/objects from the Mats implementation, either specific to
          * the Mats implementation in use, or configured into this instance of the Mats implementation. Is mirrored by
          * the same method at {@link MatsInitiate#getAttribute(Class, String...)}.
-         * <p>
+         * <p/>
          * Mandatory: If the Mats implementation has a transactional SQL Connection, it shall be available by
          * <code>'context.getAttribute(Connection.class)'</code>.
          * 

@@ -20,7 +20,7 @@ public interface MatsStage<R, S, I> extends StartStoppable {
     /**
      * Starts this stage, thereby firing up the queue processing using a set of threads, the number decided by the
      * {@link StageConfig#getConcurrency()} for each stage.
-     * <p>
+     * <p/>
      * Will generally be invoked implicitly by {@link MatsEndpoint#start()}. The only reason for calling this should be
      * if its corresponding {@link #stop(int)} method has been invoked to stop processing.
      */

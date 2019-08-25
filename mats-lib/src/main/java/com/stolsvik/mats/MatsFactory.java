@@ -22,7 +22,7 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  * ActiveMQ-specific JMS ConnectionFactory). <i>An alternative is to use the SpringConfig "mats-spring" integration,
  * where you do not explicitly use the MatsFactory to code and configure MATS endpoints. Employing SpringConfig of Mats,
  * you'll need to get an instance of MatsFactory into the Spring context.</i>
- * <p>
+ * <p/>
  * It is worth realizing that all of the methods {@link #staged(String, Class, Class, Consumer) staged(...config)};
  * {@link #single(String, Class, Class, ProcessSingleLambda) single(...)} and
  * {@link #single(String, Class, Class, Consumer, Consumer, ProcessSingleLambda) single(...configs)};
@@ -34,7 +34,7 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  * {@link #subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) subscriptionTerminator(...)} and
  * {@link #subscriptionTerminator(String, Class, Class, Consumer, Consumer, ProcessTerminatorLambda)
  * subscriptionTerminator(...Consumers)}, as they have different semantics, read the JavaDoc).</i>
- * <p>
+ * <p/>
  * Regarding order of the Reply Message, State and Incoming Message, which can be a bit annoying to remember when
  * creating endpoints, and when writing {@link ProcessLambda process lambdas}: They are always ordered like this: <b>R,
  * S, I</b>, i.e. <i>Reply, State, Incoming</i>. This is to resemble a method signature having the implicit {@code this}
@@ -75,7 +75,7 @@ public interface MatsFactory extends StartStoppable {
      * Sets up a {@link MatsEndpoint} on which you will add stages. The first stage is the one that will receive the
      * incoming (typically request) DTO, while any subsequent stage is invoked when the service that the previous stage
      * sent a request to, replies.
-     * <p>
+     * <p/>
      * Unless the state object was sent along with the {@link MatsInitiate#request(Object, Object) request} or
      * {@link MatsInitiate#send(Object, Object) send}, the first stage will get a newly constructed empty state
      * instance, while the subsequent stages will get the state instance in the form it was left in the previous stage.
@@ -104,7 +104,7 @@ public interface MatsFactory extends StartStoppable {
      * this/these personId(s)" scenarios. This sole stage is supplied directly, using a specialization of the processor
      * lambda which does not have state (as there is only one stage, there is no other stage to pass state to), but
      * which can return the reply by simply returning it on exit from the lambda.
-     * <p>
+     * <p/>
      * Do note that this is just a convenience for the often-used scenario where for example a request will just be
      * looked up in the backing data store, and replied directly, using only one stage, not needing any multi-stage
      * processing.
@@ -142,13 +142,13 @@ public interface MatsFactory extends StartStoppable {
      * {@link MatsInitiate#request(Object, Object) request initiation}, or that can be used to directly send a
      * "fire-and-forget" style {@link MatsInitiate#send(Object) invocation} to. The sole stage is supplied directly.
      * This type of endpoint cannot reply, as it has no-one to reply to (hence "terminator").
-     * <p>
+     * <p/>
      * Do note that this is just a convenience for the often-used scenario where an initiation requests out to some
      * service, and then the reply needs to be handled - and with that the process is finished. That last endpoint which
      * handles the reply is what is referred to as a terminator, in that it has nowhere to reply to. Note that there is
      * nothing hindering you in setting the replyTo endpointId in a request initiation to point to a single-stage or
      * multi-stage endpoint - however, any replies from those endpoints will just go void.
-     * <p>
+     * <p/>
      * It is possible to {@link ProcessContext#initiate(InitiateLambda) initiate} from within a terminator, and one
      * interesting scenario here is to do a {@link MatsInitiate#publish(Object) publish} to a
      * {@link #subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) subscriptionTerminator}. The idea
@@ -157,7 +157,7 @@ public interface MatsFactory extends StartStoppable {
      * caches" message to all the nodes of the app, so that they all have the new state of the order in their caches
      * (or, in a push-based GUI logic, you might want to update all users' view of that order). Note that you (as in the
      * processing node) will also get that published message on your instance of the SubscriptionTerminator.
-     * <p>
+     * <p/>
      * It is technically possible {@link ProcessContext#reply(Object) reply} from within a terminator - but it hard to
      * envision many wise usage scenarios for this, as the stack at a terminator would probably be empty.
      *
@@ -199,7 +199,7 @@ public interface MatsFactory extends StartStoppable {
      * Special kind of terminator that, in JMS-style terms, subscribes to a topic instead of listening to a queue (i.e.
      * "pub-sub"-style messaging). You may only communicate with this type of endpoints by using the
      * {@link MatsInitiate#publish(Object)} or {@link MatsInitiate#replyToSubscription(String, Object)} methods.
-     * <p>
+     * <p/>
      * <b>Notice that the concurrency of a SubscriptionTerminator is always 1, as it makes no sense to have multiple
      * processors for a subscription - all of the processors would just get an identical copy of each message.</b> If
      * you do need to handle massive amounts of messages, or your work handling is slow, you should instead of handling
@@ -252,7 +252,7 @@ public interface MatsFactory extends StartStoppable {
      * Gets or creates the default Initiator (whose name is 'default') from which to initiate new Mats processes, i.e.
      * send a message from "outside of Mats" to a Mats endpoint - <b>NOTICE: This is an active object that can carry
      * backend resources, and it is Thread Safe: You are not supposed to create one instance per message you send!</b>
-     * <p>
+     * <p/>
      * <b>Observe again: The returned MatsInitiator is Thread Safe, and meant for reuse: You are <em>not</em> supposed
      * to create one instance of {@link MatsInitiator} per message you need to send, and then close it afterwards -
      * rather either create one for the entire application, or e.g. for each component:</b> The {@code MatsInitiator}
@@ -269,11 +269,11 @@ public interface MatsFactory extends StartStoppable {
      * Gets or creates a new Initiator from which to initiate new Mats processes, i.e. send a message from "outside of
      * Mats" to a Mats endpoint - <b>NOTICE: This is an active object that can carry backend resources, and it is Thread
      * Safe: You are not supposed to create one instance per message you send!</b>
-     * <p>
+     * <p/>
      * A reason for wanting to make more than one {@link MatsInitiator} could be that each initiator might have its own
      * connection to the underlying message broker. You also might want to name the initiators based on what part of the
      * application uses it.
-     * <p>
+     * <p/>
      * <b>Observe again: The returned MatsInitiator is Thread Safe, and meant for reuse: You are <em>not</em> supposed
      * to create one instance of {@link MatsInitiator} per message you need to send, and then close it afterwards -
      * rather either create one for the entire application, or e.g. for each component:</b> The {@code MatsInitiator}
@@ -293,7 +293,7 @@ public interface MatsFactory extends StartStoppable {
 
     /**
      * Starts all endpoints that has been created by this factory, by invoking {@link MatsEndpoint#start()} on them.
-     * <p>
+     * <p/>
      * Subsequently clears the {@link #holdEndpointsUntilFactoryIsStarted()}-flag.
      */
     @Override
@@ -321,7 +321,7 @@ public interface MatsFactory extends StartStoppable {
      * Stops all endpoints and initiators, by invoking {@link MatsEndpoint#stop(int)} on all the endpoints, and
      * {@link MatsInitiator#close()} on all initiators that has been created by this factory. They can be started again
      * individually, or all at once by invoking {@link #start()}
-     * <p>
+     * <p/>
      * Should be invoked at application shutdown.
      */
     @Override

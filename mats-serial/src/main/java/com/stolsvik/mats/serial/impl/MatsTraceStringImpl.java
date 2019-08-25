@@ -55,6 +55,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private final boolean np; // NonPersistent.
     private final boolean ia; // Interactive.
 
+    private Long ttl;
+
     private List<CallImpl> c = new ArrayList<>(); // Calls. Not final due to clone-impl.
     private List<StackStateImpl> ss = new ArrayList<>(); // StackStates. Not final due to clone-impl.
     private Map<String, String> tp = new LinkedHashMap<>(); // TraceProps. Not final due to clone-impl.
@@ -73,6 +75,12 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         iid = initiatorId;
         ts = initializedTimestamp;
         x = debugInfo;
+        return this;
+    }
+
+    public MatsTraceStringImpl setTimeToLive(long millis) {
+        // Don't store this field (i.e. null) if not needed.
+        ttl = millis > 0 ? millis : null;
         return this;
     }
 
@@ -148,6 +156,11 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     @Override
     public boolean isInteractive() {
         return ia;
+    }
+
+    @Override
+    public long getTimeToLive() {
+        return ttl != null ? ttl : 0;
     }
 
     @Override
@@ -699,6 +712,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                 .append("]  KeepMatsTrace:").append(kt)
                 .append("  NonPersistent:").append(np)
                 .append("  Interactive:").append(ia)
+                .append("  TTL:").append(ttl == null ? "forever" : ttl.toString())
                 .append('\n');
 
         // === "INITIATOR CALL" ===

@@ -16,7 +16,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
-import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsStage.StageConfig;
@@ -354,24 +353,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                                 _jmsMatsStage.getStateClass()));
 
                                 // :: Incoming Message DTO
-                                @SuppressWarnings(value = "unchecked") // We check that I is indeed MatsObject
-                                I incomingDto = _jmsMatsStage.getIncomingMessageClass() == MatsObject.class
-                                        ? (I) new MatsObject() {
-                                            @Override
-                                            public <T> T toClass(Class<T> type) throws IllegalArgumentException {
-                                                try {
-                                                    return matsSerializer.deserializeObject(currentCall.getData(),
-                                                            type);
-                                                }
-                                                catch (Throwable t) {
-                                                    throw new IllegalArgumentException("Could not deserialize the data"
-                                                            + " contained in MatsObject to class [" + type.getName()
-                                                            + "].");
-                                                }
-                                            }
-                                        }
-                                        : matsSerializer.deserializeObject(currentCall.getData(),
-                                                _jmsMatsStage.getIncomingMessageClass());
+                                I incomingDto = handleIncomingMessageMatsObject(matsSerializer,
+                                        _jmsMatsStage.getIncomingMessageClass(), currentCall.getData());
 
                                 double millisTaken = (System.nanoTime() - nanosStart) / 1_000_000d;
 

@@ -16,6 +16,7 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 import org.slf4j.MDC;
 
+import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
@@ -230,9 +231,10 @@ public interface JmsMatsStatics {
                             : DeliveryMode.PERSISTENT;
                     // Setting Priority: 4 is default, 9 is highest.
                     int priority = outgoingMatsTrace.isInteractive() ? 9 : 4;
-                    // TODO: Set time-to-live (Issue #23)
+
                     // Send the message (but since transactional, won't be committed until TransactionContext does).
-                    messageProducer.send(destination, mm, deliveryMode, priority, 0);
+                    messageProducer.send(destination, mm, deliveryMode, priority, outgoingMatsTrace.getTimeToLive());
+
                     // We now have a JMSMessageID, so set it on MDC for outgoing.
                     MDC.put(MDC_JMS_MESSAGE_ID_OUT, mm.getJMSMessageID());
 
@@ -273,6 +275,27 @@ public interface JmsMatsStatics {
             // :: Clean MDC: Outgoing
             MDC.remove(MDC_MATS_OUTGOING);
         }
+    }
+
+    default <I, Z> I handleIncomingMessageMatsObject(MatsSerializer<Z> matsSerializer, Class<I> incomingMessageClass,
+            Z data) {
+        @SuppressWarnings(value = "unchecked") // We check that I is indeed MatsObject
+        I incomingDto = incomingMessageClass != MatsObject.class
+                ? matsSerializer.deserializeObject(data, incomingMessageClass)
+                : (I) new MatsObject() {
+                    @Override
+                    public <T> T toClass(Class<T> type) throws IllegalArgumentException {
+                        try {
+                            return matsSerializer.deserializeObject(data, type);
+                        }
+                        catch (Throwable t) {
+                            throw new IllegalArgumentException("Could not deserialize the data"
+                                    + " contained in MatsObject to class [" + type.getName()
+                                    + "].");
+                        }
+                    }
+                };
+        return incomingDto;
     }
 
     String RANDOM_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";

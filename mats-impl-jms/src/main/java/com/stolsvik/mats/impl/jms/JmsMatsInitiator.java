@@ -198,6 +198,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         private KeepMatsTrace _keepTrace;
         private boolean _nonPersistent;
         private boolean _interactive;
+        private long _timeToLive;
         private String _from;
         private String _to;
         private String _replyTo;
@@ -231,6 +232,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             _keepTrace = KeepMatsTrace.COMPACT;
             _nonPersistent = false;
             _interactive = false;
+            _timeToLive = 0;
             // _from is set above
             _to = null;
             _replyTo = null;
@@ -274,6 +276,12 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public MatsInitiate interactive() {
             _interactive = true;
+            return this;
+        }
+
+        @Override
+        public MatsInitiate timeToLive(long millis) {
+            _timeToLive = millis;
             return this;
         }
 
@@ -343,6 +351,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                             _parentFactory.getFactoryConfig().getAppVersion(),
                             _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!")
+                    .setTimeToLive(_timeToLive)
                     .addRequestCall(_from,
                             _to, MessagingModel.QUEUE,
                             _replyTo, (_replyToSubscription ? MessagingModel.TOPIC : MessagingModel.QUEUE),
@@ -388,6 +397,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                             _parentFactory.getFactoryConfig().getAppVersion(),
                             _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!")
+                    .setTimeToLive(_timeToLive)
                     .addSendCall(_from,
                             _to, MessagingModel.QUEUE,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
@@ -430,6 +440,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                             _parentFactory.getFactoryConfig().getAppVersion(),
                             _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!")
+                    .setTimeToLive(_timeToLive)
                     .addSendCall(_from,
                             _to, MessagingModel.TOPIC,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
@@ -538,7 +549,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             // :: Current Call, incoming Message DTO
             Call<Z> currentCall = matsTrace.getCurrentCall();
-            I incomingDto = _parentFactory.getMatsSerializer().deserializeObject(currentCall.getData(), incomingClass);
+            I incomingDto = handleIncomingMessageMatsObject(_parentFactory.getMatsSerializer(),
+                    incomingClass, currentCall.getData());
 
             double millisDeserializing = (System.nanoTime() - nanosStart) / 1_000_000d;
 
