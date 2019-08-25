@@ -27,8 +27,10 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * {@link #finishSetup()} afterwards - or you could instead use the {@link #lastStage(Class, ProcessReturnLambda)}
      * variant which does this automatically.
      *
+     * @see MatsObject
      * @param <I>
-     *            the type of the incoming DTO. The very first stage's incoming DTO is the endpoint's incoming DTO.
+     *            the type of the incoming DTO. The very first stage's incoming DTO is the endpoint's incoming DTO. If
+     *            the special type {@link MatsObject}, this stage can take any type.
      * @param processor
      *            the lambda that will be invoked when messages arrive in the corresponding queue.
      */
@@ -48,7 +50,8 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * to invoke {@link #finishSetup()} afterwards, as that is then not done automatically.
      *
      * @param <I>
-     *            the type of the incoming DTO. The very first stage's incoming DTO is the endpoint's incoming DTO.
+     *            the type of the incoming DTO. The very first stage's incoming DTO is the endpoint's incoming DTO. If
+     *            the special type {@link MatsObject}, this stage can take any type.
      * @param processor
      *            the lambda that will be invoked when messages arrive in the corresponding queue.
      */
@@ -124,17 +127,38 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
     void start();
 
     /**
-     * Waits till all stages of the endpoint has started, i.e. invokes {@link MatsStage#waitForStarted()} on all
+     * Waits till all stages of the endpoint has started, i.e. invokes {@link MatsStage#waitForStarted(int)} on all
      * {@link MatsStage}s of the endpoint.
      */
     @Override
     boolean waitForStarted(int timeoutMillis);
 
     /**
-     * Stops the endpoint, invoking {@link MatsStage#stop()} on all {@link MatsStage}s.
+     * Stops the endpoint, invoking {@link MatsStage#stop(int)} on all {@link MatsStage}s.
      */
     @Override
     boolean stop(int gracefulShutdownMillis);
+
+    /**
+     * For the incoming message type, this represents the equivalent of Java's {@link Object} - a "generic" incoming
+     * message whose type is not yet determined. When you know, you invoke {@link #toClass(Class)} to get it "casted"
+     * (i.e. deserialized) to the specified type.
+     */
+    interface MatsObject {
+        /**
+         * Deserializes the incoming message class to the desired type - assuming that it actually is a serialized
+         * representation of that class.
+         * 
+         * @param type
+         *            the class that the incoming message should be deserialized to.
+         * @param <T>
+         *            the type of 'type'
+         * @return the deserialized object.
+         * @throws IllegalArgumentException
+         *             if the incoming message could not be deserialized to the desired type.
+         */
+        <T> T toClass(Class<T> type) throws IllegalArgumentException;
+    }
 
     /**
      * Provides for both configuring the endpoint (before it is started), and introspecting the configuration.

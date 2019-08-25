@@ -8,6 +8,7 @@ import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.jms.Connection;
 import javax.jms.MessageProducer;
@@ -68,7 +69,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         log.info(LOG_PREFIX + "Closing all available SessionHolders in all pools,"
                 + " thus hoping to close all JMS Connections.");
         int liveConnectionsBefore;
-        int availableSessionsClosed = 0;
+        int availableSessionsNowClosed = 0;
         int liveConnectionsAfter;
         int employedSessions = 0;
         synchronized (this) {
@@ -77,22 +78,25 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             ArrayList<ConnectionWithSessionPool> connWithSessionPool = new ArrayList<>(_liveConnectionWithSessionPools
                     .values());
             for (ConnectionWithSessionPool connectionAndSession : connWithSessionPool) {
-                // Copying over the availableHolders, since it hopefully will be modified.
-                ArrayList<JmsSessionHolderImpl> availableHolders = new ArrayList<>(
+                // Copying over the availableSessionHolders, since it hopefully will be modified.
+                ArrayList<JmsSessionHolderImpl> availableSessionHolders = new ArrayList<>(
                         connectionAndSession._availableSessionHolders);
-                availableSessionsClosed += availableHolders.size();
-                for (JmsSessionHolderImpl availableHolder : availableHolders) {
+                availableSessionsNowClosed += availableSessionHolders.size();
+                for (JmsSessionHolderImpl availableHolder : availableSessionHolders) {
                     connectionAndSession.internalClose(availableHolder);
                 }
             }
+
+            // ----- Closed all available JmsSessionHolders
+
             liveConnectionsAfter = _liveConnectionWithSessionPools.size();
             for (ConnectionWithSessionPool connectionAndSession : connWithSessionPool) {
                 employedSessions += connectionAndSession._employedSessionHolders.size();
             }
         }
-        log.info(LOG_PREFIX + " \\- Live Connections before closing available Sessions:[" + liveConnectionsBefore
-                + "], Available Sessions before closing, now closed:[" + availableSessionsClosed
-                + "], Live Connections after closing:[" + liveConnectionsAfter
+        log.info(LOG_PREFIX + " \\- Before closing available session: Live Connections:[" + liveConnectionsBefore
+                + "], Available Sessions:[" + availableSessionsNowClosed
+                + "] :: After closing: Live Connections:[" + liveConnectionsAfter
                 + "], Still employed Sessions:[" + employedSessions + "].");
 
         return liveConnectionsAfter;
@@ -278,7 +282,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
          *            the session holder to be closed (also physically).
          */
         void close(JmsSessionHolderImpl jmsSessionHolder) {
-            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "[" + this + "] close() from [" + jmsSessionHolder + "]"
+            log.info(LOG_PREFIX + "[" + this + "] close() from [" + jmsSessionHolder + "]"
                     + " - removing from pool and then physically closing JMS Session.");
             internalClose(jmsSessionHolder);
         }
@@ -354,13 +358,14 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                         // -> No, it was not the last session, so move us to the crashed-set
                         // Remove us from the live connections set.
                         _liveConnectionWithSessionPools.remove(_poolingKey);
-                        // Add us to the dead set
+                        // Add us to the crashed set
                         _crashedConnectionWithSessionPools.put(_poolingKey, this);
                     }
                     /*
                      * NOTE: Any other employed SessionHolders will invoke isConnectionStillActive(), and find that it
-                     * is not, and come back with close(). Otherwise, they will also come get a JMS Exception and come
-                     * back with crashed().
+                     * is not by getting a JmsMatsJmsException, thus come back with crashed(). Otherwise, they will also
+                     * come get a JMS Exception from other JMS actions, and come back with crashed(). It could potentially
+                     * also get a null from .receive(), and thus come back with close().
                      */
                 }
             }
@@ -440,7 +445,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                 available = _availableSessionHolders.size();
                 employed = _employedSessionHolders.size();
             }
-            return idThis() + "{" + (_crashed_StackTrace == null ? "live" : "crashed") + ",avail:" + available
+            return idThis() + "{pool:" + (_crashed_StackTrace == null ? "live" : "crashed") + "|sess avail:" + available
                     + ",empl:" + employed + "}";
         }
     }
@@ -481,8 +486,15 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             return _messageProducer;
         }
 
+        private AtomicBoolean _closed = new AtomicBoolean();
+
         @Override
         public void close() {
+            boolean alreadyClosed = _closed.getAndSet(true);
+            if (alreadyClosed) {
+                log.info(LOG_PREFIX + "When trying to close [" + this + "], it was already closed.");
+                return;
+            }
             _connectionWithSessionPool.close(this);
         }
 
@@ -493,6 +505,11 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         @Override
         public void crashed(Throwable t) {
+            boolean alreadyClosed = _closed.getAndSet(true);
+            if (alreadyClosed) {
+                log.info(LOG_PREFIX + "When trying to crash [" + this + "], it was already closed.");
+                return;
+            }
             _connectionWithSessionPool.crashed(this, t);
         }
 
