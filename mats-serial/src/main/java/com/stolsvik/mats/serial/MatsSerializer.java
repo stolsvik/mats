@@ -1,5 +1,6 @@
 package com.stolsvik.mats.serial;
 
+import com.stolsvik.mats.serial.MatsTrace.Call;
 import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
 
 /**
@@ -58,9 +59,41 @@ public interface MatsSerializer<Z> {
      *            whether the message should be prioritized in that a human is actively waiting for the reply, default
      *            shall be <code>false</code>.
      * @return a new instance of the underlying {@link MatsTrace} implementation.
+     * @deprecated use {@link #createNewMatsTrace(String, String, KeepMatsTrace, boolean, boolean, long)}.
      */
+    @Deprecated
     MatsTrace<Z> createNewMatsTrace(String traceId, KeepMatsTrace keepMatsTrace, boolean nonPersistent,
             boolean interactive);
+
+    /**
+     * Used when initiating a new MATS processing. Since the {@link MatsTrace} implementation is dependent on the
+     * serialization mechanism in use, we need a way provided by the serializer to instantiate new instances of the
+     * implementation of MatsTrace. A {@link Call} must be added before it is good to be sent.
+     *
+     * @param traceId
+     *            the Trace Id of this new {@link MatsTrace}.
+     * @param flowId
+     *            System-defined id for this call flow - guaranteed unique.
+     * @param keepMatsTrace
+     *            to which extent the MatsTrace should "keep trace", i.e. whether all Calls and States should be kept
+     *            through the entire flow from initiation to terminator - default shall be
+     *            {@link KeepMatsTrace#COMPACT}. The only reason for why this exists is for debugging: The
+     *            implementation cannot depend on this feature. To see the call history, do a toString() on the
+     *            ProcessContext of the lambda, which should perform a toString() on the corresponding MatsTrace, which
+     *            should have a human readable trace output.
+     * @param nonPersistent
+     *            whether the message should be JMS-style "non-persistent" - default shall be <code>false</code>, i.e.
+     *            the default is that a message is persistent.
+     * @param interactive
+     *            whether the message should be prioritized in that a human is actively waiting for the reply, default
+     *            shall be <code>false</code>.
+     * @param ttlMillis
+     *            the number of milliseconds the message should live before being time out. 0 means "forever", and is
+     *            the default.
+     * @return a new instance of the underlying {@link MatsTrace} implementation.
+     */
+    MatsTrace<Z> createNewMatsTrace(String traceId, String flowId,
+            KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive, long ttlMillis);
 
     /**
      * The key postfix that should be used for the "meta" key on which the {@link SerializedMatsTrace#getMeta() meta}

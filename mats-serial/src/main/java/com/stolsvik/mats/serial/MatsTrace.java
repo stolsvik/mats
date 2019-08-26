@@ -31,6 +31,12 @@ public interface MatsTrace<Z> {
     String getTraceId();
 
     /**
+     * @return the "FlowId", which is a system-specified, guaranteed-unique TraceId - and shall be the prefix of each
+     *         {@link Call#getMatsMessageId()}, separated by a "_".
+     */
+    String getFlowId();
+
+    /**
      * @return to which extent the Call history (with State) should be kept. The default is
      *         {@link KeepMatsTrace#COMPACT}.
      */
@@ -78,15 +84,6 @@ public interface MatsTrace<Z> {
      */
     MatsTrace<Z> setDebugInfo(String initializingAppName, String initializingAppVersion, String initializingHost,
             String initiatorId, long initializedTimestamp, String debugInfo);
-
-    /**
-     * Can only be set once..
-     *
-     * @param millis
-     *            the number of milliseconds the message should live before being time out. 0 means "forever", and is
-     *            the default.
-     */
-    MatsTrace<Z> setTimeToLive(long millis);
 
     String getInitializingAppName();
 
@@ -297,6 +294,7 @@ public interface MatsTrace<Z> {
 
         /**
          * Can only be set once.
+         * @param matsMessageId REMEMBER to prefix this by {@link MatsTrace#getFlowId()}, separated with a "_".
          */
         Call<Z> setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
                 long calledTimestamp, String matsMessageId, String debugInfo);

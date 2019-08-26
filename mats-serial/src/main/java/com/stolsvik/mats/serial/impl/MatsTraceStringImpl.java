@@ -42,12 +42,13 @@ import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
-    private final String tid; // TraceId
 
+    private final String id; // "Flow Id", system-def Id for this call flow (as oppose to traceId, which is user def.)
+    private final String tid; // TraceId, user-def Id for this call flow.
     private String an; // Initializing AppName
     private String av; // Initializing AppVersion
     private String h; // Initializing Host/Node
-    private String iid; // Initiator Id
+    private String iid; // Initiator Id, "from" on initiation
     private long ts; // Initialized @ TimeStamp (Java epoch)
     private String x; // Debug info (free-form..)
 
@@ -55,15 +56,48 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private final boolean np; // NonPersistent.
     private final boolean ia; // Interactive.
 
-    private Long ttl;
+    private Long ttl; // Time-To-Live, null if 0, where 0 means "forever".
 
     private List<CallImpl> c = new ArrayList<>(); // Calls. Not final due to clone-impl.
     private List<StackStateImpl> ss = new ArrayList<>(); // StackStates. Not final due to clone-impl.
     private Map<String, String> tp = new LinkedHashMap<>(); // TraceProps. Not final due to clone-impl.
 
+    /**
+     * @deprecated Use {@link #createNew(String, String, KeepMatsTrace, boolean, boolean, long)}.
+     */
+    @Deprecated
     public static MatsTrace<String> createNew(String traceId,
             KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive) {
-        return new MatsTraceStringImpl(traceId, keepMatsTrace, nonPersistent, interactive);
+        // Since it was called without a FlowId, we generate one here.
+        Random random = new Random();
+        String flowId = "mid_" + Long.toUnsignedString(System.currentTimeMillis(), 36)
+                + "_" + Long.toUnsignedString(random.nextLong(), 36)
+                + Long.toUnsignedString(random.nextLong(), 36);
+
+        return new MatsTraceStringImpl(traceId, flowId, keepMatsTrace, nonPersistent, interactive, 0);
+    }
+
+    /**
+     * Creates a new {@link MatsTrace}. Must add a {@link Call} before sending.
+     * 
+     * @param traceId
+     *            the user-defined hopefully-unique id for this call flow.
+     * @param flowId
+     *            the system-defined pretty-much-(for <i>all</i> purposes)-guaranteed-unique id for this call flow.
+     * @param keepMatsTrace
+     *            the level of "trace keeping".
+     * @param nonPersistent
+     *            if the messages in this flow should be non-persistent
+     * @param interactive
+     *            if the messages in this flow is of "interactive" priority.
+     * @param ttlMillis
+     *            the number of milliseconds the message should live before being time out. 0 means "forever", and is
+     *            the default.
+     * @return the newly created {@link MatsTrace}.
+     */
+    public static MatsTrace<String> createNew(String traceId, String flowId,
+            KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive, long ttlMillis) {
+        return new MatsTraceStringImpl(traceId, flowId, keepMatsTrace, nonPersistent, interactive, ttlMillis);
     }
 
     public MatsTraceStringImpl setDebugInfo(String initializingAppName, String initializingAppVersion,
@@ -78,29 +112,26 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         return this;
     }
 
-    public MatsTraceStringImpl setTimeToLive(long millis) {
-        // Don't store this field (i.e. null) if not needed.
-        ttl = millis > 0 ? millis : null;
-        return this;
-    }
-
     // Jackson JSON-lib needs a default constructor, but it can re-set finals.
     private MatsTraceStringImpl() {
         // REMEMBER: These will be set by the deserialization mechanism.
         tid = null;
+        id = null;
 
         kt = KeepMatsTrace.COMPACT;
         np = false;
         ia = false;
     }
 
-    private MatsTraceStringImpl(String traceId, KeepMatsTrace keepMatsTrace, boolean nonPersistent,
-            boolean interactive) {
+    private MatsTraceStringImpl(String traceId, String flowId, KeepMatsTrace keepMatsTrace, boolean nonPersistent,
+            boolean interactive, long ttlMillis) {
         this.tid = traceId;
+        this.id = flowId;
 
         this.kt = keepMatsTrace;
         this.np = nonPersistent;
         this.ia = interactive;
+        this.ttl = ttlMillis;
     }
 
     // == NOTICE == Serialization and deserialization is an implementation specific feature.
@@ -108,6 +139,11 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     @Override
     public String getTraceId() {
         return tid;
+    }
+
+    @Override
+    public String getFlowId() {
+        return id;
     }
 
     @Override
@@ -464,7 +500,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
             // Since it was called without a MatsMessageId, we generate one here.
             Random random = new Random();
-            id = "mats_" + Long.toUnsignedString(System.currentTimeMillis(), 36)
+            id = "mid_" + Long.toUnsignedString(System.currentTimeMillis(), 36)
                     + "_" + Long.toUnsignedString(random.nextLong(), 36)
                     + Long.toUnsignedString(random.nextLong(), 36);
 
@@ -708,8 +744,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         buf.append("MatsTrace : ")
                 .append(getCurrentCall().getCallType())
                 .append(" #to:").append(getCurrentCall().getTo())
-                .append("  [traceId=").append(tid)
-                .append("]  KeepMatsTrace:").append(kt)
+                .append("  traceId:'").append(tid)
+                .append("'  KeepMatsTrace:").append(kt)
                 .append("  NonPersistent:").append(np)
                 .append("  Interactive:").append(ia)
                 .append("  TTL:").append(ttl == null ? "forever" : ttl.toString())

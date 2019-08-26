@@ -303,13 +303,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
                 matsSerializer.serializeObject(requestDto),
                 matsSerializer.serializeObject(_incomingAndOutgoingState), null);
 
-        String matsMessageId = createMatsMessageId();
-
-        // TODO: Add debug info!
-        requestMatsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                _parentFactory.getFactoryConfig().getAppVersion(),
-                _parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), matsMessageId,
-                "Callalala!");
+        String matsMessageId = addDebugInfo(requestMatsTrace);
 
         // Produce the REQUEST JmsMatsMessage to send
         JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
@@ -318,6 +312,19 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         _messagesToSend.add(request);
 
         return new MessageReferenceImpl(matsMessageId);
+    }
+
+    private String addDebugInfo(MatsTrace<Z> requestMatsTrace) {
+        long now = System.currentTimeMillis();
+        String matsMessageId = createMatsMessageId(_incomingMatsTrace.getFlowId(),
+                _incomingMatsTrace.getInitializedTimestamp(), now);
+
+        // TODO: Add debug info!
+        requestMatsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                _parentFactory.getFactoryConfig().getAppVersion(),
+                _parentFactory.getFactoryConfig().getNodename(), now, matsMessageId,
+                "Callalala!");
+        return matsMessageId;
     }
 
     @Override
@@ -339,14 +346,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         MatsTrace<Z> replyMatsTrace = _incomingMatsTrace.addReplyCall(_stageId,
                 matsSerializer.serializeObject(replyDto));
 
-        String matsMessageId = createMatsMessageId();
-
-        // TODO: Add debug info!
-        Call<Z> currentCall = replyMatsTrace.getCurrentCall();
-        currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                _parentFactory.getFactoryConfig().getAppVersion(),
-                _parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), matsMessageId,
-                "Callalala!");
+        String matsMessageId = addDebugInfo(replyMatsTrace);
 
         // Produce the REPLY JmsMatsMessage to send
         JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
@@ -371,13 +371,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         MatsTrace<Z> nextMatsTrace = _incomingMatsTrace.addNextCall(_stageId, _nextStageId,
                 matsSerializer.serializeObject(incomingDto), matsSerializer.serializeObject(_incomingAndOutgoingState));
 
-        String matsMessageId = createMatsMessageId();
-
-        // TODO: Add debug info!
-        nextMatsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                _parentFactory.getFactoryConfig().getAppVersion(),
-                _parentFactory.getFactoryConfig().getNodename(), System.currentTimeMillis(), matsMessageId,
-                "Callalala!");
+        String matsMessageId = addDebugInfo(nextMatsTrace);
 
         // Produce the NEXT JmsMatsMessage to send
         JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),

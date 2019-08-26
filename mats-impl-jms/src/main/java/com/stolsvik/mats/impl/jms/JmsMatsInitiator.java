@@ -10,6 +10,7 @@ import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
@@ -25,7 +26,6 @@ import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call;
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
 import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
-import org.slf4j.MDC;
 
 class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMatsStatics {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsInitiator.class);
@@ -75,7 +75,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 jmsSessionHolder = _jmsMatsJmsSessionHandler.getSessionHolder(this);
             }
             catch (JmsMatsJmsException e) {
-                // Could not get hold of JMS *Connection* - Read the JavaDoc of JmsMatsJmsSessionHandler.getSessionHolder()
+                // Could not get hold of JMS *Connection* - Read the JavaDoc of
+                // JmsMatsJmsSessionHandler.getSessionHolder()
                 throw new MatsBackendException("Could not get hold of JMS Connection.", e);
             }
             try {
@@ -83,7 +84,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(jmsSessionHolder);
                 _transactionContext.doTransaction(jmsMatsMessageContext, () -> {
                     List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
-                    lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend, jmsMatsMessageContext, doAfterCommitRunnableHolder));
+                    lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend, jmsMatsMessageContext,
+                            doAfterCommitRunnableHolder));
                     sendMatsMessages(log, nanosStart, jmsSessionHolder, _parentFactory, messagesToSend);
                 });
                 jmsSessionHolder.release();
@@ -97,22 +99,25 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 }
             }
             catch (JmsMatsMessageSendException e) {
-                // JmsMatsMessageSendException is a JmsMatsJmsException, and that indicates that there was a problem with
-                // JMS - so we should "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
+                // JmsMatsMessageSendException is a JmsMatsJmsException, and that indicates that there was a problem
+                // with JMS - so we should "crash" the JmsSessionHolder to signal that the JMS Connection is probably
+                // broken.
                 jmsSessionHolder.crashed(e);
                 // This is a special variant of JmsMatsJmsException which is the "VERY BAD!" scenario.
                 // TODO: Do retries if it fails!
-                throw new MatsMessageSendException("Evidently got problems sending out the JMS message after having run the"
-                        + " process lambda and potentially committed other resources, typically database.", e);
+                throw new MatsMessageSendException(
+                        "Evidently got problems sending out the JMS message after having run the"
+                                + " process lambda and potentially committed other resources, typically database.", e);
             }
             catch (JmsMatsJmsException e) {
                 // Catch any JmsMatsJmsException, as that indicates that there was a problem with JMS - so we should
                 // "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
                 // Notice that we shall NOT have committed "external resources" at this point, meaning database.
                 jmsSessionHolder.crashed(e);
-                // .. then throw on. This is a lesser evil than JmsMatsMessageSendException, as it probably have happened
-                // before we committed database etc.
-                throw new MatsBackendException("Evidently have problems talking with our backend, which is a JMS Broker.",
+                // .. then throw on. This is a lesser evil than JmsMatsMessageSendException, as it probably have
+                // happened before we committed database etc.
+                throw new MatsBackendException(
+                        "Evidently have problems talking with our backend, which is a JMS Broker.",
                         e);
             }
         }
@@ -346,12 +351,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             }
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             long now = System.currentTimeMillis();
-            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTrace, _nonPersistent, _interactive)
-                    // TODO: Add debug info!
-                    .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                            _parentFactory.getFactoryConfig().getAppVersion(),
-                            _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!")
-                    .setTimeToLive(_timeToLive)
+            MatsTrace<Z> matsTrace = createMatsTrace(ser, now)
                     .addRequestCall(_from,
                             _to, MessagingModel.QUEUE,
                             _replyTo, (_replyToSubscription ? MessagingModel.TOPIC : MessagingModel.QUEUE),
@@ -359,15 +359,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                             ser.serializeObject(_replySto),
                             ser.serializeObject(initialTargetSto));
 
-            copyOverAnyExistingTraceProperties(matsTrace);
-
-            String matsMessageId = createMatsMessageId();
-
-            // TODO: Add debug info!
-            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                    _parentFactory.getFactoryConfig().getAppVersion(),
-                    _parentFactory.getFactoryConfig().getNodename(), now, matsMessageId,
-                    "Callalala!");
+            addDebugInfoToCurrentCall(now, matsTrace);
 
             // Produce the new REQUEST JmsMatsMessage to send
             JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
@@ -378,7 +370,27 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             // Reset, in preparation for more messages
             reset();
 
-            return new MessageReferenceImpl(matsMessageId);
+            return new MessageReferenceImpl(matsTrace.getCurrentCall().getMatsMessageId());
+        }
+
+        private MatsTrace<Z> createMatsTrace(MatsSerializer<Z> ser, long now) {
+            String flowId = createFlowId(now);
+            return ser.createNewMatsTrace(_traceId, flowId, _keepTrace, _nonPersistent, _interactive,
+                    _timeToLive)
+                    // TODO: Add debug info!
+                    .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                            _parentFactory.getFactoryConfig().getAppVersion(),
+                            _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!");
+        }
+
+        private void addDebugInfoToCurrentCall(long now, MatsTrace<Z> matsTrace) {
+            // TODO: Add debug info!
+            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                    _parentFactory.getFactoryConfig().getAppVersion(),
+                    _parentFactory.getFactoryConfig().getNodename(), now,
+                    createMatsMessageId(matsTrace.getFlowId(), now, now),
+                    "Callalala!");
+            copyOverAnyExistingTraceProperties(matsTrace);
         }
 
         @Override
@@ -392,25 +404,15 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             checkCommon("All of 'traceId', 'from' and 'to' must be set when send(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             long now = System.currentTimeMillis();
-            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTrace, _nonPersistent, _interactive)
-                    // TODO: Add debug info!
-                    .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                            _parentFactory.getFactoryConfig().getAppVersion(),
-                            _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!")
-                    .setTimeToLive(_timeToLive)
+            MatsTrace<Z> matsTrace = createMatsTrace(ser, now)
                     .addSendCall(_from,
                             _to, MessagingModel.QUEUE,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
 
             copyOverAnyExistingTraceProperties(matsTrace);
 
-            String matsMessageId = createMatsMessageId();
-
             // TODO: Add debug info!
-            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                    _parentFactory.getFactoryConfig().getAppVersion(),
-                    _parentFactory.getFactoryConfig().getNodename(), now, matsMessageId,
-                    "Callalala!");
+            addDebugInfoToCurrentCall(now, matsTrace);
 
             // Produce the new SEND JmsMatsMessage to send
             JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
@@ -421,7 +423,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             // Reset, in preparation for more messages
             reset();
 
-            return new MessageReferenceImpl(matsMessageId);
+            return new MessageReferenceImpl(matsTrace.getCurrentCall().getMatsMessageId());
         }
 
         @Override
@@ -435,25 +437,12 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             checkCommon("All of 'traceId', 'from' and 'to' must be set when publish(..)");
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             long now = System.currentTimeMillis();
-            MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, _keepTrace, _nonPersistent, _interactive)
-                    // TODO: Add debug info!
-                    .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                            _parentFactory.getFactoryConfig().getAppVersion(),
-                            _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!")
-                    .setTimeToLive(_timeToLive)
+            MatsTrace<Z> matsTrace = createMatsTrace(ser, now)
                     .addSendCall(_from,
                             _to, MessagingModel.TOPIC,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
 
-            copyOverAnyExistingTraceProperties(matsTrace);
-
-            String matsMessageId = createMatsMessageId();
-
-            // TODO: Add debug info!
-            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                    _parentFactory.getFactoryConfig().getAppVersion(),
-                    _parentFactory.getFactoryConfig().getNodename(), now, matsMessageId,
-                    "Callalala!");
+            addDebugInfoToCurrentCall(now, matsTrace);
 
             // Produce the new PUBLISH JmsMatsMessage to send
             JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
@@ -464,7 +453,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             // Reset, in preparation for more messages
             reset();
 
-            return new MessageReferenceImpl(matsMessageId);
+            return new MessageReferenceImpl(matsTrace.getCurrentCall().getMatsMessageId());
         }
 
         private static final Charset CHARSET_UTF8 = Charset.forName("UTF-8");
