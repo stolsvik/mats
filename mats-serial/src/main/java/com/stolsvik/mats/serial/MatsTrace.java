@@ -294,7 +294,9 @@ public interface MatsTrace<Z> {
 
         /**
          * Can only be set once.
-         * @param matsMessageId REMEMBER to prefix this by {@link MatsTrace#getFlowId()}, separated with a "_".
+         * 
+         * @param matsMessageId
+         *            REMEMBER to prefix this by {@link MatsTrace#getFlowId()}, separated with a "_".
          */
         Call<Z> setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
                 long calledTimestamp, String matsMessageId, String debugInfo);
@@ -310,6 +312,15 @@ public interface MatsTrace<Z> {
         String getMatsMessageId();
 
         String getDebugInfo();
+
+        /**
+         * @return Which call this is in the call flow, starting from 1. That is, you can either see it as which number
+         *         of message this is in the flow (i.e. the first sent message is 1), or how many times
+         *         {@link MatsTrace#addRequestCall(String, String, MessagingModel, String, MessagingModel, Object, Object, Object)
+         *         MatsTrace.add[Request|Send|Reply..](..)} has been invoked on this MatsTrace (i.e. the first call
+         *         added is thus number 1). You can also think of the initiator as the "0th process".
+         */
+        int getCallNumber();
 
         CallType getCallType();
 

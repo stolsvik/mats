@@ -385,10 +385,11 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
         private void addDebugInfoToCurrentCall(long now, MatsTrace<Z> matsTrace) {
             // TODO: Add debug info!
-            matsTrace.getCurrentCall().setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+            Call<Z> currentCall = matsTrace.getCurrentCall();
+            currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                     _parentFactory.getFactoryConfig().getAppVersion(),
                     _parentFactory.getFactoryConfig().getNodename(), now,
-                    createMatsMessageId(matsTrace.getFlowId(), now, now),
+                    createMatsMessageId(matsTrace.getFlowId(), now, now, currentCall.getCallNumber()),
                     "Callalala!");
             copyOverAnyExistingTraceProperties(matsTrace);
         }

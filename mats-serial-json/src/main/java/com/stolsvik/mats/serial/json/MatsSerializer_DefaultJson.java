@@ -132,6 +132,7 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
     }
 
     @Override
+    @Deprecated
     public MatsTrace<String> createNewMatsTrace(String traceId, KeepMatsTrace keepMatsTrace, boolean nonPersistent,
             boolean interactive) {
         return MatsTraceStringImpl.createNew(traceId, keepMatsTrace, nonPersistent, interactive);

@@ -317,16 +317,15 @@ public interface JmsMatsStatics {
     default String createFlowId(long creationTimeMillis) {
         // 2^122 = 5316911983139663491615228241121378304 // "type 4 (random) UUID"
         // 62^20 = 704423425546998022968330264616370176 // This ID
-        // Feels good enough. 1 more would have totally topped it, but this is way too long already.
+        // Feels good enough. One more letter would have totally topped it, but this is way too much already.
         return "m_" + randomString(20) + "_T" + Long.toUnsignedString(creationTimeMillis, 36);
     }
 
-    default String createMatsMessageId(String flowId, long matsTraceCreationMillis, long messageCreationMillis) {
-        // 62^4 = 14776336
-        // Since the currentTimeMillis is added, you would need to hit collision within a millsecond.
-        // A MatsMessageId ends up looking like this: 'm_6uQdsBqLCafL2vkVP1w7_Tjzsv4kqt_32_UEx8'
+    default String createMatsMessageId(String flowId, long matsTraceCreationMillis, long messageCreationMillis,
+            int callNumber) {
+        // A MatsMessageId ends up looking like this: 'm_XBExAa1iioAGFVRk6nR5_Tjzswm4ys_t49_n22'
         // NOTICE THIS FEATURE: You can double-click anywhere inside that string, and get the entire id marked!!
-        return flowId + "_" + (messageCreationMillis - matsTraceCreationMillis) + "_" + randomString(4);
+        return flowId + "_t" + (messageCreationMillis - matsTraceCreationMillis) + "_n" + callNumber;
     }
 
     default String id(String what, Object obj) {
