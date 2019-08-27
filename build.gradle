@@ -27,7 +27,7 @@ subprojects {
     repositories { mavenCentral() }
 
     group = 'com.stolsvik.mats'
-    version = '0.5.0'
+    version = '0.6.0'
 
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
