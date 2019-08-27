@@ -323,9 +323,14 @@ public interface JmsMatsStatics {
 
     default String createMatsMessageId(String flowId, long matsTraceCreationMillis, long messageCreationMillis,
             int callNumber) {
+        // Since we can have clock skews between servers, and we do not want a "-" in the messageId (due to the
+        // double-clickableness mentioned below), we make -10 -> "n10".
+        long millisSince = messageCreationMillis - matsTraceCreationMillis;
+        String millisSinceString = millisSince > 0 ? Long.toString(millisSince) : "n" + Math.abs(millisSince);
         // A MatsMessageId ends up looking like this: 'm_XBExAa1iioAGFVRk6nR5_Tjzswm4ys_t49_n22'
-        // NOTICE THIS FEATURE: You can double-click anywhere inside that string, and get the entire id marked!!
-        return flowId + "_t" + (messageCreationMillis - matsTraceCreationMillis) + "_n" + callNumber;
+        // Or for negative millisSince: 'm_XBExAa1iioAGFVRk6nR5_Tjzswm4ys_tn49_n22'
+        // NOTICE FEATURE: You can double-click anywhere inside that string, and get the entire id marked! w00t!
+        return flowId + "_t" + millisSinceString + "_n" + callNumber;
     }
 
     default String id(String what, Object obj) {
