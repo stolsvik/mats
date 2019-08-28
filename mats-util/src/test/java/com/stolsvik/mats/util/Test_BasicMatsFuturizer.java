@@ -16,6 +16,8 @@ import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 
 /**
+ * Basic tests of the MatsFuturizer.
+ *
  * @author Endre Stølsvik 2019-08-28 00:22 - http://stolsvik.com/, endre@stolsvik.com
  */
 public class Test_BasicMatsFuturizer extends MatsBasicTest {
@@ -50,6 +52,7 @@ public class Test_BasicMatsFuturizer extends MatsBasicTest {
             log.info("Got the reply from the Future - the latency was " + (System.currentTimeMillis()
                     - result.initiatedTimestamp) + " milliseconds");
         }
+        Thread.sleep(200);
     }
 
     @Test
