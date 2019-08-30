@@ -214,7 +214,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             synchronized (this) {
                 JmsSessionHolderImpl availableSessionHolder = _availableSessionHolders.pollFirst();
                 if (availableSessionHolder != null) {
-                    availableSessionHolder.setCurrentContext(txContextKey);
+                    availableSessionHolder.setCurrentContext("employed:" + txContextKey);
                     _employedSessionHolders.add(availableSessionHolder);
                     return availableSessionHolder;
                 }
@@ -236,6 +236,8 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                 // Stick them into a SessionHolder
                 JmsSessionHolderImpl jmsSessionHolder = new JmsSessionHolderImpl(txContextKey, this, jmsSession,
                         messageProducer);
+                // Set context
+                jmsSessionHolder.setCurrentContext("employed:" + txContextKey);
                 // Employ it.
                 synchronized (this) {
                     _employedSessionHolders.add(jmsSessionHolder);
@@ -255,7 +257,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             }
         }
 
-        private volatile Exception _crashed_StackTrace;
+        private volatile Exception _poolIsCrashed_StackTrace;
 
         /**
          * Invoked by SessionHolders when their {@link JmsSessionHolderImpl#release()} is invoked.
@@ -264,20 +266,24 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
          *            the session holder to be returned.
          */
         void release(JmsSessionHolderImpl jmsSessionHolder) {
-            jmsSessionHolder.setCurrentContext("available");
-            if (_crashed_StackTrace != null) {
-                if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "[" + this + "] release() from [" + jmsSessionHolder
-                        + "], but evidently it had crashed, so close it off.");
-                internalClose(jmsSessionHolder);
+            // ?: Is the pool already crashed?
+            if (_poolIsCrashed_StackTrace != null) {
+                jmsSessionHolder.setCurrentContext("released-crashed");
+                log.info(LOG_PREFIX + "[" + this + "] release() from [" + jmsSessionHolder
+                        + "], but evidently the pool is already crashed. Cleaning it out.");
+                // NOTICE! Since the ConnectionWithSessionPool is already crashed, the JMS Connection is already closed,
+                // which again implies that the JMS Session is already closed.
+                // Thus, only need to remove the SessionHolder; the JMS Session is already closed.
+                removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(jmsSessionHolder);
+                return;
             }
-            else {
-                if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "[" + this + "] release() from [" + jmsSessionHolder
-                        + "] - moving from 'employed' to 'available' set.");
-                synchronized (this) {
-                    jmsSessionHolder.setCurrentContext("available");
-                    _employedSessionHolders.remove(jmsSessionHolder);
-                    _availableSessionHolders.addFirst(jmsSessionHolder);
-                }
+            // E-> Not already crashed, so enpool it.
+            jmsSessionHolder.setCurrentContext("available");
+            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "[" + this + "] release() from [" + jmsSessionHolder
+                    + "] - moving from 'employed' to 'available' set.");
+            synchronized (this) {
+                _employedSessionHolders.remove(jmsSessionHolder);
+                _availableSessionHolders.addFirst(jmsSessionHolder);
             }
         }
 
@@ -288,9 +294,93 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
          *            the session holder to be closed (also physically).
          */
         void close(JmsSessionHolderImpl jmsSessionHolder) {
+            if (_poolIsCrashed_StackTrace != null) {
+                jmsSessionHolder.setCurrentContext("closed-crashed");
+                log.info(LOG_PREFIX + "[" + this + "] close() from [" + jmsSessionHolder
+                        + "], but evidently the pool is already crashed. Cleaning it out.");
+                // NOTICE! Since the ConnectionWithSessionPool is already crashed, the JMS Connection is already closed,
+                // which again implies that the JMS Session is already closed.
+                // Thus, only need to remove the SessionHolder; the JMS Session is already closed.
+                removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(jmsSessionHolder);
+                return;
+            }
+            // E-> Not already crashed, so close it nicely.
+            jmsSessionHolder.setCurrentContext("closed");
             log.info(LOG_PREFIX + "[" + this + "] close() from [" + jmsSessionHolder + "]"
                     + " - removing from pool and then physically closing JMS Session.");
             internalClose(jmsSessionHolder);
+        }
+
+        /**
+         * Invoked by SessionHolders when their {@link JmsSessionHolderImpl#crashed(Throwable)} is invoked.
+         *
+         * @param jmsSessionHolder
+         *            the session holder that crashed, which will be closed (also physically)
+         * @param reasonException
+         *            the Exception that was deemed as a JMS crash.
+         */
+        void crashed(JmsSessionHolderImpl jmsSessionHolder, Throwable reasonException) {
+            jmsSessionHolder.setCurrentContext("crashed");
+            if (log.isWarnEnabled()) log.warn(LOG_PREFIX + "[" + this + "] crashed() from [" + jmsSessionHolder
+                    + "] - crashing: Closing JMS Connection, which closes all its Sessions.");
+
+            // ?: Are we already crashed?
+            if (_poolIsCrashed_StackTrace != null) {
+                // -> Yes, so then everything should already have been taken care of.
+                log.info(LOG_PREFIX + " -> Already crashed and closed.");
+                // NOTICE! Since the ConnectionWithSessionPool is already crashed, the JMS Connection is already closed,
+                // which again implies that the JMS Session is already closed.
+                // Thus, only need to remove the SessionHolder, the JMS Session is already closed.
+                removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(jmsSessionHolder);
+                return;
+            }
+            // Lock both the whole Handler, and this ConnectionWithSessionPool instance, to avoid having threads sneak
+            // by and getting either an available Session, or the Connection.
+            // Lock order: Bigger to smaller objects.
+            log.info(LOG_PREFIX + "[" + this
+                    + "] Marking as crashed, clearing available SessionHolders, moving us from"
+                    + " live to dead ConnectionWithSessionPool.");
+            assertBigToSmallLockOrder();
+            synchronized (JmsMatsJmsSessionHandler_Pooling.this) {
+                synchronized (this) {
+                    // Crash this pool
+                    _poolIsCrashed_StackTrace = new Exception("This [" + this + "] was crashed.", reasonException);
+                    // Clear available SessionHolders (will close Connection, and thus Sessions, outside of synch).
+                    _availableSessionHolders.clear();
+                    // Removing this SessionHolder from employed
+                    boolean closeJmsConnection = removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(
+                            jmsSessionHolder);
+                    // ?: Was this the last session?
+                    if (!closeJmsConnection) {
+                        // -> No, it was not the last session, so move us to the crashed-set
+                        // Remove us from the live connections set.
+                        _liveConnectionWithSessionPools.remove(_poolingKey);
+                        // Add us to the crashed set
+                        _crashedConnectionWithSessionPools.put(_poolingKey, this);
+                    }
+                    /*
+                     * NOTE: Any other employed SessionHolders will invoke isConnectionStillActive(), and find that it
+                     * is not still active by getting a JmsMatsJmsException, thus come back with crashed(). Otherwise,
+                     * they will also come get a JMS Exception from other JMS actions, and come back with crashed(). It
+                     * could potentially also get a null from .receive(), and thus come back with close().
+                     */
+                }
+            }
+            // :: Now close the JMS Connection, since this was a crash, and we want to get rid of it.
+            // Closing JMS Connection will per JMS API close all Sessions, Consumers and Producers.
+            closeJmsConnection();
+        }
+
+        private void assertBigToSmallLockOrder() {
+            // If we at this point only have 'this' locked, and not "mother", then we're screwed.
+            // Both none locked, and both locked, is OK.
+            if (Thread.holdsLock(this) && (!Thread.holdsLock(JmsMatsJmsSessionHandler_Pooling.this))) {
+                throw new AssertionError("When locking both '"
+                        + JmsMatsJmsSessionHandler_Pooling.class.getSimpleName()
+                        + "' and '" + ConnectionWithSessionPool.class.getSimpleName() + "', one shall not"
+                        + " start by having the pool locked, as that is the smaller, and the defined"
+                        + " locking order is big to small.");
+            }
         }
 
         private void internalClose(JmsSessionHolderImpl jmsSessionHolder) {
@@ -321,82 +411,9 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             }
         }
 
-        /**
-         * Invoked by SessionHolders when their {@link JmsSessionHolderImpl#crashed(Throwable)} is invoked.
-         *
-         * @param jmsSessionHolder
-         *            the session holder that crashed, which will be closed (also physically)
-         * @param reasonException
-         *            the Exception that was deemed as a JMS crash.
-         */
-        void crashed(JmsSessionHolderImpl jmsSessionHolder, Throwable reasonException) {
-            jmsSessionHolder.setCurrentContext("crashed");
-            if (log.isWarnEnabled()) log.warn(LOG_PREFIX + "[" + this + "] crashed() from [" + jmsSessionHolder
-                    + "] - crashing: Closing JMS Connection, which closes all its Sessions.");
-
-            // ?: Are we already crashed?
-            if (_crashed_StackTrace != null) {
-                // -> Yes, so then everything should already have been taken care of.
-                if (log.isInfoEnabled()) log.info(LOG_PREFIX + " -> Already crashed and closed.");
-                // NOTICE! Since the ConnectionWithSessionPool is already crashed, the JMS Connection is already closed,
-                // which again implies that the JMS Session is already closed.
-                // Thus, only need to remove the SessionHolder, the JMS Session is already closed.
-                removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(jmsSessionHolder);
-                return;
-            }
-            // Lock both the whole Handler, and this ConnectionWithSessionPool instance, to avoid having threads sneak
-            // by and getting either an available Session, or the Connection.
-            // Lock order: Bigger to smaller objects.
-            if (log.isInfoEnabled()) log.info(LOG_PREFIX + "[" + this
-                    + "] Marking as crashed, clearing available SessionHolders, moving us from"
-                    + " live to dead ConnectionWithSessionPool.");
-            assertBigToSmallLockOrder();
-            synchronized (JmsMatsJmsSessionHandler_Pooling.this) {
-                synchronized (this) {
-                    // Crash this
-                    _crashed_StackTrace = new Exception("This [" + this + "] was crashed.", reasonException);
-                    // Clear available SessionHolders (will close Connection, and thus Sessions, outside of synch).
-                    _availableSessionHolders.clear();
-                    // Removing this SessionHolder from employed
-                    boolean closeJmsConnection = removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(
-                            jmsSessionHolder);
-                    // ?: Was this the last session?
-                    if (!closeJmsConnection) {
-                        // -> No, it was not the last session, so move us to the crashed-set
-                        // Remove us from the live connections set.
-                        _liveConnectionWithSessionPools.remove(_poolingKey);
-                        // Add us to the crashed set
-                        _crashedConnectionWithSessionPools.put(_poolingKey, this);
-                    }
-                    /*
-                     * NOTE: Any other employed SessionHolders will invoke isConnectionStillActive(), and find that it
-                     * is not by getting a JmsMatsJmsException, thus come back with crashed(). Otherwise, they will also
-                     * come get a JMS Exception from other JMS actions, and come back with crashed(). It could
-                     * potentially also get a null from .receive(), and thus come back with close().
-                     */
-                }
-            }
-            // :: Now close the JMS Connection, since this was a crash, and we want to get rid of it.
-            // Closing JMS Connection will per JMS API close all Sessions, Consumers and Producers.
-            closeJmsConnection();
-        }
-
-        private void assertBigToSmallLockOrder() {
-            // If we at this point only have 'this' locked, and not "mother", then we're screwed.
-            // Both none locked, and both locked, is OK.
-            if (Thread.holdsLock(this) && (!Thread.holdsLock(JmsMatsJmsSessionHandler_Pooling.this))) {
-                throw new AssertionError("When locking both '"
-                        + JmsMatsJmsSessionHandler_Pooling.class.getSimpleName()
-                        + "' and '" + ConnectionWithSessionPool.class.getSimpleName() + "', one shall not"
-                        + " start by having the pool locked, as that is the smaller, and the defined"
-                        + " locking order is big to small.");
-            }
-        }
-
         private boolean removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(
                 JmsSessionHolderImpl jmsSessionHolder) {
-            if (log.isInfoEnabled()) log.info(LOG_PREFIX + "[" + this + "] Removing [" + jmsSessionHolder
-                    + "] from pool.");
+            log.info(LOG_PREFIX + "[" + this + "] Removing [" + jmsSessionHolder + "] from pool.");
 
             // Lock both the whole Handler, and this ConnectionWithSessionPool instance, to avoid having threads sneak
             // by and getting either an available Session, or the Connection.
@@ -439,8 +456,8 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
          * Will be invoked by all SessionHolders at various times in {@link JmsMatsStageProcessor}.
          */
         void isConnectionStillActive() throws JmsMatsJmsException {
-            if (_crashed_StackTrace != null) {
-                throw new JmsMatsJmsException("Connection is crashed.", _crashed_StackTrace);
+            if (_poolIsCrashed_StackTrace != null) {
+                throw new JmsMatsJmsException("Connection is crashed.", _poolIsCrashed_StackTrace);
             }
             JmsMatsActiveMQSpecifics.isConnectionLive(_jmsConnection);
         }
@@ -452,7 +469,8 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                 available = _availableSessionHolders.size();
                 employed = _employedSessionHolders.size();
             }
-            return idThis() + "{pool:" + (_crashed_StackTrace == null ? "live" : "crashed") + "|sess avail:" + available
+            return idThis() + "{pool:" + (_poolIsCrashed_StackTrace == null ? "live" : "crashed") + "|sess avail:"
+                    + available
                     + ",empl:" + employed + "}";
         }
     }
