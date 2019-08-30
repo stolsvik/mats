@@ -52,7 +52,6 @@ public class Test_BasicMatsFuturizer extends MatsBasicTest {
             log.info("Got the reply from the Future - the latency was " + (System.currentTimeMillis()
                     - result.initiatedTimestamp) + " milliseconds");
         }
-        Thread.sleep(200);
     }
 
     @Test

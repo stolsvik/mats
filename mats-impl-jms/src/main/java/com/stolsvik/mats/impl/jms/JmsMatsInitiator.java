@@ -219,7 +219,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 // -> Yes, initiation within a Stage.
                 // Set the initial traceId - any setting of TraceId is appended.
                 _traceId = _existingMatsTrace.getTraceId();
-                _from = _existingMatsTrace.getCurrentCall().getFrom();
+                // Set the initial from (initiatorId), which is the current processing stage
+                _from = _existingMatsTrace.getCurrentCall().getTo().getId();
 
                 // Copy over the properties which so far has been set in the stage (before this message is initiated).
                 _props.clear();
@@ -378,6 +379,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             return ser.createNewMatsTrace(_traceId, flowId, _keepTrace, _nonPersistent, _interactive,
                     _timeToLive)
                     // TODO: Add debug info!
+                    // NOTE! We set "from" both on the MatsTrace, AND on the initial Call, so that you can have the
+                    // origin of the flow even though it is in KeepTrace.MINIMAL mode.
                     .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                             _parentFactory.getFactoryConfig().getAppVersion(),
                             _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!");

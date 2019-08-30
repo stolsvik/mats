@@ -37,7 +37,7 @@ public class MatsFuturizer implements AutoCloseable {
      * Creates a MatsFuturizer, <b>and you should only need one per MatsFactory</b> (which again mostly means one per
      * application or micro-service or JVM). The number of threads in the future-completer-pool is
      * {@link Runtime#availableProcessors()} for "corePoolSize" (i.e. "min") and availableProcessors * 5 for
-     * "maximumPoolSize" (i.e. max). The pool is created using the method {@link #_newThreadPool(int, int)}.
+     * "maximumPoolSize" (i.e. max).
      * 
      * @param matsFactory
      *            The underlying {@link MatsFactory} on which outgoing messages will be sent, and on which the receiving
@@ -298,6 +298,7 @@ public class MatsFuturizer implements AutoCloseable {
 
     protected void _startTimeouterThread() {
         Runnable timeouter = () -> {
+            log.info("MatsFuturizer Timeouter-thread: Started!");
             while (_runFlag) {
                 List<Promise<?>> promisesToTimeout = new ArrayList<>();
                 synchronized (_correlationIdToPromiseMap) {
@@ -397,8 +398,10 @@ public class MatsFuturizer implements AutoCloseable {
      * <code>@Bean</code>, and will register it as a destroy method.
      */
     public void close() {
-        log.info("MatsFuturizer.close() invoked: Shutting down future-completion-threadpool and timeouter-thread.");
+        log.info("MatsFuturizer.close() invoked: Shutting down reply-handler-endpoint, future-completer-threadpool,"
+                + " timeouter-thread, and cancelling any outstanding futures.");
         _runFlag = false;
+        _replyHandlerEndpoint.stop(5000);
         _threadPool.shutdown();
         // :: Find all remainging Promises, and notify Timeouter-thread that we're dead.
         List<Promise<?>> promisesToCancel = new ArrayList<>();

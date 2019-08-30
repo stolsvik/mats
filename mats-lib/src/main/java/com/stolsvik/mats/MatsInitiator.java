@@ -11,9 +11,9 @@ import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 
 /**
- * Provides a way to get a {@link MatsInitiate} instance "from the outside" of MATS, i.e. from a synchronous context. On
- * this instance, you invoke {@link #initiate(InitiateLambda)}, where the lambda will provide you with the necessary
- * {@link MatsInitiate} instance.
+ * Provides the means to get a {@link MatsInitiate} instance "from the outside" of MATS, i.e. from a synchronous
+ * context. On this instance, you invoke {@link #initiate(InitiateLambda)}, where the lambda will provide you with the
+ * necessary {@link MatsInitiate} instance.
  * <p/>
  * <b>Notice: This class is Thread Safe</b> - you are not supposed to make one instance per message initiation, but
  * rather make one (or a few) for the entire application, and use it/them for all your initiation needs.
@@ -61,9 +61,9 @@ public interface MatsInitiator extends Closeable {
     /**
      * Will be thrown by the {@link MatsInitiator#initiate(InitiateLambda)}-method if it is not possible at this time to
      * establish a connection to the underlying messaging system (e.g. to ActiveMQ if used in JMS implementation with
-     * ActiveMQ as JMS Message Broker), or if there was any other kind of problems interacting with the it. Do note that
-     * in all cases of this exception, any other external resource (typically database) will not have been committed -
-     * unlike if you get the {@link MatsMessageSendException}.
+     * ActiveMQ as JMS Message Broker), or if there was any other kind of problems interacting with the MQ. Do note that
+     * in all cases of this exception, any other external resource (typically database) will <b>not</b> have been
+     * committed - unlike if you get the {@link MatsMessageSendException}.
      */
     class MatsBackendException extends Exception {
         public MatsBackendException(String message) {
@@ -125,7 +125,7 @@ public interface MatsInitiator extends Closeable {
      * <p/>
      * Notice that it has been decided to not let this exception extend the {@link MatsBackendException}, even though it
      * is definitely a backend problem. The reason is that it in all situations where {@code MatsBackendException} is
-     * raised, the other resources have not been committed yet, as opposed to situations where
+     * raised, the other resources have not been committed yet, as opposed to situations where this
      * {@code MatsMessageSendException} is raised. Luckily, in this time and age, we have multi-exception catch blocks
      * if you want to handle both the same.
      */
@@ -185,46 +185,65 @@ public interface MatsInitiator extends Closeable {
      * {@link MatsFactory#getDefaultInitiator()}, and then {@link MatsInitiator#initiate(InitiateLambda)} on that.
      * <p/>
      * To initiate a new message "from the inside", i.e. while already inside a {@link MatsStage processing stage} of an
-     * endpoint, get it by invoking {@link ProcessContext#initiate(InitiateLambda)}.
+     * endpoint, get it by invoking {@link ProcessContext#initiate(InitiateLambda)}. (Notice that initiating a
+     * <i>new</i> message flow from within a processing stage is a much less common operation than performing a
+     * {@link ProcessContext#request(String, Object) request} and other "call flow" operations. Initiating a new message
+     * from within a processing stage is effectively a "fork" from the flow you are in.)
      *
      * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
      */
     interface MatsInitiate {
         /**
-         * Sets (or appends with a "|" in case of {@link ProcessContext#initiate(InitiateLambda) initiation within a
-         * stage}) the supplied <i>Trace Id</i>, which is solely used for logging and debugging purposes. It should be
-         * unique, at least to a degree where it is <u>very</u> unlikely that you will have two identical traceIds
-         * within a couple of years.
+         * Sets (or appends with a joining "|" in case of {@link ProcessContext#initiate(InitiateLambda) initiation
+         * within a stage}) the supplied <i>Trace Id</i>, which is solely used for logging and debugging purposes. It
+         * should be unique, at least to a degree where it is <u>very</u> unlikely that you will have two identical
+         * traceIds within a couple of years.
          * <p/>
          * Since this is very important when doing distributed and asynchronous architectures, it is mandatory.
          * <p/>
          * The traceId follows a MATS processing from the initiation until it is finished, usually in a Terminator.
          * <p/>
-         * <b>It is strongly recommended to use small, dense, information rich Trace Ids.</b> Sticking in an UUID as
-         * Trace Id certainly fulfils the uniqueness-requirement, but it is a crappy solution, as it by itself does not
-         * give any hint of source, cause, relevant entities, or goal. <i>(It isn't even dense for the uniqueness an
+         * It should be a world-unique Id, preferably set all the way back when some actual person performed some event.
+         * E.g. in a "new order" situation, the Id would best be set when the user clicked the "place order" button on
+         * the web page - or maybe even derived from the event when he first initiated the shopping cart - or maybe even
+         * when he started the session. The point is that when using e.g. Kibana or Splunk to track events that led some
+         * some outcome, a robust, versatile and information-rich track/trace Id makes wonders.
+         * <p/>
+         * <b>It is strongly recommended to use small, dense, <u>information rich</u> Trace Ids.</b> Sticking in an UUID
+         * as Trace Id certainly fulfils the uniqueness-requirement, but it is a crappy solution, as it by itself does
+         * not give any hint of source, cause, relevant entities, or goal. <i>(It isn't even dense for the uniqueness an
          * UUID gives, which also is way above the required uniqueness unless you handle billions of such messages per
-         * minute. A random alphanum (a-z,0-9) string of much smaller length would give plenty enough uniqueness).</i>
-         * The following would be a much better Trace Id than a random UUID, which follows some scheme that could be
-         * system wide: "Web.placeOrder[cid:43512][cart:xa4ru5285fej]qz7apy9". From this example TraceId we could infer
-         * that it originated at the <i>Web system</i>, it regards <i>Placing an order</i> for <i>Customer Id 43512</i>,
-         * it regards the <i>Shopping Cart Id xa4ru5285fej</i>, and it contains some uniqueness ('qz7apy9') generated at
-         * the initiating, so that even if the customer managed to click three times on the "place order" button for the
-         * same cart, you would still be able to separate the resulting three different Mats call flows.
+         * minute. A random alphanum (A-Z,a-z,0-9) string of much smaller length would give plenty enough
+         * uniqueness).</i> The following would be a much better Trace Id than a random UUID, which follows some scheme
+         * that could be system wide: "Web.placeOrder[cid:43512][cart:xa4ru5285fej]qz7apy9". From this example TraceId
+         * we could infer that it originated at the <i>Web system</i>, it regards <i>Placing an order</i> for
+         * <i>Customer Id 43512</i>, it regards the <i>Shopping Cart Id xa4ru5285fej</i>, and it contains some
+         * uniqueness ('qz7apy9') generated at the initiating, so that even if the customer managed to click three times
+         * on the "place order" button for the same cart, you would still be able to separate the resulting three
+         * different Mats call flows.
+         * <p/>
+         * You should consider storing the traceId as a column in any inserted rows in any databases that was affected
+         * by this call flow, i.e. along with the placed order. It also makes very good sense to tie together "sub
+         * flows" by prefixing new traceIds with the originating traceId (use a "+" to separate the sub-traceIds). In
+         * the order/shipping example, the user would first have placed an order, resulting in some entries in an order
+         * database - where the traceId was stored along. Then, when you initiated the filling process, you would pick
+         * up the order's traceId and prepend that to the new "fill order" traceId which includes the "filling batch
+         * id", the two separated by a "+" sign. If you took this all the way, you could in your logging system follow
+         * the initial click on the web page, through the order, order processing, shipment and all the way to the
+         * delivered and signed package on the person's door - even if the entirety of the order fulfillment consists of
+         * multiple "stop and go" sub-flows (the stops being where the process stays for a while as an entry in a
+         * database, here "order", then "processing", "filling", "shipping" and finally "delivery", or whatever your
+         * multiple processes flow consists of).
          * <p/>
          * (For the default implementation "JMS Mats", the Trace Id is set on the {@link MDC} of the SLF4J logging
          * system, using the key "traceId". Since this implementation logs a few lines per handled message, in addition
          * to any log lines you emit yourself, you will, by collecting the log lines in a common log system (e.g. the
          * ELK stack), be able to very easily follow the processing trace through all the services the call flow
-         * passed.)
+         * passes.)
          *
          * @param traceId
-         *            some world-unique Id, preferably set all the way back when some actual person performed some event
-         *            (e.g. in a "new order" situation, the Id would best be set when the user clicked the "place order"
-         *            button - or maybe even derived from the event when he first initiated the shopping cart - or maybe
-         *            even when he started the session. The point is that when using e.g. Kibana or Splunk to track
-         *            events that led some some outcome, a robust, versatile and information-rich track/trace Id makes
-         *            wonders).
+         *            the traceId that will follow the mats trace from initiation (first call) to termination (last
+         *            call, where the flow ends).
          * @return the {@link MatsInitiate} for chaining.
          */
         MatsInitiate traceId(String traceId);
@@ -273,10 +292,10 @@ public interface MatsInitiator extends Closeable {
          * <p/>
          * This implies that MATS defines two levels of prioritization: "Ordinary" and "Interactive". Most processing
          * should employ the default, i.e. "Ordinary", while places where <i><u>a human is actually waiting for the
-         * reply</u></i> should employ the fast-lane, i.e. "Interactive". It is important here to not abuse this
+         * reply</u></i> should employ the fast-lane, i.e. "Interactive". It is <b>imperative</b> to not abuse this
          * feature, or else it will loose its value: If batches are going too slow, nothing will be gained by setting
          * the interactive flag except destroying the entire point of this feature. Instead use higher parallelism: By
-         * increasing {@link MatsConfig#setConcurrency(int) concurrency}, or the number of nodes, running the
+         * increasing {@link MatsConfig#setConcurrency(int) concurrency} or the number of nodes that is running the
          * problematic endpoint or stage; increase the speed and/or throughput of external systems like the database; or
          * somehow just code the whole thing to be faster!
          * <p/>
@@ -335,24 +354,24 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate timeToLive(long millis);
 
         /**
-         * Sets the fictive originating/initiating free-form "endpointId" - only used for tracing/debugging. If this
-         * message is initiated from within a stage, i.e. by use of {@link ProcessContext#initiate(InitiateLambda)}, the
+         * Sets the originating/initiating "synthetic endpoint Id" - only used for tracing/debugging. If this message is
+         * initiated <i>from within a stage</i>, i.e. by use of {@link ProcessContext#initiate(InitiateLambda)}, the
          * 'from' property is already set to the stageId of the currently processing Stage, but it can be
          * <b>overridden</b> if desired.
          * <p/>
          * A typical value that would be of use when debugging a call trace is something following a structure like
-         * <code>"OrderService.initiator.processOrder"</code>.
+         * <code>"OrderService.REST.placeOrderFromUser"</code>, this example trying to convey that it is from the
+         * OrderSystem, over its REST endpoints, placing an order from the user.
          * <p/>
-         * <b>NOTE:</b> This is only used for tracing/debugging, <b>and is free-form</b>. If the initiation is based on
-         * a HTTP call, e.g. a REST endpoint, it is suggested to add the URL, e.g.
-         * <code>"OrderService.initiator.processOrder:orders/place_order?cartId=12345"</code>
+         * <b>NOTE:</b> This is only used for tracing/debugging, but should be set to something that will give insights
+         * when you try to make sense of call flows. Think of a introspection system showing a histogram of where
+         * messages are initiated, so that you can see that 45% of the messages are coming from the OrderSystem's REST
+         * endpoints, and 15% of all initiations are its "placeOrderFromUser". This also implies that it shall not be a
+         * "dynamic" value, i.e. do not put something that will vary between each "placeOrderFromUser" call, that is, do
+         * NOT add the user's Id or something like that. That is what the {@link #traceId(String)} is for.
          *
          * @param initiatorId
-         *            a fictive, free-form "endpointId" representing the "initiating endpoint" - only used for
-         *            tracing/debugging. A typical value that would be of use when debugging a call trace is something
-         *            following a structure like <code>"OrderService.initiator.processOrder"</code>, or if the
-         *            initiation is based on a HTTP call, e.g. a REST endpoint, it is suggested to add the URL, e.g.
-         *            <code>"OrderService.initiator.processOrder:orders/place_order?cartId=12345"</code>
+         *            the originating/initiating "synthetic endpoint Id" - only used for tracing/debugging.
          * @return the {@link MatsInitiate} for chaining.
          */
         MatsInitiate from(String initiatorId);

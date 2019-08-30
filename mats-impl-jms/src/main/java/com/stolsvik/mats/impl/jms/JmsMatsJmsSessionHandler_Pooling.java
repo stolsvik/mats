@@ -94,7 +94,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                 employedSessions += connectionAndSession._employedSessionHolders.size();
             }
         }
-        log.info(LOG_PREFIX + " \\- Before closing available session: Live Connections:[" + liveConnectionsBefore
+        log.info(LOG_PREFIX + " \\- Before closing available sessions: Live Connections:[" + liveConnectionsBefore
                 + "], Available Sessions:[" + availableSessionsNowClosed
                 + "] :: After closing: Live Connections:[" + liveConnectionsAfter
                 + "], Still employed Sessions:[" + employedSessions + "].");
@@ -141,13 +141,17 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         return jmsSessionHolder;
     }
 
+    // Synchronized by /this/ (i.e. the JmsMatsJmsSessionHandler_Pooling instance)
     private IdentityHashMap<Object, ConnectionWithSessionPool> _liveConnectionWithSessionPools = new IdentityHashMap<>();
+    // Synchronized by /this/ (i.e. the JmsMatsJmsSessionHandler_Pooling instance)
     private IdentityHashMap<Object, ConnectionWithSessionPool> _crashedConnectionWithSessionPools = new IdentityHashMap<>();
 
     class ConnectionWithSessionPool implements JmsMatsStatics {
         final Object _poolingKey;
 
+        // Synchronized by /this/ (i.e. the ConnectionWithSessionPool instance)
         final Deque<JmsSessionHolderImpl> _availableSessionHolders = new ArrayDeque<>();
+        // Synchronized by /this/ (i.e. the ConnectionWithSessionPool instance)
         final Set<JmsSessionHolderImpl> _employedSessionHolders = new HashSet<>();
 
         final CountDownLatch _creatingConnectionCountDownLatch = new CountDownLatch(1);
@@ -260,13 +264,15 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
          *            the session holder to be returned.
          */
         void release(JmsSessionHolderImpl jmsSessionHolder) {
-            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "[" + this + "] release() from [" + jmsSessionHolder + "]"
-                    + " - moving from 'employed' to 'available' set.");
             jmsSessionHolder.setCurrentContext("available");
             if (_crashed_StackTrace != null) {
+                if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "[" + this + "] release() from [" + jmsSessionHolder
+                        + "], but evidently it had crashed, so close it off.");
                 internalClose(jmsSessionHolder);
             }
             else {
+                if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "[" + this + "] release() from [" + jmsSessionHolder
+                        + "] - moving from 'employed' to 'available' set.");
                 synchronized (this) {
                     jmsSessionHolder.setCurrentContext("available");
                     _employedSessionHolders.remove(jmsSessionHolder);
@@ -296,6 +302,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             if (closeJmsConnection) {
                 // -> Yes, last SessionHolder in this ConnectionWithSessionPool, so close the actual JMS Connection
                 // (NOTICE! This will also close any JMS Sessions, specifically the one in the closing SessionHolder)
+                // (NOTICE! The Connection will already have been removed from the pool in the above method invocation)
                 closeJmsConnection();
             }
             else {
@@ -364,8 +371,8 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                     /*
                      * NOTE: Any other employed SessionHolders will invoke isConnectionStillActive(), and find that it
                      * is not by getting a JmsMatsJmsException, thus come back with crashed(). Otherwise, they will also
-                     * come get a JMS Exception from other JMS actions, and come back with crashed(). It could potentially
-                     * also get a null from .receive(), and thus come back with close().
+                     * come get a JMS Exception from other JMS actions, and come back with crashed(). It could
+                     * potentially also get a null from .receive(), and thus come back with close().
                      */
                 }
             }
