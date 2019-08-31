@@ -25,7 +25,7 @@ import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 
 /**
- * Note: WIP.
+ * Note: Kick-ass.
  *
  * @author Endre Stølsvik 2019-08-25 20:35 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -36,8 +36,9 @@ public class MatsFuturizer implements AutoCloseable {
     /**
      * Creates a MatsFuturizer, <b>and you should only need one per MatsFactory</b> (which again mostly means one per
      * application or micro-service or JVM). The number of threads in the future-completer-pool is
-     * {@link Runtime#availableProcessors()} for "corePoolSize" (i.e. "min") and availableProcessors * 5 for
-     * "maximumPoolSize" (i.e. max).
+     * {@link Runtime#availableProcessors()} for "corePoolSize" (i.e. "min") and availableProcessors * 8 for
+     * "maximumPoolSize" (i.e. max). The pool is set up to let non-core threads expire after 5 minutes. The maximum
+     * number of outstanding promises is set to 50k.
      * 
      * @param matsFactory
      *            The underlying {@link MatsFactory} on which outgoing messages will be sent, and on which the receiving
@@ -52,14 +53,15 @@ public class MatsFuturizer implements AutoCloseable {
      */
     public static MatsFuturizer createMatsFuturizer(MatsFactory matsFactory, String endpointIdPrefix) {
         int cpus = Runtime.getRuntime().availableProcessors();
-        return createMatsFuturizer(matsFactory, endpointIdPrefix, cpus, cpus * 5);
+        return createMatsFuturizer(matsFactory, endpointIdPrefix, cpus, cpus * 8, 50_000);
     }
 
     /**
      * Creates a MatsFuturizer, <b>and you should only need one per MatsFactory</b> (which again mostly means one per
      * application or micro-service or JVM). With this constructor you can specify the number of threads in the
-     * future-completer-pool with the parameters "corePoolSize" and "maximumPoolSize" threads, which effectively means
-     * min and max.
+     * future-completer-pool with the parameters "corePoolSize" and "maxPoolSize" threads, which effectively means min
+     * and max. The pool is set up to let non-core threads expire after 5 minutes. You must also specify the max number
+     * of outstanding promises, if you want no effective limit, use {@link Integer#MAX_VALUE}.
      *
      * @param matsFactory
      *            The underlying {@link MatsFactory} on which outgoing messages will be sent, and on which the receiving
@@ -70,44 +72,49 @@ public class MatsFuturizer implements AutoCloseable {
      *            service name, like "OrderService" or "InventoryService".
      * @param corePoolSize
      *            the minimum number of threads in the future-completer-pool of threads.
-     * @param maximumPoolSize
+     * @param maxPoolSize
+     *            the maximum number of threads in the future-completer-pool of threads.
+     * @param maxPoolSize
      *            the maximum number of threads in the future-completer-pool of threads.
      * @return the {@link MatsFuturizer}, which is tied to a newly created
      *         {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
      *         SubscriptionTerminator}.
      */
     public static MatsFuturizer createMatsFuturizer(MatsFactory matsFactory, String endpointIdPrefix,
-            int corePoolSize, int maximumPoolSize) {
-        return new MatsFuturizer(matsFactory, endpointIdPrefix, corePoolSize, maximumPoolSize);
+            int corePoolSize, int maxPoolSize, int maxOutstandingPromises) {
+        return new MatsFuturizer(matsFactory, endpointIdPrefix, corePoolSize, maxPoolSize, maxOutstandingPromises);
     }
 
     protected final MatsFactory _matsFactory;
     protected final MatsInitiator _matsInitiator;
     protected final String _terminatorEndpointId;
     protected final ThreadPoolExecutor _threadPool;
+    protected final int _maxOutstandingPromises;
     protected final MatsEndpoint<Void, String> _replyHandlerEndpoint;
 
-    protected MatsFuturizer(MatsFactory matsFactory, String endpointIdPrefix, int corePoolSize, int maximumPoolSize) {
+    protected MatsFuturizer(MatsFactory matsFactory, String endpointIdPrefix, int corePoolSize, int maxPoolSize,
+            int maxOutstandingPromises) {
         _matsFactory = matsFactory;
         _matsInitiator = matsFactory.getDefaultInitiator();
         _terminatorEndpointId = endpointIdPrefix + ".private.Futurizer."
                 + _matsFactory.getFactoryConfig().getNodename();
-        _threadPool = _newThreadPool(corePoolSize, maximumPoolSize);
+        _threadPool = _newThreadPool(corePoolSize, maxPoolSize);
+        _maxOutstandingPromises = maxOutstandingPromises;
         _replyHandlerEndpoint = _matsFactory.subscriptionTerminator(_terminatorEndpointId, String.class,
                 MatsObject.class,
-                this::handleRepliesForPromises);
+                this::_handleRepliesForPromises);
         _startTimeouterThread();
     }
 
     public static class Reply<T> {
         public final DetachedProcessContext context;
         public final T reply;
-        public final long initiatedTimestamp;
+        public final long initiationTimestamp;
 
-        public Reply(DetachedProcessContext context, T reply, long initiatedTimestamp) {
+        public Reply(DetachedProcessContext context, T reply, long initiationTimestamp) {
             this.context = context;
             this.reply = reply;
-            this.initiatedTimestamp = initiatedTimestamp;
+            this.initiationTimestamp = initiationTimestamp;
         }
     }
 
@@ -118,8 +125,22 @@ public class MatsFuturizer implements AutoCloseable {
      * exception is passed to the waiter on the future by {@link CompletableFuture#completeExceptionally(Throwable)}.
      */
     public static class MatsFuturizerTimeoutException extends RuntimeException {
-        public MatsFuturizerTimeoutException(String message) {
+
+        private final long initiationTimestamp;
+        private final String traceId;
+
+        public MatsFuturizerTimeoutException(String message, long initiationTimestamp, String traceId) {
             super(message);
+            this.initiationTimestamp = initiationTimestamp;
+            this.traceId = traceId;
+        }
+
+        public long getInitiationTimestamp() {
+            return initiationTimestamp;
+        }
+
+        public String getTraceId() {
+            return traceId;
         }
     }
 
@@ -139,23 +160,32 @@ public class MatsFuturizer implements AutoCloseable {
         return promise._future;
     }
 
+    /**
+     * @return the number of outstanding promises, not yet completed or timed out.
+     */
+    public int getOutstandingPromises() {
+        synchronized (_correlationIdToPromiseMap) {
+            return _correlationIdToPromiseMap.size();
+        }
+    }
+
     // ===== Internal classes and methods, can be overridden if you want to make a customized MatsFuturizer
 
     protected static class Promise<T> implements Comparable<Promise<?>> {
         private final String _traceId;
         private final String _correlationId;
         private final String _from;
-        private final long _initiatedTimestamp;
+        private final long _initiationTimestamp;
         private final long _timeoutTimestamp;
         private final Class<T> _replyClass;
         private final CompletableFuture<Reply<T>> _future;
 
-        public Promise(String traceId, String correlationId, String from, long initiatedTimestamp,
+        public Promise(String traceId, String correlationId, String from, long initiationTimestamp,
                 long timeoutTimestamp, Class<T> replyClass, CompletableFuture<Reply<T>> future) {
             _traceId = traceId;
             _correlationId = correlationId;
             _from = from;
-            _initiatedTimestamp = initiatedTimestamp;
+            _initiationTimestamp = initiationTimestamp;
             _timeoutTimestamp = timeoutTimestamp;
             _replyClass = replyClass;
             _future = future;
@@ -195,6 +225,10 @@ public class MatsFuturizer implements AutoCloseable {
 
     protected <T> void _enqueuePromise(Promise<T> promise) {
         synchronized (_correlationIdToPromiseMap) {
+            if (_correlationIdToPromiseMap.size() >= _maxOutstandingPromises) {
+                throw new IllegalStateException("There are too many Promises outstanding, so cannot add more" 
+                        + " - limit is ["+_maxOutstandingPromises+"].");
+            }
             // This is the lookup that the reply-handler uses to get to the promise from the correlationId.
             _correlationIdToPromiseMap.put(promise._correlationId, promise);
             // This is the priority queue that the timeouter-thread uses to get the next Promise to timeout.
@@ -252,7 +286,7 @@ public class MatsFuturizer implements AutoCloseable {
     // Synchronized on the HashMap above (i.e. all three are synchronized on the HashMap).
     protected Promise<?> _nextInLineToTimeout;
 
-    protected void handleRepliesForPromises(ProcessContext<Void> context, String correlationId,
+    protected void _handleRepliesForPromises(ProcessContext<Void> context, String correlationId,
             MatsObject replyObject) {
         // Immediately pick this out of the map & queue
         Promise<?> promise;
@@ -265,11 +299,11 @@ public class MatsFuturizer implements AutoCloseable {
         // ?: Did we still have the Promise?
         if (promise == null) {
             // -> Promise gone, log on WARN and exit.
+            MDC.put("traceId", context.getTraceId());
             log.warn(LOG_PREFIX + "Got reply from [" + context
                     .getFromStageId() + "] for Future with traceId:[" + context.getTraceId()
-                    + "], but the Promise had timed out. It was sent [" + (System.currentTimeMillis()
-                            - promise._initiatedTimestamp) + " ms] ago, while the timeout was ["
-                    + (promise._timeoutTimestamp - promise._initiatedTimestamp) + " ms].");
+                    + "], but the Promise had timed out.");
+            MDC.remove("traceId");
             return;
         }
 
@@ -277,20 +311,24 @@ public class MatsFuturizer implements AutoCloseable {
 
         _threadPool.execute(() -> {
             try {
-                uncheckedComplete(context, replyObject, promise);
+                MDC.put("traceId", promise._traceId);
+                _uncheckedComplete(context, replyObject, promise);
             }
             catch (Throwable t) {
                 log.error(LOG_PREFIX + "Got problems completing Future initiated from [" + promise._from
                         + "] with reply from [" + context.getFromStageId()
                         + "] with traceId:[" + context.getTraceId() + "]");
             }
+            finally {
+                MDC.remove("traceId");
+            }
         });
     }
 
     @SuppressWarnings("unchecked")
-    protected void uncheckedComplete(ProcessContext<Void> context, MatsObject replyObject, Promise<?> promise) {
+    protected void _uncheckedComplete(ProcessContext<Void> context, MatsObject replyObject, Promise<?> promise) {
         Object replyInReplyClass = replyObject.toClass(promise._replyClass);
-        Reply<?> tReply = new Reply<>(context, replyInReplyClass, promise._initiatedTimestamp);
+        Reply<?> tReply = new Reply<>(context, replyInReplyClass, promise._initiationTimestamp);
         promise._future.complete((Reply) tReply);
     }
 
@@ -298,7 +336,7 @@ public class MatsFuturizer implements AutoCloseable {
 
     protected void _startTimeouterThread() {
         Runnable timeouter = () -> {
-            log.info("MatsFuturizer Timeouter-thread: Started!");
+            log.info(LOG_PREFIX + "MatsFuturizer Timeouter-thread: Started!");
             while (_runFlag) {
                 List<Promise<?>> promisesToTimeout = new ArrayList<>();
                 synchronized (_correlationIdToPromiseMap) {
@@ -342,7 +380,7 @@ public class MatsFuturizer implements AutoCloseable {
                         }
                         // :: Protection against bad code - catch-all Throwables in hope that it will auto-correct.
                         catch (Throwable t) {
-                            log.error("Got an unexpected Throwable in the promise-timeouter-thread."
+                            log.error(LOG_PREFIX + "Got an unexpected Throwable in the promise-timeouter-thread."
                                     + " Loop and check whether to exit.", t);
                             // If exiting, do it now.
                             if (!_runFlag) {
@@ -364,23 +402,25 @@ public class MatsFuturizer implements AutoCloseable {
                 // :: Timing out Promises that was found to be overdue.
                 for (Promise<?> promise : promisesToTimeout) {
                     MDC.put("traceId", promise._traceId);
-                    log.info("Timing out Promise/Future initiated from [" + promise._from + "] with traceId ["
-                            + promise._traceId + "].");
+                    String msg = "The Promise/Future timed out! It was initiated from:[" + promise._from
+                            + "] with traceId:[" + promise._traceId + "]."
+                            + " Initiation was [" + (System.currentTimeMillis()
+                                    - promise._initiationTimestamp) + " ms] ago, and its specified"
+                            + " timeout was:[" + (promise._timeoutTimestamp
+                                    - promise._initiationTimestamp) + "].";
+                    log.warn(LOG_PREFIX + msg);
                     MDC.remove("traceId");
                     _threadPool.execute(() -> {
                         try {
-                            promise._future.completeExceptionally(new MatsFuturizerTimeoutException(
-                                    "The Promise/Future timed out! It was initiated from:[" + promise._from
-                                            + "] with traceId:[" + promise._traceId + "]."
-                                            + " Initiation was [" + (System.currentTimeMillis()
-                                                    - promise._initiatedTimestamp) + " ms] ago, and its specified"
-                                            + " timeout was:[" + (promise._timeoutTimestamp
-                                                    - promise._initiatedTimestamp) + "]."));
+                            MDC.put("traceId", promise._traceId);
+                            promise._future.completeExceptionally(new MatsFuturizerTimeoutException(msg,
+                                    promise._initiationTimestamp, promise._traceId));
                         }
                         catch (Throwable t) {
-                            MDC.put("traceId", promise._traceId);
                             log.error(LOG_PREFIX + "Got problems timing out Promise/Future initiated from:["
                                     + promise._from + "] with traceId:[" + promise._traceId + "]", t);
+                        }
+                        finally {
                             MDC.remove("traceId");
                         }
                     });
@@ -416,12 +456,14 @@ public class MatsFuturizer implements AutoCloseable {
         // :: Cancel all outstanding Promises.
         for (Promise<?> promise : promisesToCancel) {
             try {
+                MDC.put("traceId", promise._traceId);
                 promise._future.cancel(true);
             }
             catch (Throwable t) {
-                MDC.put("traceId", promise._traceId);
                 log.error(LOG_PREFIX + "Got problems cancelling (due to shutdown) Promise/Future initiated from:["
                         + promise._from + "] with traceId:[" + promise._traceId + "]", t);
+            }
+            finally {
                 MDC.remove("traceId");
             }
         }

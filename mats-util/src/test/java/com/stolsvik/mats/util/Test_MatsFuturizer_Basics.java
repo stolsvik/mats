@@ -20,7 +20,7 @@ import com.stolsvik.mats.util.MatsFuturizer.Reply;
  *
  * @author Endre Stølsvik 2019-08-28 00:22 - http://stolsvik.com/, endre@stolsvik.com
  */
-public class Test_BasicMatsFuturizer extends MatsBasicTest {
+public class Test_MatsFuturizer_Basics extends MatsBasicTest {
     @Before
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
@@ -43,14 +43,14 @@ public class Test_BasicMatsFuturizer extends MatsBasicTest {
 
             DataTO dto = new DataTO(42, "TheAnswer");
             CompletableFuture<Reply<DataTO>> future = futurizer.futurizeInteractiveUnreliable(
-                    "traceId", "http://example.com/testing1234?abc=123", SERVICE, 5000, DataTO.class, dto);
+                    "traceId", "OneSingleMessage", SERVICE, 5000, DataTO.class, dto);
 
             Reply<DataTO> result = future.get(1, TimeUnit.SECONDS);
 
             Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), result.reply);
 
             log.info("Got the reply from the Future - the latency was " + (System.currentTimeMillis()
-                    - result.initiatedTimestamp) + " milliseconds");
+                    - result.initiationTimestamp) + " milliseconds");
         }
     }
 
@@ -79,7 +79,7 @@ public class Test_BasicMatsFuturizer extends MatsBasicTest {
             DataTO dto = new DataTO(i, "TheAnswer");
 
             futures.add(futurizer.futurizeInteractiveUnreliable(
-                    "traceId", "http://example.com/testing1234?abc=123", SERVICE, 5000, DataTO.class, dto));
+                    "traceId", "SeveralMessages.futurized", SERVICE, 5000, DataTO.class, dto));
         }
 
         // :: Wait for each of them to complete
