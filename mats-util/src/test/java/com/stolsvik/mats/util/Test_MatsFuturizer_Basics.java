@@ -49,8 +49,9 @@ public class Test_MatsFuturizer_Basics extends MatsBasicTest {
 
             Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), result.reply);
 
-            log.info("Got the reply from the Future - the latency was " + (System.currentTimeMillis()
-                    - result.initiationTimestamp) + " milliseconds");
+            log.info("Got the reply from the Future - the latency was " + (
+                    System.currentTimeMillis()
+                            - result.initiationTimestamp) + " milliseconds");
         }
     }
 
@@ -91,5 +92,5 @@ public class Test_MatsFuturizer_Basics extends MatsBasicTest {
         log.info("#TIMED# Got the reply from all [" + number + "] Futures - total time:[" + (totalTimeMs)
                 + " ms] , per message:[" + (totalTimeMs / number) + " ms]");
     }
-
 }
+

@@ -404,6 +404,8 @@ public class MatsFuturizer implements AutoCloseable {
                 MDC.put("traceId", promise._traceId);
                 _uncheckedComplete(context, replyObject, promise);
             }
+            // NOTICE! This catch will probably never be triggered, as if .thenAccept() and similar throws,
+            // the CompletableFuture evidently handles it and completes the future exceptionally.
             catch (Throwable t) {
                 log.error(LOG_PREFIX + "Got problems completing Future initiated from [" + promise._from
                         + "] with reply from [" + context.getFromStageId()
@@ -507,6 +509,8 @@ public class MatsFuturizer implements AutoCloseable {
                             promise._future.completeExceptionally(new MatsFuturizerTimeoutException(msg,
                                     promise._initiationTimestamp, promise._traceId));
                         }
+                        // NOTICE! This catch will probably never be triggered, as if .thenAccept() and similar throws,
+                        // the CompletableFuture evidently handles it and completes the future exceptionally.
                         catch (Throwable t) {
                             log.error(LOG_PREFIX + "Got problems timing out Promise/Future initiated from:["
                                     + promise._from + "] with traceId:[" + promise._traceId + "]", t);
@@ -550,6 +554,8 @@ public class MatsFuturizer implements AutoCloseable {
                 MDC.put("traceId", promise._traceId);
                 promise._future.cancel(true);
             }
+            // NOTICE! This catch will probably never be triggered, as if .thenAccept() and similar throws,
+            // the CompletableFuture evidently handles it and completes the future exceptionally.
             catch (Throwable t) {
                 log.error(LOG_PREFIX + "Got problems cancelling (due to shutdown) Promise/Future initiated from:["
                         + promise._from + "] with traceId:[" + promise._traceId + "]", t);
