@@ -1,5 +1,7 @@
 package com.stolsvik.mats;
 
+import com.stolsvik.mats.MatsFactory.FactoryConfig;
+
 /**
  * All of {@link MatsFactory}, {@link MatsEndpoint} and {@link MatsStage} have some configurable elements, provided by a
  * config instance, this is the top of that hierarchy.
@@ -11,8 +13,9 @@ public interface MatsConfig {
      * To change the default concurrency of the Factory, or of the endpoint (which defaults to the concurrency of the
      * {@link MatsFactory}), or of the process stage (which defaults to the concurrency of the {@link MatsEndpoint}).
      * <p/>
-     * The default for the {@link MatsFactory} is the number of processors on the server it is running on, as determined
-     * by {@link Runtime#availableProcessors()}.
+     * The default for the {@link MatsFactory} is the number returned by {@link FactoryConfig#getNumberOfCpus()}, which
+     * by default is the number of processors on the server it is running on, as determined by
+     * {@link Runtime#availableProcessors()}.
      * <p/>
      * Will only have effect before the {@link MatsStage} is started. Can be reset by stopping, setting, and restarting.
      * <p/>
@@ -26,8 +29,18 @@ public interface MatsConfig {
     MatsConfig setConcurrency(int concurrency);
 
     /**
-     * @return the number of consumers set up for this factory, or endpoint, or process stage. Will provide the default
-     *         unless overridden by {@link #setConcurrency(int)} before start.
+     * Returns the concurrency set up for this factory, or endpoint, or process stage. Will provide the default unless
+     * overridden by {@link #setConcurrency(int)} before start. It is the {@link MatsStage}s that eventually will be
+     * affected by this number, as that is where the consumers of the backend queues reside.
+     * <p/>
+     * If default logic is in effect (i.e. have not been set by {@link #setConcurrency(int)}, or that is set to 0), a
+     * {@link MatsStage} will default to its {@link MatsEndpoint}, while an endpoint will default to the
+     * {@link MatsFactory}. The default for the {@link MatsFactory} is 2 x the number returned by
+     * {@link FactoryConfig#getNumberOfCpus()}, which by default is the number of processors on the server it is running
+     * on, as determined by {@link Runtime#availableProcessors()}.
+     *
+     * @return the concurrency set up for this factory, or endpoint, or process stage. Will provide the default unless
+     *         overridden by {@link #setConcurrency(int)} before start.
      */
     int getConcurrency();
 

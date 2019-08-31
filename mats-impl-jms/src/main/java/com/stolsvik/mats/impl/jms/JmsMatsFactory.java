@@ -379,6 +379,12 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
         }
 
         @Override
+        public int getNumberOfCpus() {
+            return Integer.parseInt(System.getProperty("mats.cpus",
+                    Integer.toString(Runtime.getRuntime().availableProcessors())));
+        }
+
+        @Override
         public FactoryConfig setMatsDestinationPrefix(String prefix) {
             log.info("MatsFactory's Mats Destination Prefix is set to [" + prefix + "] (was: [" + _matsDestinationPrefix
                     + "]).");
@@ -418,7 +424,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
         @Override
         public int getConcurrency() {
             if (_concurrency == 0) {
-                return Runtime.getRuntime().availableProcessors();
+                return 2 * getNumberOfCpus();
             }
             return _concurrency;
         }

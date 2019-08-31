@@ -7,7 +7,6 @@ import java.util.function.Consumer;
 import com.stolsvik.mats.MatsConfig.StartStoppable;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
-import com.stolsvik.mats.MatsEndpoint.ProcessContextWrapper;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
@@ -345,6 +344,14 @@ public interface MatsFactory extends StartStoppable {
         String getName();
 
         /**
+         * @return the number of CPUs that Mats shall assume there is available. Default should be
+         *         {@link Runtime#availableProcessors() Runtime.getRuntime().availableProcessors()}. Implementations
+         *         should honor the System Property "mats.cpus" and let that override this number, e.g. "-Dmats.cpus=8"
+         *         on command line.
+         */
+        int getNumberOfCpus();
+
+        /**
          * Sets the prefix that should be applied to the endpointIds to get queue or topic name in the underlying
          * messaging system - the default is <code>"mats."</code>. Needless to say, two MatsFactories which are
          * configured differently here will not be able to communicate. <b>Do not change this unless you have a
@@ -378,8 +385,8 @@ public interface MatsFactory extends StartStoppable {
 
         /**
          * @return the key name on which to store the "wire representation" of the Mats message if the underlying
-         *         mechanism * uses some kind of Map. (The JMS Implementation uses a JMS MapMessage, and this is the
-         *         key). Default is <code>"mats:trace"</code>.
+         *         mechanism uses some kind of Map. (The JMS Implementation uses a JMS MapMessage, and this is the key).
+         *         Default is <code>"mats:trace"</code>.
          */
         String getMatsTraceKey();
 
@@ -398,7 +405,7 @@ public interface MatsFactory extends StartStoppable {
          * same app running of different nodes. This can be used to make node-specific topics, which are nice when you
          * need a message to return to the node that sent it, due to some synchronous process waiting for the message
          * (which entirely defeats the Messaging Oriented Middleware Architecture, but sometimes you need a solution..).
-         * This is used in the SynchronousAdapter tool.
+         * This is used in the MatsFuturizer tool.
          *
          * @return the nodename, which by default should be the hostname which the application is running on.
          */

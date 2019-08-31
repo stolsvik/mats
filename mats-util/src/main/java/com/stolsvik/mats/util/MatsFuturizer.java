@@ -23,6 +23,7 @@ import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsFactory;
+import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
@@ -38,13 +39,13 @@ public class MatsFuturizer implements AutoCloseable {
 
     /**
      * Creates a MatsFuturizer, <b>and you should only need one per MatsFactory</b> (which again mostly means one per
-     * application or micro-service or JVM). The number of threads in the future-completer-pool is
-     * {@link Runtime#availableProcessors()} for "corePoolSize" (i.e. "min") and availableProcessors * 8 for
-     * "maximumPoolSize" (i.e. max). The pool is set up to let non-core threads expire after 5 minutes. The maximum
-     * number of outstanding promises is set to 50k.
+     * application or micro-service or JVM). The number of threads in the future-completer-pool is what
+     * {@link FactoryConfig#getConcurrency() matsFactory.getFactoryConfig().getConcurrency()} returns at creation time
+     * for "corePoolSize" (i.e. "min") and concurrency * 8 for "maximumPoolSize" (i.e. max). The pool is set up to let
+     * non-core threads expire after 5 minutes. The maximum number of outstanding promises is set to 50k.
      * 
      * @param matsFactory
-     *            The underlying {@link MatsFactory} on which outgoing messages will be sent, and on which the receiving
+     *            the underlying {@link MatsFactory} on which outgoing messages will be sent, and on which the receiving
      *            {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
      *            SubscriptionTerminator} will be created.
      * @param endpointIdPrefix
@@ -55,8 +56,8 @@ public class MatsFuturizer implements AutoCloseable {
      *         SubscriptionTerminator}.
      */
     public static MatsFuturizer createMatsFuturizer(MatsFactory matsFactory, String endpointIdPrefix) {
-        int cpus = Runtime.getRuntime().availableProcessors();
-        return createMatsFuturizer(matsFactory, endpointIdPrefix, cpus, cpus * 8, 50_000);
+        int concurrency = matsFactory.getFactoryConfig().getConcurrency();
+        return createMatsFuturizer(matsFactory, endpointIdPrefix, concurrency, concurrency * 8, 50_000);
     }
 
     /**
@@ -67,7 +68,7 @@ public class MatsFuturizer implements AutoCloseable {
      * of outstanding promises, if you want no effective limit, use {@link Integer#MAX_VALUE}.
      *
      * @param matsFactory
-     *            The underlying {@link MatsFactory} on which outgoing messages will be sent, and on which the receiving
+     *            the underlying {@link MatsFactory} on which outgoing messages will be sent, and on which the receiving
      *            {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
      *            SubscriptionTerminator} will be created.
      * @param endpointIdPrefix
@@ -77,8 +78,9 @@ public class MatsFuturizer implements AutoCloseable {
      *            the minimum number of threads in the future-completer-pool of threads.
      * @param maxPoolSize
      *            the maximum number of threads in the future-completer-pool of threads.
-     * @param maxPoolSize
-     *            the maximum number of threads in the future-completer-pool of threads.
+     * @param maxOutstandingPromises
+     *            the maximum number of outstanding Promises before new are rejected. Should be a fairly high number,
+     *            e.g. the default of {@link #createMatsFuturizer(MatsFactory, String)} is 50k.
      * @return the {@link MatsFuturizer}, which is tied to a newly created
      *         {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
      *         SubscriptionTerminator}.
@@ -91,7 +93,7 @@ public class MatsFuturizer implements AutoCloseable {
     protected final MatsFactory _matsFactory;
     protected final MatsInitiator _matsInitiator;
     protected final String _terminatorEndpointId;
-    protected final ThreadPoolExecutor _threadPool;
+    protected final ThreadPoolExecutor _futureCompleterThreadPool;
     protected final int _maxOutstandingPromises;
     protected final MatsEndpoint<Void, String> _replyHandlerEndpoint;
 
@@ -101,7 +103,7 @@ public class MatsFuturizer implements AutoCloseable {
         _matsInitiator = matsFactory.getDefaultInitiator();
         _terminatorEndpointId = endpointIdPrefix + ".private.Futurizer."
                 + _matsFactory.getFactoryConfig().getNodename();
-        _threadPool = _newThreadPool(corePoolSize, maxPoolSize);
+        _futureCompleterThreadPool = _newThreadPool(corePoolSize, maxPoolSize);
         _maxOutstandingPromises = maxOutstandingPromises;
         _replyHandlerEndpoint = _matsFactory.subscriptionTerminator(_terminatorEndpointId, String.class,
                 MatsObject.class,
@@ -256,6 +258,13 @@ public class MatsFuturizer implements AutoCloseable {
         }
     }
 
+    /**
+     * @return the future-completer-thread-pool, for introspection. If you mess with it, you <i>will</i> be sorry..!
+     */
+    public ThreadPoolExecutor getCompleterThreadPool() {
+        return _futureCompleterThreadPool;
+    }
+
     // ===== Internal classes and methods, can be overridden if you want to make a customized MatsFuturizer
 
     protected static class Promise<T> implements Comparable<Promise<?>> {
@@ -399,7 +408,7 @@ public class MatsFuturizer implements AutoCloseable {
 
         // ----- We have Promise, and shall now fulfill it. Send off to pool thread.
 
-        _threadPool.execute(() -> {
+        _futureCompleterThreadPool.execute(() -> {
             try {
                 MDC.put("traceId", promise._traceId);
                 _uncheckedComplete(context, replyObject, promise);
@@ -503,7 +512,7 @@ public class MatsFuturizer implements AutoCloseable {
                                     - promise._initiationTimestamp) + "].";
                     log.warn(LOG_PREFIX + msg);
                     MDC.remove("traceId");
-                    _threadPool.execute(() -> {
+                    _futureCompleterThreadPool.execute(() -> {
                         try {
                             MDC.put("traceId", promise._traceId);
                             promise._future.completeExceptionally(new MatsFuturizerTimeoutException(msg,
@@ -537,7 +546,7 @@ public class MatsFuturizer implements AutoCloseable {
                 + " timeouter-thread, and cancelling any outstanding futures.");
         _runFlag = false;
         _replyHandlerEndpoint.stop(5000);
-        _threadPool.shutdown();
+        _futureCompleterThreadPool.shutdown();
         // :: Find all remainging Promises, and notify Timeouter-thread that we're dead.
         List<Promise<?>> promisesToCancel = new ArrayList<>();
         synchronized (_correlationIdToPromiseMap) {
