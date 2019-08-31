@@ -80,6 +80,20 @@ public interface MatsTrace<Z> {
     boolean isInteractive();
 
     /**
+     * @return the number of milliseconds the message should live before being time out. 0 means "forever", and is the
+     *         default.
+     */
+    long getTimeToLive();
+
+    /**
+     * @return a hint to the underlying implementation, or to any monitoring/auditing tooling on the Message Broker,
+     *         that it does not make much value in auditing this message flow, typically because it is just a "getter"
+     *         of information to show to some user, or a health-check validating that some service is up and answers in
+     *         a timely fashion.
+     */
+    boolean isNoAudit();
+
+    /**
      * Can only be set once..
      */
     MatsTrace<Z> setDebugInfo(String initializingAppName, String initializingAppVersion, String initializingHost,
@@ -100,12 +114,6 @@ public interface MatsTrace<Z> {
     long getInitializedTimestamp();
 
     String getDebugInfo();
-
-    /**
-     * @return the number of milliseconds the message should live before being time out. 0 means "forever", and is the
-     *         default.
-     */
-    long getTimeToLive();
 
     /**
      * Sets a trace property, refer to <code>ProcessContext.setTraceProperty(String, Object)</code>. Notice that on the

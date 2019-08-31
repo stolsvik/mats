@@ -59,7 +59,7 @@ public interface MatsSerializer<Z> {
      *            whether the message should be prioritized in that a human is actively waiting for the reply, default
      *            shall be <code>false</code>.
      * @return a new instance of the underlying {@link MatsTrace} implementation.
-     * @deprecated use {@link #createNewMatsTrace(String, String, KeepMatsTrace, boolean, boolean, long)}.
+     * @deprecated use {@link #createNewMatsTrace(String, String, KeepMatsTrace, boolean, boolean, long, boolean)}.
      */
     @Deprecated
     MatsTrace<Z> createNewMatsTrace(String traceId, KeepMatsTrace keepMatsTrace, boolean nonPersistent,
@@ -90,10 +90,15 @@ public interface MatsSerializer<Z> {
      * @param ttlMillis
      *            the number of milliseconds the message should live before being time out. 0 means "forever", and is
      *            the default.
+     * @param noAudit
+     *            hint to the underlying implementation, or to any monitoring/auditing tooling on the Message Broker,
+     *            that it does not make much value in auditing this message flow, typically because it is just a
+     *            "getter" of information to show to some user, or a health-check validating that some service is up
+     *            and answers in a timely fashion.
      * @return a new instance of the underlying {@link MatsTrace} implementation.
      */
     MatsTrace<Z> createNewMatsTrace(String traceId, String flowId,
-            KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive, long ttlMillis);
+            KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive, long ttlMillis, boolean noAudit);
 
     /**
      * The key postfix that should be used for the "meta" key on which the {@link SerializedMatsTrace#getMeta() meta}

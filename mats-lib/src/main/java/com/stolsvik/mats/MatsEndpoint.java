@@ -252,6 +252,15 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         boolean isInteractive();
 
         /**
+         * Hint to monitoring/logging/auditing systems that this call flow is not very valuable to fully audit,
+         * typically because it is just a "getter" of information for display to a user, or is health check request to
+         * see if the endpoint is up and answers in a timely manner.
+         *
+         * @return whether the current Mats flow is "no audit" - read {@link MatsInitiate#noAudit()}.
+         */
+        boolean isNoAudit();
+
+        /**
          * @param key
          *            the key for which to retrieve a binary payload from the incoming message.
          * @return the requested byte array.
@@ -686,6 +695,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         @Override
         public boolean isInteractive() {
             return getTargetProcessContext().isInteractive();
+        }
+
+        @Override
+        public boolean isNoAudit() {
+            return getTargetProcessContext().isNoAudit();
         }
 
         @Override

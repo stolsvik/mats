@@ -53,17 +53,17 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private String x; // Debug info (free-form..)
 
     private final KeepMatsTrace kt; // KeepMatsTrace.
-    private final boolean np; // NonPersistent.
-    private final boolean ia; // Interactive.
-
-    private Long ttl; // Time-To-Live, null if 0, where 0 means "forever".
+    private final Boolean np; // NonPersistent.
+    private final Boolean ia; // Interactive.
+    private final Long tl; // Time-To-Live, null if 0, where 0 means "forever".
+    private final Boolean na; // NoAudit.
 
     private List<CallImpl> c = new ArrayList<>(); // Calls. Not final due to clone-impl.
     private List<StackStateImpl> ss = new ArrayList<>(); // StackStates. Not final due to clone-impl.
     private Map<String, String> tp = new LinkedHashMap<>(); // TraceProps. Not final due to clone-impl.
 
     /**
-     * @deprecated Use {@link #createNew(String, String, KeepMatsTrace, boolean, boolean, long)}.
+     * @deprecated Use {@link #createNew(String, String, KeepMatsTrace, boolean, boolean, long, boolean)}.
      */
     @Deprecated
     public static MatsTrace<String> createNew(String traceId,
@@ -74,7 +74,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                 + "_" + Long.toUnsignedString(random.nextLong(), 36)
                 + Long.toUnsignedString(random.nextLong(), 36);
 
-        return new MatsTraceStringImpl(traceId, flowId, keepMatsTrace, nonPersistent, interactive, 0);
+        return new MatsTraceStringImpl(traceId, flowId, keepMatsTrace, nonPersistent, interactive, 0, false);
     }
 
     /**
@@ -93,11 +93,16 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
      * @param ttlMillis
      *            the number of milliseconds the message should live before being time out. 0 means "forever", and is
      *            the default.
+     * @param noAudit
+     *            hint to the underlying implementation, or to any monitoring/auditing tooling on the Message Broker,
+     *            that it does not make much value in auditing this message flow, typically because it is just a
+     *            "getter" of information to show to some user, or a health-check validating that some service is up and
+     *            answers in a timely fashion.
      * @return the newly created {@link MatsTrace}.
      */
     public static MatsTrace<String> createNew(String traceId, String flowId,
-            KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive, long ttlMillis) {
-        return new MatsTraceStringImpl(traceId, flowId, keepMatsTrace, nonPersistent, interactive, ttlMillis);
+            KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive, long ttlMillis, boolean noAudit) {
+        return new MatsTraceStringImpl(traceId, flowId, keepMatsTrace, nonPersistent, interactive, ttlMillis, noAudit);
     }
 
     public MatsTraceStringImpl setDebugInfo(String initializingAppName, String initializingAppVersion,
@@ -119,19 +124,22 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         id = null;
 
         kt = KeepMatsTrace.COMPACT;
-        np = false;
-        ia = false;
+        np = null;
+        ia = null;
+        tl = null;
+        na = null;
     }
 
     private MatsTraceStringImpl(String traceId, String flowId, KeepMatsTrace keepMatsTrace, boolean nonPersistent,
-            boolean interactive, long ttlMillis) {
+            boolean interactive, long ttlMillis, boolean noAudit) {
         this.tid = traceId;
         this.id = flowId;
 
         this.kt = keepMatsTrace;
-        this.np = nonPersistent;
-        this.ia = interactive;
-        this.ttl = ttlMillis;
+        this.np = nonPersistent ? Boolean.TRUE : null;
+        this.ia = interactive ? Boolean.TRUE : null;
+        this.tl = ttlMillis > 0 ? ttlMillis : null;
+        this.na = noAudit ? Boolean.TRUE : null;
     }
 
     // == NOTICE == Serialization and deserialization is an implementation specific feature.
@@ -186,17 +194,22 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     @Override
     public boolean isNonPersistent() {
-        return np;
+        return np == null ? Boolean.FALSE : np;
     }
 
     @Override
     public boolean isInteractive() {
-        return ia;
+        return ia == null ? Boolean.FALSE : ia;
     }
 
     @Override
     public long getTimeToLive() {
-        return ttl != null ? ttl : 0;
+        return tl != null ? tl : 0;
+    }
+
+    @Override
+    public boolean isNoAudit() {
+        return na == null ? Boolean.FALSE : na;
     }
 
     @Override
@@ -758,10 +771,11 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                 .append(getCurrentCall().getCallType())
                 .append(" #to:").append(getCurrentCall().getTo())
                 .append("  traceId:'").append(tid)
-                .append("'  KeepMatsTrace:").append(kt)
-                .append("  NonPersistent:").append(np)
-                .append("  Interactive:").append(ia)
-                .append("  TTL:").append(ttl == null ? "forever" : ttl.toString())
+                .append("'  KeepMatsTrace:").append(getKeepTrace())
+                .append("  NonPersistent:").append(isNonPersistent())
+                .append("  Interactive:").append(isInteractive())
+                .append("  TTL:").append(((tl == null) || (tl == 0)) ? "forever" : tl.toString())
+                .append("  NoAudit:").append(isNoAudit())
                 .append('\n');
 
         // === "INITIATOR CALL" ===

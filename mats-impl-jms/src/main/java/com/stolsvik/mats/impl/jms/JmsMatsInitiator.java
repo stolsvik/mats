@@ -204,6 +204,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         private boolean _nonPersistent;
         private boolean _interactive;
         private long _timeToLive;
+        private boolean _noAudit;
         private String _from;
         private String _to;
         private String _replyTo;
@@ -288,6 +289,12 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public MatsInitiate timeToLive(long millis) {
             _timeToLive = millis;
+            return this;
+        }
+
+        @Override
+        public MatsInitiate noAudit() {
+            _noAudit = true;
             return this;
         }
 
@@ -377,7 +384,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         private MatsTrace<Z> createMatsTrace(MatsSerializer<Z> ser, long now) {
             String flowId = createFlowId(now);
             return ser.createNewMatsTrace(_traceId, flowId, _keepTrace, _nonPersistent, _interactive,
-                    _timeToLive)
+                    _timeToLive, _noAudit)
                     // TODO: Add debug info!
                     // NOTE! We set "from" both on the MatsTrace, AND on the initial Call, so that you can have the
                     // origin of the flow even though it is in KeepTrace.MINIMAL mode.

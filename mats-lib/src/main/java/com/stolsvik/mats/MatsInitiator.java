@@ -354,6 +354,33 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate timeToLive(long millis);
 
         /**
+         * Marks this Mats flow as not relevant for auditing.
+         * <p/>
+         * When considering auditing ("event sourcing"-style) of all messages, one quickly realizes that there are very
+         * many messages that aren't that interesting to log. These are pure getters employed to show information to
+         * users, and even worse in this respect, <i>x"Are you up?"</i>-type health checks.
+         * <p/>
+         * This flag is here to mark messages as such: <i>"You will gain no historic insight in logging the following
+         * message flow!"</i>. This flag should NOT be set for ANY messages that (can potentially) change state in any
+         * part of the total system (i.e. "permanent state", e.g. a row in a database). More subtle, the flag should
+         * also not be set for "getters" that are performed to decide upon a state - e.g. for validation of new orders:
+         * The getter that checks credit should be audited. If such a getter is a part of a Mats flow, this should not
+         * be a problem, as the initiator of the "add order" Mats flow would obviously not set noAudit(). However, if it
+         * is coded as multiple "stop and go" flows, i.e. add the order to some incoming order table. Then a next,
+         * separate Mats flow is validation: <i>That</i> getter <i>should</i> be audited, hence do not set noAudit().
+         * <p/>
+         * Note: It might be interesting to log that such messages actually happened, but not the content of them. This
+         * is to be able to tally them, i.e. <i>"WebService.healthCheck is invoking AccountService.webStatus 52389052
+         * times per day"</i> - both to see that it is probably a bit excessive, and to see that there is traffic there
+         * at all (since AccountService.webStatus seems to be a pretty specific endpoint). However, there is probably
+         * not much use in storing the <i>contents</i> of such calls - and maybe not retain the calls for more than a few
+         * months.
+         *
+         * @return the {@link MatsInitiate} for chaining.
+         */
+        MatsInitiate noAudit();
+
+        /**
          * Sets the originating/initiating "synthetic endpoint Id" - only used for tracing/debugging. If this message is
          * initiated <i>from within a stage</i>, i.e. by use of {@link ProcessContext#initiate(InitiateLambda)}, the
          * 'from' property is already set to the stageId of the currently processing Stage, but it can be

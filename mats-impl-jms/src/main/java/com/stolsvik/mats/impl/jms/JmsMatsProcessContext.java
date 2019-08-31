@@ -134,6 +134,11 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     }
 
     @Override
+    public boolean isNoAudit() {
+        return _incomingMatsTrace.isNoAudit();
+    }
+
+    @Override
     public String toString() {
         return _incomingMatsTrace.toString();
     }

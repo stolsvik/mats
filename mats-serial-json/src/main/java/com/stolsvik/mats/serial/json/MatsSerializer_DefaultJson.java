@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.Charset;
-import java.util.Random;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
@@ -23,7 +22,6 @@ import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
-import com.stolsvik.mats.serial.MatsTrace.Call;
 import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
 import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
 
@@ -140,10 +138,10 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
 
     @Override
     public MatsTrace<String> createNewMatsTrace(String traceId, String flowId,
-            KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive, long ttlMillis) {
-        return MatsTraceStringImpl.createNew(traceId, flowId, keepMatsTrace, nonPersistent, interactive, ttlMillis);
+            KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive, long ttlMillis, boolean noAudit) {
+        return MatsTraceStringImpl.createNew(traceId, flowId, keepMatsTrace, nonPersistent, interactive, ttlMillis,
+                noAudit);
     }
-
 
     private String COMPRESS_DEFLATE = "deflate";
     private String COMPRESS_PLAIN = "plain";
