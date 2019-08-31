@@ -43,7 +43,7 @@ public class Test_MatsFuturizer_Basics extends MatsBasicTest {
 
             DataTO dto = new DataTO(42, "TheAnswer");
             CompletableFuture<Reply<DataTO>> future = futurizer.futurizeInteractiveUnreliable(
-                    "traceId", "OneSingleMessage", SERVICE, 5000, DataTO.class, dto);
+                    "traceId", "OneSingleMessage", SERVICE, DataTO.class, dto);
 
             Reply<DataTO> result = future.get(1, TimeUnit.SECONDS);
 
@@ -79,7 +79,7 @@ public class Test_MatsFuturizer_Basics extends MatsBasicTest {
             DataTO dto = new DataTO(i, "TheAnswer");
 
             futures.add(futurizer.futurizeInteractiveUnreliable(
-                    "traceId", "SeveralMessages.futurized", SERVICE, 5000, DataTO.class, dto));
+                    "traceId", "SeveralMessages.futurized", SERVICE, DataTO.class, dto));
         }
 
         // :: Wait for each of them to complete

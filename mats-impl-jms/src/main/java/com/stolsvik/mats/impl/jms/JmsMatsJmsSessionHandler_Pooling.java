@@ -173,7 +173,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             catch (Throwable t) {
                 // Got problems - set the Exception, so that any others that got waiting on connection can throw out.
                 // Also, will remove the newly created ConnectionWithSessionPool. No-one can have made a Session, and
-                // the next guy in should start anew.
+                // the next guy coming in should start anew.
                 setConnectionOrException_ReleaseWaiters(null, t);
                 synchronized (JmsMatsJmsSessionHandler_Pooling.this) {
                     _liveConnectionWithSessionPools.remove(_poolingKey);

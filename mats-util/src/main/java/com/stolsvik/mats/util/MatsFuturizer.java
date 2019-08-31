@@ -5,10 +5,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.PriorityQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
@@ -23,6 +25,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
+import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 
 /**
  * Note: Kick-ass.
@@ -106,6 +109,16 @@ public class MatsFuturizer implements AutoCloseable {
         _startTimeouterThread();
     }
 
+    /**
+     * An instance of this class will be the return value of any {@link CompletableFuture}s created with the
+     * {@link MatsFuturizer}. It will contain the reply from the requested endpoint, and the
+     * {@link DetachedProcessContext} from the received message, from where you can get any incoming
+     * {@link DetachedProcessContext#getBytes(String) "sideloads"} and other metadata. It also contains a timestamp of
+     * when the outgoing message was initiated.
+     *
+     * @param <T>
+     *            the type of the reply class.
+     */
     public static class Reply<T> {
         public final DetachedProcessContext context;
         public final T reply;
@@ -120,12 +133,11 @@ public class MatsFuturizer implements AutoCloseable {
 
     /**
      * This exception is raised through the {@link CompletableFuture} if the timeout specified when getting the
-     * {@link CompletableFuture} is reached (You get such CompletableFutures using the
-     * {@link #futurizeInteractiveUnreliable(String, String, String, int, Class, Object) futurizeXYZ(..)} methods). The
+     * {@link CompletableFuture} is reached (to get yourself a future, use the
+     * {@link #futurizeInteractiveUnreliable(String, String, String, Class, Object) futurizeXYZ(..)} methods). The
      * exception is passed to the waiter on the future by {@link CompletableFuture#completeExceptionally(Throwable)}.
      */
     public static class MatsFuturizerTimeoutException extends RuntimeException {
-
         private final long initiationTimestamp;
         private final String traceId;
 
@@ -144,16 +156,91 @@ public class MatsFuturizer implements AutoCloseable {
         }
     }
 
+    /**
+     * <b>NOTICE: This variant must <u>only</u> be used for "GET"-style requests where none of the endpoints the call
+     * flow passes will add, remove or alter any state of the system</b> - Initiates an
+     * <b>{@link MatsInitiate#nonPersistent() non-persistent}</b> (unreliable), <b>{@link MatsInitiate#interactive()
+     * interactive}</b> (prioritized) request-message to the specified endpoint, returning a {@link CompletableFuture}
+     * that will be {@link CompletableFuture#complete(Object) completed} with the reply from the requested endpoint. The
+     * internal MatsFuturizer timeout will be set to <b>2 minutes</b>, meaning that if there is no reply forthcoming
+     * within that time, the {@link CompletableFuture} will be {@link CompletableFuture#completeExceptionally(Throwable)
+     * completed exceptionally} with a {@link MatsFuturizerTimeoutException MatsFuturizerTimeoutException}, and the
+     * Promise deleted from the futurizer. 2 minutes is probably too long to wait for any normal interaction with a
+     * system, so if you use the {@link CompletableFuture#get(long, TimeUnit) CompletableFuture.get(timeout)} method of
+     * the returned future, you might want to put a lower timeout there - if the answer hasn't come within that time,
+     * you'll get a {@link TimeoutException}. If you instead use the non-param variant {@link CompletableFuture#get()
+     * get()}, you will get an {@link ExecutionException} when the 2 minutes have passed (that exception's
+     * {@link ExecutionException#getCause() cause} will be the {@link MatsFuturizerTimeoutException
+     * MatsFuturizerTimeoutException} mentioned above).
+     * <p/>
+     * The goal of this method is to be able to get hold of e.g. account holdings, order statuses etc, for presentation
+     * to a user. The thinking is that if such a flow fails where a message of the call flow disappears, this won't make
+     * for anything else than a bit annoyed user: No important state change, like the adding, deleting or change of an
+     * order, will be lost. Therefore, <i>non-persistent</i>. At the same time, to make the user super happy in the
+     * ordinary circumstances, all messages in this call flow will be prioritized, and thus skip any queue backlogs that
+     * have arose on any of the call flow's endpoints, e.g. due to some massive batch of (background) processes
+     * executing at the same time. Therefore, <i>interactive</i>. Notice that with both of these features combined, you
+     * get very fast messaging, as non-persistent means that the message will not have to be stored to permanent storage
+     * at any point, while interactive means that it will skip any backlogged queues.
+     *
+     * @param traceId
+     *            TraceId of the resulting Mats call flow, see {@link MatsInitiate#traceId(String)}
+     * @param from
+     *            the "from" of the initiation, see {@link MatsInitiate#from(String)}
+     * @param to
+     *            to which Mats endpoint the request should go, see {@link MatsInitiate#to(String)}
+     * @param replyClass
+     *            which expected reply DTO class that the requested endpoint replies with.
+     * @param request
+     *            the request DTO that should be sent to the endpoint, see {@link MatsInitiate#request(Object)}
+     * @param <T>
+     *            the type of the reply DTO.
+     * @return a {@link CompletableFuture} which will be resolved with a {@link Reply}-instance that contains both some
+     *         meta-data, and the {@link Reply#reply reply} from the requested endpoint.
+     */
     public <T> CompletableFuture<Reply<T>> futurizeInteractiveUnreliable(String traceId, String from, String to,
-            int timeoutMillis,
             Class<T> replyClass, Object request) {
-        return futurizeGeneric(traceId, from, to, timeoutMillis, replyClass, request,
+        return futurizeGeneric(traceId, from, to, 2, TimeUnit.MINUTES, replyClass, request,
                 msg -> msg.interactive().nonPersistent());
     }
 
-    public <T> CompletableFuture<Reply<T>> futurizeGeneric(String traceId, String from, String to, int timeoutMillis,
-            Class<T> replyClass, Object request, InitiateLambda extraMessageInit) {
-        Promise<T> promise = _createPromise(traceId, from, replyClass, timeoutMillis);
+    /**
+     * The generic form of initiating a request-message that returns a {@link CompletableFuture}, which enables you to
+     * tailor all properties. To set interactive or nonPersistent-flags, or to tack on any
+     * ({@link MatsInitiate#addBytes(String, byte[]) "sideloads"} to the outgoing message, use the "extraMessageInit"
+     * parameter, which directly is the {@link InitiateLambda InitiateLambda} that the MatsFuturizer initiation is
+     * using.
+     * <p/>
+     * For a bit more explanation, please read JavaDoc of
+     * {@link #futurizeInteractiveUnreliable(String, String, String, Class, Object) futurizeInteractiveUnreliable(..)}
+     *
+     * @param traceId
+     *            TraceId of the resulting Mats call flow, see {@link MatsInitiate#traceId(String)}
+     * @param from
+     *            the "from" of the initiation, see {@link MatsInitiate#from(String)}
+     * @param to
+     *            to which Mats endpoint the request should go, see {@link MatsInitiate#to(String)}
+     * @param timeout
+     *            how long before the internal timeout-mechanism of MatsFuturizer kicks in and the future is
+     *            {@link CompletableFuture#completeExceptionally(Throwable) completed exceptionally}.
+     * @param unit
+     *            the unit of time of the 'timeout' parameter.
+     * @param replyClass
+     *            which expected reply DTO class that the requested endpoint replies with.
+     * @param request
+     *            the request DTO that should be sent to the endpoint, see {@link MatsInitiate#request(Object)}
+     * @param extraMessageInit
+     *            the {@link InitiateLambda} that the MatsFuturizer is employing to initiate the outgoing message, which
+     *            you can use to tailor the message, e.g. setting the {@link MatsInitiate#interactive()
+     *            interactive}-flag or tacking on {@link MatsInitiate#addBytes(String, byte[]) "sideloads"}.
+     * @param <T>
+     *            the type of the reply DTO.
+     * @return a {@link CompletableFuture} which will be resolved with a {@link Reply}-instance that contains both some
+     *         meta-data, and the {@link Reply#reply reply} from the requested endpoint.
+     */
+    public <T> CompletableFuture<Reply<T>> futurizeGeneric(String traceId, String from, String to,
+            int timeout, TimeUnit unit, Class<T> replyClass, Object request, InitiateLambda extraMessageInit) {
+        Promise<T> promise = _createPromise(traceId, from, replyClass, timeout, unit);
         _assertFuturizerRunning();
         _enqueuePromise(promise);
         _sendRequestToFulfillPromise(from, to, traceId, request, extraMessageInit, promise);
@@ -163,7 +250,7 @@ public class MatsFuturizer implements AutoCloseable {
     /**
      * @return the number of outstanding promises, not yet completed or timed out.
      */
-    public int getOutstandingPromises() {
+    public int getOutstandingPromiseCount() {
         synchronized (_correlationIdToPromiseMap) {
             return _correlationIdToPromiseMap.size();
         }
@@ -213,9 +300,12 @@ public class MatsFuturizer implements AutoCloseable {
         return r -> new Thread(r, "MatsFuturizer completer #" + threadNumber.getAndIncrement());
     }
 
-    protected <T> Promise<T> _createPromise(String traceId, String from, Class<T> replyClass, int timeoutMillis) {
-        if (timeoutMillis < 0) {
-            throw new IllegalArgumentException("Timeout cannot be zero or negative [" + timeoutMillis + "].");
+    protected <T> Promise<T> _createPromise(String traceId, String from, Class<T> replyClass,
+            int timeout, TimeUnit unit) {
+        long timeoutMillis = unit.toMillis(timeout);
+        if (timeoutMillis <= 0) {
+            throw new IllegalArgumentException("Timeout in milliseconds cannot be zero or negative [" + timeoutMillis
+                    + "].");
         }
         String correlationId = RandomString.randomCorrelationId();
         long timestamp = System.currentTimeMillis();
@@ -226,8 +316,8 @@ public class MatsFuturizer implements AutoCloseable {
     protected <T> void _enqueuePromise(Promise<T> promise) {
         synchronized (_correlationIdToPromiseMap) {
             if (_correlationIdToPromiseMap.size() >= _maxOutstandingPromises) {
-                throw new IllegalStateException("There are too many Promises outstanding, so cannot add more" 
-                        + " - limit is ["+_maxOutstandingPromises+"].");
+                throw new IllegalStateException("There are too many Promises outstanding, so cannot add more"
+                        + " - limit is [" + _maxOutstandingPromises + "].");
             }
             // This is the lookup that the reply-handler uses to get to the promise from the correlationId.
             _correlationIdToPromiseMap.put(promise._correlationId, promise);
@@ -359,15 +449,16 @@ public class MatsFuturizer implements AutoCloseable {
                                     // Check next in line
                                     continue;
                                 }
-                                // E-> It was not overdue, so see how long to sleep.
-                                sleepMillis = peekPromise._timeoutTimestamp - now;
+                                // E-> This is the Promise that is next in line to timeout.
                                 _nextInLineToTimeout = peekPromise;
+                                // This Promise has >0 milliseconds left before timeout, so calculate how long to sleep.
+                                sleepMillis = peekPromise._timeoutTimestamp - now;
                             }
                             else {
+                                // We have no Promise next in line to timeout.
+                                _nextInLineToTimeout = null;
                                 // Chill for a while, then just check to be on the safe side..
                                 sleepMillis = 30_000;
-                                // No Promises waiting.
-                                _nextInLineToTimeout = null;
                             }
                             // ?: Do we have any Promises to timeout?
                             if (!promisesToTimeout.isEmpty()) {

@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
+import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -32,7 +33,6 @@ public class Test_MatsFuturizer_Timeouts extends MatsBasicTest {
         // =============================================================================================
         try (MatsFuturizer futurizer = MatsFuturizer.createMatsFuturizer(matsRule.getMatsFactory(),
                 this.getClass().getSimpleName())) {
-
             assertOneShotTimeoutByMatsFuturizer(futurizer);
         }
     }
@@ -55,7 +55,7 @@ public class Test_MatsFuturizer_Timeouts extends MatsBasicTest {
             // to wait for 1 minute, but the timeout was specified to 25 ms.
             Assert.assertEquals(MatsFuturizerTimeoutException.class, e.getCause().getClass());
             // There should be 0 outstanding promises, as the one we added just got timed out.
-            Assert.assertEquals(0, futurizer.getOutstandingPromises());
+            Assert.assertEquals(0, futurizer.getOutstandingPromiseCount());
         }
     }
 
@@ -81,15 +81,16 @@ public class Test_MatsFuturizer_Timeouts extends MatsBasicTest {
             catch (TimeoutException e) {
                 // Top notch: We were expecting the TimeoutException: good-stuff!
                 // ASSERT: There should still be one outstanding Promise, i.e. the one we just added.
-                Assert.assertEquals(1, futurizer.getOutstandingPromises());
+                Assert.assertEquals(1, futurizer.getOutstandingPromiseCount());
             }
         }
     }
 
-    private CompletableFuture<Reply<DataTO>> futureToEmptiness(MatsFuturizer futurizer, DataTO dto, int i,
+    private CompletableFuture<Reply<DataTO>> futureToEmptiness(MatsFuturizer futurizer, DataTO dto, int timeoutMillis,
             Consumer<Throwable> exceptionally) {
-        CompletableFuture<Reply<DataTO>> future = futurizer.futurizeInteractiveUnreliable(
-                dto.string, "TimeoutTester.oneshot", SERVICE, i, DataTO.class, dto);
+        CompletableFuture<Reply<DataTO>> future = futurizer.futurizeGeneric(
+                dto.string, "TimeoutTester.oneshot", SERVICE, timeoutMillis, TimeUnit.MILLISECONDS, DataTO.class, dto,
+                MatsInitiate::nonPersistent);
         if (exceptionally != null) {
             future.exceptionally((in) -> {
                 exceptionally.accept(in);
@@ -100,23 +101,25 @@ public class Test_MatsFuturizer_Timeouts extends MatsBasicTest {
     }
 
     @Test
-    public void manyTimeoutsByMatsFuturizer() throws ExecutionException, InterruptedException, TimeoutException {
+    public void severalTimeoutsByMatsFuturizer() throws InterruptedException, TimeoutException {
         // =============================================================================================
         // == NOTE: Using try-with-resources in this test - NOT TO BE USED IN NORMAL CIRCUMSTANCES!!! ==
         // =============================================================================================
         try (MatsFuturizer futurizer = MatsFuturizer.createMatsFuturizer(matsRule.getMatsFactory(),
                 this.getClass().getSimpleName())) {
 
+            // :: PRE-ARRANGE:
+
             // :: First do a warm-up of the infrastructure, as we need somewhat good performance of the code
             // to do the test, which relies on asynchronous timings.
             for (int i = 0; i < 10; i++) {
                 assertOneShotTimeoutByMatsFuturizer(futurizer);
             }
-            Assert.assertEquals(0, futurizer.getOutstandingPromises());
+            Assert.assertEquals(0, futurizer.getOutstandingPromiseCount());
 
             // ----- The test infrastructure should now be somewhat warm, not incurring sudden halts to timings.
 
-            // :: ARRANGE
+            // :: ARRANGE:
 
             // We will receive each of the timeout exceptions as they happen, by using future.thenAccept(..)
             // We'll stick the "results" in this COWAL.
@@ -138,6 +141,8 @@ public class Test_MatsFuturizer_Timeouts extends MatsBasicTest {
             // .. we add the last timeout with the longest timeout.
             CompletableFuture<Reply<DataTO>> last = futureToEmptiness(futurizer, new DataTO(6, "150"), 150, resulter);
 
+            // "ACT": (well, each of the above futures have /already/ started executing, but wait for them to finish)
+
             // :: Now we wait for the last future to timeout.
             try {
                 last.get(5, TimeUnit.SECONDS);
@@ -149,10 +154,12 @@ public class Test_MatsFuturizer_Timeouts extends MatsBasicTest {
                 // expected.
             }
 
+            // ASSERT:
+
             // :: All the futures should now have timed out, and they shall have timed out in the order of timeouts.
             Assert.assertEquals(Arrays.asList("25", "50", "75", "100", "125", "150"), results);
             // .. and there should not be any Promises left in the MatsFuturizer.
-            Assert.assertEquals(0, futurizer.getOutstandingPromises());
+            Assert.assertEquals(0, futurizer.getOutstandingPromiseCount());
         }
     }
 
