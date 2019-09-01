@@ -24,13 +24,7 @@ public class Test_MatsFuturizer_Basics extends MatsBasicTest {
     @Before
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
-                (context, msg) -> {
-                    log.info("Inside SERVICE, context:\n" + context);
-                    if (msg == null) {
-                        return null;
-                    }
-                    return new DataTO(msg.number * 2, msg.string + ":FromService");
-                });
+                (context, msg) -> new DataTO(msg.number * 2, msg.string + ":FromService"));
     }
 
     @Test
@@ -68,6 +62,9 @@ public class Test_MatsFuturizer_Basics extends MatsBasicTest {
 
             // Timed run:
             runTest(futurizer, 50); // 1000 msgs -> 679.391 ms total -> 0.679 ms per message
+
+            // For 10k messages, with logging set to INFO level, "timed run":
+            // Got the reply from all [10000] Futures - total time:[1975.412943 ms] , per message:[0.1975412943 ms]
         }
     }
 
@@ -89,8 +86,10 @@ public class Test_MatsFuturizer_Basics extends MatsBasicTest {
             Assert.assertEquals(new DataTO(i * 2, "TheAnswer:FromService"), result.reply);
         }
         double totalTimeMs = (System.nanoTime() - startNanos) / 1_000_000d;
-        log.info("#TIMED# Got the reply from all [" + number + "] Futures - total time:[" + (totalTimeMs)
-                + " ms] , per message:[" + (totalTimeMs / number) + " ms]");
+        String msg = "#TIMED# Got the reply from all [" + number + "] Futures - total time:[" + (totalTimeMs)
+                + " ms] , per message:[" + (totalTimeMs / number) + " ms]";
+        log.info(msg);
+        System.out.println(msg);
     }
 }
 

@@ -436,8 +436,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
                         // :: Log final stats
                         double millisTotal = (System.nanoTime() - nanosStart) / 1_000_000d;
-                        log.info(LOG_PREFIX + "Total time from received till finished processing: ["
-                                + ms3(millisTotal) + "].");
+                        log.info(LOG_PREFIX + "PROCESSED: Total time from received till finished processing: ["
+                                + ms3(millisTotal) + " ms].");
                     }
                     finally {
                         MDC.clear();

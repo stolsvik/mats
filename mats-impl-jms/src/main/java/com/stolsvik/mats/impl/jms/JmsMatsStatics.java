@@ -273,7 +273,8 @@ public interface JmsMatsStatics {
                             + "], msg creation + send took:[" + ms3(millisSend) + " ms] (production was:["
                             + ms3(jmsMatsMessage.getTotalProductionTimeMillis()) + " ms])"
                             + (messagesToSend.size() == 1
-                                    ? ", total since recv/init:[" + ms3((nanosAtSent - nanosStart) / 1_000_000d) + "]."
+                                    ? ", total since recv/init:[" + ms3((nanosAtSent - nanosStart) / 1_000_000d)
+                                            + " ms]."
                                     : "."));
                 }
                 catch (JMSException e) {
@@ -295,6 +296,7 @@ public interface JmsMatsStatics {
                     MDC.remove(MDC_MATS_MESSAGE_ID_OUT);
                     MDC.remove(MDC_MATS_FROM);
                     MDC.remove(MDC_MATS_TO);
+                    MDC.remove(MDC_MATS_AUDIT);
                 }
             }
             // Only log tally-line if we sent more than one message
