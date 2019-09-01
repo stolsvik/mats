@@ -319,11 +319,11 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         return new MessageReferenceImpl(matsMessageId);
     }
 
-    private String addDebugInfoToCurrentCall(MatsTrace<Z> requestMatsTrace) {
+    private String addDebugInfoToCurrentCall(MatsTrace<Z> outgoingMatsTrace) {
         long now = System.currentTimeMillis();
-        Call<Z> currentCall = requestMatsTrace.getCurrentCall();
-        String matsMessageId = createMatsMessageId(requestMatsTrace.getFlowId(),
-                requestMatsTrace.getInitializedTimestamp(), now, currentCall.getCallNumber());
+        Call<Z> currentCall = outgoingMatsTrace.getCurrentCall();
+        String matsMessageId = createMatsMessageId(outgoingMatsTrace.getFlowId(),
+                outgoingMatsTrace.getInitializedTimestamp(), now, currentCall.getCallNumber());
 
         // TODO: Add debug info!
         currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),

@@ -361,6 +361,11 @@ public interface JmsMatsStatics {
 
     default String createMatsMessageId(String flowId, long matsTraceCreationMillis, long messageCreationMillis,
             int callNumber) {
+        // Hack to fix backwards compatibility. Remove in 2020..
+        flowId = flowId != null
+                ? flowId
+                : randomString(20);
+
         // Since we can have clock skews between servers, and we do not want a "-" in the messageId (due to the
         // double-clickableness mentioned below), we make -10 -> "n10".
         long millisSince = messageCreationMillis - matsTraceCreationMillis;

@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.ThreadLocalRandom;
 
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call.CallType;
@@ -69,7 +70,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     public static MatsTrace<String> createNew(String traceId,
             KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive) {
         // Since it was called without a FlowId, we generate one here.
-        Random random = new Random();
+        Random random = ThreadLocalRandom.current();
         String flowId = "mid_" + Long.toUnsignedString(System.currentTimeMillis(), 36)
                 + "_" + Long.toUnsignedString(random.nextLong(), 36)
                 + Long.toUnsignedString(random.nextLong(), 36);
@@ -244,9 +245,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         // Prune the data and stack from current call if KeepMatsTrace says so.
         clone.dropValuesOnCurrentCallIfAny();
         // Add the new Call
-        int callNumber = getCurrentCall() == null ? 1 : getCurrentCall().getCallNumber() + 1;
-        clone.c.add(new CallImpl(callNumber, CallType.REQUEST, from, new ChannelImpl(to, toMessagingModel), data,
-                newCallReplyStack));
+        clone.c.add(new CallImpl(getNewCallNumber(), CallType.REQUEST, from, new ChannelImpl(to, toMessagingModel),
+                data, newCallReplyStack));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
             // The stack is now one height higher, since we added the "replyTo" to it.
@@ -266,9 +266,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         // Prune the data and stack from current call if KeepMatsTrace says so.
         clone.dropValuesOnCurrentCallIfAny();
         // Add the new Call
-        int callNumber = getCurrentCall() == null ? 1 : getCurrentCall().getCallNumber() + 1;
-        clone.c.add(new CallImpl(callNumber, CallType.SEND, from, new ChannelImpl(to, toMessagingModel), data,
-                newCallReplyStack));
+        clone.c.add(new CallImpl(getNewCallNumber(), CallType.SEND, from, new ChannelImpl(to, toMessagingModel),
+                data, newCallReplyStack));
         // Add any state meant for the initial stage ("stage0") of the "to" endpointId.
         if (initialState != null) {
             clone.ss.add(new StackStateImpl(newCallReplyStack.size(), initialState));
@@ -288,9 +287,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         List<ChannelImpl> newCallReplyStack = getCurrentStack();
         // Prune the data and stack from current call if KeepMatsTrace says so.
         clone.dropValuesOnCurrentCallIfAny();
-        // Add the new Call
-        int callNumber = getCurrentCall() == null ? 1 : getCurrentCall().getCallNumber() + 1;
-        clone.c.add(new CallImpl(callNumber, CallType.NEXT, from, new ChannelImpl(to, MessagingModel.QUEUE),
+        // Add the new Call.
+        clone.c.add(new CallImpl(getNewCallNumber(), CallType.NEXT, from, new ChannelImpl(to, MessagingModel.QUEUE),
                 data, newCallReplyStack));
         // Add the state meant for the next stage
         clone.ss.add(new StackStateImpl(newCallReplyStack.size(), state));
@@ -313,11 +311,21 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         // Pop the last element off the stack, since this is where we'll reply to, and the rest is the new stack.
         ChannelImpl to = newCallReplyStack.remove(newCallReplyStack.size() - 1);
         // Add the new Call
-        int callNumber = getCurrentCall() == null ? 1 : getCurrentCall().getCallNumber() + 1;
-        clone.c.add(new CallImpl(callNumber, CallType.REPLY, from, to, data, newCallReplyStack));
+        clone.c.add(new CallImpl(getNewCallNumber(), CallType.REPLY, from, to, data, newCallReplyStack));
         // Prune the StackStates if KeepMatsTrace says so.
         clone.pruneUnnecessaryStackStates();
         return clone;
+    }
+
+    /**
+     * Note that "getCurrentCall()" will go on the "this" MatsTrace, not the clone, so that if we're at
+     * KeepTrace.MINIMAL, we will still get a CurrentCall.
+     *
+     * @return the new CallNumber, based on "getCurrentCall" of <i>this</i> MatsTrace, not the clone that is being
+     *         created.
+     */
+    private int getNewCallNumber() {
+        return getCurrentCall() == null ? 1 : getCurrentCall().getCallNumber() + 1;
     }
 
     /**
