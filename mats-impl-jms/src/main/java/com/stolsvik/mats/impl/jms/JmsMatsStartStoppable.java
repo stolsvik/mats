@@ -25,8 +25,8 @@ public interface JmsMatsStartStoppable extends JmsMatsStatics, StartStoppable {
     }
 
 
-    default void stopPhase0SetRunFlagFalse() {
-        getChildrenStartStoppable().forEach(JmsMatsStartStoppable::stopPhase0SetRunFlagFalse);
+    default void stopPhase0SetRunFlagFalseAndCloseSessionIfInReceive() {
+        getChildrenStartStoppable().forEach(JmsMatsStartStoppable::stopPhase0SetRunFlagFalseAndCloseSessionIfInReceive);
     }
 
     default void stopPhase1GracefulWait(int gracefulShutdownMillis) {
@@ -53,7 +53,7 @@ public interface JmsMatsStartStoppable extends JmsMatsStatics, StartStoppable {
 
     @Override
     default boolean stop(int gracefulShutdownMillis) {
-        stopPhase0SetRunFlagFalse();
+        stopPhase0SetRunFlagFalseAndCloseSessionIfInReceive();
         stopPhase1GracefulWait(gracefulShutdownMillis);
         stopPhase2InterruptIfStillAlive();
         return stopPhase3GracefulAfterInterrupt();

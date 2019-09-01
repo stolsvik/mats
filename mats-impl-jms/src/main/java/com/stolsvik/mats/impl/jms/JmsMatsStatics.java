@@ -42,8 +42,17 @@ public interface JmsMatsStatics {
     String MDC_JMS_MESSAGE_ID_OUT = "mats.JMSMessageID.Out";
     String MDC_MATS_MESSAGE_ID_OUT = "mats.MatsMessageId.Out";
     String MDC_MATS_INCOMING = "mats.Incoming";
-    String MDC_MATS_OUTGOING = "mats.Outgoing";
     String MDC_MATS_INITIATE = "mats.Initiate";
+    String MDC_MATS_OUTGOING = "mats.Outgoing";
+    String MDC_MATS_FROM = "mats.From";
+    String MDC_MATS_TO = "mats.To";
+    String MDC_MATS_AUDIT = "mats.Audit";
+
+    String JMS_MSG_PROP_FROM = MDC_MATS_FROM;
+    String JMS_MSG_PROP_TO = MDC_MATS_TO;
+    String JMS_MSG_PROP_NO_AUDIT = "mats.NoAudit";
+    String JMS_MSG_PROP_MATS_MSG_ID = "mats.MatsMsgId";
+    String JMS_MSG_PROP_TRACE_ID = "mats.TraceId";
 
     /**
      * Number of milliseconds to "extra wait" after timeoutMillis or gracefulShutdownMillis is gone.
@@ -197,6 +206,9 @@ public interface JmsMatsStatics {
                     // Set MDC for this outgoing message
                     MDC.put(MDC_TRACE_ID, outgoingMatsTrace.getTraceId());
                     MDC.put(MDC_MATS_MESSAGE_ID_OUT, outgoingMatsTrace.getCurrentCall().getMatsMessageId());
+                    MDC.put(MDC_MATS_FROM, outgoingMatsTrace.getCurrentCall().getFrom());
+                    MDC.put(MDC_MATS_TO, toChannel.getId());
+                    MDC.put(MDC_MATS_AUDIT, "" + (!outgoingMatsTrace.isNoAudit()));
                     byte[] matsTraceBytes = jmsMatsMessage.getSerializedOutgoingMatsTrace().getMatsTraceBytes();
 
                     // Get FactoryConfig
@@ -209,7 +221,7 @@ public interface JmsMatsStatics {
                     mm.setString(factoryConfig.getMatsTraceKey() + MatsSerializer.META_KEY_POSTFIX,
                             jmsMatsMessage.getSerializedOutgoingMatsTrace().getMeta());
 
-                    // :: Add the properties to the MapMessage
+                    // :: Add the Mats properties to the MapMessage
                     for (Entry<String, byte[]> entry : jmsMatsMessage.getBytes().entrySet()) {
                         mm.setBytes(entry.getKey(), entry.getValue());
                     }
@@ -217,7 +229,29 @@ public interface JmsMatsStatics {
                         mm.setString(entry.getKey(), entry.getValue());
                     }
 
+                    // :: Add some JMS Properties to simplify logging on MQ
+                    mm.setStringProperty(JMS_MSG_PROP_TRACE_ID, outgoingMatsTrace.getTraceId());
+                    mm.setStringProperty(JMS_MSG_PROP_MATS_MSG_ID, outgoingMatsTrace.getCurrentCall()
+                            .getMatsMessageId());
+                    mm.setStringProperty(JMS_MSG_PROP_FROM, outgoingMatsTrace.getCurrentCall().getFrom());
+                    mm.setStringProperty(JMS_MSG_PROP_TO, toChannel.getId());
+                    if (outgoingMatsTrace.isNoAudit()) {
+                        mm.setBooleanProperty(JMS_MSG_PROP_NO_AUDIT, true);
+                    }
+
+                    // Setting DeliveryMode: NonPersistent or Persistent
+                    int deliveryMode = outgoingMatsTrace.isNonPersistent()
+                            ? DeliveryMode.NON_PERSISTENT
+                            : DeliveryMode.PERSISTENT;
+
+                    // Setting Priority: 4 is default, 9 is highest.
+                    int priority = outgoingMatsTrace.isInteractive() ? 9 : 4;
+
+                    // Get Time-To-Live
+                    long timeToLive = outgoingMatsTrace.getTimeToLive();
+
                     // :: Create the JMS Queue or Topic.
+                    // TODO: OPTIMIZE: Cache these?!
                     Destination destination = toChannel.getMessagingModel() == MessagingModel.QUEUE
                             ? jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + toChannel.getId())
                             : jmsSession.createTopic(factoryConfig.getMatsDestinationPrefix() + toChannel.getId());
@@ -225,25 +259,22 @@ public interface JmsMatsStatics {
                     // TODO: OPTIMIZE: Use "asynchronous sends", i.e. register completion listeners (catch exceptions)
                     // and close at the end.
 
-                    // Setting DeliveryMode: NonPersistent or Persistent
-                    int deliveryMode = outgoingMatsTrace.isNonPersistent()
-                            ? DeliveryMode.NON_PERSISTENT
-                            : DeliveryMode.PERSISTENT;
-                    // Setting Priority: 4 is default, 9 is highest.
-                    int priority = outgoingMatsTrace.isInteractive() ? 9 : 4;
-
-                    // Send the message (but since transactional, won't be committed until TransactionContext does).
-                    messageProducer.send(destination, mm, deliveryMode, priority, outgoingMatsTrace.getTimeToLive());
+                    // :: Send the message (but since transactional, won't be committed until TransactionContext does).
+                    messageProducer.send(destination, mm, deliveryMode, priority, timeToLive);
 
                     // We now have a JMSMessageID, so set it on MDC for outgoing.
                     MDC.put(MDC_JMS_MESSAGE_ID_OUT, mm.getJMSMessageID());
 
                     // Log it.
-                    double millisSend = (System.nanoTime() - nanosStartSend) / 1_000_000d;
-                    log.info(LOG_PREFIX + "SENDING [" + jmsMatsMessage.getWhat() + "] message to ["
+                    long nanosAtSent = System.nanoTime();
+                    double millisSend = (nanosAtSent - nanosStartSend) / 1_000_000d;
+                    log.info(LOG_PREFIX + "SENT [" + jmsMatsMessage.getWhat() + "] message to ["
                             + jmsMatsFactory.getFactoryConfig().getName() + "|" + destination
-                            + "], send took:[" + ms3(millisSend) + " ms] (production was:["
-                            + ms3(jmsMatsMessage.getTotalProductionTimeMillis()) + " ms]).");
+                            + "], msg creation + send took:[" + ms3(millisSend) + " ms] (production was:["
+                            + ms3(jmsMatsMessage.getTotalProductionTimeMillis()) + " ms])"
+                            + (messagesToSend.size() == 1
+                                    ? ", total since recv/init:[" + ms3((nanosAtSent - nanosStart) / 1_000_000d) + "]."
+                                    : "."));
                 }
                 catch (JMSException e) {
                     throw new JmsMatsJmsException("Got problems sending [" + jmsMatsMessage.getWhat()
@@ -262,14 +293,19 @@ public interface JmsMatsStatics {
                     MDC.remove(MDC_JMS_MESSAGE_ID_OUT);
                     // MatsMessageId
                     MDC.remove(MDC_MATS_MESSAGE_ID_OUT);
+                    MDC.remove(MDC_MATS_FROM);
+                    MDC.remove(MDC_MATS_TO);
                 }
             }
-            long nanosFinal = System.nanoTime();
-            double millisSendingMessags = (nanosFinal - nanosStartSendingMessages) / 1_000_000d;
-
-            double millisTotal = (nanosFinal - nanosStart) / 1_000_000d;
-            log.info(LOG_PREFIX + "SENT [" + messagesToSend.size() + "] messages, took:[" + ms3(millisSendingMessags)
-                    + "] - total since recv/init:[" + ms3(millisTotal) + "].");
+            // Only log tally-line if we sent more than one message
+            if (messagesToSend.size() > 1) {
+                long nanosFinal = System.nanoTime();
+                double millisSendingMessags = (nanosFinal - nanosStartSendingMessages) / 1_000_000d;
+                double millisTotal = (nanosFinal - nanosStart) / 1_000_000d;
+                log.info(LOG_PREFIX + "SENT TOTAL [" + messagesToSend.size() + "] messages, took:[" + ms3(
+                        millisSendingMessags)
+                        + "] - total since recv/init:[" + ms3(millisTotal) + "].");
+            }
         }
         finally {
             // :: Clean MDC: Outgoing
@@ -326,7 +362,7 @@ public interface JmsMatsStatics {
         // Since we can have clock skews between servers, and we do not want a "-" in the messageId (due to the
         // double-clickableness mentioned below), we make -10 -> "n10".
         long millisSince = messageCreationMillis - matsTraceCreationMillis;
-        String millisSinceString = millisSince > 0 ? Long.toString(millisSince) : "n" + Math.abs(millisSince);
+        String millisSinceString = millisSince >= 0 ? Long.toString(millisSince) : "n" + Math.abs(millisSince);
         // A MatsMessageId ends up looking like this: 'm_XBExAa1iioAGFVRk6nR5_Tjzswm4ys_t49_n22'
         // Or for negative millisSince: 'm_XBExAa1iioAGFVRk6nR5_Tjzswm4ys_tn49_n22'
         // NOTICE FEATURE: You can double-click anywhere inside that string, and get the entire id marked! w00t!

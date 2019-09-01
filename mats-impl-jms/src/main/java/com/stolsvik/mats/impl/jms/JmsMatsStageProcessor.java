@@ -87,7 +87,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     }
 
     @Override
-    public void stopPhase0SetRunFlagFalse() {
+    public void stopPhase0SetRunFlagFalseAndCloseSessionIfInReceive() {
         // Start by setting the run-flag to false..
         _runFlag = false;
         /*
@@ -177,9 +177,6 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         }
     }
 
-    private void closeJmsSessionHolderIfNotNull(JmsSessionHolder jmsSessionHolderToClose) {
-    }
-
     private void joinProcessorThread(int gracefulWaitMillis) {
         try {
             _processorThread.join(gracefulWaitMillis);
@@ -249,8 +246,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                         try {
                             _processorInReceive = true;
                             if (log.isDebugEnabled()) log.debug(LOG_PREFIX
-                                    + "Going into JMS consumer.receive() for ["
-                                    + destination + "].");
+                                    + "Going into JMS consumer.receive() for [" + destination + "].");
                             message = jmsConsumer.receive();
                         }
                         finally {

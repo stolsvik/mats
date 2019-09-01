@@ -1,5 +1,6 @@
 package com.stolsvik.mats.impl.jms;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.jms.Connection;
@@ -139,6 +140,9 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
         @Override
         public void isSessionOk() throws JmsMatsJmsException {
             JmsMatsActiveMQSpecifics.isConnectionLive(_jmsConnection);
+            if (_closed.get()) {
+                throw new JmsMatsJmsException("SessionHolder is closed.");
+            }
         }
 
         @Override
@@ -153,8 +157,15 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
             return _messageProducer;
         }
 
+        private AtomicBoolean _closed = new AtomicBoolean();
+
         @Override
         public void close() {
+            boolean alreadyClosed = _closed.getAndSet(true);
+            if (alreadyClosed) {
+                log.info(LOG_PREFIX + "When trying to close [" + this + "], it was already closed.");
+                return;
+            }
             if (log_holder.isDebugEnabled()) log_holder.debug(LOG_PREFIX + "close() on SessionHolder [" + this
                     + "] - closing JMS Connection.");
             try {
@@ -162,12 +173,17 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
                 _jmsConnection.close();
             }
             catch (Throwable t) {
-                log_holder.warn("Got problems when trying to close the JMS Connection.", t);
+                log_holder.warn("Got problems when trying to close the JMS Connection due to .close() invoked.", t);
             }
         }
 
         @Override
         public void release() {
+            boolean alreadyClosed = _closed.getAndSet(true);
+            if (alreadyClosed) {
+                log.info(LOG_PREFIX + "When trying to release [" + this + "], it was already closed.");
+                return;
+            }
             if (log_holder.isDebugEnabled()) log_holder.debug(LOG_PREFIX + "release() on SessionHolder [" + this
                     + "] - closing JMS Connection.");
             try {
@@ -175,12 +191,18 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
                 _jmsConnection.close();
             }
             catch (Throwable t) {
-                log_holder.warn("Got problems when trying to close the JMS Connection.", t);
+                log_holder.warn("Got problems when trying to close the JMS Connection due to .release() invoked.", t);
             }
         }
 
         @Override
         public void crashed(Throwable t) {
+            boolean alreadyClosed = _closed.getAndSet(true);
+            if (alreadyClosed) {
+                log.info(LOG_PREFIX + "When trying to inform of crash on, and thus close [" + this
+                        + "], it was already closed.");
+                return;
+            }
             if (log_holder.isDebugEnabled()) log_holder.debug(LOG_PREFIX + "crashed() on SessionHolder [" + this
                     + "] - closing JMS Connection.", t);
             try {

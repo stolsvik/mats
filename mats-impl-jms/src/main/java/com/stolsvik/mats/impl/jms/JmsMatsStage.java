@@ -123,7 +123,8 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
              *
              * (Optimizations along the line of using a thread pool for the actual work of the processor must be done in
              * user code, as the MATS framework must acknowledge (commit/rollback) each message, and cannot decide what
-             * code could potentially be done concurrently..)
+             * code could potentially be done concurrently.. Such a thread pool is for example used in the
+             * "MatsFuturizer" tool)
              */
             numberOfProcessors = 1;
         }

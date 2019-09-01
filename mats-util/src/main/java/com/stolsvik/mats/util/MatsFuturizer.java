@@ -390,16 +390,20 @@ public class MatsFuturizer implements AutoCloseable {
         // Immediately pick this out of the map & queue
         Promise<?> promise;
         synchronized (_correlationIdToPromiseMap) {
+            // Find the Promise from the CorrelationId
             promise = _correlationIdToPromiseMap.remove(correlationId);
+            // Did we find it?
             if (promise != null) {
+                // -> Yes, found - remove it from the PriorityQueue too.
                 _timeoutSortedPromises.remove(promise);
             }
+            // NOTE: We don't bother pinging the Timeouter, as he'll find out himself soon enough if this was first.
         }
         // ?: Did we still have the Promise?
         if (promise == null) {
-            // -> Promise gone, log on WARN and exit.
+            // -> Promise gone, log on INFO and exit (it was logged on WARN when it was actually timed out).
             MDC.put("traceId", context.getTraceId());
-            log.warn(LOG_PREFIX + "Got reply from [" + context
+            log.info(LOG_PREFIX + "Promise gone! Got reply from [" + context
                     .getFromStageId() + "] for Future with traceId:[" + context.getTraceId()
                     + "], but the Promise had timed out.");
             MDC.remove("traceId");
@@ -411,6 +415,7 @@ public class MatsFuturizer implements AutoCloseable {
         _futureCompleterThreadPool.execute(() -> {
             try {
                 MDC.put("traceId", promise._traceId);
+                // NOTICE! We don't log here, as the SubscriptionTerminator already has logged the ordinary mats lines.
                 _uncheckedComplete(context, replyObject, promise);
             }
             // NOTICE! This catch will probably never be triggered, as if .thenAccept() and similar throws,
