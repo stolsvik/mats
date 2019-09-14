@@ -326,31 +326,47 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         CallImpl currentCall = getCurrentCall();
         if (currentCall == null) {
             // -> No, so then we derive the SpanId from the FlowId
-            // TODO: Remove this hack in 2020.
-            if (getFlowId() == null) {
-                return 0;
-            }
-            return fnv1a_64(getFlowId().getBytes(StandardCharsets.UTF_8));
+            return getRootSpanId();
         }
         // E-> Yes, we have a CurrentCall
         List<ChannelWithSpan> stack = currentCall.s;
         // ?: Is there any stack?
         if (stack.isEmpty()) {
-            // -> No, no stack, so we're at initiator/terminator level - again derive from SpanId
-            // TODO: Remove this hack in 2020.
-            if (getFlowId() == null) {
-                return 0;
-            }
-            return fnv1a_64(getFlowId().getBytes(StandardCharsets.UTF_8));
+            // -> No, no stack, so we're at initiator/terminator level - again derive SpanId from FlowId
+            return getRootSpanId();
         }
         // E-> Yes, we have a CurrentCall with a Stack > 0 elements.
         return stack.get(stack.size() - 1).getSpanId();
     }
 
-    // Fowler–Noll–Vo hash function, https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+    private long getRootSpanId() {
+        // TODO: Remove this hack in 2020.
+        if (getFlowId() == null) {
+            return 0;
+        }
+        return fnv1a_64(getFlowId().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private List<Long> getSpanIdStack() {
+        ArrayList<Long> spanIds = new ArrayList<>();
+        spanIds.add(getRootSpanId());
+        CallImpl currentCall = getCurrentCall();
+        // ?: Did we have a CurrentCall?
+        if (currentCall != null) {
+            // -> We have a CurrentCall, add the stack of SpanIds.
+            for (ChannelWithSpan cws : currentCall.s) {
+                spanIds.add(cws.sid);
+            }
+        }
+        return spanIds;
+    }
+
     private static final long FNV1A_64_OFFSET_BASIS = 0xcbf29ce484222325L;
     private static final long FNV1A_64_PRIME = 0x100000001b3L;
 
+    /**
+     * Fowler–Noll–Vo hash function, https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+     */
     private static long fnv1a_64(final byte[] k) {
         long rv = FNV1A_64_OFFSET_BASIS;
         for (byte b : k) {
@@ -872,14 +888,19 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder();
+        CallImpl currentCall = getCurrentCall();
 
-        String callType = getCurrentCall().getCallType().toString();
+        if (currentCall == null) {
+            return "MatsTrace w/o CurrentCall. TraceId:" + tid + ", FlowId:" + id + ".";
+        }
+
+        String callType = currentCall.getCallType().toString();
         callType = callType + spaces(8 - callType.length());
 
         // === HEADER ===
         buf.append("MatsTrace : ")
                 .append(callType)
-                .append(" #from:  ").append(getCurrentCall().getFrom())
+                .append(" #from:  ").append(currentCall.getFrom())
                 .append("  KeepMatsTrace:").append(getKeepTrace())
                 .append("  NonPersistent:").append(isNonPersistent())
                 .append("  Interactive:").append(isInteractive())
@@ -887,20 +908,34 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                 .append("  NoAudit:").append(isNoAudit())
                 .append('\n');
 
-        buf.append("                     #to: ").append(getCurrentCall().getTo())
-                .append("    traceId:'").append(tid)
-                .append("'  current SpanId:").append(Long.toString(getCurrentSpanId(), 36))
-                .append('\n');
+        buf.append("                     #to: ").append(currentCall.getTo())
+                .append("  current SpanId:").append(Long.toString(getCurrentSpanId(), 36))
+                .append(currentCall.getCallType() == CallType.REPLY
+                        ? "  replyFromSpanId:"+Long.toString(currentCall.getReplyFromSpanId(), 36)
+                        : "")
+                .append("  traceId:'").append(tid)
+                .append("'\n");
 
         // === STACK ===
-        buf.append(" current stack: \n");
-        List<Channel> stack = getCurrentCall().getStack();
+
+        buf.append(" current ReplyTo stack: \n");
+        List<Channel> stack = currentCall.getStack();
         if (stack.isEmpty()) {
             buf.append("    <empty, cannot reply>\n");
         }
         for (int i = 0; i < stack.size(); i++) {
             buf.append(String.format("   %2d %s\n", i,
                     stack.get(i).toString()));
+        }
+        buf.append('\n');
+
+        // === SPAN ID STACK ===
+
+        buf.append(" current SpanId stack: \n");
+        List<Long> spanIdStack = getSpanIdStack();
+        for (int i = 0; i < spanIdStack.size(); i++) {
+            buf.append(String.format("   %2d %s\n", i,
+                    Long.toString(spanIdStack.get(i), 36)));
         }
         buf.append('\n');
 
