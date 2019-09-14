@@ -25,6 +25,15 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  */
 public interface MatsTrace<Z> {
     /**
+     * Can only be set once..
+     *
+     * @return <code>this</code>, for chaining. Note that this is opposed to the add[Request|Send|Next|Reply]Call(..)
+     *         methods, which return a new, independent instance.
+     */
+    MatsTrace<Z> withDebugInfo(String initializingAppName, String initializingAppVersion, String initializingHost,
+            String initiatorId, long initializedTimestamp, String debugInfo);
+
+    /**
      * @return the TraceId that this {@link MatsTrace} was initiated with - this is set once, at initiation time, and
      *         follows the processing till it terminates. (All log lines will have the traceId set on the MDC.)
      */
@@ -93,11 +102,7 @@ public interface MatsTrace<Z> {
      */
     boolean isNoAudit();
 
-    /**
-     * Can only be set once..
-     */
-    MatsTrace<Z> setDebugInfo(String initializingAppName, String initializingAppVersion, String initializingHost,
-            String initiatorId, long initializedTimestamp, String debugInfo);
+    // --- Stuff set with the 'withDebugInfo(...)' method.
 
     String getInitializingAppName();
 
@@ -106,8 +111,7 @@ public interface MatsTrace<Z> {
     String getInitializingHost();
 
     /**
-     * @return a fictive free-form "endpointId" of the initiator, see
-     *         <code>MatsInitiator.MatsInitiate.from(String)</code> - can include arbitrary characters.
+     * @return a fictive "endpointId" of the initiator, see <code>MatsInitiator.MatsInitiate.from(String)</code>.
      */
     String getInitiatorId();
 
@@ -165,7 +169,7 @@ public interface MatsTrace<Z> {
      *            the {@link MessagingModel} of 'to'.
      * @param replyTo
      *            which endpoint that should get the reply from the requested endpoint.
-     * @param toMessagingModel
+     * @param replyToMessagingModel
      *            the {@link MessagingModel} of 'replyTo'.
      * @param data
      *            the request data, most often a JSON representing the Request Data Transfer Object that the requesting
@@ -243,8 +247,17 @@ public interface MatsTrace<Z> {
     MatsTrace<Z> addReplyCall(String from, Z data);
 
     /**
+     * @return this MatsTrace's SpanId. If it is still on the initiator side, before having had a call added to it, or
+     *         on the terminator side, when the stack again is empty, the SpanId is derived from the {@link #getFlowId()
+     *         FlowId}. Otherwise, it is the topmost element of an internal stack, in the same way as
+     *         {@link #getCurrentCall()}.{@link Call#getStack()}.
+     */
+    long getCurrentSpanId();
+
+    /**
      * @return the {@link Call Call} which should be processed by the stage receiving this {@link MatsTrace} (which
-     *         should be the stageId specified in getCurrentCall().{@link Call#getTo() getTo()}).
+     *         should be the stageId specified in getCurrentCall().{@link Call#getTo() getTo()}). Returns
+     *         <code>null</code> if not call has yet been added to the trace.
      */
     Call<Z> getCurrentCall();
 
@@ -270,7 +283,8 @@ public interface MatsTrace<Z> {
      * (current) at end of list. The above-specified search algorithm still works, as it now will either find the
      * element with the correct stack depth at the end of the list, or it is not there.
      *
-     * @return the state for the {@link #getCurrentCall()}, if any.
+     * @return the state for the {@link #getCurrentCall()} if it exists, <code>null</code> otherwise (as is typical when
+     *         entering "stage0").
      */
     Z getCurrentState();
 
@@ -304,7 +318,8 @@ public interface MatsTrace<Z> {
          * Can only be set once.
          * 
          * @param matsMessageId
-         *            REMEMBER to prefix this by {@link MatsTrace#getFlowId()}, separated with a "_".
+         *            REMEMBER to prefix this by {@link MatsTrace#getFlowId()}, separated with a "_", thus only needs to
+         *            be unique within this trace/flow.
          */
         Call<Z> setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
                 long calledTimestamp, String matsMessageId, String debugInfo);
@@ -325,12 +340,18 @@ public interface MatsTrace<Z> {
          * @return Which call this is in the call flow, starting from 1. That is, you can either see it as which number
          *         of message this is in the flow (i.e. the first sent message is 1), or how many times
          *         {@link MatsTrace#addRequestCall(String, String, MessagingModel, String, MessagingModel, Object, Object, Object)
-         *         MatsTrace.add[Request|Send|Reply..](..)} has been invoked on this MatsTrace (i.e. the first call
-         *         added is thus number 1). You can also think of the initiator as the "0th process".
+         *         MatsTrace.add[Request|Next|Reply..](..)} has been invoked on this MatsTrace (i.e. the first call
+         *         added is thus number 1). You can also think of the initiator as the "0th stage".
          */
         int getCallNumber();
 
         CallType getCallType();
+
+        /**
+         * @return when {@link #getCallType()} is {@link CallType#REPLY REPLY}, the value of the REQUEST's SpanId is
+         *         returned, otherwise an {@link IllegalStateException} is thrown.
+         */
+        long getReplyFromSpanId();
 
         /**
          * Which type of Call this is.
@@ -394,13 +415,13 @@ public interface MatsTrace<Z> {
         int getStackHeight();
 
         /**
-         * @return a COPY of the stack (if you need the height (i.e. size), use {@link #getStackHeight()}) - NOTICE:
-         *         This will most probably be a List with {@link #getStackHeight()} elements containing "-nulled-" for
-         *         any other Call than the {@link MatsTrace#getCurrentCall()}, to conserve space in the MatsTrace. The
-         *         LAST (i.e. position 'size()-1') element is the most recent, meaning that the next REPLY will go here,
-         *         while the FIRST (i.e. position 0) element is the earliest in the stack, i.e. the stageId where the
-         *         Terminator endpointId typically will reside (unless the initial call was a {@link CallType#SEND
-         *         SEND}, which means that you don't want a reply).
+         * @return a COPY of the replyTo stack of Channels (if you need the height (i.e. size), use
+         *         {@link #getStackHeight()}) - NOTICE: This will most probably be a List with {@link #getStackHeight()}
+         *         elements containing "-nulled-" for any other Call than the {@link MatsTrace#getCurrentCall()}, to
+         *         conserve space in the MatsTrace. The LAST (i.e. position 'size()-1') element is the most recent,
+         *         meaning that the next REPLY will go here, while the FIRST (i.e. position 0) element is the earliest
+         *         in the stack, i.e. the stageId where the Terminator endpointId typically will reside (unless the
+         *         initial call was a {@link CallType#SEND SEND}, which means that you don't want a reply).
          */
         List<Channel> getStack();
     }

@@ -388,7 +388,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     // TODO: Add debug info!
                     // NOTE! We set "from" both on the MatsTrace, AND on the initial Call, so that you can have the
                     // origin of the flow even though it is in KeepTrace.MINIMAL mode.
-                    .setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                    .withDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                             _parentFactory.getFactoryConfig().getAppVersion(),
                             _parentFactory.getFactoryConfig().getNodename(), _from, now, "Tralala!");
         }
