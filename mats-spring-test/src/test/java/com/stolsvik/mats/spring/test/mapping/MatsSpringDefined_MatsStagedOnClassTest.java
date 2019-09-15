@@ -1,12 +1,12 @@
 package com.stolsvik.mats.spring.test.mapping;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import javax.inject.Inject;
 
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.test.context.junit4.SpringRunner;
@@ -28,35 +28,46 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 @RunWith(SpringRunner.class)
 @MatsSimpleTestContext
 public class MatsSpringDefined_MatsStagedOnClassTest {
-    private static final Logger log = LoggerFactory.getLogger(MatsSpringDefined_MatsStagedOnClassTest.class);
-
     private static final String SERVICE_MAIN = "test.AppMain";
     private static final String SERVICE_LEAF = "test.Leaf";
     private static final String TERMINATOR = "test.Terminator";
 
     @Configuration
-    public static class Config {
+    public static class BeanConfig {
+        @Bean
+        protected SpringTestDataTO someService() {
+            return new SpringTestDataTO(2, "to");
+        }
+
+        @Bean
+        protected SpringTestStateTO someOtherService() {
+            return new SpringTestStateTO(5, "fem");
+        }
+
+        @Bean
+        protected SomeSimpleService someSimpleService() {
+            return new SomeSimpleService();
+        }
+    }
+
+    @Configuration
+    public static class SimpleEndpointsConfig {
         @Inject
         private MatsTestLatch _latch;
 
+        @Inject
+        private SomeSimpleService _someSimpleService;
+
         @MatsMapping(SERVICE_LEAF)
         public SpringTestDataTO springMatsSingleEndpoint(SpringTestDataTO msg) {
+            // Interact with Spring injected service
+            _someSimpleService.increaseCounter();
             return new SpringTestDataTO(msg.number * 2, msg.string + ':' + SERVICE_LEAF);
         }
 
         @MatsMapping(TERMINATOR)
         public void springMatsTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
             _latch.resolve(state, msg);
-        }
-
-        @Bean
-        protected SpringTestDataTO someObject() {
-            return new SpringTestDataTO(2, "to");
-        }
-
-        @Bean
-        protected SpringTestStateTO someOtherObject() {
-            return new SpringTestStateTO(5, "fem");
         }
     }
 
@@ -71,10 +82,15 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
         // === DEPENDENCIES INJECTED BY SPRING
 
         @Inject
-        private SpringTestDataTO _someObject;
+        private SomeSimpleService _someSimpleService;
 
         @Inject
-        private SpringTestStateTO _someOtherObject;
+        // Think of this as a @Service or @Repository or something. I don't have much smart to inject.
+        private SpringTestDataTO _someService;
+
+        @Inject
+        // Think of this as a @Service or @Repository or something. I don't have much smart to inject.
+        private SpringTestStateTO _someOtherService;
 
         // === MATS' ProcessContext FOR CURRENT MESSAGE INJECTED BY MATS' "SpringConfig" LIBRARY
 
@@ -100,6 +116,13 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             _someStateString = "SetFromInitial";
             _someStateObject = null;
 
+            // Interact with Spring injected service
+            _someSimpleService.increaseCounter();
+
+            // Assert that we have the Spring injected "services" in place, as expected.
+            Assert.assertEquals(new SpringTestDataTO(2, "to"), _someService);
+            Assert.assertEquals(new SpringTestStateTO(5, "fem"), _someOtherService);
+
             // Do a request to a service
             _context.request(SERVICE_LEAF, new SpringTestDataTO(in.number, in.string));
         }
@@ -115,6 +138,13 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             _someStateInt = 10;
             _someStateString = "SetFromStageA";
             _someStateObject = new SpringTestDataTO(57473, "state");
+
+            // Interact with Spring injected service
+            _someSimpleService.increaseCounter();
+
+            // Assert that we have the Spring injected "services" in place, as expected.
+            Assert.assertEquals(new SpringTestDataTO(2, "to"), _someService);
+            Assert.assertEquals(new SpringTestStateTO(5, "fem"), _someOtherService);
 
             // Jump to next stage: Notice the use of a different DTO here (just using the STO since it was here)
             _context.next(new SpringTestStateTO((int) in.number * 3, in.string + ":next"));
@@ -135,6 +165,13 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             // Do a stash, to check the ProcessContext wrapping (not handled, should not need).
             _context.stash();
 
+            // Interact with Spring injected service
+            _someSimpleService.increaseCounter();
+
+            // Assert that we have the Spring injected "services" in place, as expected.
+            Assert.assertEquals(new SpringTestDataTO(2, "to"), _someService);
+            Assert.assertEquals(new SpringTestStateTO(5, "fem"), _someOtherService);
+
             // Do a request to a service
             _context.request(SERVICE_LEAF, new SpringTestDataTO(in.numero, in.cuerda));
         }
@@ -148,6 +185,13 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             Assert.assertEquals("SetFromStageB", _someStateString);
             Assert.assertEquals(new SpringTestDataTO(314159, "pi * 100.000"), _someStateObject);
 
+            // Interact with Spring injected service
+            _someSimpleService.increaseCounter();
+
+            // Assert that we have the Spring injected "services" in place, as expected.
+            Assert.assertEquals(new SpringTestDataTO(2, "to"), _someService);
+            Assert.assertEquals(new SpringTestStateTO(5, "fem"), _someOtherService);
+
             // Reply to caller with our amazing result.
             return new SpringTestDataTO(in.number * 5, in.string + ':' + SERVICE_MAIN);
         }
@@ -158,6 +202,9 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
 
     @Inject
     private MatsTestLatch _latch;
+
+    @Inject
+    private SomeSimpleService _someSimpleService;
 
     @Test
     public void doTest() {
@@ -177,6 +224,20 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
         Assert.assertEquals(new SpringTestDataTO(dto.number * 2 * 3 * 2 * 5,
                 dto.string + ':' + SERVICE_LEAF + ":next" + ':' + SERVICE_LEAF + ':' + SERVICE_MAIN),
                 result.getData());
+
+        // Check that the SomeSimpleService interactions took place
+        Assert.assertEquals(6, _someSimpleService.getCounterValue());
     }
 
+    private static class SomeSimpleService {
+        private AtomicInteger _counter = new AtomicInteger(0);
+
+        public void increaseCounter() {
+            _counter.incrementAndGet();
+        }
+
+        public int getCounterValue() {
+            return _counter.get();
+        }
+    }
 }
