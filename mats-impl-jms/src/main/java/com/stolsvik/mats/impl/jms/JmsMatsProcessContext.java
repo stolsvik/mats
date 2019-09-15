@@ -355,10 +355,10 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         String matsMessageId = addDebugInfoToCurrentCall(replyMatsTrace);
 
         // Produce the REPLY JmsMatsMessage to send
-        JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
+        JmsMatsMessage<Z> reply = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
                 replyMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "REPLY",
                 _parentFactory.getFactoryConfig().getName());
-        _messagesToSend.add(request);
+        _messagesToSend.add(reply);
 
         return new MessageReferenceImpl(matsMessageId);
     }
@@ -380,10 +380,10 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         String matsMessageId = addDebugInfoToCurrentCall(nextMatsTrace);
 
         // Produce the NEXT JmsMatsMessage to send
-        JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
+        JmsMatsMessage<Z> next = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
                 nextMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "NEXT",
                 _parentFactory.getFactoryConfig().getName());
-        _messagesToSend.add(request);
+        _messagesToSend.add(next);
 
         return new MessageReferenceImpl(matsMessageId);
     }

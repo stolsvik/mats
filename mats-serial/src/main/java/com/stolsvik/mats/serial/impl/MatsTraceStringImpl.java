@@ -47,6 +47,13 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     private final String id; // "Flow Id", system-def Id for this call flow (as oppose to traceId, which is user def.)
     private final String tid; // TraceId, user-def Id for this call flow.
+
+    private Long tidh; // For future OpenTracing support: 16-byte TraceId HIGH
+    private Long tidl; // For future OpenTracing support: 16-byte TraceId LOW
+    private Long sid; // For future OpenTracing support: Override SpanId for root
+    private Long pid; // For future OpenTracing support: ParentId
+    private Byte f;  // For future OpenTracing support: Flags
+
     private String an; // Initializing AppName
     private String av; // Initializing AppVersion
     private String h; // Initializing Host/Node
@@ -121,6 +128,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         x = debugInfo;
         return this;
     }
+
+    // POTENTIAL withOpenTracingTraceId() and withOpenTracingSpanId()..
 
     // Jackson JSON-lib needs a no-args constructor, but it can re-set finals.
     private MatsTraceStringImpl() {
@@ -825,11 +834,17 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
      * the Channel-stack and the SpanId-stack are "offset" wrt. to what they refer to:
      * <ul>
      * <li>ReplyTo Stack: The topmost ChannelWithSpan in the stack is what this CurrentCall <i>shall reply to</i>, if it
-     * so desires - i.e. it references the the frame <i>below</i> it in the stack.</li>
-     * <li>SpanId Stack: The topmost ChannelWithSpan in the stack carries the SpanId for this CurrentCall - i.e. it
-     * refers to <i>this</i> frame in the stack.</li>
+     * so desires - i.e. it references the the frame <i>below</i> it in the stack, its <i>parent</i>.</li>
+     * <li>SpanId Stack: The topmost ChannelWithSpan in the stack carries the SpanId that <i>this</i> Call processes
+     * within - i.e. it refers to <i>this</i> frame in the stack.</li>
      * </ul>
-     * 
+     * However, when correlating with how OpenTracing and friends refer to SpanIds, these are always created by the
+     * parent - which is also the case here: When a new REQUEST Call is made, this creates a new SpanId (which is kept
+     * with the Channel that should be replied to, i.e. in this class) - and then the Call is being sent (inside the
+     * MatsTrace). Then, when the REPLY Call is being created from the requested service, this SpanId is propagated back
+     * in the Call, accessible via the {@link Call#getReplyFromSpanId()} method. Thus, the SpanId is both created, and
+     * then processed again upon receiving the REPLY, by the parent stackframe - and viewed like this, the SpanId
+     * ('sid') thus actually resides on the correct stackframe.
      */
     private static class ChannelWithSpan extends ChannelImpl {
         private final long sid; // SpanId
@@ -917,7 +932,6 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                         : "")
                 .append("  TraceId:'").append(getTraceId())
                 .append("'\n");
-
 
         // === CURRENT CALL ===
 
