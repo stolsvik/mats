@@ -54,6 +54,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private Long pid; // For future OpenTracing support: ParentId
     private Byte f;  // For future OpenTracing support: Flags
 
+    private int d; // For future Debug options, issue #79
+
     private String an; // Initializing AppName
     private String av; // Initializing AppVersion
     private String h; // Initializing Host/Node
@@ -129,7 +131,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         return this;
     }
 
-    // POTENTIAL withOpenTracingTraceId() and withOpenTracingSpanId()..
+    // TODO: POTENTIAL withOpenTracingTraceId() and withOpenTracingSpanId()..
 
     // Jackson JSON-lib needs a no-args constructor, but it can re-set finals.
     private MatsTraceStringImpl() {
@@ -332,6 +334,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         clone.pruneUnnecessaryStackStates();
         return clone;
     }
+
+    // TODO: POTENTIAL setSpanIdOnCurrentStack(..)
 
     @Override
     public long getCurrentSpanId() {
