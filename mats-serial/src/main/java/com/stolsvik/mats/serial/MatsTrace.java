@@ -262,6 +262,17 @@ public interface MatsTrace<Z> {
     Call<Z> getCurrentCall();
 
     /**
+     * @return the number of calls that this MatsTrace have been through, i.e. how many times
+     *         {@link MatsTrace#addRequestCall(String, String, MessagingModel, String, MessagingModel, Object, Object, Object)
+     *         MatsTrace.add[Request|Next|Reply..](..)} has been invoked on this MatsTrace. This means that right after
+     *         a new MatsTrace has been created, before a call has been added, 0 is returned. With KeepMatsTrace at
+     *         {@link KeepMatsTrace#FULL FULL} or {@link KeepMatsTrace#COMPACT COMPACT}, the returned number will be the
+     *         same as {@link #getCallFlow()}.size(), but with {@link KeepMatsTrace#MINIMAL MINIMAL}, that number of
+     *         always 1, but this number will still return the number of calls that has been added through the flow.
+     */
+    int getCallNumber();
+
+    /**
      * @return the flow of calls, from the first REQUEST (or SEND), to the {@link #getCurrentCall() current call} -
      *         unless {@link #getKeepTrace() KeepTrace} is MINIMAL, in which case only the current call is present in
      *         the list.
@@ -289,9 +300,7 @@ public interface MatsTrace<Z> {
     Z getCurrentState();
 
     /**
-     * @return the stack of the states for the current stack: getCurrentCall().getStack(). NOTICE: The index position in
-     *         this list has little to do with which stack level the state refers to. This must be gotten from
-     *         {@link StackState#getHeight()}.
+     * @return the stack of the states for the current stack: getCurrentCall().getStack().
      * @see #getCurrentState() for more information on how the "State Flow" works.
      */
     List<StackState<Z>> getStateStack();
@@ -299,7 +308,8 @@ public interface MatsTrace<Z> {
     /**
      * @return the entire list of states as they have changed throughout the call flow. If {@link KeepMatsTrace} is
      *         COMPACT or MINIMAL, then it will be a pure stack (as returned with {@link #getStateStack()}, with the
-     *         last element being the most recent stack frame.
+     *         last element being the most recent stack frame. NOTICE: The index position in this list has little to do
+     *         with which stack level the state refers to. This must be gotten from {@link StackState#getHeight()}.
      * @see #getCurrentState() for more information on how the "State Flow" works.
      */
     List<StackState<Z>> getStateFlow();
@@ -335,15 +345,6 @@ public interface MatsTrace<Z> {
         String getMatsMessageId();
 
         String getDebugInfo();
-
-        /**
-         * @return Which call this is in the call flow, starting from 1. That is, you can either see it as which number
-         *         of message this is in the flow (i.e. the first sent message is 1), or how many times
-         *         {@link MatsTrace#addRequestCall(String, String, MessagingModel, String, MessagingModel, Object, Object, Object)
-         *         MatsTrace.add[Request|Next|Reply..](..)} has been invoked on this MatsTrace (i.e. the first call
-         *         added is thus number 1). You can also think of the initiator as the "0th stage".
-         */
-        int getCallNumber();
 
         CallType getCallType();
 

@@ -399,7 +399,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                     _parentFactory.getFactoryConfig().getAppVersion(),
                     _parentFactory.getFactoryConfig().getNodename(), now,
-                    createMatsMessageId(matsTrace.getFlowId(), now, now, currentCall.getCallNumber()),
+                    createMatsMessageId(matsTrace.getFlowId(), now, now, matsTrace.getCallNumber()),
                     "Callalala!");
             copyOverAnyExistingTraceProperties(matsTrace);
         }

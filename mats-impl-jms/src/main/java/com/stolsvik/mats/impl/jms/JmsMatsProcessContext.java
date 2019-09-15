@@ -323,7 +323,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         long now = System.currentTimeMillis();
         Call<Z> currentCall = outgoingMatsTrace.getCurrentCall();
         String matsMessageId = createMatsMessageId(outgoingMatsTrace.getFlowId(),
-                outgoingMatsTrace.getInitializedTimestamp(), now, currentCall.getCallNumber());
+                outgoingMatsTrace.getInitializedTimestamp(), now, outgoingMatsTrace.getCallNumber());
 
         // TODO: Add debug info!
         currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),

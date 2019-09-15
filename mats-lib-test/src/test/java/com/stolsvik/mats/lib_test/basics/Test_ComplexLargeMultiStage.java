@@ -65,8 +65,8 @@ public class Test_ComplexLargeMultiStage extends MatsBasicTest {
 
     @Before
     public void setupMidMultiStagedService() {
-        MatsEndpoint<DataTO, StateTO> ep = matsRule.getMatsFactory().staged(SERVICE + ".Mid", DataTO.class, StateTO.class
-        );
+        MatsEndpoint<DataTO, StateTO> ep = matsRule.getMatsFactory().staged(SERVICE + ".Mid", DataTO.class,
+                StateTO.class);
         ep.stage(DataTO.class, (context, sto, dto) -> {
             log.info("Incoming message for MidService: DTO:[" + dto + "], STO:[" + sto + "], context:\n" + context);
             Assert.assertEquals(new StateTO(0, 0), sto);
@@ -76,10 +76,20 @@ public class Test_ComplexLargeMultiStage extends MatsBasicTest {
             sto.number2 = Math.PI;
             context.request(SERVICE + ".Leaf", new DataTO(dto.number, dto.string + ":LeafCall", 2));
         });
-        ep.lastStage(DataTO.class, (context, sto, dto) -> {
-            log.info("Incoming message for MidService.stage1: DTO:[" + dto + "], STO:[" + sto + "], context:\n" + context);
+        ep.stage(DataTO.class, (context, sto, dto) -> {
+            log.info("Incoming message for MidService.stage1: DTO:[" + dto + "], STO:[" + sto + "], context:\n"
+                    + context);
             // Only assert number2, as number1 is differing between calls (it is the multiplier for MidService).
             Assert.assertEquals(Math.PI, sto.number2, 0d);
+            // Change the important number in state..!
+            sto.number2 = Math.E;
+            context.next(new DataTO(dto.number, dto.string + ":NextCall"));
+        });
+        ep.lastStage(DataTO.class, (context, sto, dto) -> {
+            log.info("Incoming message for MidService.stage2: DTO:[" + dto + "], STO:[" + sto + "], context:\n"
+                    + context);
+            // Only assert number2, as number1 is differing between calls (it is the multiplier for MidService).
+            Assert.assertEquals(Math.E, sto.number2, 0d);
             // Use the 'multiplier' in the request to formulate the reply.. I.e. multiply the number..!
             return new DataTO(dto.number * sto.number1, dto.string + ":FromMidService");
         });
@@ -183,12 +193,12 @@ public class Test_ComplexLargeMultiStage extends MatsBasicTest {
                 * 8 * 2
                 * 9 * 2
                 * 5, dto.string
-                + ":MidCall1" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
-                + ":MidCall2" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
-                + ":LeafCall1" + ":FromLeafService"
-                + ":LeafCall2" + ":FromLeafService"
-                + ":MidCall3" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
-                + ":MidCall4" + ":LeafCall" + ":FromLeafService" + ":FromMidService"
-                + ":FromMasterService"), result.getData());
+                        + ":MidCall1" + ":LeafCall" + ":FromLeafService" + ":NextCall" + ":FromMidService"
+                        + ":MidCall2" + ":LeafCall" + ":FromLeafService" + ":NextCall" + ":FromMidService"
+                        + ":LeafCall1" + ":FromLeafService"
+                        + ":LeafCall2" + ":FromLeafService"
+                        + ":MidCall3" + ":LeafCall" + ":FromLeafService" + ":NextCall" + ":FromMidService"
+                        + ":MidCall4" + ":LeafCall" + ":FromLeafService" + ":NextCall" + ":FromMidService"
+                        + ":FromMasterService"), result.getData());
     }
 }
