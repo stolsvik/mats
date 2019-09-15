@@ -119,7 +119,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         return this;
     }
 
-    // Jackson JSON-lib needs a default constructor, but it can re-set finals.
+    // Jackson JSON-lib needs a no-args constructor, but it can re-set finals.
     private MatsTraceStringImpl() {
         // REMEMBER: These will be set by the deserialization mechanism.
         tid = null;
@@ -402,13 +402,15 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     /**
-     * Should be invoked just before adding the new call, so as to clean out the 'from' and Stack (and data if COMPACT)
-     * on the call that after the add will become the previous call.
+     * Should be invoked just before adding the new call to the cloneForNewCall()'ed MatsTrace, so as to clean out the
+     * 'from' and Stack (and data if COMPACT) on the CurrentCall which after the add will become the <i>previous</i>
+     * call.
      */
     private void dropValuesOnCurrentCallIfAny() {
         if (c.size() > 0) {
             getCurrentCall().dropFromAndStack();
-            // ?: Are we on COMPACT mode? (Note that this is implicitly also done for MINIMAL - in clone..())
+            // ?: Are we on COMPACT mode? (Note that this is implicitly also done for MINIMAL - in cloneForNewCall() -
+            // since all calls are dropped in MINIMAL!)
             if (kt == KeepMatsTrace.COMPACT) {
                 // -> Yes, COMPACT, so drop data
                 getCurrentCall().dropData();
@@ -520,10 +522,13 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         try {
             MatsTraceStringImpl cloned = (MatsTraceStringImpl) super.clone();
             // Calls are not immutable (a Call's stack and data may be nulled due to KeepMatsTrace value)
+            // ?: Are we using MINIMAL?
             if (kt == KeepMatsTrace.MINIMAL) {
+                // -> Yes, MINIMAL, so we will literally just have the sole "NewCall" in the trace.
                 cloned.c = new ArrayList<>(1);
             }
             else {
+                // -> No, not MINIMAL (i.e. FULL or COMPACT), so clone up the Calls.
                 cloned.c = new ArrayList<>(c.size());
                 // Clone all the calls.
                 for (CallImpl call : c) {
@@ -563,7 +568,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
         private Long rid; // Reply-From-SpanId
 
-        // Jackson JSON-lib needs a default constructor, but it can re-set finals.
+        // Jackson JSON-lib needs a no-args constructor, but it can re-set finals.
         private CallImpl() {
             n = 0;
             t = null;
@@ -781,7 +786,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         private final String i;
         private final MessagingModel m;
 
-        // Jackson JSON-lib needs a default constructor, but it can re-set finals.
+        // Jackson JSON-lib needs a no-args constructor, but it can re-set finals.
         private ChannelImpl() {
             i = null;
             m = null;
@@ -837,6 +842,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private static class ChannelWithSpan extends ChannelImpl {
         private final long sid; // SpanId
 
+        // Jackson JSON-lib needs a no-args constructor, but it can re-set finals.
         public ChannelWithSpan() {
             super();
             sid = 0;
@@ -860,7 +866,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         private final int h; // depth.
         private final String s; // state.
 
-        // Jackson JSON-lib needs a default constructor, but it can re-set finals.
+        // Jackson JSON-lib needs a no-args constructor, but it can re-set finals.
         private StackStateImpl() {
             h = 0;
             s = null;
@@ -885,6 +891,9 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         }
     }
 
+    /**
+     * MatsTraceStringImpl.toString().
+     */
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder();
@@ -911,7 +920,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         buf.append("                     #to: ").append(currentCall.getTo())
                 .append("  current SpanId:").append(Long.toString(getCurrentSpanId(), 36))
                 .append(currentCall.getCallType() == CallType.REPLY
-                        ? "  replyFromSpanId:"+Long.toString(currentCall.getReplyFromSpanId(), 36)
+                        ? "  replyFromSpanId:" + Long.toString(currentCall.getReplyFromSpanId(), 36)
                         : "")
                 .append("  traceId:'").append(tid)
                 .append("'\n");
@@ -934,8 +943,15 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         buf.append(" current SpanId stack: \n");
         List<Long> spanIdStack = getSpanIdStack();
         for (int i = 0; i < spanIdStack.size(); i++) {
-            buf.append(String.format("   %2d %s\n", i,
+            buf.append(String.format("   %2d %s", i,
                     Long.toString(spanIdStack.get(i), 36)));
+            if (i == spanIdStack.size() - 1) {
+                buf.append(" (current call)");
+            }
+            if (i == 0) {
+                buf.append(" (root/initiator/terminator level)");
+            }
+            buf.append('\n');
         }
         buf.append('\n');
 
