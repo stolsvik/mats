@@ -5,6 +5,7 @@ import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -69,8 +70,9 @@ import com.stolsvik.mats.spring.MatsClassMapping.Stage;
  * with {@link MatsMapping @MatsMapping} or {@link MatsEndpointSetup @MatsEndpointSetup}, and if so configures Mats
  * endpoints for them on the (possibly specified) {@link MatsFactory}. It will also control any registered
  * {@link MatsFactory} beans, invoking {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} early in the startup
- * procedure before adding the endpoints, and then {@link MatsFactory#start()} as late as possible in the startup
- * procedure, then {@link MatsFactory#stop()} as early as possible in the shutdown procedure.
+ * procedure before adding the endpoints, and then {@link MatsFactory#start() MatsFactory.start()} as late as possible
+ * in the startup procedure, then {@link MatsFactory#stop(int) MatsFactory.stop(..)} as early as possible in the
+ * shutdown procedure.
  *
  * <h3>This is the startup procedure:</h3>
  * <ol>
@@ -102,8 +104,8 @@ import com.stolsvik.mats.spring.MatsClassMapping.Stage;
  * <h3>This is the shutdown procedure:</h3>
  * <ol>
  * <li>Upon {@link ContextClosedEvent}, all MatsFactories in the ApplicationContext will have their
- * {@link MatsFactory#stop()} method invoked.
- * <li>This causes all registered Mats Endpoints to be {@link MatsEndpoint#stop() stopped}, which releases the
+ * {@link MatsFactory#stop(int) stop()} method invoked.
+ * <li>This causes all registered Mats Endpoints to be {@link MatsEndpoint#stop(int) stopped}, which releases the
  * connection to the underlying MQ and stops the stage processor threads.
  * </ol>
  * Notice: ContextClosedEvent is fired rather early in the Spring ApplicationContext shutdown procedure. When running in
@@ -284,7 +286,7 @@ public class MatsSpringAnnotationRegistration implements
             if (_contextHasBeenRefreshed) {
                 // -> Yes, already refreshed, so process right away, as the process-at-refresh won't happen.
                 log.info(LOG_PREFIX + " \\- ContextRefreshedEvent already run! Process right away!");
-                processMatsStagedOnClass(matsClassMapping, bean);
+                processMatsClassMapping(matsClassMapping, bean);
             }
         }
         return bean;
@@ -367,7 +369,7 @@ public class MatsSpringAnnotationRegistration implements
         // :: Register Mats endpoints for all @MatsMapping and @MatsEndpointSetup annotated methods.
         _matsMappingMethods.forEach(h -> processMatsMapping(h.matsMapping, h.method, h.bean));
         _matsStagedMethods.forEach(h -> processMatsEndpointSetup(h.matsEndpointSetup, h.method, h.bean));
-        _matsStagedClasses.forEach(h -> processMatsStagedOnClass(h.matsClassMapping, h.bean));
+        _matsStagedClasses.forEach(h -> processMatsClassMapping(h.matsClassMapping, h.bean));
 
         /*
          * Now set the flag that denotes that ContextRefreshedEvent has been run, so that any subsequent beans with any
@@ -540,6 +542,7 @@ public class MatsSpringAnnotationRegistration implements
                 // -> Yes, so then we need to hack together a "single" endpoint out of a staged with single lastStage.
                 typeEndpoint = "SingleStage w/State";
                 MatsEndpoint<?, ?> ep = matsFactoryToUse.staged(matsMapping.endpointId(), replyType, stoType);
+                // NOTE: .lastStage() invokes .finishSetup()
                 ep.lastStage(dtoType, (processContext, state, incomingDto) -> {
                     Object reply = invokeMatsLambdaMethod(matsMapping, method, bean, defaultArgsArray,
                             processContextParamF, processContext,
@@ -664,6 +667,8 @@ public class MatsSpringAnnotationRegistration implements
                     + simpleAnnotationAndMethodDescription(matsEndpointSetup, method) + ".", e);
         }
 
+        // This endpoint is finished set up.
+        endpoint.finishSetup();
         log.info(LOG_PREFIX + "Processed Mats Endpoint Configuration by "
                 + simpleAnnotationAndMethodDescription(matsEndpointSetup, method)
                 + " :: MatsEndpoint:[param#" + endpointParam + "], EndpointConfig:[param#" + configParam + "]");
@@ -673,7 +678,7 @@ public class MatsSpringAnnotationRegistration implements
      * Process a class annotated with {@link MatsClassMapping @MatsClassMapping} - note that one class can have multiple
      * such annotations, and this method will be invoked for each of them.
      */
-    private void processMatsStagedOnClass(MatsClassMapping matsClassMapping, Object bean) {
+    private void processMatsClassMapping(MatsClassMapping matsClassMapping, Object bean) {
         if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsClassMapping bean '"
                 + classNameWithoutPackage(bean) + "':#: Annotation:[" + matsClassMapping + "]");
 
@@ -773,6 +778,14 @@ public class MatsSpringAnnotationRegistration implements
         ReflectionUtils.doWithFields(targetClass, field -> {
             String name = field.getName();
             Class<?> clazz = field.getType();
+
+            // ?: Is this field static?
+            if (Modifier.isStatic(field.getModifiers())) {
+                // -> Yes, static, and thus we should not care about it.
+                log.info(LOG_PREFIX + " - Field [" + name + "] is static: Should not be neither injected, context nor"
+                        + "state, so ignore it.");
+                return;
+            }
 
             // ?: Is this a field of type ProcessContext?
             if (clazz.isAssignableFrom(ProcessContext.class)) {
@@ -969,6 +982,8 @@ public class MatsSpringAnnotationRegistration implements
                 }
             });
         });
+        // This endpoint is finished set up.
+        ep.finishSetup();
         log.info(LOG_PREFIX + "Processed Mats Class Mapped Endpoint by @MatsClassMapping-annotated bean '"
                 + classNameWithoutPackage(bean) + "'.");
     }
