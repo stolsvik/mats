@@ -30,6 +30,7 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 
 /**
  * Note: Kick-ass.
+ * TODO: Make better JavaDoc
  *
  * @author Endre Stølsvik 2019-08-25 20:35 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -131,6 +132,18 @@ public class MatsFuturizer implements AutoCloseable {
             this.reply = reply;
             this.initiationTimestamp = initiationTimestamp;
         }
+
+        public DetachedProcessContext getContext() {
+            return context;
+        }
+
+        public T getReply() {
+            return reply;
+        }
+
+        public long getInitiationTimestamp() {
+            return initiationTimestamp;
+        }
     }
 
     /**
@@ -160,7 +173,7 @@ public class MatsFuturizer implements AutoCloseable {
 
     /**
      * <b>NOTICE: This variant must <u>only</u> be used for "GET"-style requests where none of the endpoints the call
-     * flow passes will add, remove or alter any state of the system</b> - Initiates an
+     * flow passes will add, remove or alter any state of the system</b> - This method initiates an
      * <b>{@link MatsInitiate#nonPersistent() non-persistent}</b> (unreliable), <b>{@link MatsInitiate#interactive()
      * interactive}</b> (prioritized) request-message to the specified endpoint, returning a {@link CompletableFuture}
      * that will be {@link CompletableFuture#complete(Object) completed} with the reply from the requested endpoint. The
