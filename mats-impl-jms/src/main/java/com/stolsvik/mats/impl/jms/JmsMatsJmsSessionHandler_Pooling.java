@@ -359,10 +359,10 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                         _crashedConnectionWithSessionPools.put(_poolingKey, this);
                     }
                     /*
-                     * NOTE: Any other employed SessionHolders will invoke isConnectionStillActive(), and find that it
-                     * is not still active by getting a JmsMatsJmsException, thus come back with crashed(). Otherwise,
-                     * they will also come get a JMS Exception from other JMS actions, and come back with crashed(). It
-                     * could potentially also get a null from .receive(), and thus come back with close().
+                     * NOTE: Any other employed SessionHolders will invoke isConnectionLive(), and find that it is not
+                     * still active by getting a JmsMatsJmsException, thus come back with crashed(). Otherwise, they
+                     * will also come get a JMS Exception from other JMS actions, and come back with crashed(). It could
+                     * potentially also get a null from .receive(), and thus come back with close().
                      */
                 }
             }
@@ -455,7 +455,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         /**
          * Will be invoked by all SessionHolders at various times in {@link JmsMatsStageProcessor}.
          */
-        void isConnectionStillActive() throws JmsMatsJmsException {
+        void isConnectionLive() throws JmsMatsJmsException {
             if (_poolIsCrashed_StackTrace != null) {
                 throw new JmsMatsJmsException("Connection is crashed.", _poolIsCrashed_StackTrace);
             }
@@ -498,7 +498,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         @Override
         public void isSessionOk() throws JmsMatsJmsException {
-            _connectionWithSessionPool.isConnectionStillActive();
+            _connectionWithSessionPool.isConnectionLive();
         }
 
         @Override
@@ -511,13 +511,14 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             return _messageProducer;
         }
 
-        private AtomicBoolean _closed = new AtomicBoolean();
+        private AtomicBoolean _closedOrCrashed = new AtomicBoolean();
 
         @Override
         public void close() {
-            boolean alreadyClosed = _closed.getAndSet(true);
+            boolean alreadyClosed = _closedOrCrashed.getAndSet(true);
             if (alreadyClosed) {
-                log.info(LOG_PREFIX + "When trying to close [" + this + "], it was already closed.");
+                if (log.isDebugEnabled()) log.info(LOG_PREFIX + "When trying to close [" + this
+                        + "], it was already closed or crashed.");
                 return;
             }
             _connectionWithSessionPool.close(this);
@@ -525,14 +526,17 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         @Override
         public void release() {
+            // NOTE! NOT doing anything with "closed or crashed" logic here, since the JmsSessionHolder is a shared
+            // object, and not a "single use proxy" as e.g. a pooled SQL Connection typically is.
             _connectionWithSessionPool.release(this);
         }
 
         @Override
         public void crashed(Throwable t) {
-            boolean alreadyClosed = _closed.getAndSet(true);
+            boolean alreadyClosed = _closedOrCrashed.getAndSet(true);
             if (alreadyClosed) {
-                log.info(LOG_PREFIX + "When trying to crash [" + this + "], it was already closed.");
+                if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "When trying to crash [" + this
+                        + "], it was already closed or crashed.");
                 return;
             }
             _connectionWithSessionPool.crashed(this, t);

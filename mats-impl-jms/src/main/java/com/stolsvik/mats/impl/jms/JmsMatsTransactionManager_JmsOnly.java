@@ -85,7 +85,7 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 Optional<MessageConsumer> messageConsumer = jmsSessionMessageContext.getMessageConsumer();
                 if (!messageConsumer.isPresent()) {
                     log.error(e.getClass().getName() + " was raised in a wrong context where no JMS MessageConsumer is"
-                            + " present. This shall not be possible - 'sneaky throws' in play?.", e);
+                            + " present (i.e. initiation). This shall not be possible - 'sneaky throws' in play?.", e);
                     rollback(jmsSession, e);
                 }
                 else {

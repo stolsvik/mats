@@ -101,7 +101,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
         // ?: Has processorThread already exited?
         if (!_processorThread.isAlive()) {
-            // -> Yes, thread already exited, so just close session (this is our responsibility).
+            // -> Yes, thread already exited, and it should thus have closed the JMS Session.
             // 1. JavaDoc isAlive(): "A thread is alive if it has been started and has not yet died."
             // 2. The Thread is started in the constructor.
             // 3. Thus, if it is not alive, there is NO possibility that it is starting, or about to be started.
@@ -110,6 +110,15 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         }
 
         // E-> ?: Is thread currently waiting in consumer.receive()?
+        // First we do a repeated "pre-check", and wait a tad if it isn't in receive yet (this happens too often in
+        // tests, where the system is being closed down before the run-loop has gotten back to consumer.receive())
+        for (int i = 0; i < 10; i++) {
+            if (_processorInReceive) {
+                break;
+            }
+            log.debug(LOG_PREFIX + ident() + " has not gotten to consumer.receive() yet, but give it a chance..");
+            chillWait(10);
+        }
         if (_processorInReceive) {
             // -> Yes, waiting in receive(), so close session, thus making receive() return null.
             log.info(LOG_PREFIX + ident() + " is waiting in consumer.receive(), so we'll close the current"
@@ -255,11 +264,20 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                         // Need to check whether the JMS Message gotten is null, as that signals that the
                         // Consumer, Session or Connection was closed from another thread.
                         if (message == null) {
-                            log.info(LOG_PREFIX + "!! Got null from JMS consumer.receive(), JMS Session"
-                                    + " was probably closed due to shutdown or JMS error."
-                                    + " Closing current JmsSessionHolder to clean up. Looping to check run-flag.");
-                            closeCurrentSessionHolder();
-                            continue OUTER;
+                            // ?: Are we shut down?
+                            if (!_runFlag) {
+                                // -> Yes, down
+                                log.info(LOG_PREFIX + "Got null from JMS consumer.receive(), and run-flag is false."
+                                        + " Breaking out of run-loop to exit.");
+                                break OUTER;
+                            }
+                            else {
+                                // -> No, not down: Something strange has happened.
+                                log.info(LOG_PREFIX + "!! Got null from JMS consumer.receive(), but run-flag is still"
+                                        + " true. Closing current JmsSessionHolder to clean up. Looping to get new.");
+                                closeCurrentSessionHolder();
+                                continue OUTER;
+                            }
                         }
 
                         // :: Perform the work inside the TransactionContext
@@ -447,16 +465,37 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
             }
 
             catch (Throwable t) { // .. amongst which is JmsMatsJmsException & JMSException
-                log.warn(LOG_PREFIX + "Got [" + t.getClass().getSimpleName() + "] inside the message processing"
-                        + " loop, crashing JmsSessionHolder, chilling a bit, then looping.", t);
-                _jmsSessionHolder.crashed(t);
-                // Quick-check the run flag before chilling, if the reason for Exception is closed Connection or
-                // Session due to shutdown. (ActiveMQ do not let you create Session if Connection is closed,
-                // and do not let you create a Consumer if Session is closed.)
+                /*
+                 * Annoying stuff of ActiveMQ that if you are "thrown out" due to interrupt from outside, it resets the
+                 * interrupted status of the thread before the throw, therefore any new actions on any JMS object will
+                 * insta-throw InterruptedException again. Therefore, we read (and clear) the interrupted flag here,
+                 * since we do actually check whether we should act on anything that legitimately could have interrupted
+                 * us: Wake-up from shutdown.
+                 */
+                boolean isThreadInterrupted = Thread.interrupted();
+                /*
+                 * First check the run flag before chilling, if the reason for Exception is closed Connection or Session
+                 * due to shutdown. (ActiveMQ do not let you create Session if Connection is closed, and do not let you
+                 * create a Consumer if Session is closed.)
+                 */
+                String msg = "Got [" + t.getClass().getSimpleName() + "] inside the message processing"
+                        + " loop " + (isThreadInterrupted
+                                ? "(NOTE: Interrupted status of Thread was 'true', now cleared)"
+                                : "");
                 if (!_runFlag) {
-                    log.info("The run-flag was false, so we shortcut to exit.");
+                    if (t.getCause().getClass().isAssignableFrom(InterruptedException.class)) {
+                        log.info(LOG_PREFIX + "Got JMSException->InterruptedException, and the run-flag was false,"
+                                + " so we shortcut to exit: " + msg);
+                    }
+                    else {
+                        log.warn(LOG_PREFIX + "Got JMSException, but the run-flag was false, so we shortcut to exit: "
+                                + msg, t);
+                    }
+                    // Shortcut to exit.
                     break;
                 }
+                log.warn(LOG_PREFIX + msg + ", crashing JmsSessionHolder, chilling a bit, then looping.", t);
+                _jmsSessionHolder.crashed(t);
                 /*
                  * Doing a "chill-wait", so that if we're in a situation where this will tight-loop, we won't totally
                  * swamp both CPU and logs with meaninglessness.
@@ -469,14 +508,18 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         _jmsMatsStage.removeStageProcessorFromList(this);
     }
 
-    private void chillWait() {
+    private void chillWait(long millis) {
         try {
-            // About 5 seconds..
-            Thread.sleep(4500 + Math.round(Math.random() * 1000));
+            Thread.sleep(millis);
         }
         catch (InterruptedException e) {
             log.info(LOG_PREFIX + "Got InterruptedException when chill-waiting.");
         }
+    }
+
+    private void chillWait() {
+        // About 5 seconds..
+        chillWait(4500 + Math.round(Math.random() * 1000));
     }
 
     private Destination createJmsDestination(Session jmsSession, FactoryConfig factoryConfig) throws JMSException {
