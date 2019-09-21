@@ -81,7 +81,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             }
             try {
                 DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
-                JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(jmsSessionHolder);
+                JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(jmsSessionHolder, null);
                 _transactionContext.doTransaction(jmsMatsMessageContext, () -> {
                     List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
                     lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend, jmsMatsMessageContext,

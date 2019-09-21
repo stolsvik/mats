@@ -47,6 +47,11 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
                 matsSerializer);
     }
 
+    static {
+        // Initialize any Specifics for the MessageBrokers that are on the classpath (i.e. if ActiveMQ is there..)
+        JmsMatsMessageBrokerSpecifics.init();
+    }
+
     private final String _appName;
     private final String _appVersion;
     private final JmsMatsJmsSessionHandler _jmsMatsJmsSessionHandler;
@@ -64,6 +69,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
         _jmsMatsTransactionManager = jmsMatsTransactionManager;
         _matsSerializer = matsSerializer;
         _factoryConfig = new JmsMatsFactoryConfig();
+
         log.info(LOG_PREFIX + "Created [" + idThis() + "].");
     }
 

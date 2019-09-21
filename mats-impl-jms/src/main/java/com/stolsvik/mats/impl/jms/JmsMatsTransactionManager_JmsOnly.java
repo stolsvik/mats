@@ -1,5 +1,8 @@
 package com.stolsvik.mats.impl.jms;
 
+import java.util.Optional;
+
+import javax.jms.MessageConsumer;
 import javax.jms.Session;
 
 import org.slf4j.Logger;
@@ -47,7 +50,6 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
             _txContextKey = txContextKey;
         }
 
-
         @Override
         public void doTransaction(JmsMatsMessageContext jmsSessionMessageContext, ProcessingLambda lambda)
                 throws JmsMatsJmsException {
@@ -80,7 +82,16 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                 log.error(LOG_PREFIX + "ROLLBACK JMS: Got a " + MatsRefuseMessageException.class.getSimpleName() +
                         " while transacting " + stageOrInit(_txContextKey) + " (most probably from the user code)."
                         + " Rolling back the JMS transaction - trying to ensure that it goes directly to DLQ.", e);
-                JmsMatsActiveMQSpecifics.instaDlq(jmsSession, () -> rollback(jmsSession, e));
+                Optional<MessageConsumer> messageConsumer = jmsSessionMessageContext.getMessageConsumer();
+                if (!messageConsumer.isPresent()) {
+                    log.error(e.getClass().getName() + " was raised in a wrong context where no JMS MessageConsumer is"
+                            + " present. This shall not be possible - 'sneaky throws' in play?.", e);
+                    rollback(jmsSession, e);
+                }
+                else {
+                    JmsMatsMessageBrokerSpecifics.instaDlqWithRollbackLambda(messageConsumer.get(),
+                            () -> rollback(jmsSession, e));
+                }
                 // Return nicely, going into .receive() again.
                 return;
             }
@@ -109,7 +120,7 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                         + " Rolling back the JMS session.", e);
                 rollback(jmsSession, e);
                 // Throw on, so that if this is in an initiate-call, it will percolate all the way out.
-                // (Inside JmsMatsStage, RuntimeExceptions won't recreate the JMS Connection..)
+                // (NOTE! Inside JmsMatsStage, RuntimeExceptions won't recreate the JMS Connection..)
                 throw e;
             }
             catch (Throwable t) {
@@ -139,7 +150,8 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                  * Broker cannot record our consumption of the message, and will probably have to (wrongly) redeliver
                  * it.
                  */
-                log.error(LOG_PREFIX + "VERY BAD! After a MatsStage ProcessingLambda finished nicely, implying that"
+                log.error(LOG_PREFIX
+                        + "VERY BAD! After a MatsStage or Initiation ProcessingLambda finished nicely, implying that"
                         + " any external, potentially state changing operations have committed OK, we could not"
                         + " commit the JMS Session! If this happened within a MATS message initiation, the state"
                         + " changing operations (e.g. database insert/update) have been committed, while the message"
@@ -151,7 +163,9 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                         + " idempotent code..!",
                         t);
                 /*
-                 * This certainly calls for reestablishing the JMS Session, so throw out.
+                 * This certainly calls for reestablishing the JMS Session, so we need to throw out a
+                 * JmsMatsJmsException. However, in addition, this is the specific type of error that
+                 * MatsInitiator.MatsMessageSendException is created for. This message is that double.
                  */
                 throw new JmsMatsMessageSendException("VERY BAD! After finished transacting " + stageOrInit(
                         _txContextKey) + ", we could not commit JMS Session!", t);

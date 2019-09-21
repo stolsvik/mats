@@ -267,7 +267,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                         long nanosStart = System.nanoTime();
                         try { // :: Going into Mats Transaction
 
-                            JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(_jmsSessionHolder);
+                            JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(_jmsSessionHolder,
+                                    jmsConsumer);
 
                             _transactionContext.doTransaction(jmsMatsMessageContext, () -> {
                                 // Assert that this is indeed a JMS MapMessage.

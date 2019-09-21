@@ -4,6 +4,8 @@ import java.sql.Connection;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import javax.jms.MessageConsumer;
+
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 
 /**
@@ -15,13 +17,23 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 public class JmsMatsMessageContext {
 
     private final JmsSessionHolder _jmsSessionHolder;
+    private final MessageConsumer _messageConsumer;
 
-    public JmsMatsMessageContext(JmsSessionHolder jmsSessionHolder) {
+    public JmsMatsMessageContext(JmsSessionHolder jmsSessionHolder, MessageConsumer messageConsumer) {
         _jmsSessionHolder = jmsSessionHolder;
+        _messageConsumer = messageConsumer;
     }
 
     public JmsSessionHolder getJmsSessionHolder() {
         return _jmsSessionHolder;
+    }
+
+    /**
+     * @return the {@link MessageConsumer} in effect if this is in a {@link JmsMatsStageProcessor} and not in a
+     *         {@link JmsMatsInitiator}.
+     */
+    public Optional<MessageConsumer> getMessageConsumer() {
+        return Optional.ofNullable(_messageConsumer);
     }
 
     private Supplier<Connection> _sqlConnectionSupplier;

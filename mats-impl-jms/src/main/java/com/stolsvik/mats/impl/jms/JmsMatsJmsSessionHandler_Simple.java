@@ -139,7 +139,7 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
 
         @Override
         public void isSessionOk() throws JmsMatsJmsException {
-            JmsMatsActiveMQSpecifics.isConnectionLive(_jmsConnection);
+            JmsMatsMessageBrokerSpecifics.isConnectionLive(_jmsConnection);
             if (_closed.get()) {
                 throw new JmsMatsJmsException("SessionHolder is closed.");
             }

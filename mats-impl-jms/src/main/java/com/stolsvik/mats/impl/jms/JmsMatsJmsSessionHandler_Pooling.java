@@ -459,7 +459,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             if (_poolIsCrashed_StackTrace != null) {
                 throw new JmsMatsJmsException("Connection is crashed.", _poolIsCrashed_StackTrace);
             }
-            JmsMatsActiveMQSpecifics.isConnectionLive(_jmsConnection);
+            JmsMatsMessageBrokerSpecifics.isConnectionLive(_jmsConnection);
         }
 
         @Override
