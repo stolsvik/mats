@@ -37,9 +37,8 @@ public class Test_SendAlongStateWithRequest extends MatsBasicTest {
             log.debug("STAGE 0 MatsTrace:\n" + context.toString());
             matsTestLatch.resolve(sto, dto);
         });
-
-        // We need to manually start it, since we did not employ lastStage.
-        ep.start();
+        // We need to manually finish setup, since we did not employ lastStage.
+        ep.finishSetup();
     }
 
     @Test

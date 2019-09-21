@@ -13,7 +13,7 @@ import com.stolsvik.mats.lib_test.MatsBasicTest;
 import com.stolsvik.mats.lib_test.StateTO;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
-public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
+public class Test_LateFinishSetup_And_WaitForStarted extends MatsBasicTest {
     private MatsEndpoint<Void, StateTO> _ep;
     private CountDownLatch _waitThreadStarted = new CountDownLatch(1);
     private CountDownLatch _waitedForStartupFinished = new CountDownLatch(1);
@@ -61,8 +61,8 @@ public class Test_LateStart_And_WaitForStarted extends MatsBasicTest {
         Assert.assertEquals("Should not have gotten past waiting for ep to start,"
                         + " since we haven't started it!", 1, _waitedForStartupFinished.getCount());
 
-        // THIS IS IT! Start the endpoint!
-        _ep.start();
+        // THIS IS IT! Finish the endpoint!
+        _ep.finishSetup();
 
         // Wait synchronously for terminator to finish, which now should happen pretty fast.
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult(1000);

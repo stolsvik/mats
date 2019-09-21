@@ -113,15 +113,22 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) subscription
      * terminators}.
      * <p/>
-     * The sole functionality of this method is that it will invoke {@link #start()} on the endpoint, <b>unless</b>
-     * {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} has been invoked prior to creating the endpoint.
+     * This sets the state of the endpoint to "finished setup", and will invoke {@link #start()} on the endpoint,
+     * <b>unless</b> {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} has been invoked prior to creating the
+     * endpoint.
+     * <p/>
+     * You may implement "delayed start" of an endpoint by <b>not</b> invoking this method after setting up the
+     * endpoint. Note that you must then <b>only</b> use the {@link MatsFactory#staged(String, Class, Class) staged}
+     * type of Endpoint setup, and also <b>not</b> invoke {@link #lastStage(Class, ProcessReturnLambda) lastStage} on it
+     * as this implicitly invokes finishedSetup(). Even when {@link MatsFactory#start()} is invoked, such an
+     * not-finished endpoint will then not be started. You may then later invoke this method (e.g. when any needed
+     * caches are finished populated), and the endpoint will then be finished and started.
      */
     void finishSetup();
 
     /**
-     * Starts the endpoint, invoking {@link MatsStage#start()} on any not-yet started stages of the endpoint (which
-     * should be all of them at application startup). Note that this overrides the {@link #finishSetup()} concept - even
-     * if <code>finishSetup()</code> has not been called, calling <code>start()</code> will actually start the endpoint.
+     * Starts the endpoint (unless {@link #finishSetup() has NOT been invoked), invoking {@link MatsStage#start()} on
+     * any not-yet started stages of the endpoint (which should be all of them at application startup).
      */
     @Override
     void start();

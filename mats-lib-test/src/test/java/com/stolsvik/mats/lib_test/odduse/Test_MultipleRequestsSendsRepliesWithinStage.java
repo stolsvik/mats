@@ -64,7 +64,7 @@ public class Test_MultipleRequestsSendsRepliesWithinStage extends MatsBasicTest 
             context.reply(new DataTO(dto.number, dto.string + ":Reply#1"));
             context.reply(new DataTO(dto.number, dto.string + ":Reply#2"));
         });
-        ep.start();
+        ep.finishSetup();
     }
 
     private AtomicInteger _leafInvocationCount = new AtomicInteger(0);
