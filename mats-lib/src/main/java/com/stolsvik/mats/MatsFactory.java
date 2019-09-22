@@ -306,6 +306,13 @@ public interface MatsFactory extends StartStoppable {
      * container like Spring. Set all stuff up, where order is not of importance, and <i>then</i> fire up the endpoints.
      * If this is not done, the endpoints might start consuming messages off of the MQ (there might already be messages
      * waiting when the service boots), and thus invoke services/components that are not yet fully up.
+     * <p/>
+     * To implement delayed start for an endpoint, hold off on invoking {@link MatsEndpoint#finishSetup()} until you are
+     * OK with it being started and hence starts consuming messages (e.g. when the needed cache is populated); This
+     * semantics works both when holdEndpointsUntilFactoryIsStarted() has been invoked or not.
+     *
+     * @see MatsEndpoint#finishSetup()
+     * @see MatsEndpoint#start()
      */
     void holdEndpointsUntilFactoryIsStarted();
 

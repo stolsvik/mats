@@ -68,7 +68,10 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
     public <I> MatsStage<R, S, I> stage(Class<I> incomingClass,
             Consumer<? super StageConfig<R, S, I>> stageConfigLambda,
             ProcessLambda<R, S, I> processor) {
-        // TODO: Refuse adding stages if already started, or if lastStage is added.
+        // ?: Check whether we're already finished set up
+        if (_finishedSetup) {
+            throw new IllegalStateException("Endpoint ["+_endpointId+"] has already had its finishSetup() invoked.");
+        }
         // Make stageId, which is the endpointId for the first, then endpointId.stage1, stage2 etc.
         String stageId = _stages.size() == 0 ? _endpointId : _endpointId + ".stage" + (_stages.size());
         JmsMatsStage<R, S, I, Z> stage = new JmsMatsStage<>(this, stageId, _queue,
@@ -93,7 +96,6 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
     public <I> MatsStage<R, S, I> lastStage(Class<I> incomingClass,
             Consumer<? super StageConfig<R, S, I>> stageConfigLambda,
             com.stolsvik.mats.MatsEndpoint.ProcessReturnLambda<R, S, I> processor) {
-        // TODO: Refuse adding stages if already started, or if lastStage is added.
         // :: Wrap a standard ProcessLambda around the ProcessReturnLambda, performing the return-reply convenience.
         MatsStage<R, S, I> stage = stage(incomingClass, stageConfigLambda,
                 (processContext, state, incomingDto) -> {
@@ -107,7 +109,7 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
         return stage;
     }
 
-    private boolean _finishedSetup;
+    private volatile boolean _finishedSetup;
 
     @Override
     public void finishSetup() {

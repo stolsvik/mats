@@ -117,12 +117,18 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * <b>unless</b> {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} has been invoked prior to creating the
      * endpoint.
      * <p/>
-     * You may implement "delayed start" of an endpoint by <b>not</b> invoking this method after setting up the
-     * endpoint. Note that you must then <b>only</b> use the {@link MatsFactory#staged(String, Class, Class) staged}
-     * type of Endpoint setup, and also <b>not</b> invoke {@link #lastStage(Class, ProcessReturnLambda) lastStage} on it
-     * as this implicitly invokes finishedSetup(). Even when {@link MatsFactory#start()} is invoked, such an
-     * not-finished endpoint will then not be started. You may then later invoke this method (e.g. when any needed
-     * caches are finished populated), and the endpoint will then be finished and started.
+     * You may implement "delayed start" of an endpoint by <b>not</b> invoking finishedSetup() after setting it up.
+     * Taking into account the first chapter of this JavaDoc, note that you must then <b>only</b> use the
+     * {@link MatsFactory#staged(String, Class, Class) staged} type of Endpoint setup, as the others implicitly invokes
+     * finishSetup(), and also <b>not</b> invoke {@link #lastStage(Class, ProcessReturnLambda) lastStage} on it as this
+     * also implicitly invokes finishSetup(). When setting an Endpoint up without calling finishSetup(), even when
+     * {@link MatsFactory#start()} is invoked, such a not-finished endpoint will then not be started. You may then later
+     * invoke finishSetup(), e.g. when any needed caches are finished populated, and the endpoint will then be finished
+     * and started.
+     * <p/>
+     * Another way to implement "delayed start" is to obviously just not create the endpoint until later: MatsFactory has
+     * no <i>"that's it, now all endpoints must have been created"</i>-lifecycle stage, and can fire up new endpoints
+     * until the JVM is dead.
      */
     void finishSetup();
 
