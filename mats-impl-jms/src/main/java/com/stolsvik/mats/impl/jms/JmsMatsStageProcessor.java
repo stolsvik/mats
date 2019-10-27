@@ -199,6 +199,10 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     private void runner() {
         // :: OUTER RUN-LOOP, where we'll get a fresh JMS Session, Destination and MessageConsumer.
         OUTER: while (_runFlag) {
+            // :: Cleanup of MDC (for subsequent messages, also after Exceptions..)
+            MDC.clear();
+            // Set the "static" MDC values, since we just MDC.clear()'ed
+            setStaticMdcValues();
             log.info(LOG_PREFIX + "Getting JMS Session, Destination and Consumer for stage ["
                     + _jmsMatsStage.getStageId() + "].");
             { // Local-scope the 'newJmsSessionHolder' variable.
@@ -246,221 +250,220 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
                 // :: INNER RECEIVE-LOOP, where we'll use the JMS Session and MessageConsumer.receive().
                 while (_runFlag) {
-                    try { // :: Cleanup of MDC
-                        MDC.put(MDC_MATS_INCOMING, "true");
-                        // Check whether Session/Connection is ok (per contract with JmsSessionHolder)
-                        _jmsSessionHolder.isSessionOk();
-                        // :: GET NEW MESSAGE!! THIS IS THE MESSAGE PUMP!
-                        Message message;
-                        try {
-                            _processorInReceive = true;
-                            if (log.isDebugEnabled()) log.debug(LOG_PREFIX
-                                    + "Going into JMS consumer.receive() for [" + destination + "].");
-                            message = jmsConsumer.receive();
+                    // :: Cleanup of MDC (for subsequent messages, also after Exceptions..)
+                    MDC.clear();
+                    // Set the "static" MDC values, since we just MDC.clear()'ed
+                    setStaticMdcValues();
+                    // Check whether Session/Connection is ok (per contract with JmsSessionHolder)
+                    _jmsSessionHolder.isSessionOk();
+                    // :: GET NEW MESSAGE!! THIS IS THE MESSAGE PUMP!
+                    Message message;
+                    try {
+                        _processorInReceive = true;
+                        if (log.isDebugEnabled()) log.debug(LOG_PREFIX
+                                + "Going into JMS consumer.receive() for [" + destination + "].");
+                        message = jmsConsumer.receive();
+                    }
+                    finally {
+                        _processorInReceive = false;
+                    }
+                    // Need to check whether the JMS Message gotten is null, as that signals that the
+                    // Consumer, Session or Connection was closed from another thread.
+                    if (message == null) {
+                        // ?: Are we shut down?
+                        if (!_runFlag) {
+                            // -> Yes, down
+                            log.info(LOG_PREFIX + "Got null from JMS consumer.receive(), and run-flag is false."
+                                    + " Breaking out of run-loop to exit.");
+                            break OUTER;
                         }
-                        finally {
-                            _processorInReceive = false;
+                        else {
+                            // -> No, not down: Something strange has happened.
+                            log.warn(LOG_PREFIX + "!! Got null from JMS consumer.receive(), but run-flag is still"
+                                    + " true. Closing current JmsSessionHolder to clean up. Looping to get new.");
+                            closeCurrentSessionHolder();
+                            continue OUTER;
                         }
-                        // Need to check whether the JMS Message gotten is null, as that signals that the
-                        // Consumer, Session or Connection was closed from another thread.
-                        if (message == null) {
-                            // ?: Are we shut down?
-                            if (!_runFlag) {
-                                // -> Yes, down
-                                log.info(LOG_PREFIX + "Got null from JMS consumer.receive(), and run-flag is false."
-                                        + " Breaking out of run-loop to exit.");
-                                break OUTER;
+                    }
+
+                    // :: Perform the work inside the TransactionContext
+                    DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
+                    long nanosStart = System.nanoTime();
+                    try { // :: Going into Mats Transaction
+
+                        JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(_jmsSessionHolder,
+                                jmsConsumer);
+
+                        _transactionContext.doTransaction(jmsMatsMessageContext, () -> {
+                            // Assert that this is indeed a JMS MapMessage.
+                            if (!(message instanceof MapMessage)) {
+                                String msg = "Got some JMS Message that is not instanceof JMS MapMessage"
+                                        + " - cannot be a MATS message! Refusing this message!";
+                                log.error(LOG_PREFIX + msg + "\n" + message);
+                                throw new MatsRefuseMessageException(msg);
                             }
-                            else {
-                                // -> No, not down: Something strange has happened.
-                                log.info(LOG_PREFIX + "!! Got null from JMS consumer.receive(), but run-flag is still"
-                                        + " true. Closing current JmsSessionHolder to clean up. Looping to get new.");
-                                closeCurrentSessionHolder();
-                                continue OUTER;
-                            }
-                        }
 
-                        // :: Perform the work inside the TransactionContext
-                        DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
-                        long nanosStart = System.nanoTime();
-                        try { // :: Going into Mats Transaction
+                            // ----- This is a MapMessage
+                            MapMessage mapMessage = (MapMessage) message;
 
-                            JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(_jmsSessionHolder,
-                                    jmsConsumer);
+                            // :: Fetch Mats-specific message data from the JMS Message.
 
-                            _transactionContext.doTransaction(jmsMatsMessageContext, () -> {
-                                // Assert that this is indeed a JMS MapMessage.
-                                if (!(message instanceof MapMessage)) {
-                                    String msg = "Got some JMS Message that is not instanceof JMS MapMessage"
-                                            + " - cannot be a MATS message! Refusing this message!";
+                            byte[] matsTraceBytes;
+                            String matsTraceMeta;
+                            String jmsMessageId;
+                            try {
+                                String matsTraceKey = getFactory().getFactoryConfig().getMatsTraceKey();
+                                matsTraceBytes = mapMessage.getBytes(matsTraceKey);
+                                matsTraceMeta = mapMessage.getString(matsTraceKey
+                                        + MatsSerializer.META_KEY_POSTFIX);
+                                jmsMessageId = mapMessage.getJMSMessageID();
+                                MDC.put(MDC_JMS_MESSAGE_ID_IN, jmsMessageId);
+
+                                // :: Assert that we got some values
+                                if (matsTraceBytes == null) {
+                                    String msg = "Got some JMS Message that is missing MatsTrace byte array on"
+                                            + "JMS MapMessage key '" + matsTraceKey +
+                                            "' - cannot be a MATS message! Refusing this message!";
                                     log.error(LOG_PREFIX + msg + "\n" + message);
                                     throw new MatsRefuseMessageException(msg);
                                 }
 
-                                // ----- This is a MapMessage
-                                MapMessage mapMessage = (MapMessage) message;
-
-                                // :: Fetch Mats-specific message data from the JMS Message.
-
-                                byte[] matsTraceBytes;
-                                String matsTraceMeta;
-                                String jmsMessageId;
-                                try {
-                                    String matsTraceKey = getFactory().getFactoryConfig().getMatsTraceKey();
-                                    matsTraceBytes = mapMessage.getBytes(matsTraceKey);
-                                    matsTraceMeta = mapMessage.getString(matsTraceKey
-                                            + MatsSerializer.META_KEY_POSTFIX);
-                                    jmsMessageId = mapMessage.getJMSMessageID();
-                                    MDC.put(MDC_JMS_MESSAGE_ID_IN, jmsMessageId);
-
-                                    // :: Assert that we got some values
-                                    if (matsTraceBytes == null) {
-                                        String msg = "Got some JMS Message that is missing MatsTrace byte array on"
-                                                + "JMS MapMessage key '" + matsTraceKey +
-                                                "' - cannot be a MATS message! Refusing this message!";
-                                        log.error(LOG_PREFIX + msg + "\n" + message);
-                                        throw new MatsRefuseMessageException(msg);
-                                    }
-
-                                    if (matsTraceMeta == null) {
-                                        String msg = "Got some JMS Message that is missing MatsTraceMeta String on"
-                                                + "JMS MapMessage key '" + MatsSerializer.META_KEY_POSTFIX
-                                                + "' - cannot be a MATS message! Refusing this message!";
-                                        log.error(LOG_PREFIX + msg + "\n" + message);
-                                        throw new MatsRefuseMessageException(msg);
-                                    }
-                                }
-                                catch (JMSException e) {
-                                    // This might be temporary, so just throw to rollback this and try again.
-                                    throw new JmsMatsJmsException("Got JMSException when getting the MatsTrace"
-                                            + " from the MapMessage by using mapMessage.get[Bytes|String](..)."
-                                            + " Pretty crazy.", e);
-                                }
-
-                                // :: Deserialize the MatsTrace from the message data.
-                                MatsSerializer<Z> matsSerializer = getFactory().getMatsSerializer();
-                                DeserializedMatsTrace<Z> matsTraceDeserialized = matsSerializer
-                                        .deserializeMatsTrace(matsTraceBytes, matsTraceMeta);
-                                MatsTrace<Z> matsTrace = matsTraceDeserialized.getMatsTrace();
-
-                                // :: Setting MDC values from MatsTrace
-                                MDC.put(MDC_TRACE_ID, matsTrace.getTraceId());
-                                MDC.put(MDC_MATS_MESSAGE_ID_IN, matsTrace.getCurrentCall().getMatsMessageId());
-
-                                // :: Current Call
-                                Call<Z> currentCall = matsTrace.getCurrentCall();
-                                // Assert that this is indeed a JMS Message meant for this Stage
-                                if (!_jmsMatsStage.getStageId().equals(currentCall.getTo().getId())) {
-                                    String msg = "The incoming MATS message is not to this Stage! this:["
-                                            + _jmsMatsStage.getStageId()
-                                            + "]," + " msg:[" + currentCall.getTo() + "]. Refusing this message!";
-                                    log.error(LOG_PREFIX + msg + "\n" + mapMessage);
+                                if (matsTraceMeta == null) {
+                                    String msg = "Got some JMS Message that is missing MatsTraceMeta String on"
+                                            + "JMS MapMessage key '" + MatsSerializer.META_KEY_POSTFIX
+                                            + "' - cannot be a MATS message! Refusing this message!";
+                                    log.error(LOG_PREFIX + msg + "\n" + message);
                                     throw new MatsRefuseMessageException(msg);
                                 }
+                            }
+                            catch (JMSException e) {
+                                // This might be temporary, so just throw to rollback this and try again.
+                                throw new JmsMatsJmsException("Got JMSException when getting the MatsTrace"
+                                        + " from the MapMessage by using mapMessage.get[Bytes|String](..)."
+                                        + " Pretty crazy.", e);
+                            }
 
-                                // :: Current State: If null, make an empty object instead, unless Void -> null.
-                                Z currentSerializedState = matsTrace.getCurrentState();
-                                S currentSto = (currentSerializedState == null
-                                        ? (_jmsMatsStage.getStateClass() != Void.class
-                                                ? matsSerializer.newInstance(_jmsMatsStage.getStateClass())
-                                                : null)
-                                        : matsSerializer.deserializeObject(currentSerializedState,
-                                                _jmsMatsStage.getStateClass()));
+                            // :: Deserialize the MatsTrace from the message data.
+                            MatsSerializer<Z> matsSerializer = getFactory().getMatsSerializer();
+                            DeserializedMatsTrace<Z> matsTraceDeserialized = matsSerializer
+                                    .deserializeMatsTrace(matsTraceBytes, matsTraceMeta);
+                            MatsTrace<Z> matsTrace = matsTraceDeserialized.getMatsTrace();
 
-                                // :: Incoming Message DTO
-                                I incomingDto = handleIncomingMessageMatsObject(matsSerializer,
-                                        _jmsMatsStage.getIncomingMessageClass(), currentCall.getData());
+                            // :: Setting MDC values from MatsTrace
+                            MDC.put(MDC_TRACE_ID, matsTrace.getTraceId());
+                            MDC.put(MDC_MATS_RECEIVED_FROM, matsTrace.getCurrentCall().getFrom());
+                            MDC.put(MDC_MATS_MESSAGE_ID_IN, matsTrace.getCurrentCall().getMatsMessageId());
 
-                                double millisTaken = (System.nanoTime() - nanosStart) / 1_000_000d;
+                            // :: Current Call
+                            Call<Z> currentCall = matsTrace.getCurrentCall();
+                            // Assert that this is indeed a JMS Message meant for this Stage
+                            if (!_jmsMatsStage.getStageId().equals(currentCall.getTo().getId())) {
+                                String msg = "The incoming MATS message is not to this Stage! this:["
+                                        + _jmsMatsStage.getStageId() + "]," + " msg:[" + currentCall.getTo()
+                                        + "]. Refusing this message!";
+                                log.error(LOG_PREFIX + msg + "\n" + mapMessage);
+                                throw new MatsRefuseMessageException(msg);
+                            }
 
-                                log.info(LOG_PREFIX + "RECEIVED message from [" + currentCall.getFrom()
-                                        + "@" + currentCall.getCallingAppName()
-                                        + "{" + currentCall.getCallingAppVersion()
-                                        + "}@" + currentCall.getCallingHost()
-                                        + "], recv:[" + matsTraceBytes.length
-                                        + " B]->decomp:[" + matsTraceMeta
-                                        + " " + ms3(matsTraceDeserialized.getMillisDecompression())
-                                        + " ms]->deserialize:[" + matsTraceDeserialized.getSizeDecompressed()
-                                        + " B, " + ms3(matsTraceDeserialized.getMillisDeserialization())
-                                        + " ms]->MT - tot w/DTO&STO:[" + ms3(millisTaken) + " ms].");
+                            // :: Current State: If null, make an empty object instead, unless Void -> null.
+                            Z currentSerializedState = matsTrace.getCurrentState();
+                            S currentSto = (currentSerializedState == null
+                                    ? (_jmsMatsStage.getStateClass() != Void.class
+                                            ? matsSerializer.newInstance(_jmsMatsStage.getStateClass())
+                                            : null)
+                                    : matsSerializer.deserializeObject(currentSerializedState,
+                                            _jmsMatsStage.getStateClass()));
 
-                                // :: Getting the 'sideloads'; Byte-arrays and Strings from the MapMessage.
-                                LinkedHashMap<String, byte[]> incomingBinaries = new LinkedHashMap<>();
-                                LinkedHashMap<String, String> incomingStrings = new LinkedHashMap<>();
-                                try {
-                                    @SuppressWarnings("unchecked")
-                                    Enumeration<String> mapNames = (Enumeration<String>) mapMessage.getMapNames();
-                                    while (mapNames.hasMoreElements()) {
-                                        String name = mapNames.nextElement();
-                                        Object object = mapMessage.getObject(name);
-                                        if (object instanceof byte[]) {
-                                            incomingBinaries.put(name, (byte[]) object);
-                                        }
-                                        else if (object instanceof String) {
-                                            incomingStrings.put(name, (String) object);
-                                        }
-                                        else {
-                                            log.warn("Got some object in the MapMessage to ["
-                                                    + _jmsMatsStage.getStageId()
-                                                    + "] which is neither byte[] nor String - which should not"
-                                                    + " happen - Ignoring.");
-                                        }
+                            // :: Incoming Message DTO
+                            I incomingDto = handleIncomingMessageMatsObject(matsSerializer,
+                                    _jmsMatsStage.getIncomingMessageClass(), currentCall.getData());
+
+                            double millisTaken = (System.nanoTime() - nanosStart) / 1_000_000d;
+
+                            log.info(LOG_PREFIX + "RECEIVED message from [" + currentCall.getFrom()
+                                    + "@" + currentCall.getCallingAppName()
+                                    + "{" + currentCall.getCallingAppVersion()
+                                    + "}@" + currentCall.getCallingHost()
+                                    + "], recv:[" + matsTraceBytes.length
+                                    + " B]->decomp:[" + matsTraceMeta
+                                    + " " + ms3(matsTraceDeserialized.getMillisDecompression())
+                                    + " ms]->deserialize:[" + matsTraceDeserialized.getSizeDecompressed()
+                                    + " B, " + ms3(matsTraceDeserialized.getMillisDeserialization())
+                                    + " ms]->MT - tot w/DTO&STO:[" + ms3(millisTaken) + " ms].");
+
+                            // :: Getting the 'sideloads'; Byte-arrays and Strings from the MapMessage.
+                            LinkedHashMap<String, byte[]> incomingBinaries = new LinkedHashMap<>();
+                            LinkedHashMap<String, String> incomingStrings = new LinkedHashMap<>();
+                            try {
+                                @SuppressWarnings("unchecked")
+                                Enumeration<String> mapNames = (Enumeration<String>) mapMessage.getMapNames();
+                                while (mapNames.hasMoreElements()) {
+                                    String name = mapNames.nextElement();
+                                    Object object = mapMessage.getObject(name);
+                                    if (object instanceof byte[]) {
+                                        incomingBinaries.put(name, (byte[]) object);
+                                    }
+                                    else if (object instanceof String) {
+                                        incomingStrings.put(name, (String) object);
+                                    }
+                                    else {
+                                        log.warn("Got some object in the MapMessage to ["
+                                                + _jmsMatsStage.getStageId()
+                                                + "] which is neither byte[] nor String - which should not"
+                                                + " happen - Ignoring.");
                                     }
                                 }
-                                catch (JMSException e) {
-                                    throw new JmsMatsJmsException("Got JMSException when getting 'sideloads'"
-                                            + " from the MapMessage by using mapMessage.get[Bytes|String](..)."
-                                            + " Pretty crazy.", e);
-                                }
+                            }
+                            catch (JMSException e) {
+                                throw new JmsMatsJmsException("Got JMSException when getting 'sideloads'"
+                                        + " from the MapMessage by using mapMessage.get[Bytes|String](..)."
+                                        + " Pretty crazy.", e);
+                            }
 
-                                // :: Invoke the process lambda (the actual user code).
-                                List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
-                                JmsMatsProcessContext<R, S, Z> processContext = new JmsMatsProcessContext<>(
-                                        getFactory(),
-                                        _jmsMatsStage.getParentEndpoint().getEndpointId(),
-                                        _jmsMatsStage.getStageId(),
-                                        jmsMessageId,
-                                        _jmsMatsStage.getNextStageId(),
-                                        matsTraceBytes, 0, matsTraceBytes.length, matsTraceMeta,
-                                        matsTrace,
-                                        currentSto,
-                                        incomingBinaries, incomingStrings,
-                                        messagesToSend, jmsMatsMessageContext, doAfterCommitRunnableHolder);
+                            // :: Invoke the process lambda (the actual user code).
+                            List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
+                            JmsMatsProcessContext<R, S, Z> processContext = new JmsMatsProcessContext<>(
+                                    getFactory(),
+                                    _jmsMatsStage.getParentEndpoint().getEndpointId(),
+                                    _jmsMatsStage.getStageId(),
+                                    jmsMessageId,
+                                    _jmsMatsStage.getNextStageId(),
+                                    matsTraceBytes, 0, matsTraceBytes.length, matsTraceMeta,
+                                    matsTrace,
+                                    currentSto,
+                                    incomingBinaries, incomingStrings,
+                                    messagesToSend, jmsMatsMessageContext, doAfterCommitRunnableHolder);
 
-                                _jmsMatsStage.getProcessLambda().process(processContext, currentSto, incomingDto);
+                            _jmsMatsStage.getProcessLambda().process(processContext, currentSto, incomingDto);
 
-                                // :: Send any outgoing Mats messages (replies, requests, new messages etc..)
-                                sendMatsMessages(log, nanosStart, _jmsSessionHolder, getFactory(), messagesToSend);
+                            // :: Send any outgoing Mats messages (replies, requests, new messages etc..)
+                            sendMatsMessages(log, nanosStart, _jmsSessionHolder, getFactory(), messagesToSend);
 
-                            }); // End: Mats Transaction
-                        }
-                        catch (RuntimeException e) {
-                            log.info(LOG_PREFIX + "Got [" + e.getClass().getName()
-                                    + "] inside transactional message processing, which shall have been handled by"
-                                    + " the MATS TransactionManager (rollback). Looping to fetch next message.");
-                            // No more to do, so loop. Notice that this code is not involved in initiations..
-                            continue;
-                        }
-
-                        // :: Handle the DoAfterCommit lambda.
-                        try {
-                            doAfterCommitRunnableHolder.runDoAfterCommitIfAny();
-                        }
-                        catch (RuntimeException e) {
-                            // Message processing is per definition finished here, so no way to DLQ or otherwise
-                            // notify world except logging an error.
-                            log.error(LOG_PREFIX + "Got [" + e.getClass().getSimpleName()
-                                    + "] when running the doAfterCommit Runnable. Ignoring.", e);
-                        }
-
-                        // :: Log final stats
-                        double millisTotal = (System.nanoTime() - nanosStart) / 1_000_000d;
-                        log.info(LOG_PREFIX + "PROCESSED: Total time from received till finished processing: ["
-                                + ms3(millisTotal) + " ms].");
+                        }); // End: Mats Transaction
                     }
-                    finally {
-                        MDC.clear();
+                    catch (RuntimeException e) {
+                        log.info(LOG_PREFIX + "Got [" + e.getClass().getName()
+                                + "] inside transactional message processing, which shall have been handled by"
+                                + " the MATS TransactionManager (rollback). Looping to fetch next message.");
+                        // No more to do, so loop. Notice that this code is not involved in initiations..
+                        continue;
                     }
+
+                    // :: Handle the DoAfterCommit lambda.
+                    try {
+                        doAfterCommitRunnableHolder.runDoAfterCommitIfAny();
+                    }
+                    catch (RuntimeException e) {
+                        // Message processing is per definition finished here, so no way to DLQ or otherwise
+                        // notify world except logging an error.
+                        log.error(LOG_PREFIX + "Got [" + e.getClass().getSimpleName()
+                                + "] when running the doAfterCommit Runnable. Ignoring.", e);
+                    }
+
+                    // :: Log final stats
+                    double millisTotal = (System.nanoTime() - nanosStart) / 1_000_000d;
+                    log.info(LOG_PREFIX + "PROCESSED: Total time from received till finished processing: ["
+                            + ms3(millisTotal) + " ms].");
                 } // End: INNER RECEIVE-LOOP
             }
 
@@ -503,9 +506,21 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                 chillWait();
             }
         } // END: OUTER RUN-LOOP
+        // If we exited out while processing, just clean up so that the final line does not look like it came from msg.
+        MDC.clear();
+        // .. but set the "static" values again
+        setStaticMdcValues();
         log.info(LOG_PREFIX + ident() + " asked to exit, and that we do! Closing current JmsSessionHolder.");
         closeCurrentSessionHolder();
         _jmsMatsStage.removeStageProcessorFromList(this);
+    }
+
+    private void setStaticMdcValues() {
+        MDC.put(MDC_MATS_STAGE_ID, _jmsMatsStage.getStageId());
+        // Notice that this is the qualifier of processor id, needs to take the stageId as prefix.
+        // .. but to save some space, we don't repeat that.
+        MDC.put(MDC_MATS_PROCESSOR_ID, '#' + _processorNumber + " {" + _randomInstanceId + '}');
+        MDC.put(MDC_MATS_INCOMING, "true");
     }
 
     private void chillWait(long millis) {

@@ -35,24 +35,29 @@ public interface JmsMatsStatics {
     // Not using "mats." prefix for "traceId", as it is hopefully generic yet specific
     // enough that it might be used in similar applications.
     String MDC_TRACE_ID = "traceId";
-    // Using "mats." prefix for the more Mats-specific parts of MDC
-    // Capitalization of JMSMessageID as they do in the JMS API.
-    String MDC_JMS_MESSAGE_ID_IN = "mats.JMSMessageID.In";
-    String MDC_MATS_MESSAGE_ID_IN = "mats.MatsMessageId.In";
-    String MDC_JMS_MESSAGE_ID_OUT = "mats.JMSMessageID.Out";
-    String MDC_MATS_MESSAGE_ID_OUT = "mats.MatsMessageId.Out";
-    String MDC_MATS_INCOMING = "mats.Incoming";
-    String MDC_MATS_INITIATE = "mats.Initiate";
-    String MDC_MATS_OUTGOING = "mats.Outgoing";
-    String MDC_MATS_FROM = "mats.From";
-    String MDC_MATS_TO = "mats.To";
-    String MDC_MATS_AUDIT = "mats.Audit";
 
-    String JMS_MSG_PROP_FROM = MDC_MATS_FROM;
-    String JMS_MSG_PROP_TO = MDC_MATS_TO;
-    String JMS_MSG_PROP_NO_AUDIT = "mats.NoAudit";
-    String JMS_MSG_PROP_MATS_MSG_ID = "mats.MatsMsgId";
-    String JMS_MSG_PROP_TRACE_ID = "mats.TraceId";
+    // MDC-values. Using "mats." prefix for the Mats-specific parts of MDC
+    // Capitalization of JMSMessageID as they do in the JMS API.
+    String MDC_MATS_STAGE_ID = "mats.StageId";  // "Static" on Processor
+    String MDC_MATS_PROCESSOR_ID = "mats.ProcessorId"; // "Static" on Processor
+    String MDC_MATS_RECEIVED_FROM = "mats.ReceivedFrom"; // Set by Processor when receiving a message
+    String MDC_JMS_MESSAGE_ID_IN = "mats.JMSMessageID.In"; // Set by Processor when receiving a message
+    String MDC_MATS_MESSAGE_ID_IN = "mats.MatsMessageId.In"; // Set by Processor when receiving a message
+    String MDC_JMS_MESSAGE_ID_OUT = "mats.JMSMessageID.Out"; // Set when a message *has been sent* on JMS
+    String MDC_MATS_MESSAGE_ID_OUT = "mats.MatsMessageId.Out"; // Set when producing and sending a message
+    String MDC_MATS_INCOMING = "mats.Incoming"; // "true"/not set: "Static" true on Processor
+    String MDC_MATS_INITIATE = "mats.Initiate"; // "true"/not set: Set when initiating a message
+    String MDC_MATS_OUTGOING = "mats.Outgoing"; // "true"/not set: Set when producing and sending messages.
+    String MDC_MATS_MESSAGE_SEND_FROM = "mats.MsgSend.From"; // Set when producing and sending a message
+    String MDC_MATS_MESSAGE_SEND_TO = "mats.MsgSend.To"; // Set when producing and sending a message
+    String MDC_MATS_MESSAGE_SEND_AUDIT = "mats.MsgSend.Audit"; // Set when producing and sending a message
+
+    // JMS Properties put on the JMSMessage via setStringProperty(..) and setBooleanProperty(..).
+    String JMS_MSG_PROP_FROM = "mats.From";  // String
+    String JMS_MSG_PROP_TO = "mats.To";  // String
+    String JMS_MSG_PROP_NO_AUDIT = "mats.NoAudit"; // Boolean: true/not set.
+    String JMS_MSG_PROP_MATS_MSG_ID = "mats.MatsMsgId"; // String
+    String JMS_MSG_PROP_TRACE_ID = "mats.TraceId"; // String
 
     /**
      * Number of milliseconds to "extra wait" after timeoutMillis or gracefulShutdownMillis is gone.
@@ -172,7 +177,7 @@ public interface JmsMatsStatics {
             else {
                 MDC.put(MDC_TRACE_ID, existingTraceId);
             }
-            // MatsMessageId
+            // MatsMessageId OUT
             MDC.remove(MDC_MATS_MESSAGE_ID_OUT);
             // Outgoing
             MDC.remove(MDC_MATS_OUTGOING);
@@ -199,16 +204,16 @@ public interface JmsMatsStatics {
             for (JmsMatsMessage<Z> jmsMatsMessage : messagesToSend) {
                 long nanosStartSend = System.nanoTime();
                 Channel toChannel = jmsMatsMessage.getMatsTrace().getCurrentCall().getTo();
-                // :: Keep MDC to restore
+                // :: Keep MDC's TraceId to restore
                 String existingTraceId = MDC.get(MDC_TRACE_ID);
                 try { // :: try-finally: Restore MDC
                     MatsTrace<Z> outgoingMatsTrace = jmsMatsMessage.getMatsTrace();
                     // Set MDC for this outgoing message
                     MDC.put(MDC_TRACE_ID, outgoingMatsTrace.getTraceId());
                     MDC.put(MDC_MATS_MESSAGE_ID_OUT, outgoingMatsTrace.getCurrentCall().getMatsMessageId());
-                    MDC.put(MDC_MATS_FROM, outgoingMatsTrace.getCurrentCall().getFrom());
-                    MDC.put(MDC_MATS_TO, toChannel.getId());
-                    MDC.put(MDC_MATS_AUDIT, "" + (!outgoingMatsTrace.isNoAudit()));
+                    MDC.put(MDC_MATS_MESSAGE_SEND_FROM, outgoingMatsTrace.getCurrentCall().getFrom());
+                    MDC.put(MDC_MATS_MESSAGE_SEND_TO, toChannel.getId());
+                    MDC.put(MDC_MATS_MESSAGE_SEND_AUDIT, "" + (!outgoingMatsTrace.isNoAudit()));
                     byte[] matsTraceBytes = jmsMatsMessage.getSerializedOutgoingMatsTrace().getMatsTraceBytes();
 
                     // Get FactoryConfig
@@ -290,13 +295,12 @@ public interface JmsMatsStatics {
                     else {
                         MDC.put(MDC_TRACE_ID, existingTraceId);
                     }
-                    // JMSMessageId
+                    // The rest..
                     MDC.remove(MDC_JMS_MESSAGE_ID_OUT);
-                    // MatsMessageId
                     MDC.remove(MDC_MATS_MESSAGE_ID_OUT);
-                    MDC.remove(MDC_MATS_FROM);
-                    MDC.remove(MDC_MATS_TO);
-                    MDC.remove(MDC_MATS_AUDIT);
+                    MDC.remove(MDC_MATS_MESSAGE_SEND_FROM);
+                    MDC.remove(MDC_MATS_MESSAGE_SEND_TO);
+                    MDC.remove(MDC_MATS_MESSAGE_SEND_AUDIT);
                 }
             }
             // Only log tally-line if we sent more than one message
