@@ -124,8 +124,7 @@ public class TestSpringMatsFactoryProvider {
 
         // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
         JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory(appName, "#testing#",
-                jmsSessionHandler,
-                jmsOnlyTransMgr, matsSerializer);
+                jmsSessionHandler, jmsOnlyTransMgr, matsSerializer);
         // Set concurrency.
         matsFactory.getFactoryConfig().setConcurrency(concurrency);
         // Now wrap this in a wrapper that will close the LocalVM ActiveMQ broker upon matsFactory.stop().

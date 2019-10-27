@@ -77,9 +77,9 @@ import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 public class JmsSpringConnectionFactoryProducer implements MatsProfiles {
 
     /**
-     * Required: The ConnectionFactoryProvider provided here is the one that will be used in the "regular" situations
-     * like Production and Production-like environments, e.g. Staging, Acceptance Testing, Pre-Prod or whatever you call
-     * those environments.
+     * Required: The ConnectionFactoryProvider provided here is the one that will be used in the
+     * {@link MatsScenario#REGULAR REGULAR} situations like Production and Production-like environments, e.g. Staging,
+     * Acceptance Testing, Pre-Prod or whatever you call those environments.
      * <p>
      * Notice that deciding between Production and e.g. Staging and which corresponding ConnectionFactory URL or even
      * type of ConnectionFactory you should employ here, is up to you: You might be using configuration properties,
@@ -101,11 +101,11 @@ public class JmsSpringConnectionFactoryProducer implements MatsProfiles {
     }
 
     /**
-     * Optional: Provide a ConnectionFactoryProvider lambda for the "localhost" scenario. If this is not provided, it
-     * will be a somewhat specially tailored ActiveMQ ConnectionFactory with the URL
-     * <code>"tcp://localhost:61616"</code>, read more in the
-     * <a href="https://activemq.apache.org/tcp-transport-reference">ActiveMQ documentation</a>. The tailoring entails
-     * DLQ after 1 retry, and 100 ms delay between delivery and the sole redelivery attempt.
+     * Optional: Provide a ConnectionFactoryProvider lambda for the {@link MatsScenario#LOCALHOST LOCALHOST} scenario
+     * (which only is meant to be used for development and possibly testing). If this is not provided, it will be a
+     * somewhat specially tailored ActiveMQ ConnectionFactory with the URL <code>"tcp://localhost:61616"</code>, read
+     * more in the <a href="https://activemq.apache.org/tcp-transport-reference">ActiveMQ documentation</a>. The
+     * tailoring entails DLQ after 1 retry, and 100 ms delay between delivery and the sole redelivery attempt.
      *
      * @param providerLambda
      *            a provider for the ConnectionFactory to use in the "localhost development" scenario.
@@ -119,17 +119,20 @@ public class JmsSpringConnectionFactoryProducer implements MatsProfiles {
     }
 
     /**
-     * Very optional: Provide a ConnectionFactoryProvider lambda for the "local vm" scenario. You are expected to fire
-     * up an in-vm MQ Broker and return a ConnectionFactory that connects to this in-vm MQ Broker. You probably want to
-     * have this ConnectionFactory wrapped in your own extension of {@link ConnectionFactoryWithStartStopWrapper}, which
-     * provide a way to start and stop the in-vm MQ Broker. If this configuration is not provided (and not having to
-     * handle this mess is a big point of this class, so do not provide this unless you want a different broker
-     * entirely!), the class {@link MatsLocalVmActiveMq} will be instantiated by invoking
+     * Very optional: Provide a ConnectionFactoryProvider lambda for the {@link MatsScenario#LOCALVM LOCALVM} scenario
+     * (which only is meant to be used for development and testing). The implementation of the lambda is expected to
+     * return a ConnectionFactory to an in-vm MQ Broker. You probably want to have this ConnectionFactory wrapped in
+     * your own extension of {@link ConnectionFactoryWithStartStopWrapper}, which provide a way to start and stop the
+     * in-vm MQ Broker. If this configuration is not provided (and not having to handle this mess is a big point of this
+     * class, so do not provide this unless you want a different broker entirely!), the class
+     * {@link MatsLocalVmActiveMq} will be instantiated by invoking
      * {@link MatsLocalVmActiveMq#createInVmActiveMq(String)}, where the 'brokerName' will be the bean-name of the
-     * resulting Spring Bean created by this class - and from this, the
+     * Spring Bean representing the instance of this class + some random characters (the latter is to handle the
+     * situation where there might be multiple instances of the broker in the same JVM, due to Spring's heavy caching of
+     * contexts unless @DirtiesContext is employed). From the instance of {@code MatsLocalVmActiveMq}, the
      * {@link MatsLocalVmActiveMq#getConnectionFactory() ConnectionFactory will be gotten}.
      * <p>
-     * Notice that the {@link MatsLocalVmActiveMq} has a small extra feature, where you can have it produce a
+     * Notice that the {@code MatsLocalVmActiveMq} has a small extra feature, where you can have it produce a
      * ConnectionFactory to localhost or a specific URL instead of the in-vm MQ Broker it otherwise produces, by means
      * of specifying a special system property ("-D" options) (In this case, it does not create the in-vm MQ Broker
      * either). The rationale for this extra feature is if you wonder how big a difference it makes to run your tests

@@ -159,7 +159,7 @@ public class AppMain {
     protected MatsFactory matsFactory1(@Qualifier("connectionFactoryA") ConnectionFactory connectionFactory,
             MatsSerializer<String> matsSerializer) {
         log.info("Creating MatsFactory1");
-        return JmsSpringMatsFactoryProducer.createJmsTxOnlyMatsFactory(this.getClass().getSimpleName(), "#testing#",
+        return JmsSpringMatsFactoryProducer.createJmsTxOnlyMatsFactory(AppMain.class.getSimpleName(), "#testing#",
                 matsSerializer, connectionFactory);
     }
 
@@ -168,7 +168,7 @@ public class AppMain {
     protected MatsFactory matsFactory2(@Qualifier("connectionFactoryB") ConnectionFactory connectionFactory,
             MatsSerializer<String> matsSerializer) {
         log.info("Creating MatsFactory2");
-        return JmsSpringMatsFactoryProducer.createJmsTxOnlyMatsFactory(this.getClass().getSimpleName(), "#testing#",
+        return JmsSpringMatsFactoryProducer.createJmsTxOnlyMatsFactory(AppMain.class.getSimpleName(), "#testing#",
                 matsSerializer, connectionFactory);
     }
 

@@ -51,16 +51,22 @@ public class ConnectionFactoryScenarioWrapper
      */
     public enum MatsScenario {
         /**
+         * For Production, Staging, Pre-prod, etc.
+         *
          * @see JmsSpringConnectionFactoryProducer#regularConnectionFactory(ConnectionFactoryProvider)
          */
         REGULAR,
 
         /**
+         * <b>NOTICE: Only meant for development and testing.</b>
+         *
          * @see JmsSpringConnectionFactoryProducer#localhostConnectionFactory(ConnectionFactoryProvider)
          */
         LOCALHOST,
 
         /**
+         * <b>NOTICE: Only meant for development and testing.</b>
+         *
          * @see JmsSpringConnectionFactoryProducer#localVmConnectionFactory(ConnectionFactoryProvider)
          */
         LOCALVM
@@ -106,6 +112,7 @@ public class ConnectionFactoryScenarioWrapper
     }
 
     protected volatile ConnectionFactory _targetConnectionFactory;
+    protected volatile MatsScenario _matsScenarioDecision;
 
     @Override
     public ConnectionFactory getTargetConnectionFactory() {
@@ -128,13 +135,24 @@ public class ConnectionFactoryScenarioWrapper
         return _targetConnectionFactory;
     }
 
+    /**
+     * @return the {@link MatsScenario} that was used to make the {@link ConnectionFactory} returned by
+     *         {@link #getTargetConnectionFactory()}.
+     */
+    public MatsScenario getMatsScenarioUsedToMakeConnectionFactory() {
+        // Ensure lazy-init if we're in such scenario (lazy-init of entire Spring factory, comments in invoked method).
+        getTargetConnectionFactory();
+        // Now return whatever decision was used to make the ConnectionFactory.
+        return _matsScenarioDecision;
+    }
+
     protected void createTargetConnectionFactoryBasedOnScenarioDecider() {
         if (_targetConnectionFactory != null) {
             log.info(LOG_PREFIX + "  \\- Target ConnectionFactory already present, not creating again.");
         }
         ConnectionFactoryProvider provider;
-        MatsScenario scenario = _scenarioDecider.decision(_environment);
-        switch (scenario) {
+        _matsScenarioDecision = _scenarioDecider.decision(_environment);
+        switch (_matsScenarioDecision) {
             case REGULAR:
                 provider = _regularConnectionFactoryProvider;
                 break;
@@ -145,9 +163,10 @@ public class ConnectionFactoryScenarioWrapper
                 provider = _localVmConnectionFactoryProvider;
                 break;
             default:
-                throw new AssertionError("Unknown MatsScenario enum value [" + scenario + "]!");
+                throw new AssertionError("Unknown MatsScenario enum value [" + _matsScenarioDecision + "]!");
         }
-        log.info(LOG_PREFIX + "Creating ConnectionFactory decided by MatsScenario [" + scenario + "] from provider ["
+        log.info(LOG_PREFIX + "Creating ConnectionFactory decided by MatsScenario [" + _matsScenarioDecision
+                + "] from provider ["
                 + provider + "].");
 
         // :: Actually get the ConnectionFactory.
@@ -157,7 +176,8 @@ public class ConnectionFactoryScenarioWrapper
         }
         catch (Exception e) {
             throw new CouldNotGetConnectionFactoryFromProviderException("Got problems when getting the"
-                    + " ConnectionFactory from ConnectionFactoryProvider [" + provider + "] from Scenario [" + scenario
+                    + " ConnectionFactory from ConnectionFactoryProvider [" + provider + "] from Scenario ["
+                    + _matsScenarioDecision
                     + "]", e);
         }
 
@@ -166,7 +186,8 @@ public class ConnectionFactoryScenarioWrapper
         // ?: Is it a start-stoppable ConnectionFactory?
         if (_targetConnectionFactory instanceof ConnectionFactoryWithStartStopWrapper) {
             // -> Yes, start-stoppable, so start it now (and set any returned target ConnectionFactory..)
-            log.info(LOG_PREFIX + "The provided ConnectionFactory from Scenario [" + scenario + "] implements "
+            log.info(LOG_PREFIX + "The provided ConnectionFactory from Scenario [" + _matsScenarioDecision
+                    + "] implements "
                     + ConnectionFactoryWithStartStopWrapper.class.getSimpleName() + ", so invoking start(..) on it.");
             ConnectionFactoryWithStartStopWrapper startStopWrapper = (ConnectionFactoryWithStartStopWrapper) _targetConnectionFactory;
             try {
@@ -179,7 +200,8 @@ public class ConnectionFactoryScenarioWrapper
             }
             catch (Exception e) {
                 throw new CouldNotStartConnectionFactoryWithStartStopWrapperException("Got problems starting the"
-                        + " ConnectionFactoryWithStartStopWrapper [" + startStopWrapper + "] from Scenario [" + scenario
+                        + " ConnectionFactoryWithStartStopWrapper [" + startStopWrapper + "] from Scenario ["
+                        + _matsScenarioDecision
                         + "].", e);
             }
         }

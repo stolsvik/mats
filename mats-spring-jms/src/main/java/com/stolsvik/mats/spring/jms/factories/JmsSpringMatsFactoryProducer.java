@@ -5,6 +5,8 @@ import java.sql.Connection;
 import javax.jms.ConnectionFactory;
 import javax.sql.DataSource;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
 import com.stolsvik.mats.MatsFactory;
@@ -13,6 +15,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly;
 import com.stolsvik.mats.serial.MatsSerializer;
+import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.MatsScenario;
 import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringDstm;
 
 /**
@@ -22,6 +25,8 @@ import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringDst
  * @author Endre Stølsvik 2019-06-10 02:45 - http://stolsvik.com/, endre@stolsvik.com
  */
 public class JmsSpringMatsFactoryProducer {
+    private static final Logger log = LoggerFactory.getLogger(JmsSpringMatsFactoryProducer.class);
+    private static final String LOG_PREFIX = "#SPRINGJMATS# ";
 
     /**
      * If you need a {@link MatsFactory} employing Spring's DataSourceTransactionManager (which you probably do in a
@@ -50,6 +55,8 @@ public class JmsSpringMatsFactoryProducer {
     public static MatsFactory createSpringDataSourceTxMatsFactory(String appName, String appVersion,
             MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory, DataSource sqlDataSource) {
         // :: Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
+        log.info(LOG_PREFIX + "createSpringDataSourceTxMatsFactory(" + appName + ", " + appVersion + ", "
+                + matsSerializer + ", " + jmsConnectionFactory + ", " + sqlDataSource + ")");
         // JmsSessionHandler (pooler)
         JmsMatsJmsSessionHandler_Pooling jmsSessionHandler = new JmsMatsJmsSessionHandler_Pooling((
                 s) -> jmsConnectionFactory.createConnection());
@@ -58,8 +65,22 @@ public class JmsSpringMatsFactoryProducer {
                 .create(sqlDataSource);
 
         // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
-        return JmsMatsFactory
+        JmsMatsFactory<?> matsFactory = JmsMatsFactory
                 .createMatsFactory(appName, appVersion, jmsSessionHandler, transMgr_SpringSql, matsSerializer);
+        // :: Handle testing situation
+        // ?: Is the provided JMS ConnectionFactory a ConnectionFactoryScenarioWrapper?
+        if (jmsConnectionFactory instanceof ConnectionFactoryScenarioWrapper) {
+            // -> Yes it is, check if we're in LOCALVM mode
+            ConnectionFactoryScenarioWrapper scenarioWrapped = (ConnectionFactoryScenarioWrapper) jmsConnectionFactory;
+            // ?: Are we in MatsScenario.LOCALVM?
+            if (scenarioWrapped.getMatsScenarioUsedToMakeConnectionFactory() == MatsScenario.LOCALVM) {
+                // -> Yes, so assume test - set concurrency to 1.
+                log.info(LOG_PREFIX + "The supplied ConnectionFactory was created with MatsScenario.LOCALVM, so we"
+                        + " assume this is a testing situation, and set the concurrency to 1.");
+                matsFactory.getFactoryConfig().setConcurrency(1);
+            }
+        }
+        return matsFactory;
     }
 
     /**
@@ -88,6 +109,8 @@ public class JmsSpringMatsFactoryProducer {
     public static MatsFactory createJmsTxOnlyMatsFactory(String appName, String appVersion,
             MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory) {
         // :: Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
+        log.info(LOG_PREFIX + "createJmsTxOnlyMatsFactory(" + appName + ", " + appVersion + ", " + matsSerializer + ", "
+                + jmsConnectionFactory + ")");
         // JmsSessionHandler (pooler)
         JmsMatsJmsSessionHandler_Pooling jmsSessionHandler = new JmsMatsJmsSessionHandler_Pooling((
                 s) -> jmsConnectionFactory.createConnection());
@@ -95,7 +118,21 @@ public class JmsSpringMatsFactoryProducer {
         JmsMatsTransactionManager jmsOnlyTransMgr = JmsMatsTransactionManager_JmsOnly.create();
 
         // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
-        return JmsMatsFactory
+        JmsMatsFactory<?> matsFactory = JmsMatsFactory
                 .createMatsFactory(appName, appVersion, jmsSessionHandler, jmsOnlyTransMgr, matsSerializer);
+        // :: Handle testing situation
+        // ?: Is the provided JMS ConnectionFactory a ConnectionFactoryScenarioWrapper?
+        if (jmsConnectionFactory instanceof ConnectionFactoryScenarioWrapper) {
+            // -> Yes it is, check if we're in LOCALVM mode
+            ConnectionFactoryScenarioWrapper scenarioWrapped = (ConnectionFactoryScenarioWrapper) jmsConnectionFactory;
+            // ?: Are we in MatsScenario.LOCALVM?
+            if (scenarioWrapped.getMatsScenarioUsedToMakeConnectionFactory() == MatsScenario.LOCALVM) {
+                // -> Yes, so assume test - set concurrency to 1.
+                log.info(LOG_PREFIX + "The supplied ConnectionFactory was created with MatsScenario.LOCALVM, so we"
+                        + " assume this is a testing situation, and set the concurrency to 1.");
+                matsFactory.getFactoryConfig().setConcurrency(1);
+            }
+        }
+        return matsFactory;
     }
 }
