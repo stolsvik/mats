@@ -48,10 +48,6 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
         return _endpointId;
     }
 
-    Class<S> getStateClass() {
-        return _stateClass;
-    }
-
     private List<JmsMatsStage<R, S, ?, Z>> _stages = new CopyOnWriteArrayList<>();
 
     @Override
@@ -70,10 +66,19 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
             ProcessLambda<R, S, I> processor) {
         // ?: Check whether we're already finished set up
         if (_finishedSetup) {
-            throw new IllegalStateException("Endpoint ["+_endpointId+"] has already had its finishSetup() invoked.");
+            throw new IllegalStateException("Endpoint [" + _endpointId
+                    + "] has already had its finishSetup() invoked.");
         }
         // Make stageId, which is the endpointId for the first, then endpointId.stage1, stage2 etc.
         String stageId = _stages.size() == 0 ? _endpointId : _endpointId + ".stage" + (_stages.size());
+
+        // :: Assert that we can instantiate an object of incoming class
+        // ?: Is this "MatsObject", in which case the deserialization will happen runtime, i.e. cannot early check.
+        if (!incomingClass.isAssignableFrom(MatsObject.class)) {
+            // -> Not, it is not MatsObject, so test that we can instantiate it.
+            _parentFactory.assertOkToInstantiateClass(incomingClass, "Incoming DTO Class", "Stage " + stageId);
+        }
+
         JmsMatsStage<R, S, I, Z> stage = new JmsMatsStage<>(this, stageId, _queue,
                 incomingClass, _stateClass, processor);
         // :: Set this next stage's Id on the previous stage, unless we're first, in which case there is no previous.

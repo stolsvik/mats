@@ -233,6 +233,13 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
     }
 
     private void addCreatedEndpoint(JmsMatsEndpoint<?, ?, Z> newEndpoint) {
+        // :: Assert that it is possible to instantiate the State and Reply classes.
+        assertOkToInstantiateClass(newEndpoint.getEndpointConfig().getStateClass(), "State 'STO' Class",
+                "Endpoint " + newEndpoint.getEndpointId());
+        assertOkToInstantiateClass(newEndpoint.getEndpointConfig().getReplyClass(), "Reply DTO Class",
+                "Endpoint " + newEndpoint.getEndpointId());
+
+        // :: Check that we do not have the endpoint already, and if not, register it.
         synchronized (_createdEndpoints) {
             Optional<MatsEndpoint<?, ?>> existingEndpoint = getEndpoint(newEndpoint.getEndpointConfig()
                     .getEndpointId());
@@ -243,6 +250,23 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
                         + "], attempted registered:[" + newEndpoint + "].");
             }
             _createdEndpoints.add(newEndpoint);
+        }
+    }
+
+    void assertOkToInstantiateClass(Class<?> clazz, String what, String whatInstance) {
+        try {
+            _matsSerializer.newInstance(clazz);
+        }
+        catch (Throwable t) {
+            throw new CannotInstantiateClassException("Got problem when using current MatsSerializer to test"
+                    + " instantiate [" + what + "] class [" + clazz + "] of [" + whatInstance + "]. MatsSerializer: ["
+                    + _matsSerializer + "].", t);
+        }
+    }
+
+    public static class CannotInstantiateClassException extends RuntimeException {
+        public CannotInstantiateClassException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 

@@ -22,7 +22,7 @@ import com.stolsvik.mats.lib_test.StateTO;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class Test_ThrowsExceptionInInitializer extends MatsBasicTest {
+public class Test_ThrowsExceptionInInitialization extends MatsBasicTest {
     private static int WAIT_MILLIS = 200;
 
     @Before

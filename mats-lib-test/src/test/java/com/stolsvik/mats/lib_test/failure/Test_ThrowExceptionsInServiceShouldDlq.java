@@ -2,6 +2,7 @@ package com.stolsvik.mats.lib_test.failure;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.stolsvik.mats.lib_test.MatsBasicTest;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -34,7 +35,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  *
  * @author Endre Stølsvik - 2015 + 2019-09-21 21:50 - http://endre.stolsvik.com
  */
-public class Test_ThrowExceptionsInServiceShouldDlq extends MatsDbTest {
+public class Test_ThrowExceptionsInServiceShouldDlq extends MatsBasicTest {
 
     private volatile AtomicInteger _serviceInvocations;
 
