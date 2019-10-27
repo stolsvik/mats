@@ -159,9 +159,14 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                         + " state change), the global state is probably out of sync (i.e. the order-row is marked"
                         + " 'processing started', while the corresponding process-order message was not sent). However,"
                         + " if this happened within a MATS Stage (inside an endpoint), this will most probably just"
-                        + " lead to a redelivery (as in 'double delivery'), which should be handled just fine by your"
-                        + " idempotent code..!",
-                        t);
+                        + " lead to a redelivery (as in 'double delivery'), which should be handled by your endpoint's"
+                        + " idempotent handling of incoming messages. Do note that this might be a problem if you were"
+                        + " trying to send an outgoing message: If you just check your database at the next redelivery,"
+                        + " and realize that the changes have been committed, and hence do not send an outgoing"
+                        + " message, you will effectively have stopped the Mats flow: Since it wasn't sent this time"
+                        + " (that is, due to this 'VERY BAD'), and you do not send it the next time (since you realize"
+                        + " that it was a double delivery, and the database had changes applied), you won't ever send"
+                        + " it, which probably is not what you want.", t);
                 /*
                  * This certainly calls for reestablishing the JMS Session, so we need to throw out a
                  * JmsMatsJmsException. However, in addition, this is the specific type of error that
