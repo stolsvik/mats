@@ -17,8 +17,8 @@ import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
  * <h2>ActiveMQ</h2>
  * <ul>
  * <li>Check for Connection liveliness: {@code ActiveMQConnection.is[Closed|Closing|TransportFailed]}.</li>
- * <li>Honor the {@link MatsRefuseMessageException} (i.e. insta-DLQing), by setting redelivery attempts to 0 when
- * rolling back Session: {@code ActiveMQSession.setRedeliveryPolicy(zeroAttemptsPolicy)}.</li>
+ * <li>Honor the {@link MatsRefuseMessageException} (i.e. insta-DLQing), by setting redelivery attempts to 0 on the
+ * MessageConsumer when rolling back Session: {@code ActiveMQSession.setRedeliveryPolicy(zeroAttemptsPolicy)}.</li>
  * </ul>
  */
 public class JmsMatsMessageBrokerSpecifics {
@@ -36,7 +36,7 @@ public class JmsMatsMessageBrokerSpecifics {
     private static final Method _activeMqConnection_isTransportFailed;
 
     // :: For ActiveMQ's impl of instaDlqWithRollbackLambda
-    private static final Object _zeroRedeliveriesRedeliveryPolicy;
+    private static final Object _activeMqRedeliveryPolicy_zeroRedeliveries;
     private static final Class<?> _activeMqMessageConsumer_class;
     private static final Method _activeMqMessageConsumer_getRedeliveryPolicy;
     private static final Method _activeMqMessageConsumer_setRedeliveryPolicy;
@@ -142,7 +142,7 @@ public class JmsMatsMessageBrokerSpecifics {
         _activeMqMessageConsumer_class = amqMsgConsClass;
         _activeMqMessageConsumer_getRedeliveryPolicy = getRedeliveryPolicy;
         _activeMqMessageConsumer_setRedeliveryPolicy = setRedeliveryPolicy;
-        _zeroRedeliveriesRedeliveryPolicy = zeroRedeliveries;
+        _activeMqRedeliveryPolicy_zeroRedeliveries = zeroRedeliveries;
     }
 
     public static void init() {
@@ -174,7 +174,8 @@ public class JmsMatsMessageBrokerSpecifics {
 
     /**
      * If the Session is an ActiveMqSession, then it should set it into "0 redeliveries" mode, and then run the provided
-     * lambda to rollback the current message, and then re-set the deliveries.
+     * lambda to rollback the current message, and then re-set the deliveries. If not in ActiveMqSession, just run the
+     * provided lambda directly to rollback the current message.
      * 
      * @param jmsMessageConsumer
      *            consumer to set to "0 redeliveries" (will be reset before return)
@@ -191,7 +192,7 @@ public class JmsMatsMessageBrokerSpecifics {
             try {
                 existingRedeliveryPolicy = _activeMqMessageConsumer_getRedeliveryPolicy.invoke(jmsMessageConsumer);
                 _activeMqMessageConsumer_setRedeliveryPolicy.invoke(jmsMessageConsumer,
-                        _zeroRedeliveriesRedeliveryPolicy);
+                        _activeMqRedeliveryPolicy_zeroRedeliveries);
             }
             catch (IllegalAccessException | InvocationTargetException e) {
                 log.warn("Invoking ActiveMqMessageConsumer.[get|set]RedeliveryPolicy() raised exception, which"
@@ -220,5 +221,4 @@ public class JmsMatsMessageBrokerSpecifics {
     interface JmsMatsJmsExceptionThrowingRunnable {
         void run() throws JmsMatsJmsException;
     }
-
 }
