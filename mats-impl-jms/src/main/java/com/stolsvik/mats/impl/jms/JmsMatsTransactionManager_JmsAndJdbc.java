@@ -63,7 +63,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
      * Connection properties, for example set the {@link java.sql.Connection#setTransactionIsolation(int) Transaction
      * Isolation Level}.
      * <p>
-     * Otherwise, the lambda can be as simple as <code>(txContextKey) -> dataSource.getConnection()</code>.
+     * Otherwise, the lambda can be as simple as <code>(txContextKey) -&gt; dataSource.getConnection()</code>.
      */
     @FunctionalInterface
     public interface JdbcConnectionSupplier {

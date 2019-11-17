@@ -133,7 +133,7 @@ public interface JmsMatsJmsSessionHandler {
      * username and password, or some other connection parameters a la for IBM MQ.
      * <p>
      * Otherwise, the lambda can be as simple as
-     * <code>(txContextKey) -> _jmsConnectionFactory.createConnection()</code>.
+     * <code>(txContextKey) -&gt; _jmsConnectionFactory.createConnection()</code>.
      */
     @FunctionalInterface
     interface JmsConnectionSupplier {

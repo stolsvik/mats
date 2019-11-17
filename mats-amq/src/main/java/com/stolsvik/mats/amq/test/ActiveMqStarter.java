@@ -27,7 +27,7 @@ public class ActiveMqStarter {
 
                 while (true) {
                     System.out.print("\n. Type 'stop' to shut down the ActiveMQ instance,"
-                            + " or 'restart' shutdown'n'restart.\n$ ");
+                            + " or 'restart' to shutdown'n'restart.\n$ ");
                     String nextLine = in.nextLine();
                     if ("stop".equalsIgnoreCase(nextLine)) {
                         break STARTLOOP;
@@ -72,15 +72,17 @@ public class ActiveMqStarter {
 
         // :: Set Individual DLQ
         // Hear, hear: http://activemq.2283324.n4.nabble.com/PolicyMap-api-is-really-bad-td4284307.html
-        PolicyMap destinationPolicy = new PolicyMap();
-        brokerService.setDestinationPolicy(destinationPolicy);
-        PolicyEntry policyEntry = new PolicyEntry();
-        policyEntry.setQueue(">");
-        destinationPolicy.put(policyEntry.getDestination(), policyEntry);
-
         IndividualDeadLetterStrategy individualDeadLetterStrategy = new IndividualDeadLetterStrategy();
         individualDeadLetterStrategy.setQueuePrefix("DLQ.");
+
+        PolicyEntry policyEntry = new PolicyEntry();
+        policyEntry.setQueue(">");
         policyEntry.setDeadLetterStrategy(individualDeadLetterStrategy);
+
+        PolicyMap destinationPolicy = new PolicyMap();
+        destinationPolicy.put(policyEntry.getDestination(), policyEntry);
+
+        brokerService.setDestinationPolicy(destinationPolicy);
 
         try {
             brokerService.start();

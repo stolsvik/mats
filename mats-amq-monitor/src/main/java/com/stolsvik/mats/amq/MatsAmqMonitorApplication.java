@@ -11,8 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.context.embedded.EmbeddedServletContainerFactory;
-import org.springframework.boot.context.embedded.jetty.JettyEmbeddedServletContainerFactory;
+import org.springframework.boot.web.embedded.jetty.JettyServletWebServerFactory;
+import org.springframework.boot.web.servlet.server.ServletWebServerFactory;
 import org.springframework.context.annotation.Bean;
 
 @SpringBootApplication
@@ -25,12 +25,9 @@ public class MatsAmqMonitorApplication {
     }
 
     @Bean
-    public EmbeddedServletContainerFactory servletContainer() {
-        JettyEmbeddedServletContainerFactory jetty = new JettyEmbeddedServletContainerFactory("", 9000);
+    public ServletWebServerFactory servletContainer() {
+        JettyServletWebServerFactory jetty = new JettyServletWebServerFactory("", 9000);
         jetty.addServerCustomizers(server -> {
-            // WebAppContext amqWebConsoleWebAppContext = new WebAppContext(
-            // "/datadisk/Dropbox/git/EndreHome/mats/mats-amq-monitor/build-eclipse/activemq-web-console.war",
-            // "/webconsole");
             String warFileMagicStringReference = "CLASSPATH AMQ WEB CONSOLE WAR FILE";
             // Override WebAppContext to be able to load AMQ Web Console war file from classpath.
             WebAppContext amqWebConsoleWebAppContext = new WebAppContext(warFileMagicStringReference, "/webconsole") {

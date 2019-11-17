@@ -2,9 +2,9 @@
 <configuration>
     <include resource="org/springframework/boot/logging/logback/base.xml"/>
     <logger name="ROOT" level="INFO"/>
-    <logger name="org.springframework.web" level="ALL"/>
+    <logger name="org.springframework.web" level="DEBUG"/>
 
-    <logger name="org.eclipse.jetty" level="ALL"/>
+    <logger name="org.eclipse.jetty" level="INFO"/>
     <logger name="org.eclipse.jetty.webapp.WebAppClassLoader" level="INFO"/>
 
     <!-- Shut up Jasper's TldScanner's XML parsing -->

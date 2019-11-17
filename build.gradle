@@ -1,15 +1,8 @@
-// From Spring Boot
-buildscript {
-    ext { springBootVersion = '1.4.0.RELEASE' }
-    repositories { mavenCentral() }
-    dependencies { classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}") }
-}
-
-// The Gradle Wrapper generation task.
-task wrapper(type: Wrapper) {
-    gradleVersion = "4.10.2"
+// Customize the Gradle Wrapper generation task.
+wrapper {
+    gradleVersion = "6.0"
     // Use "-all"-version of distribution, since IntelliJ works better then..
-    distributionUrl = "http://services.gradle.org/distributions/gradle-${gradleVersion}-all.zip"
+    setDistributionType(Wrapper.DistributionType.ALL)
 }
 
 // Used both in mats-test and mats-amq
@@ -20,14 +13,17 @@ ext {
 
 
 subprojects {
-    apply plugin: 'java'
+    apply plugin: 'java-library'
     apply plugin: 'maven'
+    apply plugin: 'maven-publish'
     apply plugin: 'eclipse'
 
     repositories { mavenCentral() }
 
+    project.buildDir = 'build-gradle'
+
     group = 'com.stolsvik.mats'
-    version = '0.8.0'
+    version = '0.8.1'
 
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
@@ -37,23 +33,21 @@ subprojects {
         testCompile 'junit:junit:4.12'
     }
 
+    java {
+        withJavadocJar()
+        withSourcesJar()
+    }
+
+    javadoc {
+        // without the -quiet option, the build fails
+        options.addStringOption('Xdoclint:none', '-quiet')
+    }
+
     compileJava {
         options.encoding = 'UTF-8'
         options.deprecation = true
         options.incremental = true
         options.compilerArgs += ['-Xlint:all', '-Xlint:-serial', '-Werror']
-    }
-
-    project.buildDir = 'build-gradle'
-
-    task javadocJar(type: Jar) {
-        classifier = 'javadoc'
-        from javadoc
-    }
-
-    task sourceJar(type: Jar) {
-        classifier = 'sources'
-        from sourceSets.main.allSource
     }
 
     jar {
