@@ -1,5 +1,7 @@
 package com.stolsvik.mats.spring.test.mapping;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.inject.Inject;
@@ -101,6 +103,7 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
         private int _someStateInt;
         private String _someStateString;
         private SpringTestDataTO _someStateObject;
+        private List<String> _inLineInitializedField = new ArrayList<>();
 
         // === ENDPOINT STAGES
 
@@ -110,11 +113,14 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             Assert.assertEquals(0, _someStateInt);
             Assert.assertNull(_someStateString);
             Assert.assertNull(_someStateObject);
+            Assert.assertEquals(0, _inLineInitializedField.size());
 
             // Set some state for next stage.
             _someStateInt = -10;
             _someStateString = "SetFromInitial";
             _someStateObject = null;
+            _inLineInitializedField.add("Endre testing");
+            _inLineInitializedField.add("More test");
 
             // Interact with Spring injected service
             _someSimpleService.increaseCounter();
@@ -133,11 +139,15 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             Assert.assertEquals(-10, _someStateInt);
             Assert.assertEquals("SetFromInitial", _someStateString);
             Assert.assertNull(_someStateObject);
+            Assert.assertEquals(2, _inLineInitializedField.size());
+            Assert.assertEquals("Endre testing", _inLineInitializedField.get(0));
+            Assert.assertEquals("More test", _inLineInitializedField.get(1));
 
             // Set some state for next stage.
             _someStateInt = 10;
             _someStateString = "SetFromStageA";
             _someStateObject = new SpringTestDataTO(57473, "state");
+            _inLineInitializedField.add("Even moar testing");
 
             // Interact with Spring injected service
             _someSimpleService.increaseCounter();
@@ -156,11 +166,16 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             Assert.assertEquals(10, _someStateInt);
             Assert.assertEquals("SetFromStageA", _someStateString);
             Assert.assertEquals(new SpringTestDataTO(57473, "state"), _someStateObject);
+            Assert.assertEquals(3, _inLineInitializedField.size());
+            Assert.assertEquals("Endre testing", _inLineInitializedField.get(0));
+            Assert.assertEquals("More test", _inLineInitializedField.get(1));
+            Assert.assertEquals("Even moar testing", _inLineInitializedField.get(2));
 
             // Set some state for next stage.
             _someStateInt = 20;
             _someStateString = "SetFromStageB";
             _someStateObject = new SpringTestDataTO(314159, "pi * 100.000");
+            _inLineInitializedField.set(1, "Ok, replacing a value then");
 
             // Do a stash, to check the ProcessContext wrapping (not handled, should not need).
             _context.stash();
@@ -179,11 +194,15 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
         @Stage(30)
         SpringTestDataTO processMoreThenReply(boolean primitiveBooleanParameter,
                 byte byteP, short shortP, int intP, long longP, @Dto SpringTestDataTO in,
-                float floatP, double doubleP) {
+                float floatP, double doubleP, List<String> meaninglessList) {
             // Assert that state is kept from previous stage
             Assert.assertEquals(20, _someStateInt);
             Assert.assertEquals("SetFromStageB", _someStateString);
             Assert.assertEquals(new SpringTestDataTO(314159, "pi * 100.000"), _someStateObject);
+            Assert.assertEquals(3, _inLineInitializedField.size());
+            Assert.assertEquals("Endre testing", _inLineInitializedField.get(0));
+            Assert.assertEquals("Ok, replacing a value then", _inLineInitializedField.get(1));
+            Assert.assertEquals("Even moar testing", _inLineInitializedField.get(2));
 
             // Interact with Spring injected service
             _someSimpleService.increaseCounter();

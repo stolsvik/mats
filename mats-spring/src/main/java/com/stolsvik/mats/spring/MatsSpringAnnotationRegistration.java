@@ -683,9 +683,9 @@ public class MatsSpringAnnotationRegistration implements
                 + classNameWithoutPackage(bean) + "':#: Annotation:[" + matsClassMapping + "]");
 
         // Find actual class of bean (in case of AOPed bean)
-        Class<?> targetClass = getClassOfBean(bean);
+        Class<?> stateClass = getClassOfBean(bean);
         // Find all methods annotated with Stage
-        Map<Method, Stage> stages = MethodIntrospector.selectMethods(targetClass,
+        Map<Method, Stage> stages = MethodIntrospector.selectMethods(stateClass,
                 (MetadataLookup<Stage>) method -> AnnotationUtils.findAnnotation(method, Stage.class));
 
         // :: Get Stages sorted in order by ordinal, and assert that all are <0 and that no ordinal is duplicated.
@@ -771,11 +771,23 @@ public class MatsSpringAnnotationRegistration implements
                 + "' has request DTO [" + classNameWithoutPackage(requestClass)
                 + "] and reply DTO [" + classNameWithoutPackage(replyClass) + "].");
 
+        // :: Find which MatsFactory to use
+
+        MatsFactory matsFactoryToUse = getMatsFactoryToUse(
+                "@MatsClassMapping-annotated bean '" + classNameWithoutPackage(bean) + "'",
+                stateClass,
+                matsClassMapping.matsFactoryCustomQualifierType(),
+                matsClassMapping.matsFactoryQualifierValue(),
+                matsClassMapping.matsFactoryBeanName());
+
         // :: Hold on to all non-null fields of the bean - these are what Spring has injected. Make "template".
+
+        // Need to check if the State class sets any fields by itself, i.e. in no-args constructor or default value.
+        Object instantiatedStateObject = matsFactoryToUse.getFactoryConfig().instantiateNewObject(stateClass);
 
         Field[] processContextField_hack = new Field[1];
         LinkedHashMap<Field, Object> templateFields = new LinkedHashMap<>();
-        ReflectionUtils.doWithFields(targetClass, field -> {
+        ReflectionUtils.doWithFields(stateClass, field -> {
             String name = field.getName();
             Class<?> clazz = field.getType();
 
@@ -830,17 +842,24 @@ public class MatsSpringAnnotationRegistration implements
             // ?: Does this field have the value null?
             if (value == null) {
                 // -> Yes, null value, and we conclude that dependency injection didn't set them, thus state fields.
-                log.info(LOG_PREFIX + " - Field [" + name + "] is null: Assuming state field, ignoring. (Type: ["
+                log.info(LOG_PREFIX + " - Field [" + name + "] of Spring bean is null: Assuming state field, ignoring."
+                        + " (Type: [" + field.getGenericType() + "])");
+                return;
+            }
+            // ->?: Not null, but is it also set in a newly instantiated variant of the stateClass?
+            else if (field.get(instantiatedStateObject) != null) {
+                // -> Yes, both non-null in the Spring bean, AND in a newly instantiated instance of the stateClass
+                log.info(LOG_PREFIX + " - Field [" + name + "] is non-null both in Spring bean AND in newly"
+                        + " instantiated instance: Assuming state field, ignoring. (Type: ["
                         + field.getGenericType() + "])");
                 return;
             }
 
             // ----- This is not ProcessContext nor a State field, thus a Spring Dependency Injected field. We assume.
 
-            // (Or the idiot developer initialized a state field with a value. Please explain me why this makes sense.)
-
-            log.info(LOG_PREFIX + " - Field [" + name + "] is non-null: Assuming Spring Dependency Injection has set it"
-                    + " - storing as template. (Type:[" + field.getGenericType() + "], Value:[" + value + "])");
+            log.info(LOG_PREFIX + " - Field [" + name + "] of Spring bean is non-null: Assuming Spring Dependency"
+                    + "Injection has set it - storing as template. (Type:[" + field.getGenericType() + "], Value:["
+                    + value + "])");
             templateFields.put(field, value);
         });
 
@@ -851,18 +870,9 @@ public class MatsSpringAnnotationRegistration implements
             processContextField.setAccessible(true);
         }
 
-        // :: Find which MatsFactory to use
-
-        MatsFactory matsFactoryToUse = getMatsFactoryToUse(
-                "@MatsClassMapping-annotated bean '" + classNameWithoutPackage(bean) + "'",
-                targetClass,
-                matsClassMapping.matsFactoryCustomQualifierType(),
-                matsClassMapping.matsFactoryQualifierValue(),
-                matsClassMapping.matsFactoryBeanName());
-
         // :: Create the Staged Endpoint
 
-        MatsEndpoint<?, ?> ep = matsFactoryToUse.staged(matsClassMapping.endpointId(), replyClass, targetClass);
+        MatsEndpoint<?, ?> ep = matsFactoryToUse.staged(matsClassMapping.endpointId(), replyClass, stateClass);
 
         stagesByOrdinal.forEach((ordinal, method) -> {
             int dtoParamIdx = findDtoParamIndexForMatsClassMappingLambdaMethod(method);

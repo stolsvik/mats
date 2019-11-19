@@ -418,6 +418,27 @@ public interface MatsFactory extends StartStoppable {
          */
         String getNodename();
 
+        /**
+         * This method is only relevant for tooling, and thus "hidden away" in this config class. It uses the
+         * MatsFactory-configured deserializer mechanism to instantiate the specified class. The rationale for this is
+         * to either test whether a STO (State Transfer Object) or a DTO (Data Transfer Object) actually can be
+         * instantiated (if e.g. Jackson is used as serialization mechanism, which is default for the "MatsTrace"
+         * implementation, it needs a no-args constructor to be able to instantiate, while if using GSON - which employs
+         * "Objenesis" for instantiation - a non-args constructor is not necessary) - or to just get hold of a new
+         * instance to do some kind of introspection (this is e.g. needed for Mats' SpringConfig when using
+         * {@code @MatsClassMapping}).
+         *
+         * @param type
+         *            the Class that should be instantiated.
+         * @param <T>
+         *            the type of the Class.
+         * @return a new instance
+         * @throws RuntimeException
+         *             if the class could not be instantiated (e.g. lacking no-args constructor which can be an issue
+         *             depending on the serialization mechanism).
+         */
+        <T> T instantiateNewObject(Class<T> type);
+
         // Override to return the more specific FactoryConfig instead of MatsConfig
         @Override
         FactoryConfig setConcurrency(int concurrency);

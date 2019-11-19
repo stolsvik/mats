@@ -1,5 +1,7 @@
 package com.stolsvik.mats.spring.test.apptest_two_mf;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.inject.Inject;
@@ -62,13 +64,23 @@ public class Mats_Endpoints {
 
         private ProcessContext<SpringTestDataTO> _context;
 
+        // State fields
         private double _statePi;
         private SpringTestDataTO _stateObject;
+        private List<String> _inLineInitializedField = new ArrayList<>();
 
         @Stage(Stage.INITIAL)
         void initialStage(SpringTestDataTO in) {
+            // Assert initial values of State
+            Assert.assertEquals(0, _statePi, 0);
+            Assert.assertNull(_stateObject);
+            Assert.assertEquals(0, _inLineInitializedField.size());
+
+            // Set some state
             _statePi = Math.PI;
             _stateObject = new SpringTestDataTO(Math.E, "This is state.");
+            _inLineInitializedField.add("Endre testing");
+            _inLineInitializedField.add("Moar test");
 
             // Perform some advanced stuff with our Dependency Injected Service..!
             _atomicInteger.incrementAndGet();
@@ -78,8 +90,12 @@ public class Mats_Endpoints {
 
         @Stage(10)
         SpringTestDataTO finalStage(SpringTestDataTO in) {
+            // Assert that the state sticks along
             Assert.assertEquals(Math.PI, _statePi, 0d);
             Assert.assertEquals(new SpringTestDataTO(Math.E, "This is state."), _stateObject);
+            Assert.assertEquals(2, _inLineInitializedField.size());
+            Assert.assertEquals("Endre testing", _inLineInitializedField.get(0));
+            Assert.assertEquals("Moar test", _inLineInitializedField.get(1));
 
             return new SpringTestDataTO(in.number * 3, in.string + ":multi");
         }

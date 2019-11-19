@@ -484,5 +484,17 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
         public String getNodename() {
             return __hostname;
         }
+
+        @Override
+        public <T> T instantiateNewObject(Class<T> type) {
+            try {
+                return _matsSerializer.newInstance(type);
+            }
+            catch (Throwable t) {
+                throw new CannotInstantiateClassException("Got problem when using current MatsSerializer to test"
+                        + " instantiate class [" + type + "] MatsSerializer: ["
+                        + _matsSerializer + "].", t);
+            }
+        }
     }
 }
