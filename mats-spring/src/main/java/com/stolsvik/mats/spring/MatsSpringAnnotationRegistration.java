@@ -1110,8 +1110,7 @@ public class MatsSpringAnnotationRegistration implements
                 numberOfQualifications++;
             }
             // ?: Is this a custom qualifier annotation, meta-annotated with @Qualifier?
-            else if (AnnotationUtils.isAnnotationMetaPresent(annotation.annotationType(),
-                    Qualifier.class)) {
+            else if (AnnotationUtils.isAnnotationMetaPresent(annotation.annotationType(), Qualifier.class)) {
                 // -> Yes, @Qualifier-meta-annotated annotation - get the correct MatsFactory also annotated with this
                 specifiedMatsFactories.add(getMatsFactoryByCustomQualifier(forWhat, annotation.annotationType(),
                         annotation));
@@ -1131,7 +1130,7 @@ public class MatsSpringAnnotationRegistration implements
             numberOfQualifications++;
         }
 
-        // ?: Was the annotation element 'matsFactoryQualifierValue' specified?
+        // ?: Was the annotation element 'matsFactoryBeanName' specified?
         if (!"".equals(aeBeanName)) {
             specifiedMatsFactories.add(getMatsFactoryByBeanName(forWhat, aeBeanName));
             numberOfQualifications++;
@@ -1242,7 +1241,7 @@ public class MatsSpringAnnotationRegistration implements
         }
         catch (NoSuchBeanDefinitionException e) {
             throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for " + forWhat
-                    + ", " + this.getClass().getSimpleName() + " found that there is no MatsFactory with the qualifier"
+                    + ", " + this.getClass().getSimpleName() + " found that there is NO MatsFactory with the qualifier"
                     + " value '" + qualifierValue + "' available in the Spring ApplicationContext", e);
         }
     }
@@ -1254,16 +1253,18 @@ public class MatsSpringAnnotationRegistration implements
      *            must be non-null.
      * @param customQualifier
      *            If != null, then it must be .equals() with the one on the bean, otherwise it is enough that the type
-     *            mathces.
+     *            matches.
      * @return the matched bean - if more than one bean matches, {@link BeanCreationException} is raised.
      */
     private MatsFactory getMatsFactoryByCustomQualifier(String forWhat, Class<? extends Annotation> customQualifierType,
             Annotation customQualifier) {
-        // :: Cache lookup
+        // :: Cache lookup - notice how this handles the situation where customQualifier (instance, not type) is null.
         Map<Annotation, MatsFactory> subCacheMap = _cache_MatsFactoryByCustomQualifier.get(customQualifierType);
         if (subCacheMap != null) {
             MatsFactory matsFactory = subCacheMap.get(customQualifier);
             if (matsFactory != null) {
+                log.debug("Found cached MatsFactory with CustomAnnotationType [" + customQualifierType
+                        + "], custom annotation instance [" + customQualifier + "].");
                 return matsFactory;
             }
         }
@@ -1272,9 +1273,14 @@ public class MatsSpringAnnotationRegistration implements
         // :: First find all beans that are annotated with the custom qualifier and are of type MatsFactory.
         // (This should really not exist, as it would mean that you've extended e.g. JmsMatsFactory and annotated that,
         // which is really not something I am advocating.)
+        // (A strange effect observed when running "all tests in all modules found by regexp" in IntelliJ is that his
+        // method of finding beans with specific annotation actually /do/ return @Bean factory methods. This is not
+        // observed when running each module's tests by itself. I do not understand the difference.. But we thus need
+        // to de-duplicate the resulting beans between this method of finding beans, and the next one up. Doing this by
+        // using Set<String[BeanName]> instead of List.)
         String[] beanNamesWithCustomQualifierClass = _configurableListableBeanFactory.getBeanNamesForAnnotation(
                 customQualifierType);
-        ArrayList<Object> annotatedBeans = Arrays.stream(beanNamesWithCustomQualifierClass)
+        Set<String> annotatedBeanNames = Arrays.stream(beanNamesWithCustomQualifierClass)
                 .filter(beanName -> {
                     // These beans HAVE the custom qualifier type present, so this method will not return null.
                     Annotation annotationOnBean = _configurableListableBeanFactory.findAnnotationOnBean(beanName,
@@ -1283,11 +1289,10 @@ public class MatsSpringAnnotationRegistration implements
                     // If specified, the annotation instance must be equal to the one on the bean.
                     return customQualifier == null || customQualifier.equals(annotationOnBean);
                 })
-                .map(name -> _configurableListableBeanFactory.getBean(name))
-                .collect(Collectors.toCollection(ArrayList::new));
+                .collect(Collectors.toSet());
 
         // :: Then find all MatsFactories created by @Bean factory methods, which are annotated with custom qualifier
-        // (This is pretty annoyingly not a feature that is easily available in Spring proper.)
+        // (This is pretty annoyingly not a feature that is easily available in Spring proper, AFAIK)
         String[] beanDefinitionNames = _configurableListableBeanFactory.getBeanDefinitionNames();
         for (String beanDefinitionName : beanDefinitionNames) {
             BeanDefinition beanDefinition = _configurableListableBeanFactory.getBeanDefinition(beanDefinitionName);
@@ -1318,38 +1323,36 @@ public class MatsSpringAnnotationRegistration implements
                         // If specified, the annotation instance must be equal to the one on the bean.
                         if (((customQualifier == null) && (annotation.annotationType() == customQualifierType))
                                 || annotation.equals(customQualifier)) {
-                            annotatedBeans.add(_configurableListableBeanFactory.getBean(beanDefinitionName));
+                            annotatedBeanNames.add(beanDefinitionName);
                         }
                     }
                 }
             }
         }
 
-        // :: Filter only the MatsFactories, log informational if found beans that are not MatsFactory.
-        List<MatsFactory> matsFactories = new ArrayList<>();
-        for (Object annotatedBean : annotatedBeans) {
-            if (!(annotatedBean instanceof MatsFactory)) {
-                log.info(LOG_PREFIX + "Found bean annotated with correct custom qualifier [" + customQualifierType
-                        + "], but it was not a MatsFactory. Ignoring. Bean: [" + annotatedBean + "].");
-                continue;
-            }
-            matsFactories.add((MatsFactory) annotatedBean);
-        }
+        // :: Map over from BeanNames to actual Beans, filter away any beans not MatsFactory (e.g. @MatsClassMapping)
+        List<MatsFactory> matsFactories = annotatedBeanNames.stream()
+                .map(beanName -> _configurableListableBeanFactory.getBean(beanName))
+                .filter(bean -> bean instanceof MatsFactory)
+                .map(matsFactory -> (MatsFactory) matsFactory)
+                .collect(Collectors.toList());
 
+        // :: Assert that we only got /one/ matching MatsFactory - not zero, not several
         String qualifierString = (customQualifier != null ? customQualifier.toString()
                 : customQualifierType.getSimpleName());
         if (matsFactories.size() > 1) {
             throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for " + forWhat
-                    + ", " + this.getClass().getSimpleName() + " found that there was MULTIPLE MatsFactories available"
-                    + " in the Spring ApplicationContext with the custom qualifier annotation '" + qualifierString
-                    + "', this is probably not what you want.");
+                    + ", " + this.getClass().getSimpleName() + " found that there was MULTIPLE (" + matsFactories.size()
+                    + ") MatsFactories available in the Spring ApplicationContext with the custom qualifier annotation"
+                    + " '" + qualifierString + "', this is probably not what you want.");
         }
         if (matsFactories.isEmpty()) {
             throw new BeanCreationException("When trying to perform Spring-based MATS Endpoint creation for " + forWhat
-                    + ", " + this.getClass().getSimpleName() + " found that there is no MatsFactory with the custom"
+                    + ", " + this.getClass().getSimpleName() + " found that there is NO MatsFactory with the custom"
                     + " qualifier annotation '" + qualifierString + "' available in the Spring ApplicationContext");
         }
-        // Cache, and return
+
+        // :: Cache, and return
         _cache_MatsFactoryByCustomQualifier.computeIfAbsent(customQualifierType, $ -> new HashMap<>())
                 .put(customQualifier, matsFactories.get(0));
         return matsFactories.get(0);
