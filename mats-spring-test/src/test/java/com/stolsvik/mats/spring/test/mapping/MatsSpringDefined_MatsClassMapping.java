@@ -29,7 +29,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  */
 @RunWith(SpringRunner.class)
 @MatsSimpleTestContext
-public class MatsSpringDefined_MatsStagedOnClassTest {
+public class MatsSpringDefined_MatsClassMapping {
     private static final String SERVICE_MAIN = "test.AppMain";
     private static final String SERVICE_LEAF = "test.Leaf";
     private static final String TERMINATOR = "test.Terminator";
@@ -57,25 +57,27 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
         @Inject
         private MatsTestLatch _latch;
 
-        @Inject
-        private SomeSimpleService _someSimpleService;
-
-        @MatsMapping(SERVICE_LEAF)
-        public SpringTestDataTO springMatsSingleEndpoint(SpringTestDataTO msg) {
-            // Interact with Spring injected service
-            _someSimpleService.increaseCounter();
-            return new SpringTestDataTO(msg.number * 2, msg.string + ':' + SERVICE_LEAF);
-        }
-
         @MatsMapping(TERMINATOR)
         public void springMatsTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
             _latch.resolve(state, msg);
         }
-    }
 
-    /*
-     * Add check that there are no MatsMappings or MatsEndpointConfigs inside a MatsClassMapping
-     */
+        /**
+         * Creating a "Leaf" Single Stage endpoint using @MatsClassMapping.
+         */
+        @MatsClassMapping(SERVICE_LEAF)
+        public static class MatsClassMapping_Leaf {
+            @Inject
+            private SomeSimpleService _someSimpleService;
+
+            @Stage(Stage.INITIAL)
+            public SpringTestDataTO springMatsSingleEndpoint(SpringTestDataTO msg) {
+                // Interact with Spring injected service
+                _someSimpleService.increaseCounter();
+                return new SpringTestDataTO(msg.number * 2, msg.string + ':' + SERVICE_LEAF);
+            }
+        }
+    }
 
     @MatsClassMapping(SERVICE_MAIN)
     @Configuration // This must be here so that this Spring component is automatically picked up by test runner.
@@ -134,7 +136,7 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
         }
 
         @Stage(10)
-        void evaluateSomeThings(SpringTestDataTO in) {
+        void evaluateSomeThings(ProcessContext context, SpringTestDataTO in) {
             // Assert that state is kept from previous stage
             Assert.assertEquals(-10, _someStateInt);
             Assert.assertEquals("SetFromInitial", _someStateString);
@@ -142,6 +144,28 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             Assert.assertEquals(2, _inLineInitializedField.size());
             Assert.assertEquals("Endre testing", _inLineInitializedField.get(0));
             Assert.assertEquals("More test", _inLineInitializedField.get(1));
+            Assert.assertSame(_context, context);
+
+            // Don't change state..
+
+            // Assert that we have the Spring injected "services" in place, as expected.
+            Assert.assertEquals(new SpringTestDataTO(2, "to"), _someService);
+            Assert.assertEquals(new SpringTestStateTO(5, "fem"), _someOtherService);
+
+            // Jump to next stage
+            _context.next(in);
+        }
+
+        @Stage(20)
+        void evaluateSomeMoreThings(SpringTestDataTO in, ProcessContext context) {
+            // Assert that state is kept from previous stage
+            Assert.assertEquals(-10, _someStateInt);
+            Assert.assertEquals("SetFromInitial", _someStateString);
+            Assert.assertNull(_someStateObject);
+            Assert.assertEquals(2, _inLineInitializedField.size());
+            Assert.assertEquals("Endre testing", _inLineInitializedField.get(0));
+            Assert.assertEquals("More test", _inLineInitializedField.get(1));
+            Assert.assertSame(_context, context);
 
             // Set some state for next stage.
             _someStateInt = 10;
@@ -160,8 +184,9 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             _context.next(new SpringTestStateTO((int) in.number * 3, in.string + ":next"));
         }
 
-        @Stage(20)
-        void processSomeStuff(@Dto SpringTestStateTO in, String anotherParameterMaybeUsedForTesting) {
+        @Stage(30)
+        void processSomeStuff(@Dto SpringTestStateTO in, String anotherParameterMaybeUsedForTesting,
+                ProcessContext context) {
             // Assert that state is kept from previous stage
             Assert.assertEquals(10, _someStateInt);
             Assert.assertEquals("SetFromStageA", _someStateString);
@@ -170,6 +195,7 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             Assert.assertEquals("Endre testing", _inLineInitializedField.get(0));
             Assert.assertEquals("More test", _inLineInitializedField.get(1));
             Assert.assertEquals("Even moar testing", _inLineInitializedField.get(2));
+            Assert.assertSame(_context, context);
 
             // Set some state for next stage.
             _someStateInt = 20;
@@ -191,7 +217,7 @@ public class MatsSpringDefined_MatsStagedOnClassTest {
             _context.request(SERVICE_LEAF, new SpringTestDataTO(in.numero, in.cuerda));
         }
 
-        @Stage(30)
+        @Stage(40)
         SpringTestDataTO processMoreThenReply(boolean primitiveBooleanParameter,
                 byte byteP, short shortP, int intP, long longP, @Dto SpringTestDataTO in,
                 float floatP, double doubleP, List<String> meaninglessList) {
