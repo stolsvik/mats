@@ -1,8 +1,8 @@
 # Contributing to Mats
 
-## Endre Contributor Agreement
+## Stølsvik Contributor Agreement
 
-To contribute to the Mats project, the Stølsvik Contributor Agreement ("SCA") must be signed and mailed back to me, Endre Stølsvik. *(This is an agreement based on the Oracle Contributor Agreement ("OCA") for e.g. contributing to the JDK, modified slightly.)*
+To contribute to the Mats project, the *Stølsvik Contributor Agreement* ("SCA") must be signed and mailed back to me, Endre Stølsvik. *(This is an agreement based on the Oracle Contributor Agreement ("OCA") for e.g. contributing to the JDK, modified slightly.)*
 
 The SCA gives Endre and the contributor joint copyright in the contribution. The contributor retains copyrights while also granting those rights to Endre. The contributor may still choose to do whatever with the contribution, and so can Endre.
 
@@ -17,6 +17,6 @@ If submitting on behalf of a company, please also describe in the same email who
 
 ## Submitting code or other material
 
-After having signed the SCA, submit a pull request, and in the Git Commit Message write *"I contribute this material in accordance with the signed SCA."* if an individual, or if you are authorized to do so from a company, *"I contribute this material in accordance with {Companyname}'s signed SCA."*. You do not need to submit a new SCA for each pull request, but do include that line.
+After having signed the SCA, submit a pull request, and in the git commit message write *"I contribute this material in accordance with the signed SCA."* if an individual, or if you are authorized to do so from a company, *"I contribute this material in accordance with {Companyname}'s signed SCA."*. Do include this line in every pull request, but you do not need to submit a new SCA.
 
 Thanks!
