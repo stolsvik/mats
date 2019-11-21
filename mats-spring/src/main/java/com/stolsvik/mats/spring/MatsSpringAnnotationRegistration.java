@@ -782,7 +782,7 @@ public class MatsSpringAnnotationRegistration implements
 
         // :: Hold on to all non-null fields of the bean - these are what Spring has injected. Make "template".
 
-        // Need to check if the State class sets any fields by itself, i.e. in no-args constructor or default value.
+        // Need to check if the State class sets any fields by itself, i.e. with no-args constructor or initial value.
         Object instantiatedStateObject = matsFactoryToUse.getFactoryConfig().instantiateNewObject(stateClass);
 
         Field[] processContextField_hack = new Field[1];

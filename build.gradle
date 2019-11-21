@@ -5,12 +5,17 @@ wrapper {
     setDistributionType(Wrapper.DistributionType.ALL)
 }
 
-// Used both in mats-test and mats-amq
+// Version of Mats
+allprojects {
+    group = 'com.stolsvik.mats'
+    version = '0.8.3'
+}
+
+// Spring and ActiveMQ versions: Used in several sub projects
 ext {
     activeMqVersion = '5.15.+'
     springVersion = "4.+"
 }
-
 
 subprojects {
     apply plugin: 'java-library'
@@ -21,9 +26,6 @@ subprojects {
     repositories { mavenCentral() }
 
     project.buildDir = 'build-gradle'
-
-    group = 'com.stolsvik.mats'
-    version = '0.8.2'
 
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
