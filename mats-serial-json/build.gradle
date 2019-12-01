@@ -1,9 +1,5 @@
 // mats-serial-json
 
-ext {
-    jacksonVersion = '2.9.+'
-}
-
 dependencies {
     compile project(':mats-serial')
 

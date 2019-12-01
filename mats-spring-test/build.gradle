@@ -12,4 +12,6 @@ dependencies {
     testCompile "ch.qos.logback:logback-classic:1.2.+"
     // Checking that it works with Remock
     testCompile 'no.saua.remock:remock:1.+'
+    // RandomString
+    testCompile project(":mats-util")
 }

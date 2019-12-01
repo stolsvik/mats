@@ -11,10 +11,11 @@ allprojects {
     version = '0.8.3'
 }
 
-// Spring and ActiveMQ versions: Used in several sub projects
+// Spring, ActiveMQ and Jackson JSON versions: Used in several sub projects
 ext {
     activeMqVersion = '5.15.+'
     springVersion = "4.+"
+    jacksonVersion = '2.10.+'
 }
 
 subprojects {

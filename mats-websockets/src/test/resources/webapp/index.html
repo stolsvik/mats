@@ -1,0 +1,37 @@
+<html>
+<meta charset="UTF-8"/>
+<body>
+<h1>Testing 1, 2, 3</h1>
+
+<script src="MatsSocket.js"></script>
+
+<script>
+    var matsSocket = new MatsSocket("ws://localhost:8080/matssocket/json", "TestApp", "1.2.3");
+
+    matsSocket.endpoint("ClientSide.testEndpoint", function (msg, correlationId) {
+        var millis = Date.now() - msg.requestTimestamp;
+        console.log("Got message! CorrelationId:" + correlationId + ", time taken: " + millis + "ms");
+    });
+
+    matsSocket.send("Test.single", "ABCRandomTraceId", {string: "The String", number: 9428921549.94389439});
+    var ping = function () {
+        setTimeout(function () {
+            matsSocket.pipeline();
+            matsSocket.requestReplyTo("Test.single", "XYZRandomTraceId",
+                {string: "The LAZY String", number: 100.001, requestTimestamp: Date.now()},
+                "ClientSide.testEndpoint", "CorrelateMe!");
+            matsSocket.requestReplyTo("Test.single", "XYZRandomTraceId",
+                {string: "The LAZY String", number: 100.001, requestTimestamp: Date.now()},
+                "ClientSide.testEndpoint", "CorrelateMe!");
+            matsSocket.requestReplyTo("Test.single", "XYZRandomTraceId",
+                {string: "The LAZY String", number: 100.001, requestTimestamp: Date.now()},
+                "ClientSide.testEndpoint", "CorrelateMe!");
+            matsSocket.ship();
+            // ping();
+        }, 100);
+    };
+    ping();
+</script>
+
+</body>
+</html>

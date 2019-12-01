@@ -27,7 +27,6 @@ import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsSerializer.DeserializedMatsTrace;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call;
-import com.stolsvik.mats.util.RandomString;
 
 /**
  * MessageConsumer-class for the {@link JmsMatsStage} which is instantiated {@link StageConfig#getConcurrency()} number
@@ -47,7 +46,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     private final TransactionContext _transactionContext;
 
     JmsMatsStageProcessor(JmsMatsStage<R, S, I, Z> jmsMatsStage, int processorNumber) {
-        _randomInstanceId = RandomString.randomString(5) + "@" + jmsMatsStage.getParentFactory();
+        _randomInstanceId = randomString(5) + "@" + jmsMatsStage.getParentFactory();
         _jmsMatsStage = jmsMatsStage;
         _processorNumber = processorNumber;
         _processorThread = new Thread(this::runner, THREAD_PREFIX + ident());

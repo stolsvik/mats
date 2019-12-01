@@ -44,7 +44,7 @@ public class Rule_Mats extends ExternalResource {
     }
 
     @Override
-    public void before() throws Throwable {
+    public void before() {
         log.info("+++ BEFORE on JUnit Rule '" + id(Rule_Mats.class) + "', JMS and MATS:");
 
         // ::: ActiveMQ BrokerService and ConnectionFactory

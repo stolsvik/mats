@@ -44,7 +44,7 @@ public class Rule_MatsWithDb extends Rule_Mats {
     public static final String H2_DATABASE_URL = "jdbc:h2:./matsTestH2DB;AUTO_SERVER=TRUE";
 
     @Override
-    public void before() throws Throwable {
+    public void before() {
         // Set up JMS from super
         super.before();
         log.info("+++ BEFORE on JUnit Rule '" + id(Rule_MatsWithDb.class) + "', H2 database:");

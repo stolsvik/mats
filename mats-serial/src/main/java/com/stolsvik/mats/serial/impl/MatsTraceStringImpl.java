@@ -63,6 +63,12 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private long ts; // Initialized @ TimeStamp (Java epoch)
     private String x; // Debug info (free-form..)
 
+    private String auth; // For future Auth support: Initializing Authorization header, e.g. "Bearer: ....".
+
+    private String sig; // For future Signature support: Signature of central pieces of information in the trace.
+    // Note regarding signature: This is meant for the initial elements of the trace, kept in the trace.
+    // The entire message is also signed, and the signature is kept in byte-sideloads.
+
     private final KeepMatsTrace kt; // KeepMatsTrace.
     private final Boolean np; // NonPersistent.
     private final Boolean ia; // Interactive.
