@@ -90,26 +90,26 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     }
 
     private static class ReplyHandleStateDto {
-        private final String _replyEndpointId;
         private final String _matsSocketSessionId;
-        private final String _internalCorrelationId;
+        private final String _matsSocketEndpointId;
+        private final String _replyEndpointId;
         private final String _correlationId;
         private final String _authorization;
 
         private ReplyHandleStateDto() {
             /* no-args constructor for Jackson */
-            _replyEndpointId = null;
             _matsSocketSessionId = null;
-            _internalCorrelationId = null;
+            _matsSocketEndpointId = null;
+            _replyEndpointId = null;
             _correlationId = null;
             _authorization = null;
         }
 
-        public ReplyHandleStateDto(String replyEndpointId, String matsSocketSessionId, String internalCorrelationId,
+        public ReplyHandleStateDto(String matsSocketSessionId, String matsSocketEndpointId, String replyEndpointId,
                 String correlationId, String authorization) {
             _replyEndpointId = replyEndpointId;
+            _matsSocketEndpointId = matsSocketEndpointId;
             _matsSocketSessionId = matsSocketSessionId;
-            _internalCorrelationId = internalCorrelationId;
             _correlationId = correlationId;
             _authorization = authorization;
         }
@@ -132,14 +132,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     private void processReply(ProcessContext<Void> processContext, ReplyHandleStateDto state,
             MatsObject incomingMsg) {
-        Correlation correlation = _correlations.remove(state._internalCorrelationId);
-        // TODO: TOTALLY not do this!
-        if (correlation == null) {
-            log.error("Dropping message on floor for MatsSocketSessionId [" + state._matsSocketSessionId
-                    + "]: No Correlation!");
-            return;
-        }
-
         Session session = _activeSessionByMatsSocketSessionId.get(state._matsSocketSessionId);
         // TODO: TOTALLY not do this!
         if (session == null) {
@@ -148,7 +140,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             return;
         }
 
-        MatsSocketEndpointRegistration registration = correlation._matsSocketEndpointRegistration;
+        MatsSocketEndpointRegistration registration = _matsSockets.get(state._matsSocketEndpointId);
 
         Object matsReply = incomingMsg.toClass(registration._matsReplyClass);
 
@@ -192,21 +184,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
     }
 
-    private static class Correlation {
-        private MatsSocketEndpointRegistration _matsSocketEndpointRegistration;
-
-        public Correlation(
-                MatsSocketEndpointRegistration matsSocketEndpointRegistration) {
-            _matsSocketEndpointRegistration = matsSocketEndpointRegistration;
-        }
-    }
-
     private final ConcurrentHashMap<String, MatsSocketEndpointRegistration> _matsSockets = new ConcurrentHashMap<>();
 
-    private final ConcurrentHashMap<String, Session> _activeSessionBySessionId = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Session> _activeSessionByMatsSocketSessionId = new ConcurrentHashMap<>();
-
-    private final ConcurrentHashMap<String, Correlation> _correlations = new ConcurrentHashMap<>();
 
     @Override
     public <I, MI, MR, R> MatsSocketEndpoint<I, MI, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
@@ -273,7 +253,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             session.addMessageHandler(new MatsWsMessageHandler(this, _jackson, session));
             // TODO: NOTIFY THE FORWARDING MECHANISM THAT WE NOW HAVE THIS MatsSocketSession
             // Add Session to our active-map
-            _matsSocketServer._activeSessionBySessionId.put(session.getId(), session);
             _matsSocketServer._activeSessionByMatsSocketSessionId.put(_matsSocketSessionId, session);
         }
 
@@ -286,9 +265,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         public void onClose(Session session, CloseReason closeReason) {
             log.info("WebSocket @OnClose, session:" + session.getId() + ", reason:" + closeReason.getReasonPhrase()
                     + ", this:" + id(this));
-            // TODO: NOTIFY THE FORWARDING MECHANISM THAT WE NO LONG HAVE THIS MatsSocketSession
+            // TODO: NOTIFY THE FORWARDING MECHANISM THAT WE NO LONGER HAVE THIS MatsSocketSession
             // Remove Session from our active-map
-            _matsSocketServer._activeSessionBySessionId.remove(session.getId());
             _matsSocketServer._activeSessionByMatsSocketSessionId.remove(_matsSocketSessionId);
         }
     }
@@ -480,14 +458,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                         .from("MatsSocketEndpoint." + _envelope.eid)
                         .traceId(_envelope.tid);
                 if (isRequest()) {
-                    String internalCorrelationId = randomId();
-                    ReplyHandleStateDto sto = new ReplyHandleStateDto(_envelope.reid, _matsSocketSessionId,
-                            internalCorrelationId, _envelope.cid, getAuthorization());
+                    ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
+                            _matsSocketEndpointRegistration._matsSocketEndpointId, _envelope.reid,
+                            _envelope.cid, getAuthorization());
                     msg.replyTo(_matsSocketServer._replyTerminatorId, sto);
                     msg.request(matsMessage);
-                    // TODO: Put on DB
-                    _matsSocketServer._correlations.put(internalCorrelationId, new Correlation(
-                            _matsSocketEndpointRegistration));
                 }
                 else {
                     msg.send(matsMessage);
@@ -502,13 +477,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 init.from("MatsSocketEndpoint." + _envelope.eid)
                         .traceId(_envelope.tid);
                 if (isRequest()) {
-                    String internalCorrelationId = randomId();
-                    ReplyHandleStateDto sto = new ReplyHandleStateDto(_envelope.reid, _matsSocketSessionId,
-                            internalCorrelationId, _envelope.cid, getAuthorization());
+                    ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
+                            _matsSocketEndpointRegistration._matsSocketEndpointId, _envelope.reid,
+                            _envelope.cid, getAuthorization());
                     init.replyTo(_matsSocketServer._replyTerminatorId, sto);
-                    // TODO: Put on DB
-                    _matsSocketServer._correlations.put(internalCorrelationId, new Correlation(
-                            _matsSocketEndpointRegistration));
                     msg.initiate(init);
                 }
                 else {
