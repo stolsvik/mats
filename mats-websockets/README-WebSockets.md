@@ -82,7 +82,8 @@ TODO: Handle debug information
   * The rationale for this distinction is when the application believes it just slept a second and hence pipelines messages that e.g. executes an order, while e.g. 30 hours has passed and the world has moved on, you might want such types of messages to be dropped, catch that a SESSION_NEW was returned instead of the expected SESSION_RECONNECTED, and thus "reboot" the application to initial state and let the user send the order again.
 ```
 [{
-    type: "CONNECT" or "CONNECT_EXPECT"
+    type: "HELLO"
+    subType: "NEW" or "EXPECT_EXISTING"
     traceId: "AppStart[userInitiated]2897fswh"
     sessionId: "428959fjfvf8eh83" // Included if reconnect, not included if new session
     appName: "MegaApp2020-iOS"
@@ -104,11 +105,11 @@ TODO: Handle debug information
 * If it was a CONNECT_EXPECT, and this is a SESSION_NEW, any pipelined messages that was included with the CONNECT_EXPECT was dropped (i.e. not run).
 ```
 [{
-    type: "SESSION_NEW" or "SESSION_RECONNECTED"
+    type: "WELCOME"
+    subType: "NEW" or "RECONNECTED"
     traceId: "AppStart[os:ios][appV:2019-11-24j142897fswh"
     sessionId: "428959fjfvf8eh83" // Either the one sent in, or a new one.
     correlationId: "4289nd28df324329"
-    jwt_access_token: ....... // Auth is required, must be valid and within timeout
     debug: {
        .. json ..
        .. json ..

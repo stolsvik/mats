@@ -1,5 +1,7 @@
 package com.stolsvik.mats.websocket;
 
+import static ch.qos.logback.core.CoreConstants.DISABLE_SERVLET_CONTAINER_INITIALIZER_KEY;
+
 import java.io.IOException;
 import java.net.URL;
 import java.util.Collections;
@@ -22,7 +24,10 @@ import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpoint;
 
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
+import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.handler.HandlerCollection;
+import org.eclipse.jetty.server.handler.StatisticsHandler;
 import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.webapp.Configuration;
 import org.eclipse.jetty.webapp.WebAppContext;
@@ -45,6 +50,7 @@ public class AppMain {
     public static class SCL_Endre implements ServletContextListener {
 
         private final Rule_Mats _matsRule = new Rule_Mats();
+        private MatsSocketServer _matsSocketServer;
 
         @Override
         public void contextInitialized(ServletContextEvent sce) {
@@ -59,12 +65,13 @@ public class AppMain {
             });
 
             // Create MatsSocketServer
-            MatsSocketServer matsSocketServer = getMatsSocketServer(sce, matsFactory);
+            _matsSocketServer = getMatsSocketServer(sce, matsFactory);
+            _matsSocketServer.setAuthorizationToPrincipalFunction(authHeader -> () -> "Endre Stølsvik DummyAuth");
 
             // Make MatsSocketEndpoint
-            MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
+            MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = _matsSocketServer
                     .matsSocketEndpoint("Test.single",
-                            MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class);
+                            MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class);
             matsSocketEndpoint.incomingForwarder((ctx, msIncoming) -> {
                 log.info("Got MatsSocket request on MatsSocket EndpointId: "
                         + ctx.getMatsSocketEndpointId());
@@ -94,6 +101,7 @@ public class AppMain {
         @Override
         public void contextDestroyed(ServletContextEvent sce) {
             log.info("EndreXY contextDestroyed: Test 1 2 3: " + sce);
+            _matsSocketServer.shutdown();
             _matsRule.after();
         }
     }
@@ -169,7 +177,14 @@ public class AppMain {
         webapp.getMetaData().setWebInfClassesDirs(Collections.singletonList(Resource.newResource(classes)));
 
         Server server = new Server(port);
-        server.setHandler(webapp);
+
+        // Add StatisticsHandler
+        StatisticsHandler stats = new StatisticsHandler();
+        stats.setHandler(webapp);
+        server.setHandler(stats);
+
+        server.setStopTimeout(1000);
+        server.setStopAtShutdown(true);
         return server;
     }
 
@@ -177,6 +192,8 @@ public class AppMain {
         String portS = System.getProperty("jetty.http.port", "8080");
         int port = Integer.parseInt(portS);
         Server server = createServer(port);
+
+        System.setProperty(DISABLE_SERVLET_CONTAINER_INITIALIZER_KEY, "true");
 
         log.info("EndreXY: Starting server.");
 

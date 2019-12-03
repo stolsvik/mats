@@ -37,7 +37,7 @@ function MatsSocket(url, appName, appVersion) {
      * is active or not).
      */
     this.addMessageToPipeline = function (msg, correlationOrReplyId) {
-        // TODO: if sencond arg is function, set 'reid' and 'correlationId'.
+        // TODO: if second arg is function, set 'reid' and 'correlationId'.
         _pipeline.push(msg);
         this.evaluatePipelineSend();
     };
@@ -69,7 +69,7 @@ function MatsSocket(url, appName, appVersion) {
     /**
      * Turn on pipelining, must invoke 'ship()' to turn off and send the messages.
      */
-    this.pipeline = function() {
+    this.pipeline = function () {
         _pipelining = true;
     };
 
@@ -112,8 +112,9 @@ function MatsSocket(url, appName, appVersion) {
         // E-> No, WebSocket ain't open, so fire it up
         // :: Stick the CONNECT message in front of the pipeline.
         var connectMsg = {
-            t: "CONNECT",
+            t: "HELLO",
             ts: Date.now(),
+            auth: "DummyAuth",
             tid: "MatsSocket_Start"
         };
         // ?: Do we have requested a reconnect?
@@ -142,8 +143,15 @@ function MatsSocket(url, appName, appVersion) {
             // console.log("onmessage");
             var data = event.data;
             var parsed = JSON.parse(data);
-            var endpoint = _endpoints[parsed.eid];
-            endpoint(parsed.msg, parsed.cid);
+            if (parsed.t === "WELCOME") {
+                // TODO: Handle WELCOME message better.
+                _sessionId = parsed.sid;
+                console.log("We're WELCOME! SessionId:" + _sessionId);
+            } else {
+                // -> Assume message that contains EndpointId
+                var endpoint = _endpoints[parsed.eid];
+                endpoint(parsed.msg, parsed.cid);
+            }
         };
         _websocket.onclose = function (event) {
             console.log("onclose");
@@ -161,7 +169,7 @@ MatsSocket.prototype.send = function (endpointId, traceId, message, callback) {
         t: "SEND",
         eid: endpointId,
         tid: traceId,
-        ts: Date.now(),
+        cmcts: Date.now(),
         msg: message
     }, callback);
 };
@@ -171,7 +179,7 @@ MatsSocket.prototype.request = function (endpointId, traceId, message, callback)
         t: "REQUEST",
         eid: endpointId,
         tid: traceId,
-        ts: Date.now(),
+        cmcts: Date.now(),
         msg: message
     }, callback);
 };
@@ -183,7 +191,7 @@ MatsSocket.prototype.requestReplyTo = function (endpointId, traceId, message, re
         reid: replyToEndpointId,
         cid: correlationId,
         tid: traceId,
-        ts: Date.now(),
+        cmcts: Date.now(),
         msg: message
     }, correlationId);
 };
@@ -198,7 +206,7 @@ MatsSocket.prototype.requestReplyTo = function (endpointId, traceId, message, re
 MatsSocket.prototype.shutdown = function (reason) {
     this.addMessageToPipeline({
         t: "DISCONNECT",
-        ts: Date.now(),
+        cmcts: Date.now(),
         tid: "MatsSocket[" + reason + "]"
     });
     this.ship();

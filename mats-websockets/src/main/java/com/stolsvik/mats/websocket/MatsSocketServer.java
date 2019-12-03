@@ -1,6 +1,9 @@
 package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
+import java.util.function.Function;
+
+import javax.websocket.CloseReason.CloseCodes;
 
 import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsInitiator;
@@ -19,16 +22,33 @@ public interface MatsSocketServer {
      * @param matsSocketEndpointId
      */
     <I, MI, MR, R> MatsSocketEndpoint<I, MI, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass);
+            Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass);
+
+    /**
+     * This is mandatory. Must be very fast, as it is invoked synchronously - keep any IPC fast and keep relatively
+     * short timeouts, otherwise all your threads of the container might be used up. If the function throws or returns
+     * null, authorization did not go through.
+     *
+     * @param authorizationToPrincipalFunction
+     *            a Function that turns an Authorization String into a Principal.
+     */
+    void setAuthorizationToPrincipalFunction(Function<String, Principal> authorizationToPrincipalFunction);
+
+    /**
+     * Closes all WebSockets with {@link CloseCodes#SERVICE_RESTART} (assuming that a MatsSocket service will never
+     * truly go down..)
+     */
+    void shutdown();
 
     interface MatsSocketEndpoint<I, MI, MR, R> {
-        void incomingForwarder(MatsSocketEndpointIncomingForwarder<I, MI, R> matsSocketEndpointIncomingForwarder);
+        void incomingForwarder(MatsSocketEndpointIncomingHandler<I, MI, R> matsSocketEndpointIncomingForwarder);
+
         void replyAdapter(MatsSocketEndpointReplyAdapter<MR, R> matsSocketEndpointReplyAdapter);
     }
 
     @FunctionalInterface
-    interface MatsSocketEndpointIncomingForwarder<I, MI, R> {
-        void forwardIncoming(MatsSocketEndpointRequestContext<MI, R> ctx, I msIncoming);
+    interface MatsSocketEndpointIncomingHandler<I, MI, R> {
+        void handleIncoming(MatsSocketEndpointRequestContext<MI, R> ctx, I msIncoming);
     }
 
     @FunctionalInterface
