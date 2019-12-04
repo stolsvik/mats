@@ -8,6 +8,12 @@
 <script>
     var matsSocket = new MatsSocket("ws://localhost:8080/matssocket/json", "TestApp", "1.2.3");
 
+    matsSocket.setAuthenticationExpiredCallback(new function (event) {
+        console.log("AuthenticationExpiredCallback");
+        console.log(event);
+        matsSocket.setCurrentAuthentication("DummyAuth:" + Date.now());
+    });
+
     matsSocket.endpoint("ClientSide.testEndpoint", function (msg, correlationId) {
         var millis = Date.now() - msg.requestTimestamp;
         console.log("Got message! CorrelationId:" + correlationId + ", time taken: " + millis + "ms");

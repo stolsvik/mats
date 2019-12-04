@@ -10,6 +10,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 
 import javax.websocket.CloseReason;
+import javax.websocket.CloseReason.CloseCode;
 import javax.websocket.CloseReason.CloseCodes;
 import javax.websocket.DeploymentException;
 import javax.websocket.Endpoint;
@@ -59,23 +60,23 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         ObjectMapper jackson = jacksonMapper();
         DefaultMatsSocketServer matsSocketServer = new DefaultMatsSocketServer(matsFactory, jackson, replyTerminatorId);
 
-        log.info("Registering MatsSocket WebSocket endpoint");
+        log.info("Registering MatsSockets' sole WebSocket endpoint.");
         Configurator configurator = new Configurator() {
             @Override
             @SuppressWarnings("unchecked") // The cast to (T) is not dodgy.
             public <T> T getEndpointInstance(Class<T> endpointClass) {
-                if (endpointClass != MatsWebSocketEndpointInstance.class) {
+                if (endpointClass != MatsWebSocketInstance.class) {
                     throw new AssertionError("Cannot create Endpoints of type [" + endpointClass.getName()
                             + "]");
                 }
                 // Generate a MatsSocketSessionId
                 String matsSocketSessionId = randomId();
                 log.info("Instantiating a MatsSocketEndpoint!");
-                return (T) new MatsWebSocketEndpointInstance(matsSocketServer, jackson, matsSocketSessionId);
+                return (T) new MatsWebSocketInstance(matsSocketServer, jackson, matsSocketSessionId);
             }
         };
         try {
-            serverContainer.addEndpoint(Builder.create(MatsWebSocketEndpointInstance.class, "/matssocket/json")
+            serverContainer.addEndpoint(Builder.create(MatsWebSocketInstance.class, "/matssocket/json")
                     .subprotocols(Collections.singletonList("mats"))
                     .configurator(configurator)
                     .build());
@@ -129,17 +130,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     @Override
     public void shutdown() {
-        log.info(id(this) + ".shutdown()");
+        log.info("Asked to shut down MatsSocketServer [" + id(this)
+                + "], containing [" + _activeSessionByMatsSocketSessionId.size() + "] sessions.");
         _activeSessionByMatsSocketSessionId.values().forEach(s -> {
-            log.info("Shutting down WebSocket Session [" + s._session + "]");
-            try {
-                s._session.close(new CloseReason(CloseCodes.SERVICE_RESTART,
-                        "Server instance is going down, please reconnect."));
-            }
-            catch (IOException e) {
-                log.warn("Upon shutdown(): Got Exception when trying to close WebSocket Session [" + s._session + "].",
-                        e);
-            }
+            s.close(CloseCodes.SERVICE_RESTART,
+                    "Server instance is going down, please reconnect.");
         });
     }
 
@@ -303,13 +298,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
      * client connection"), thus there should be 1:1 correlation between this instance and the single Session object for
      * the same cardinality (per client:server connection).
      */
-    public static class MatsWebSocketEndpointInstance<I, MI, MR, R> extends Endpoint {
+    public static class MatsWebSocketInstance<I, MI, MR, R> extends Endpoint {
         private final DefaultMatsSocketServer _matsSocketServer;
         private final ObjectMapper _jackson;
 
         private MatsSocketSession _matsSocketSession;
 
-        public MatsWebSocketEndpointInstance(DefaultMatsSocketServer matsSocketServer,
+        public MatsWebSocketInstance(DefaultMatsSocketServer matsSocketServer,
                 ObjectMapper jackson, String matsSocketSessionId) {
             log.info("Created MatsWebSocketEndpointInstance: " + id(this));
             _matsSocketServer = matsSocketServer;
@@ -334,6 +329,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         public void onClose(Session session, CloseReason closeReason) {
             log.info("WebSocket @OnClose, session:" + session.getId() + ", reason:" + closeReason.getReasonPhrase()
                     + ", this:" + id(this));
+            // Remove from Local view. (NOTICE: A pure "CLOSE" shall not kill sessionId by itself)
+            if (_matsSocketSession != null) {
+                _matsSocketServer._activeSessionByMatsSocketSessionId.remove(_matsSocketSession._matsSocketSessionId);
+            }
             // TODO: NOTIFY THE FORWARDING MECHANISM THAT WE NO LONGER HAVE THIS MatsSocketSession
         }
     }
@@ -343,7 +342,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 .constructType(new TypeReference<List<MatsSocketEnvelopeDto>>() {
                 });
 
-        private final MatsWebSocketEndpointInstance _matsWebSocketEndpointInstance;
+        private final MatsWebSocketInstance _matsWebSocketInstance;
         private final Session _session;
 
         // Derived
@@ -355,12 +354,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         private Principal _principal;
 
         public MatsSocketSession(
-                MatsWebSocketEndpointInstance matsWebSocketEndpointInstance, Session session) {
-            _matsWebSocketEndpointInstance = matsWebSocketEndpointInstance;
+                MatsWebSocketInstance matsWebSocketInstance, Session session) {
+            _matsWebSocketInstance = matsWebSocketInstance;
             _session = session;
 
             // Derived
-            _matsSocketServer = _matsWebSocketEndpointInstance._matsSocketServer;
+            _matsSocketServer = _matsWebSocketInstance._matsSocketServer;
         }
 
         @Override
@@ -370,7 +369,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
             List<MatsSocketEnvelopeDto> envelopes;
             try {
-                envelopes = _matsWebSocketEndpointInstance._jackson.readValue(message, LIST_OF_MSG_TYPE);
+                envelopes = _matsWebSocketInstance._jackson.readValue(message, LIST_OF_MSG_TYPE);
             }
             catch (JsonProcessingException e) {
                 // TODO: Handle parse exceptions.
@@ -493,15 +492,26 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     Object msg = deserialize((String) envelope.msg, registration._msIncomingClass);
                     MatsSocketEndpointRequestContextImpl matsSocketContext = new MatsSocketEndpointRequestContextImpl(
                             _matsSocketServer, registration, _matsSocketSessionId, envelope,
-                            clientMessageReceivedTimestamp, "DummyAuth", null);
+                            clientMessageReceivedTimestamp, _authorization, _principal);
                     matsSocketEndpointIncomingForwarder.handleIncoming(matsSocketContext, msg);
                 }
             }
         }
 
+        private void close(CloseCode closeCode, String reasonPhrase) {
+            log.info("Shutting down WebSocket Session [" + _session + "]");
+            try {
+                _session.close(new CloseReason(closeCode, reasonPhrase));
+            }
+            catch (IOException e) {
+                log.warn("Got Exception when trying to close WebSocket Session [" + _session
+                        + "], ignoring.", e);
+            }
+        }
+
         private <T> T deserialize(String serialized, Class<T> clazz) {
             try {
-                return _matsWebSocketEndpointInstance._jackson.readValue(serialized, clazz);
+                return _matsWebSocketInstance._jackson.readValue(serialized, clazz);
             }
             catch (JsonProcessingException e) {
                 // TODO: Handle parse exceptions.
@@ -511,8 +521,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     }
 
     private static class MatsSocketEnvelopeDto {
-        String hos; // Host OS, e.g. "iOS,v13.2", "Android,vKitKat.4.4", "Chrome,v123:Windows,vXP",
-        // "Java,v11.03:Windows,v2019"
+        String clv; // Client Lib and Versions, e.g.
+        // "MatsSockLibCsharp,v2.0.3; iOS,v13.2"
+        // "MatsSockLibAlternativeJava,v12.3; ASDKAndroid,vKitKat.4.4"
+        // Java lib: "MatsSockLibJava,v0.8.9; Java,v11.03:Windows,v2019"
+        // browsers/JS: "MatsSocketJs,v0.8.9; User-Agent: <navigator.userAgent string>",
         String an; // AppName
         String av; // AppVersion
 
@@ -540,6 +553,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         Object msg; // Message, JSON
 
         DebugDto dbg; // Debug
+
+        @Override
+        public String toString() {
+            return "[" + t  + (st == null ? "" : ":" + st) + "]->"
+                    + eid + (reid == null ? "" : ",reid:" + reid)
+                    + ",tid:" + tid + ",cid:" + cid;
+        }
     }
 
     private static class Message {

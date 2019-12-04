@@ -40,6 +40,19 @@ WS Connect.
 Auth, "isAuthOk?"
 
 
+## TODO, IDEAS
+// Local Sessions
+* matsSocketServer.getSessions();
+* matsSocketServer.getSessionsByMatsSessionId(...);
+* matsSocketServer.getSessionByPrincipalId(...); // AuthPlugin needs to provide an "id"
+  * session.getPrincipal()
+  * Session.sendMessage(...)
+
+// Remote and Local Session
+* matsSocketServer.sendMessageToMatsSessionId(...);
+* matsSocketServer.sendMessageToPrincipalId(...);
+
+
 ```java
 @MatsSocket("Endpoint.id")
 public void handleMessage(MatsSocketContext<Blabla> context) {

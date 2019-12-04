@@ -4,6 +4,7 @@ import static ch.qos.logback.core.CoreConstants.DISABLE_SERVLET_CONTAINER_INITIA
 
 import java.io.IOException;
 import java.net.URL;
+import java.security.Principal;
 import java.util.Collections;
 
 import javax.servlet.ServletContextEvent;
@@ -24,10 +25,11 @@ import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpoint;
 
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
-import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.server.handler.HandlerCollection;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
+import org.eclipse.jetty.util.component.AbstractLifeCycle.AbstractLifeCycleListener;
+import org.eclipse.jetty.util.component.LifeCycle;
+import org.eclipse.jetty.util.component.LifeCycle.Listener;
 import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.webapp.Configuration;
 import org.eclipse.jetty.webapp.WebAppContext;
@@ -45,6 +47,8 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
 public class AppMain {
 
     private static final Logger log = LoggerFactory.getLogger(AppMain.class);
+
+    private static MatsSocketServer __matsSocketServer;
 
     @WebListener
     public static class SCL_Endre implements ServletContextListener {
@@ -66,7 +70,18 @@ public class AppMain {
 
             // Create MatsSocketServer
             _matsSocketServer = getMatsSocketServer(sce, matsFactory);
-            _matsSocketServer.setAuthorizationToPrincipalFunction(authHeader -> () -> "Endre Stølsvik DummyAuth");
+            _matsSocketServer.setAuthorizationToPrincipalFunction(authHeader -> {
+                return new Principal() {
+                    @Override
+                    public String getName() {
+                        return "Mr. Dummy Auth";
+                    }
+                    @Override
+                    public String toString() {
+                        return "DummyPrincipal:"+authHeader;
+                    }
+                };
+            });
 
             // Make MatsSocketEndpoint
             MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = _matsSocketServer
@@ -96,6 +111,9 @@ public class AppMain {
                 return new MatsSocketReplyDto(matsReply.string.length(), matsReply.number,
                         ctx.getMatsContext().getTraceProperty("requestTimestamp", Long.class));
             });
+
+
+            __matsSocketServer = _matsSocketServer;
         }
 
         @Override
@@ -182,6 +200,15 @@ public class AppMain {
         StatisticsHandler stats = new StatisticsHandler();
         stats.setHandler(webapp);
         server.setHandler(stats);
+
+        // Add a Jetty Lifecycle Listener to cleanly shut down the MatsSocketServer.
+        server.addLifeCycleListener(new AbstractLifeCycleListener() {
+            @Override
+            public void lifeCycleStopping(LifeCycle event) {
+                log.info("XXXX lifeCycleStopping, event:" + event);
+                __matsSocketServer.shutdown();
+            }
+        });
 
         server.setStopTimeout(1000);
         server.setStopAtShutdown(true);
