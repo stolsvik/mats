@@ -52,6 +52,11 @@ Auth, "isAuthOk?"
 * matsSocketServer.sendMessageToMatsSessionId(...);
 * matsSocketServer.sendMessageToPrincipalId(...);
 
+// Adapt both on "temp jump" and reply
+* matsSocketEndpoint.addForwardAdapter
+  * hmm.. Maybe not necessary. It should be the "tempJump" that does the adaptation, while the store-and-forwarder just stores the finished adapted message.
+  * .. then again, this requires that we need to re-establish the Principal.
+
 
 ```java
 @MatsSocket("Endpoint.id")
@@ -96,7 +101,7 @@ TODO: Handle debug information
 ```
 [{
     type: "HELLO"
-    subType: "NEW" or "EXPECT_EXISTING"
+    subType: "EXPECT_EXISTING" upon a reconnect (i.e. if sessionId is present).
     traceId: "AppStart[userInitiated]2897fswh"
     sessionId: "428959fjfvf8eh83" // Included if reconnect, not included if new session
     appName: "MegaApp2020-iOS"

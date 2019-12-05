@@ -8,10 +8,12 @@
 <script>
     var matsSocket = new MatsSocket("ws://localhost:8080/matssocket/json", "TestApp", "1.2.3");
 
-    matsSocket.setAuthenticationExpiredCallback(new function (event) {
+    matsSocket.setAuthenticationExpiredCallback(function (event) {
         console.log("AuthenticationExpiredCallback");
         console.log(event);
-        matsSocket.setCurrentAuthentication("DummyAuth:" + Date.now());
+        var now = Date.now();
+        var expiry = now + 20000;
+        matsSocket.setCurrentAuthentication("DummyAuth:" + expiry, expiry, 10000);
     });
 
     matsSocket.endpoint("ClientSide.testEndpoint", function (msg, correlationId) {
@@ -20,21 +22,26 @@
     });
 
     matsSocket.send("Test.single", "ABCRandomTraceId", {string: "The String", number: 9428921549.94389439});
+
+    matsSocket.pipeline();
+    matsSocket.requestReplyTo("Test.single", "Pipeline_1_" + matsSocket.id(6),
+        {string: "Messge 1", number: 100.001, requestTimestamp: Date.now()},
+        "ClientSide.testEndpoint", "pipeline_1_" + matsSocket.id(10));
+    matsSocket.requestReplyTo("Test.single", "Pipeline_2_" + matsSocket.id(6),
+        {string: "Message 2", number: 200.002, requestTimestamp: Date.now()},
+        "ClientSide.testEndpoint", "pipeline_2_" + matsSocket.id(10));
+    matsSocket.requestReplyTo("Test.single", "Pipeline_3_" + matsSocket.id(6),
+        {string: "Message 3", number: 300.003, requestTimestamp: Date.now()},
+        "ClientSide.testEndpoint", "pipeline_3_" + matsSocket.id(10));
+    matsSocket.ship();
+
     var ping = function () {
         setTimeout(function () {
-            matsSocket.pipeline();
-            matsSocket.requestReplyTo("Test.single", "XYZRandomTraceId",
-                {string: "The LAZY String", number: 100.001, requestTimestamp: Date.now()},
-                "ClientSide.testEndpoint", "CorrelateMe!");
-            matsSocket.requestReplyTo("Test.single", "XYZRandomTraceId",
-                {string: "The LAZY String", number: 100.001, requestTimestamp: Date.now()},
-                "ClientSide.testEndpoint", "CorrelateMe!");
-            matsSocket.requestReplyTo("Test.single", "XYZRandomTraceId",
-                {string: "The LAZY String", number: 100.001, requestTimestamp: Date.now()},
-                "ClientSide.testEndpoint", "CorrelateMe!");
-            matsSocket.ship();
+            matsSocket.requestReplyTo("Test.single", "TraceId",
+                {string: "Periodic query", number: 100.001, requestTimestamp: Date.now()},
+                "ClientSide.testEndpoint", "TestTraceId_" + matsSocket.id(6));
             // ping();
-        }, 100);
+        }, 1000);
     };
     ping();
 </script>

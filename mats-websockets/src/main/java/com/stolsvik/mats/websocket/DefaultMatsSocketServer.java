@@ -54,7 +54,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     private static final String REPLY_TERMINATOR_ID_PREFIX = "MatsSockets.replyHandler.";
 
-    public static MatsSocketServer makeMatsSocketServer(ServerContainer serverContainer, MatsFactory matsFactory) {
+    public static MatsSocketServer createMatsSocketServer(ServerContainer serverContainer, MatsFactory matsFactory) {
         // TODO: "Escape" the AppName.
         String replyTerminatorId = REPLY_TERMINATOR_ID_PREFIX + matsFactory.getFactoryConfig().getAppName();
         ObjectMapper jackson = jacksonMapper();
@@ -149,11 +149,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     }
 
     private static class ReplyHandleStateDto {
-        private final String _matsSocketSessionId;
-        private final String _matsSocketEndpointId;
-        private final String _replyEndpointId;
-        private final String _correlationId;
-        private final String _authorization;
+        private final String sid;
+        private final String cid;
+        private final String ms_eid;
+        private final String ms_reid;
 
         private final long cmcts; // Client Message Created TimeStamp (Client timestamp)
         private final long cmrts; // Client Message Received Timestamp (Server timestamp)
@@ -162,24 +161,22 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         private ReplyHandleStateDto() {
             /* no-args constructor for Jackson */
-            _matsSocketSessionId = null;
-            _matsSocketEndpointId = null;
-            _replyEndpointId = null;
-            _correlationId = null;
-            _authorization = null;
+            sid = null;
+            cid = null;
+            ms_eid = null;
+            ms_reid = null;
             this.cmcts = 0;
             this.cmrts = 0;
             this.mmsts = 0;
         }
 
         public ReplyHandleStateDto(String matsSocketSessionId, String matsSocketEndpointId, String replyEndpointId,
-                String correlationId, String authorization, long clientMessageCreatedTimestamp,
+                String correlationId, long clientMessageCreatedTimestamp,
                 long clientMessageReceivedTimestamp, long matsMessageSentTimestamp) {
-            _matsSocketSessionId = matsSocketSessionId;
-            _matsSocketEndpointId = matsSocketEndpointId;
-            _replyEndpointId = replyEndpointId;
-            _correlationId = correlationId;
-            _authorization = authorization;
+            sid = matsSocketSessionId;
+            cid = correlationId;
+            ms_eid = matsSocketEndpointId;
+            ms_reid = replyEndpointId;
             this.cmcts = clientMessageCreatedTimestamp;
             this.cmrts = clientMessageReceivedTimestamp;
             this.mmsts = matsMessageSentTimestamp;
@@ -190,16 +187,16 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             MatsObject incomingMsg) {
         long matsMessageReplyReceivedTimestamp = System.currentTimeMillis();
         // TODO: THIS ASSUMES WE'RE THE ONE HOLDING THIS SESSION!
-        MatsSocketSession matsSocketSession = _activeSessionByMatsSocketSessionId.get(state._matsSocketSessionId);
+        MatsSocketSession matsSocketSession = _activeSessionByMatsSocketSessionId.get(state.sid);
         // TODO: TOTALLY not do this!
         if (matsSocketSession == null) {
-            log.error("Dropping message on floor for MatsSocketSessionId [" + state._matsSocketSessionId
+            log.error("Dropping message on floor for MatsSocketSessionId [" + state.sid
                     + "]: No Session!");
             return;
         }
 
         // Find the MatsSocketEndpoint for this reply
-        MatsSocketEndpointRegistration registration = getMatsSocketRegistration(state._matsSocketEndpointId);
+        MatsSocketEndpointRegistration registration = getMatsSocketRegistration(state.ms_eid);
 
         Object matsReply = incomingMsg.toClass(registration._matsReplyClass);
 
@@ -207,7 +204,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         if (registration._matsSocketEndpointReplyAdapter != null) {
             // TODO: Handle Principal.
             MatsSocketEndpointReplyContextImpl replyContext = new MatsSocketEndpointReplyContextImpl(
-                    registration._matsSocketEndpointId, state._authorization, null, processContext);
+                    registration._matsSocketEndpointId, matsSocketSession._authorization, matsSocketSession._principal,
+                    processContext);
             msReply = registration._matsSocketEndpointReplyAdapter.adaptReply(replyContext, matsReply);
         }
         else if (registration._matsReplyClass == registration._msReplyClass) {
@@ -223,8 +221,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
         msReplyEnvelope.t = "REPLY";
-        msReplyEnvelope.eid = state._replyEndpointId;
-        msReplyEnvelope.cid = state._correlationId;
+        msReplyEnvelope.eid = state.ms_reid;
+        msReplyEnvelope.cid = state.cid;
         msReplyEnvelope.cmcts = state.cmcts;
         msReplyEnvelope.cmrts = state.cmrts;
         msReplyEnvelope.mmsts = state.mmsts;
@@ -465,10 +463,20 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     }
                     // Send message
                     _matsSocketServer.sendMessage(_session, reply);
+                    continue;
                 }
 
                 if ("PING".equals(envelope.t)) {
                     // TODO: HANDLE PING
+                    continue;
+                }
+
+                if ("CLOSE_SESSION".equals(envelope.t)) {
+                    // TODO: DEREGISTER SESSION, NOTIFY FORWARDING MECHANISM
+                    _matsSocketServer._activeSessionByMatsSocketSessionId.remove(_matsSocketSessionId);
+                    close(CloseCodes.NORMAL_CLOSURE, "From Server: Asked by client to CLOSE_SESSION:"
+                            + " Deleting session registration and closing WebSocket.");
+                    continue;
                 }
 
                 // ?: We do not accept other messages before authentication
@@ -494,6 +502,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                             _matsSocketServer, registration, _matsSocketSessionId, envelope,
                             clientMessageReceivedTimestamp, _authorization, _principal);
                     matsSocketEndpointIncomingForwarder.handleIncoming(matsSocketContext, msg);
+                    continue;
                 }
             }
         }
@@ -556,7 +565,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         @Override
         public String toString() {
-            return "[" + t  + (st == null ? "" : ":" + st) + "]->"
+            return "[" + t + (st == null ? "" : ":" + st) + "]->"
                     + eid + (reid == null ? "" : ",reid:" + reid)
                     + ",tid:" + tid + ",cid:" + cid;
         }
@@ -634,7 +643,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 if (isRequest()) {
                     ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
                             _matsSocketEndpointRegistration._matsSocketEndpointId, _envelope.reid,
-                            _envelope.cid, getAuthorization(), _envelope.cmcts, _clientMessageReceivedTimestamp,
+                            _envelope.cid, _envelope.cmcts, _clientMessageReceivedTimestamp,
                             System.currentTimeMillis());
                     msg.replyTo(_matsSocketServer._replyTerminatorId, sto);
                     msg.request(matsMessage);
@@ -654,7 +663,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 if (isRequest()) {
                     ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
                             _matsSocketEndpointRegistration._matsSocketEndpointId, _envelope.reid,
-                            _envelope.cid, getAuthorization(), _envelope.cmcts, _clientMessageReceivedTimestamp,
+                            _envelope.cid, _envelope.cmcts, _clientMessageReceivedTimestamp,
                             System.currentTimeMillis());
                     init.replyTo(_matsSocketServer._replyTerminatorId, sto);
                     msg.initiate(init);

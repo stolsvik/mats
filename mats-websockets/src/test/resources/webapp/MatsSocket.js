@@ -46,7 +46,7 @@ function MatsSocket(url, appName, appVersion) {
         _expirationTimeMillisSinceEpoch = expirationTimeMillisSinceEpoch;
         _roomForLatencyMillis = roomForLatencyMillis;
         _sendAuthenticationToServer = true;
-        this.evaluatePipelineSend();
+        evaluatePipelineSend();
     };
 
     /**
@@ -102,82 +102,34 @@ function MatsSocket(url, appName, appVersion) {
         msg.t = type;
         msg.cmcts = Date.now();
 
-        _pipeline.push(msg);
         // ?: Was this a close session message?
         if (type === "CLOSE_SESSION") {
             // -> Yes, so drop our session. Server will "reply" by closing WebSocket.
+            // :: Try best-effort to pass this message, but if WebSocket is not open, just forget about it.
             // Any new message will be under new Session.
             _sessionId = undefined;
-        }
-        this.evaluatePipelineSend();
-    };
-
-    /**
-     * Sends pipelined messages if pipelining is not engaged.
-     */
-    this.evaluatePipelineSend = function () {
-        // ?: Are we currently pipelining?
-        if (_pipelining) {
-            // -> Yes, so nothing to do.
-            return;
-        }
-        // ?: Do we have authentication?!
-        if (_authentication === undefined) {
-            // -> Yes, authentication is expired.
-            _authenticationExpiredCallback("Get me SOME credentials!");
-            console.log("Authentication was not present. Need this to continue. Callback invoked.");
-            return;
-        }
-        // ?: Check whether we have expired authentication
-        if ((_expirationTimeMillisSinceEpoch !== undefined) && (_expirationTimeMillisSinceEpoch !== -1)
-            && ((_expirationTimeMillisSinceEpoch - _roomForLatencyMillis) < Date.now())) {
-            // -> Yes, authentication is expired.
-            _authenticationExpiredCallback("Get me new credentials!");
-            console.log("Authentication was expired. Need new to continue. Callback invoked.");
-            return;
-        }
-        // E-> Not pipelining
-        // Get WebSocket open. NOTE: Opening WebSocket is async...
-        ensureWebSocket();
-        // ...so WebSocket might not be open right afterwards.
-
-        // ?: Is the WebSocket open? (Otherwise, the opening of the WebSocket will re-invoke this function)
-        if (_socketOpen) {
-            // -> Yes, WebSocket is open, so send any outstanding messages
-            // ?: Have we sent HELLO?
-            if (!_helloSent) {
-                // -> No, HELLO not sent, so we create it now (auth is OK)
-                var connectMsg = {
-                    t: "HELLO",
-                    clv: "MatsSocketJs; User-Agent: " + navigator.userAgent,
-                    ts: Date.now(),
-                    an: that.appName,
-                    av: that.appVersion,
-                    auth: _authentication,
-                    tid: "MatsSocket_Start"
-                };
-                // ?: Have we requested a reconnect?
-                if (_sessionId !== undefined) {
-                    // -> Evidently yes, so add the requested reconnect-to-sessionId.
-                    connectMsg.sessionId = _sessionId;
-                    // This implementation of MatsSocket client lib expects existing session
-                    // when reconnecting, thus wants pipelined messages to be ditched if
-                    // the assumption about existing session fails.
-                    connectMsg.st = "EXPECT_EXISTING";
-                } else {
-                    // -> We want a new session (which is default anyway)
-                    connectMsg.st = "NEW";
-                }
-                // Add HELLO msg to front of pipeline
-                _pipeline.unshift(connectMsg);
-                // We will now have sent the HELLO.
-                _helloSent = true;
-            }
-            // Send messages
-            _websocket.send(JSON.stringify(_pipeline));
-            // Clear pipeline
+            // Drop any pipelined messages (why invoke shutdown() if you are pipelining?!).
             _pipeline = [];
+            // Keep a temp ref to WebSocket, while we clear it out
+            var tempSocket = _websocket;
+            var tempOpen = _socketOpen;
+            // We do not own this WebSocket object anymore
+            _websocket = undefined;
+            _socketOpen = false;
+            // ?: Was it open?
+            if (tempOpen) {
+                // -> Yes, so off it goes.
+                tempSocket.send(JSON.stringify([msg]))
+            }
+            // We're done. This MatsSocket should as good as new.
+            return;
         }
+
+        // E-> Not special messages.
+
+        _pipeline.push(msg);
+        console.log("Pushed to pipeline: " + JSON.stringify(msg))
+        evaluatePipelineSend();
     };
 
     /**
@@ -188,14 +140,32 @@ function MatsSocket(url, appName, appVersion) {
     };
 
     /**
-     * Turn of pipelining and ship any pipelined messages.
+     * Turn off pipelining and ship any pipelined messages.
      */
     this.ship = function () {
         _pipelining = false;
-        this.evaluatePipelineSend();
+        evaluatePipelineSend();
+    };
+
+    /**
+     * Convenience method for making random strings for correlationIds (choose e.g. length=10) and
+     * "add-on to traceId to make it pretty unique" (choose length=6).
+     *
+     * @param length how long the string should be: 10 for correlationId, 6 for "added to traceId".
+     * @returns {string} from digits, lower and upper case letters - 62 entries.
+     */
+    this.id = function (length) {
+        var result = '';
+        for (var i = 0; i < length; i++) {
+            result += _alphabet[Math.floor(Math.random() * _alphabet.length)];
+        }
+        return result;
     };
 
     // PRIVATE
+
+    // alphabet length: 10 + 26 x 2 = 62.
+    var _alphabet = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
     // fields
     var _sessionId = undefined;
@@ -225,6 +195,76 @@ function MatsSocket(url, appName, appVersion) {
         that.shutdown();
     });
 
+    /**
+     * Sends pipelined messages if pipelining is not engaged.
+     */
+    var evaluatePipelineSend = function () {
+        // ?: Are we currently pipelining?
+        if (_pipelining) {
+            // -> Yes, so nothing to do.
+            return;
+        }
+        // ?: Do we have authentication?!
+        if (_authentication === undefined) {
+            // -> Yes, authentication is expired.
+            console.log("Authentication was not present. Need this to continue. Invoking callback..");
+            _authenticationExpiredCallback("Get me SOME credentials!");
+            return;
+        }
+        // ?: Check whether we have expired authentication
+        if ((_expirationTimeMillisSinceEpoch !== undefined) && (_expirationTimeMillisSinceEpoch !== -1)
+            && ((_expirationTimeMillisSinceEpoch - _roomForLatencyMillis) < Date.now())) {
+            // -> Yes, authentication is expired.
+            console.log("Authentication was expired. Need new to continue. Invoking callback..");
+            _authenticationExpiredCallback("Get me new credentials!");
+            return;
+        }
+        // E-> Not pipelining, and auth is present.
+
+        // :: Get WebSocket open. NOTE: Opening WebSocket is async...
+        ensureWebSocket();
+        // ...so WebSocket might not be open right afterwards.
+
+        // ?: Is the WebSocket open? (Otherwise, the opening of the WebSocket will re-invoke this function)
+        if (_socketOpen) {
+            // -> Yes, WebSocket is open, so send any outstanding messages
+            // ?: Have we sent HELLO?
+            if (!_helloSent) {
+                // -> No, HELLO not sent, so we create it now (auth is OK)
+                var connectMsg = {
+                    t: "HELLO",
+                    clv: "MatsSocketJs; User-Agent: " + navigator.userAgent,
+                    ts: Date.now(),
+                    an: that.appName,
+                    av: that.appVersion,
+                    auth: _authentication,
+                    cid: that.id(10),
+                    tid: "MatsSocket_start_" + that.id(6)
+                };
+                // ?: Have we requested a reconnect?
+                if (_sessionId !== undefined) {
+                    // -> Evidently yes, so add the requested reconnect-to-sessionId.
+                    connectMsg.sessionId = _sessionId;
+                    // This implementation of MatsSocket client lib expects existing session
+                    // when reconnecting, thus wants pipelined messages to be ditched if
+                    // the assumption about existing session fails.
+                    connectMsg.st = "EXPECT_EXISTING";
+                } else {
+                    // -> We want a new session (which is default anyway)
+                    connectMsg.st = "NEW";
+                }
+                // Add HELLO msg to front of pipeline
+                _pipeline.unshift(connectMsg);
+                // We will now have sent the HELLO.
+                _helloSent = true;
+            }
+            // Send messages
+            _websocket.send(JSON.stringify(_pipeline));
+            // Clear pipeline
+            _pipeline = [];
+        }
+    };
+
     // Private method to ensure socket
     var ensureWebSocket = function () {
         // ?: Do we have the WebSocket object in place?
@@ -245,7 +285,7 @@ function MatsSocket(url, appName, appVersion) {
             // Socket is now ready for business
             _socketOpen = true;
             // Fire off any waiting messages
-            that.evaluatePipelineSend();
+            evaluatePipelineSend();
         };
         _websocket.onmessage = function (event) {
             // console.log("onmessage");
@@ -303,16 +343,20 @@ MatsSocket.prototype.requestReplyTo = function (endpointId, traceId, message, re
 };
 
 /**
- * Sends a 'CLOSE_SESSION' message, cleanly shutting down the Session and MatsSocket (killing session on server side),
- * which will reply by shutting down the underlying WebSocket.
- * Note: Invokes 'ship()'.
+ * Sends a 'CLOSE_SESSION' message - authentication expiration check is not performed (the server does not evaluate
+ * auth for  CLOSE_SESSION), and if there is a pipeline, this will be dropped (not sent, messages deleted). The effect
+ * is to cleanly shut down the Session and MatsSocket (killing session on server side), which will reply by shutting
+ * down the underlying WebSocket.
+ * <p />
+ * Notice: Afterwards, the MatsSocket is as clean as if it was newly instantiated, and can be started up by sending
+ * a message. The SessionId on this client MatsSocket is cleared, and the previous Session on the server is gone anyway,
+ * so this will give a new server side Session.
  *
  * <b>Note: An 'onBeforeUnload' event handler is registered on 'window', which invokes this method.</b>
  */
 MatsSocket.prototype.shutdown = function (reason) {
     this.addMessageToPipeline("CLOSE_SESSION", {
-        tid: "MatsSocket[" + reason + "]"
+        tid: "MatsSocket_shutdown[" + reason + "]" + this.id(6)
     });
-    this.ship();
 };
 

@@ -29,7 +29,6 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
 import org.eclipse.jetty.util.component.AbstractLifeCycle.AbstractLifeCycleListener;
 import org.eclipse.jetty.util.component.LifeCycle;
-import org.eclipse.jetty.util.component.LifeCycle.Listener;
 import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.webapp.Configuration;
 import org.eclipse.jetty.webapp.WebAppContext;
@@ -71,14 +70,21 @@ public class AppMain {
             // Create MatsSocketServer
             _matsSocketServer = getMatsSocketServer(sce, matsFactory);
             _matsSocketServer.setAuthorizationToPrincipalFunction(authHeader -> {
+                log.info("Resolving Authorization header to principal for header [" + authHeader + "].");
+                long expires = Long.parseLong(authHeader.substring(authHeader.indexOf(':') + 1));
+                if (expires < System.currentTimeMillis()) {
+                    throw new IllegalStateException("This DummyAuth is too old.");
+                }
+
                 return new Principal() {
                     @Override
                     public String getName() {
                         return "Mr. Dummy Auth";
                     }
+
                     @Override
                     public String toString() {
-                        return "DummyPrincipal:"+authHeader;
+                        return "DummyPrincipal:" + authHeader;
                     }
                 };
             });
@@ -112,7 +118,6 @@ public class AppMain {
                         ctx.getMatsContext().getTraceProperty("requestTimestamp", Long.class));
             });
 
-
             __matsSocketServer = _matsSocketServer;
         }
 
@@ -130,7 +135,7 @@ public class AppMain {
             throw new AssertionError("Did not find '" + ServerContainer.class.getName() + "' object"
                     + " in ServletContext, but [" + wsServerContainer + "].");
         }
-        return DefaultMatsSocketServer.makeMatsSocketServer(
+        return DefaultMatsSocketServer.createMatsSocketServer(
                 (ServerContainer) wsServerContainer, matsFactory);
     }
 
