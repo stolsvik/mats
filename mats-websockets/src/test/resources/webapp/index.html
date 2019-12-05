@@ -8,39 +8,43 @@
 <script>
     var matsSocket = new MatsSocket("ws://localhost:8080/matssocket/json", "TestApp", "1.2.3");
 
-    matsSocket.setAuthenticationExpiredCallback(function (event) {
-        console.log("AuthenticationExpiredCallback");
+    matsSocket.setAuthorizationExpiredCallback(function (event) {
+        console.log("AuthorizationExpiredCallback");
         console.log(event);
-        var now = Date.now();
-        var expiry = now + 20000;
-        matsSocket.setCurrentAuthentication("DummyAuth:" + expiry, expiry, 10000);
+
+        // Emulate that it takes some time to get new auth.
+        setTimeout(function() {
+            var now = Date.now();
+            var expiry = now + 20000;
+            matsSocket.setCurrentAuthorization("DummyAuth:" + expiry, expiry, 10000);
+        }, 100 + (100 * Math.random()));
     });
 
-    matsSocket.endpoint("ClientSide.testEndpoint", function (msg, correlationId) {
-        var millis = Date.now() - msg.requestTimestamp;
-        console.log("Got message! CorrelationId:" + correlationId + ", time taken: " + millis + "ms");
+    matsSocket.endpoint("ClientSide.testEndpoint", function (e) {
+        var millis = Date.now() - e.clientMessageCreated;
+        console.log("Got message! CorrelationId:" + e.correlationId + ", time taken: " + millis + "ms");
     });
 
     matsSocket.send("Test.single", "ABCRandomTraceId", {string: "The String", number: 9428921549.94389439});
 
-    matsSocket.pipeline();
-    matsSocket.requestReplyTo("Test.single", "Pipeline_1_" + matsSocket.id(6),
-        {string: "Messge 1", number: 100.001, requestTimestamp: Date.now()},
-        "ClientSide.testEndpoint", "pipeline_1_" + matsSocket.id(10));
-    matsSocket.requestReplyTo("Test.single", "Pipeline_2_" + matsSocket.id(6),
-        {string: "Message 2", number: 200.002, requestTimestamp: Date.now()},
-        "ClientSide.testEndpoint", "pipeline_2_" + matsSocket.id(10));
-    matsSocket.requestReplyTo("Test.single", "Pipeline_3_" + matsSocket.id(6),
-        {string: "Message 3", number: 300.003, requestTimestamp: Date.now()},
-        "ClientSide.testEndpoint", "pipeline_3_" + matsSocket.id(10));
-    matsSocket.ship();
+    matsSocket.pipeline(function (ms) {
+        ms.requestReplyTo("Test.single", "Pipeline_1_" + matsSocket.id(6),
+            {string: "Messge 1", number: 100.001, requestTimestamp: Date.now()},
+            "ClientSide.testEndpoint", "pipeline_1_" + matsSocket.id(10));
+        ms.requestReplyTo("Test.single", "Pipeline_2_" + matsSocket.id(6),
+            {string: "Message 2", number: 200.002, requestTimestamp: Date.now()},
+            "ClientSide.testEndpoint", "pipeline_2_" + matsSocket.id(10));
+        ms.requestReplyTo("Test.single", "Pipeline_3_" + matsSocket.id(6),
+            {string: "Message 3", number: 300.003, requestTimestamp: Date.now()},
+            "ClientSide.testEndpoint", "pipeline_3_" + matsSocket.id(10));
+    });
 
     var ping = function () {
         setTimeout(function () {
             matsSocket.requestReplyTo("Test.single", "TraceId",
                 {string: "Periodic query", number: 100.001, requestTimestamp: Date.now()},
                 "ClientSide.testEndpoint", "TestTraceId_" + matsSocket.id(6));
-            // ping();
+            ping();
         }, 1000);
     };
     ping();

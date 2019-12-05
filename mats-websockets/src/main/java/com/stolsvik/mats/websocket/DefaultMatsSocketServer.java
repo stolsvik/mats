@@ -134,7 +134,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 + "], containing [" + _activeSessionByMatsSocketSessionId.size() + "] sessions.");
         _activeSessionByMatsSocketSessionId.values().forEach(s -> {
             s.close(CloseCodes.SERVICE_RESTART,
-                    "Server instance is going down, please reconnect.");
+                    "From Server: Server instance is going down, please reconnect.");
         });
     }
 
@@ -377,12 +377,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             log.info("Messages: " + envelopes);
             for (int i = 0; i < envelopes.size(); i++) {
                 MatsSocketEnvelopeDto envelope = envelopes.get(i);
-                if ("HELLO".equals(envelope.t)) {
-                    // ?: Auth is required
-                    if (envelope.auth == null) {
-                        // TODO: SEND AUTH_FAILED
-                        throw new AssertionError("Envelope on [" + envelope.t + "] is missing Authorization header");
-                    }
+
+                // ?: Pick out any Authorization header, i.e. the auth-string
+                if (envelope.auth != null) {
+                    // -> Yes, there was authorization string here
                     _principal = _matsSocketServer._authorizationToPrincipalFunction.apply(envelope.auth);
                     if (_principal == null) {
                         // TODO: SEND AUTH_FAILED (also if auth function throws)
@@ -390,6 +388,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                                 + "] did not produce a Principal.");
                     }
                     _authorization = envelope.auth;
+                }
+
+
+                if ("HELLO".equals(envelope.t)) {
+                    // ?: Auth is required
+                    if ((_principal == null) || (_authorization == null)) {
+                        // TODO: SEND AUTH_FAILED
+                        throw new AssertionError("The message [" + envelope.t + "] is missing Authorization header.");
+                    }
 
                     boolean expectExisting = "EXPECT_EXISTING".equals(envelope.st);
 
@@ -474,8 +481,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 if ("CLOSE_SESSION".equals(envelope.t)) {
                     // TODO: DEREGISTER SESSION, NOTIFY FORWARDING MECHANISM
                     _matsSocketServer._activeSessionByMatsSocketSessionId.remove(_matsSocketSessionId);
-                    close(CloseCodes.NORMAL_CLOSURE, "From Server: Asked by client to CLOSE_SESSION:"
-                            + " Deleting session registration and closing WebSocket.");
+                    close(CloseCodes.NORMAL_CLOSURE, "From Server: Client said CLOSE_SESSION ("+
+                            escape(envelope.desc)+"): Deleting session, closing WebSocket.");
                     continue;
                 }
 
@@ -722,6 +729,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         @Override
         public DetachedProcessContext getMatsContext() {
             return _detachedProcessContext;
+        }
+
+        @Override
+        public void addBinary(String key, byte[] payload) {
+            throw new IllegalStateException("Not implemented. Yet.");
         }
     }
 

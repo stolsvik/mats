@@ -114,6 +114,8 @@ public interface MatsSocketServer {
          * @return the {@link DetachedProcessContext} of the Mats incoming handler.
          */
         DetachedProcessContext getMatsContext();
+
+        void addBinary(String key, byte[] payload);
     }
 
 }
