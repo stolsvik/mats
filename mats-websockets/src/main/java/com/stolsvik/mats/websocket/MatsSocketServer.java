@@ -15,7 +15,7 @@ import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 public interface MatsSocketServer {
 
     /**
-     * Registers a MatsSocket with default timeout 90 seconds.
+     * Registers a MatsSocket.
      *
      * TODO: What about timeouts?!
      *
@@ -25,7 +25,7 @@ public interface MatsSocketServer {
             Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass);
 
     /**
-     * This is mandatory. Must be very fast, as it is invoked synchronously - keep any IPC fast and keep relatively
+     * This is mandatory. Must be pretty fast, as it is invoked synchronously - keep any IPC fast and keep relatively
      * short timeouts, otherwise all your threads of the container might be used up. If the function throws or returns
      * null, authorization did not go through.
      *
@@ -68,7 +68,8 @@ public interface MatsSocketServer {
         String getAuthorization();
 
         /**
-         * @return the resolved Principal for the {@link #getAuthorization() Authorization header}.
+         * @return the resolved Principal for the {@link #getAuthorization() Authorization header}. It is assumed that
+         *         you must cast this a more specific class which the authentication plugin provides.
          */
         Principal getPrincipal();
     }

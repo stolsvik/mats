@@ -451,25 +451,25 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
                     // Send reply for the HELLO message
 
-                    MatsSocketEnvelopeDto reply = new MatsSocketEnvelopeDto();
-                    reply.t = "WELCOME";
-                    reply.st = (_matsSocketSessionId.equalsIgnoreCase(envelope.sid) ? "RECONNECTED" : "NEW");
-                    reply.sid = _matsSocketSessionId;
-                    reply.cid = envelope.cid;
-                    reply.tid = envelope.tid;
-                    reply.cmcts = envelope.cmcts;
-                    reply.cmrts = clientMessageReceivedTimestamp;
-                    reply.rmcts = System.currentTimeMillis();
+                    MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
+                    replyEnvelope.t = "WELCOME";
+                    replyEnvelope.st = (_matsSocketSessionId.equalsIgnoreCase(envelope.sid) ? "RECONNECTED" : "NEW");
+                    replyEnvelope.sid = _matsSocketSessionId;
+                    replyEnvelope.cid = envelope.cid;
+                    replyEnvelope.tid = envelope.tid;
+                    replyEnvelope.cmcts = envelope.cmcts;
+                    replyEnvelope.cmrts = clientMessageReceivedTimestamp;
+                    replyEnvelope.rmcts = System.currentTimeMillis();
 
                     // ?: Did the client expect existing session, but there was none?
                     if (expectExisting) {
                         // -> Yes, so then we drop any pipelined messages
-                        reply.drop = envelopes.size() - 1 - i;
+                        replyEnvelope.drop = envelopes.size() - 1 - i;
                         // Set i to size() to stop iteration.
                         i = envelopes.size();
                     }
                     // Send message
-                    _matsSocketServer.sendMessage(_session, reply);
+                    _matsSocketServer.sendMessage(_session, replyEnvelope);
                     continue;
                 }
 
@@ -509,6 +509,25 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                             _matsSocketServer, registration, _matsSocketSessionId, envelope,
                             clientMessageReceivedTimestamp, _authorization, _principal);
                     matsSocketEndpointIncomingForwarder.handleIncoming(matsSocketContext, msg);
+                    long sentTimestamp = System.currentTimeMillis();
+
+                    // ?: If SEND and we got a reply address, then insta-reply
+                    if ("SEND".equals(envelope.t) && envelope.reid != null) {
+                        // -> Yes, SEND, so create the reply message right here
+                        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
+                        replyEnvelope.t = "RECEIVED";
+                        replyEnvelope.eid = envelope.reid;
+                        replyEnvelope.sid = _matsSocketSessionId;
+                        replyEnvelope.cid = envelope.cid;
+                        replyEnvelope.tid = envelope.tid;
+                        replyEnvelope.cmcts = envelope.cmcts;
+                        replyEnvelope.cmrts = clientMessageReceivedTimestamp;
+                        replyEnvelope.mmsts = sentTimestamp;
+                        replyEnvelope.rmcts = sentTimestamp;
+                        // Send message
+                        _matsSocketServer.sendMessage(_session, replyEnvelope);
+                    }
+
                     continue;
                 }
             }

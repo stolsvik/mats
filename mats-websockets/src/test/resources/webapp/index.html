@@ -13,7 +13,7 @@
         console.log(event);
 
         // Emulate that it takes some time to get new auth.
-        setTimeout(function() {
+        setTimeout(function () {
             var now = Date.now();
             var expiry = now + 20000;
             matsSocket.setCurrentAuthorization("DummyAuth:" + expiry, expiry, 10000);
@@ -25,7 +25,17 @@
         console.log("Got message! CorrelationId:" + e.correlationId + ", time taken: " + millis + "ms");
     });
 
-    matsSocket.send("Test.single", "ABCRandomTraceId", {string: "The String", number: 9428921549.94389439});
+    matsSocket.send("Test.single", "SendTraceId_" + matsSocket.id(6), {string: "The String", number: Math.PI},
+        function (event) {
+            var now = Date.now();
+            console.log("Got callback on send! Took " + (now - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
+        });
+
+    matsSocket.request("Test.single", "RequestTraceId_" + matsSocket.id(6), {string: "Request String", number: Math.E},
+        function (event) {
+            var now = Date.now();
+            console.log("Got callback on request! Took " + (now - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
+        });
 
     matsSocket.pipeline(function (ms) {
         ms.requestReplyTo("Test.single", "Pipeline_1_" + matsSocket.id(6),
@@ -44,7 +54,7 @@
             matsSocket.requestReplyTo("Test.single", "TraceId",
                 {string: "Periodic query", number: 100.001, requestTimestamp: Date.now()},
                 "ClientSide.testEndpoint", "TestTraceId_" + matsSocket.id(6));
-            ping();
+            // ping();
         }, 1000);
     };
     ping();

@@ -97,7 +97,7 @@ function MatsSocket(url, appName, appVersion) {
      * Add a message to the outgoing pipeline, evaluates whether to send the pipeline afterwards (i.e. if pipelining
      * is active or not).
      */
-    this.addMessageToPipeline = function (type, msg, correlationOrReplyId) {
+    this.addMessageToPipeline = function (type, msg, callback) {
         // TODO: if third arg is function, set 'reid' and 'correlationId'.
         var now = Date.now();
         _lastMessageEnqueuedMillisSinceEpoch = now;
@@ -129,6 +129,13 @@ function MatsSocket(url, appName, appVersion) {
         }
 
         // E-> Not special messages.
+
+        // If we got a callback function, then register this
+        if (typeof (callback) == 'function') {
+            msg.reid = "MS.CBR";
+            msg.cid = this.id(10);
+            _callbacks[msg.cid] = callback;
+        }
 
         _pipeline.push(msg);
         console.log("Pushed to pipeline: " + JSON.stringify(msg))
@@ -184,6 +191,8 @@ function MatsSocket(url, appName, appVersion) {
         return result;
     };
 
+    // ==============================================================================================
+
     // PRIVATE
 
     // alphabet length: 10 + 26 x 2 = 62.
@@ -207,6 +216,9 @@ function MatsSocket(url, appName, appVersion) {
     var _authorizationExpiredCallback = undefined;
     var _lastMessageEnqueuedMillisSinceEpoch = Date.now(); // Start by assuming that it was just used.
 
+    // Runtime
+    var _callbacks = {};
+
     // "That" reference
     var that = this;
 
@@ -215,6 +227,15 @@ function MatsSocket(url, appName, appVersion) {
     window.addEventListener("beforeunload", function (event) {
         console.log("OnBeforeUnload: Shutting down MatsSocket [" + that.url + "] due to [" + event.type + "]");
         that.closeSession("'window.onbeforeunload'");
+    });
+
+    // Register the MatsSocket's system Callback Reply Endpoint
+    this.endpoint("MS.CBR", function (event) {
+        var callback = _callbacks[event.correlationId];
+        _callbacks[event.correlationId] = undefined;
+        if (callback !== undefined) {
+            callback(event);
+        }
     });
 
     /**
@@ -293,7 +314,22 @@ function MatsSocket(url, appName, appVersion) {
         }
     };
 
-    // Private method to ensure socket
+    function eventFromEnvelope(envelope, receivedTimestamp) {
+        var eventToCallback = {
+            data: envelope.msg,
+            traceId: envelope.tid,
+            correlationId: envelope.cid,
+            // Timestamps
+            clientMessageCreated: envelope.cmcts,
+            clientMessageReceived: envelope.cmrts,
+            matsMessageSent: envelope.mmsts,
+            matsMessageReceived: envelope.mmrts,
+            replyMessageToClient: envelope.rmcts,
+            messageReceivedOnClient: receivedTimestamp,
+        };
+        return eventToCallback;
+    }
+
     var ensureWebSocket = function () {
         // ?: Do we have the WebSocket object in place?
         if (_websocket !== undefined) {
@@ -318,27 +354,17 @@ function MatsSocket(url, appName, appVersion) {
         _websocket.onmessage = function (event) {
             var receivedTimestamp = Date.now();
             var data = event.data;
-            var parsed = JSON.parse(data);
-            if (parsed.t === "WELCOME") {
+            var envelope = JSON.parse(data);
+            if (envelope.t === "WELCOME") {
                 // TODO: Handle WELCOME message better.
-                _sessionId = parsed.sid;
-                console.log("We're WELCOME! Session:"+parsed.st+", SessionId:" + _sessionId);
+                _sessionId = envelope.sid;
+                console.log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
             } else {
                 // -> Assume message that contains EndpointId
-                var endpoint = _endpoints[parsed.eid];
-                var eventToCallback = {
-                    data: parsed.msg,
-                    traceId: parsed.tid,
-                    correlationId: parsed.cid,
-                    // Timestamps
-                    clientMessageCreated: parsed.cmcts,
-                    clientMessageReceived: parsed.cmrts,
-                    matsMessageSent: parsed.mmsts,
-                    matsMessageReceived: parsed.mmrts,
-                    replyMessageToClient: parsed.rmcts,
-                    messageReceivedOnClient: receivedTimestamp,
-                };
-                endpoint(eventToCallback);
+                var endpoint = _endpoints[envelope.eid];
+                if (endpoint !== undefined) {
+                    endpoint(eventFromEnvelope(envelope, receivedTimestamp));
+                }
             }
         };
         _websocket.onclose = function (event) {
@@ -365,6 +391,9 @@ MatsSocket.prototype.send = function (endpointId, traceId, message, callback) {
 };
 
 MatsSocket.prototype.request = function (endpointId, traceId, message, callback) {
+    if (typeof (callback) !== 'function') {
+        throw new Error("When using 'MatsSocket.request(...)', you shall provide a callback function.");
+    }
     this.addMessageToPipeline("REQUEST", {
         eid: endpointId,
         tid: traceId,
@@ -379,7 +408,7 @@ MatsSocket.prototype.requestReplyTo = function (endpointId, traceId, message, re
         cid: correlationId,
         tid: traceId,
         msg: message
-    }, correlationId);
+    });
 };
 
 /**
