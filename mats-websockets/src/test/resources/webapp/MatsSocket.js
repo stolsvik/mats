@@ -47,6 +47,7 @@ function MatsSocket(url, appName, appVersion) {
         _expirationTimeMillisSinceEpoch = expirationTimeMillisSinceEpoch;
         _roomForLatencyMillis = roomForLatencyMillis;
         _sendAuthorizationToServer = true;
+        // TODO: If no message pending, then make an AUTH message.
         evaluatePipelineSend();
     };
 
@@ -65,7 +66,7 @@ function MatsSocket(url, appName, appVersion) {
     };
 
     /**
-     * This can be used by the mechanism invoking 'setCurrentAuthorization' to decide whether it should keep the
+     * This can be used by the mechanism invoking 'setCurrentAuthorization(..)' to decide whether it should keep the
      * authorization fresh (i.e. no latency waiting for new authorization is introduced when a new message is
      * enqueued), or fall back to relying on the 'authorizationExpiredCallback' being invoked when a new message needs
      * it (thus introducing latency while waiting for authorization). One could envision keeping fresh auth for 5
@@ -74,7 +75,7 @@ function MatsSocket(url, appName, appVersion) {
      *
      * @returns {number} millis-since-epoch of last message enqueued.
      */
-    this.getLastMessageEnqueued = function () {
+    this.getLastMessageEnqueuedTimestamp = function () {
         return _lastMessageEnqueuedMillisSinceEpoch;
     };
 
@@ -317,6 +318,8 @@ function MatsSocket(url, appName, appVersion) {
     function eventFromEnvelope(envelope, receivedTimestamp) {
         var eventToCallback = {
             data: envelope.msg,
+            type: envelope.t,
+            subType: envelope.ts,
             traceId: envelope.tid,
             correlationId: envelope.cid,
             // Timestamps

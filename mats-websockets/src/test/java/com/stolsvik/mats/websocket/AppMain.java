@@ -92,26 +92,21 @@ public class AppMain {
             // Make MatsSocketEndpoint
             MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = _matsSocketServer
                     .matsSocketEndpoint("Test.single",
-                            MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class);
-            matsSocketEndpoint.incomingForwarder((ctx, msIncoming) -> {
-                log.info("Got MatsSocket request on MatsSocket EndpointId: "
-                        + ctx.getMatsSocketEndpointId());
-                log.info(" \\- Authorization: " + ctx.getAuthorization());
-                log.info(" \\- Principal:     " + ctx.getPrincipal());
-                log.info(" \\- Message:       " + msIncoming);
-                ctx.initiate(msg -> {
-                    msg.to(ctx.getMatsSocketEndpointId())
-                            .interactive()
-                            .nonPersistent()
-                            .setTraceProperty("requestTimestamp", msIncoming.requestTimestamp);
-                    if (ctx.isRequest()) {
-                        msg.request(new MatsDataTO(msIncoming.number, msIncoming.string));
-                    }
-                    else {
-                        msg.send(new MatsDataTO(msIncoming.number, msIncoming.string));
-                    }
-                });
-            });
+                            MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                            (ctx, principal, msIncoming) -> {
+                                log.info("Got MatsSocket request on MatsSocket EndpointId: "
+                                        + ctx.getMatsSocketEndpointId());
+                                log.info(" \\- Authorization: " + ctx.getAuthorization());
+                                log.info(" \\- Principal:     " + ctx.getPrincipal());
+                                log.info(" \\- Message:       " + msIncoming);
+                                ctx.forwardCustom(new MatsDataTO(msIncoming.number, msIncoming.string),
+                                        msg -> {
+                                            msg.to(ctx.getMatsSocketEndpointId())
+                                                    .interactive()
+                                                    .nonPersistent()
+                                                    .setTraceProperty("requestTimestamp", msIncoming.requestTimestamp);
+                                        });
+                            });
             matsSocketEndpoint.replyAdapter((ctx, matsReply) -> {
                 log.info("Adapting message: " + matsReply);
                 return new MatsSocketReplyDto(matsReply.string.length(), matsReply.number,

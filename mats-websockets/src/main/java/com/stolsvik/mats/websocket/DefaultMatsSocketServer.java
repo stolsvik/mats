@@ -87,7 +87,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         return matsSocketServer;
     }
 
-    private final ConcurrentHashMap<String, MatsSocketEndpointRegistration> _matsSockets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?, ?>> _matsSockets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, MatsSocketSession> _activeSessionByMatsSocketSessionId = new ConcurrentHashMap<>();
 
     private final MatsFactory _matsFactory;
@@ -109,16 +109,18 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     @Override
     public <I, MI, MR, R> MatsSocketEndpoint<I, MI, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass) {
-        MatsSocketEndpointRegistration matsSocketRegistration = new MatsSocketEndpointRegistration(
-                matsSocketEndpointId, msIncomingClass, matsIncomingClass, matsReplyClass, msReplyClass);
+            Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
+            MatsSocketEndpointIncomingAuthEval<I, MI, R> incomingAuthEval) {
+        MatsSocketEndpointRegistration<I, MI, MR, R> matsSocketRegistration = new MatsSocketEndpointRegistration<>(
+                matsSocketEndpointId, msIncomingClass, matsIncomingClass, matsReplyClass, msReplyClass,
+                incomingAuthEval);
         MatsSocketEndpointRegistration existing = _matsSockets.putIfAbsent(matsSocketEndpointId,
                 matsSocketRegistration);
         // Assert that there was no existing mapping
         if (existing != null) {
             // -> There was existing mapping - shall not happen.
             throw new IllegalStateException("Cannot register a MatsSocket onto an EndpointId which already is"
-                    + " taken, existing: [" + existing._matsSocketEndpointIncomingForwarder + "].");
+                    + " taken, existing: [" + existing._incomingAuthEval + "].");
         }
         return matsSocketRegistration;
     }
@@ -201,12 +203,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         Object matsReply = incomingMsg.toClass(registration._matsReplyClass);
 
         Object msReply;
-        if (registration._matsSocketEndpointReplyAdapter != null) {
+        if (registration._replyAdapter != null) {
             // TODO: Handle Principal.
             MatsSocketEndpointReplyContextImpl replyContext = new MatsSocketEndpointReplyContextImpl(
-                    registration._matsSocketEndpointId, matsSocketSession._authorization, matsSocketSession._principal,
-                    processContext);
-            msReply = registration._matsSocketEndpointReplyAdapter.adaptReply(replyContext, matsReply);
+                    registration._matsSocketEndpointId, processContext);
+            msReply = registration._replyAdapter.adaptReply(replyContext, matsReply);
         }
         else if (registration._matsReplyClass == registration._msReplyClass) {
             // -> Return same class
@@ -266,28 +267,24 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         private final Class<MI> _matsIncomingClass;
         private final Class<MR> _matsReplyClass;
         private final Class<R> _msReplyClass;
+        private final MatsSocketEndpointIncomingAuthEval _incomingAuthEval;
 
         public MatsSocketEndpointRegistration(String matsSocketEndpointId, Class<I> msIncomingClass,
-                Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass) {
+                Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
+                MatsSocketEndpointIncomingAuthEval<I, MI, R> incomingAuthEval) {
             _matsSocketEndpointId = matsSocketEndpointId;
             _msIncomingClass = msIncomingClass;
             _matsIncomingClass = matsIncomingClass;
             _matsReplyClass = matsReplyClass;
             _msReplyClass = msReplyClass;
+            _incomingAuthEval = incomingAuthEval;
         }
 
-        private volatile MatsSocketEndpointIncomingHandler _matsSocketEndpointIncomingForwarder;
-        private volatile MatsSocketEndpointReplyAdapter<MR, R> _matsSocketEndpointReplyAdapter;
+        private volatile MatsSocketEndpointReplyAdapter<MR, R> _replyAdapter;
 
         @Override
-        public void incomingForwarder(
-                MatsSocketEndpointIncomingHandler<I, MI, R> matsSocketEndpointIncomingForwarder) {
-            _matsSocketEndpointIncomingForwarder = matsSocketEndpointIncomingForwarder;
-        }
-
-        @Override
-        public void replyAdapter(MatsSocketEndpointReplyAdapter<MR, R> matsSocketEndpointReplyAdapter) {
-            _matsSocketEndpointReplyAdapter = matsSocketEndpointReplyAdapter;
+        public void replyAdapter(MatsSocketEndpointReplyAdapter<MR, R> replyAdapter) {
+            _replyAdapter = replyAdapter;
         }
     }
 
@@ -336,8 +333,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     }
 
     private static class MatsSocketSession implements Whole<String> {
-        private static final JavaType LIST_OF_MSG_TYPE = TypeFactory.defaultInstance()
-                .constructType(new TypeReference<List<MatsSocketEnvelopeDto>>() {
+        private static final JavaType LIST_OF_MSG_TYPE = TypeFactory.defaultInstance().constructType(
+                new TypeReference<List<MatsSocketEnvelopeDto>>() {
                 });
 
         private final MatsWebSocketInstance _matsWebSocketInstance;
@@ -389,7 +386,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     }
                     _authorization = envelope.auth;
                 }
-
 
                 if ("HELLO".equals(envelope.t)) {
                     // ?: Auth is required
@@ -481,8 +477,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 if ("CLOSE_SESSION".equals(envelope.t)) {
                     // TODO: DEREGISTER SESSION, NOTIFY FORWARDING MECHANISM
                     _matsSocketServer._activeSessionByMatsSocketSessionId.remove(_matsSocketSessionId);
-                    close(CloseCodes.NORMAL_CLOSURE, "From Server: Client said CLOSE_SESSION ("+
-                            escape(envelope.desc)+"): Deleting session, closing WebSocket.");
+                    close(CloseCodes.NORMAL_CLOSURE, "From Server: Client said CLOSE_SESSION (" +
+                            escape(envelope.desc) + "): Deleting session, closing WebSocket.");
                     continue;
                 }
 
@@ -501,14 +497,14 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     log.info("  \\- " + envelope.t + " to:[" + eid + "], reply:[" + envelope.reid + "], msg:["
                             + envelope.msg + "].");
                     MatsSocketEndpointRegistration registration = _matsSocketServer.getMatsSocketRegistration(eid);
-                    MatsSocketEndpointIncomingHandler matsSocketEndpointIncomingForwarder = registration._matsSocketEndpointIncomingForwarder;
+                    MatsSocketEndpointIncomingAuthEval matsSocketEndpointIncomingForwarder = registration._incomingAuthEval;
                     log.info("MatsSocketEndpointHandler for [" + eid + "]: " + matsSocketEndpointIncomingForwarder);
 
                     Object msg = deserialize((String) envelope.msg, registration._msIncomingClass);
-                    MatsSocketEndpointRequestContextImpl matsSocketContext = new MatsSocketEndpointRequestContextImpl(
+                    MatsSocketEndpointRequestContextImpl<?, ?> matsSocketContext = new MatsSocketEndpointRequestContextImpl(
                             _matsSocketServer, registration, _matsSocketSessionId, envelope,
-                            clientMessageReceivedTimestamp, _authorization, _principal);
-                    matsSocketEndpointIncomingForwarder.handleIncoming(matsSocketContext, msg);
+                            clientMessageReceivedTimestamp, _authorization, _principal, msg);
+                    matsSocketEndpointIncomingForwarder.handleIncoming(matsSocketContext, _principal, msg);
                     long sentTimestamp = System.currentTimeMillis();
 
                     // ?: If SEND and we got a reply address, then insta-reply
@@ -620,7 +616,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         Map<String, String> mdc; // The MDC
     }
 
-    private static class MatsSocketEndpointRequestContextImpl implements MatsSocketEndpointRequestContext {
+    private static class MatsSocketEndpointRequestContextImpl<MI, R> implements
+            MatsSocketEndpointRequestContext<MI, R> {
         private final DefaultMatsSocketServer _matsSocketServer;
         private final MatsSocketEndpointRegistration _matsSocketEndpointRegistration;
 
@@ -631,11 +628,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         private final String _authorization;
         private final Principal _principal;
+        private final MI _incomingMessage;
 
         public MatsSocketEndpointRequestContextImpl(DefaultMatsSocketServer matsSocketServer,
                 MatsSocketEndpointRegistration matsSocketEndpointRegistration, String matsSocketSessionId,
                 MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp, String authorization,
-                Principal principal) {
+                Principal principal, MI incomingMessage) {
             _matsSocketServer = matsSocketServer;
             _matsSocketEndpointRegistration = matsSocketEndpointRegistration;
             _matsSocketSessionId = matsSocketSessionId;
@@ -643,6 +641,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             _clientMessageReceivedTimestamp = clientMessageReceivedTimestamp;
             _authorization = authorization;
             _principal = principal;
+            _incomingMessage = incomingMessage;
         }
 
         @Override
@@ -661,28 +660,29 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
 
         @Override
-        public void forwardInteractiveUnreliable(Object matsMessage) {
-            _matsSocketServer._matsFactory.getDefaultInitiator().initiateUnchecked(msg -> {
-                msg.to(_envelope.eid)
-                        .from("MatsSocketEndpoint." + _envelope.eid)
-                        .traceId(_envelope.tid);
-                if (isRequest()) {
-                    ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
-                            _matsSocketEndpointRegistration._matsSocketEndpointId, _envelope.reid,
-                            _envelope.cid, _envelope.cmcts, _clientMessageReceivedTimestamp,
-                            System.currentTimeMillis());
-                    msg.replyTo(_matsSocketServer._replyTerminatorId, sto);
-                    msg.request(matsMessage);
-                }
-                else {
-                    msg.send(matsMessage);
-                }
-            });
-
+        public MI getMatsSocketIncomingMessage() {
+            return _incomingMessage;
         }
 
         @Override
-        public void initiate(InitiateLambda msg) {
+        public void forwardInteractiveUnreliable(MI matsMessage) {
+            forwardCustom(matsMessage, customInit -> {
+                customInit.to(getMatsSocketEndpointId());
+                customInit.nonPersistent();
+                customInit.interactive();
+            });
+        }
+
+        @Override
+        public void forwardInteractivePersistent(MI matsMessage) {
+            forwardCustom(matsMessage, customInit -> {
+                customInit.to(getMatsSocketEndpointId());
+                customInit.interactive();
+            });
+        }
+
+        @Override
+        public void forwardCustom(MI matsMessage, InitiateLambda customInit) {
             _matsSocketServer._matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
                 init.from("MatsSocketEndpoint." + _envelope.eid)
                         .traceId(_envelope.tid);
@@ -691,18 +691,20 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                             _matsSocketEndpointRegistration._matsSocketEndpointId, _envelope.reid,
                             _envelope.cid, _envelope.cmcts, _clientMessageReceivedTimestamp,
                             System.currentTimeMillis());
+                    // Set ReplyTo parameter
                     init.replyTo(_matsSocketServer._replyTerminatorId, sto);
-                    msg.initiate(init);
+                    // Invoke the customizer
+                    customInit.initiate(init);
+                    // Send the REQUEST message
+                    init.request(matsMessage);
                 }
                 else {
-                    msg.initiate(init);
+                    // Invoke the customizer
+                    customInit.initiate(init);
+                    // Send the SEND message
+                    init.send(matsMessage);
                 }
             });
-        }
-
-        @Override
-        public void initiateRaw(InitiateLambda msg) {
-
         }
 
         @Override
@@ -718,31 +720,17 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     private static class MatsSocketEndpointReplyContextImpl implements MatsSocketEndpointReplyContext {
         private final String _matsSocketEndpointId;
-        private final String _authorization;
-        private final Principal _principal;
         private final DetachedProcessContext _detachedProcessContext;
 
-        public MatsSocketEndpointReplyContextImpl(String matsSocketEndpointId, String authorization,
-                Principal principal, DetachedProcessContext detachedProcessContext) {
+        public MatsSocketEndpointReplyContextImpl(String matsSocketEndpointId,
+                DetachedProcessContext detachedProcessContext) {
             _matsSocketEndpointId = matsSocketEndpointId;
-            _authorization = authorization;
-            _principal = principal;
             _detachedProcessContext = detachedProcessContext;
         }
 
         @Override
         public String getMatsSocketEndpointId() {
             return _matsSocketEndpointId;
-        }
-
-        @Override
-        public String getAuthorization() {
-            return _authorization;
-        }
-
-        @Override
-        public Principal getPrincipal() {
-            return _principal;
         }
 
         @Override

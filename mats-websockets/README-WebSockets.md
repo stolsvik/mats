@@ -57,6 +57,9 @@ Auth, "isAuthOk?"
   * hmm.. Maybe not necessary. It should be the "tempJump" that does the adaptation, while the store-and-forwarder just stores the finished adapted message.
   * .. then again, this requires that we need to re-establish the Principal.
 
+// Statistics
+* One minute into a session, the client sends the timings of all calls it has done since boot.
+
 
 ```java
 @MatsSocket("Endpoint.id")
