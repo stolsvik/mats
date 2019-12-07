@@ -80,6 +80,19 @@ function MatsSocket(url, appName, appVersion) {
     };
 
     /**
+     * If a reconnect results in a "NEW" Session - not "RECONNECTED" - the registered function will be invoked. This
+     * could happen if you e.g. close the lid of a laptop with a webapp running. When you wake it up again,
+     * it will start reconnecting to the MatsSocket. Depending on the time slept, you will then get a
+     * RECONNECTED if it was within the Session timeout on the server, or NEW if the Session has expired.
+     * If NEW, you might want to basically reload the entire webapp - or at least reset the state to as if just booted.
+     *
+     * @param {function} sessionLostCallback function that will be invoked if we lost session on server side.
+     */
+    this.setSessionLostCallback = function (sessionLostCallback) {
+        // TODO: Implement
+    };
+
+    /**
      * @param endpointId the id of this client side endpoint.
      * @param callback takes two args: message, and optional correlationId.
      */

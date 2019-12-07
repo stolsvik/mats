@@ -58,8 +58,14 @@ Auth, "isAuthOk?"
   * .. then again, this requires that we need to re-establish the Principal.
 
 // Statistics
-* One minute into a session, the client sends the timings of all calls it has done since boot.
+* One minute into a session, the client sends the timings of all calls it has done since boot, w/timings.
 
+// Error propagation
+* Should be able to throw out of the adaptReply, and get this to the MatsSocket.js side
+
+// System introspection
+* Topic on which to query for all active Sessions, with a "replyToQueue" for where to send back info
+  * Contains nodename, timestamp, and an object for each Session, with hos,an,av and "last msg ts"
 
 ```java
 @MatsSocket("Endpoint.id")

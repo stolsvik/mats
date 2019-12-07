@@ -39,6 +39,7 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.test.Rule_Mats;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
+import com.stolsvik.mats.websocket.impl.SingleNodeClusterStoreAndForward;
 
 /**
  * @author Endre Stølsvik 2019-11-21 21:07 - http://stolsvik.com/, endre@stolsvik.com
@@ -130,8 +131,11 @@ public class AppMain {
             throw new AssertionError("Did not find '" + ServerContainer.class.getName() + "' object"
                     + " in ServletContext, but [" + wsServerContainer + "].");
         }
+        SingleNodeClusterStoreAndForward clusterStoreAndForward = new SingleNodeClusterStoreAndForward(matsFactory
+                .getFactoryConfig().getNodename());
+
         return DefaultMatsSocketServer.createMatsSocketServer(
-                (ServerContainer) wsServerContainer, matsFactory);
+                (ServerContainer) wsServerContainer, matsFactory, clusterStoreAndForward);
     }
 
     @WebServlet("/test")

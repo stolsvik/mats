@@ -5,9 +5,11 @@ import java.security.Principal;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import javax.websocket.CloseReason;
 import javax.websocket.CloseReason.CloseCode;
@@ -45,6 +47,7 @@ import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
+import com.stolsvik.mats.websocket.DefaultMatsSocketServer.ClusterStoreAndForward.StoredMessage;
 
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -54,11 +57,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     private static final String REPLY_TERMINATOR_ID_PREFIX = "MatsSockets.replyHandler.";
 
-    public static MatsSocketServer createMatsSocketServer(ServerContainer serverContainer, MatsFactory matsFactory) {
+    public static MatsSocketServer createMatsSocketServer(ServerContainer serverContainer, MatsFactory matsFactory,
+            ClusterStoreAndForward clusterStoreAndForward) {
         // TODO: "Escape" the AppName.
         String replyTerminatorId = REPLY_TERMINATOR_ID_PREFIX + matsFactory.getFactoryConfig().getAppName();
-        ObjectMapper jackson = jacksonMapper();
-        DefaultMatsSocketServer matsSocketServer = new DefaultMatsSocketServer(matsFactory, jackson, replyTerminatorId);
+        DefaultMatsSocketServer matsSocketServer = new DefaultMatsSocketServer(matsFactory, clusterStoreAndForward,
+                replyTerminatorId);
 
         log.info("Registering MatsSockets' sole WebSocket endpoint.");
         Configurator configurator = new Configurator() {
@@ -69,10 +73,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     throw new AssertionError("Cannot create Endpoints of type [" + endpointClass.getName()
                             + "]");
                 }
-                // Generate a MatsSocketSessionId
-                String matsSocketSessionId = randomId();
                 log.info("Instantiating a MatsSocketEndpoint!");
-                return (T) new MatsWebSocketInstance(matsSocketServer, jackson, matsSocketSessionId);
+                return (T) new MatsWebSocketInstance(matsSocketServer);
             }
         };
         try {
@@ -87,22 +89,122 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         return matsSocketServer;
     }
 
-    private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?, ?>> _matsSockets = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, MatsSocketSession> _activeSessionByMatsSocketSessionId = new ConcurrentHashMap<>();
+    /**
+     * It is assumed that the consumption of messages for a session is done single threaded, on one node only. That is,
+     * only thread on one node will actually {@link #getMessagesForSession(String) get messages}, and, more importantly,
+     * {@link #messagesDelivered(List) register dem as delivered}. Wrt. multiple nodes, this should hold through, since
+     * only one node can hold a MatsSocket Session. I believe it is possible to construct a bad async situation here
+     * (connect to one node, authenticate, get SessionId, immediately disconnect and perform reconnect, and do this
+     * until this {@link ClusterStoreAndForward} has the wrong idea of which node holds the Session) but this should at
+     * most result in the client screwing up for himself (not getting messages), and a Session is not registered until
+     * the client has authenticated, and it will resolve if the client again performs a non-malicious reconnect. It is
+     * the server that constructs and holds SessionIds, a client cannot itself force the server side to create a Session
+     * or SessionId.
+     */
+    public interface ClusterStoreAndForward {
+        /**
+         * Registers a Session home to this node - only one node can ever be home, so implicitly any old is deleted.
+         *
+         * @param matsSocketSessionId
+         */
+        void registerSessionAtThisNode(String matsSocketSessionId);
+
+        /**
+         * Deregisters a Session home when a WebSocket is closed. This node's nodename is taken into account, so that if
+         * it has changed async, it will not deregister a new session home.
+         *
+         * @param matsSocketSessionId
+         */
+        void deregisterSessionFromThisNode(String matsSocketSessionId);
+
+        /**
+         * @param matsSocketSessionId
+         *            the MatsSocketSessionId for which to query for.
+         * @return the nodename of current node holding MatsSocket Session, or empty if none.
+         */
+        Optional<String> getCurrentNodeForSession(String matsSocketSessionId);
+
+        /**
+         * Shall be invoked on some kind of schedule (e.g. every 5 minute) by node to inform
+         * {@link ClusterStoreAndForward} about Session liveliness. Sessions that aren't live, will be scavenged after
+         * some time, e.g. 24 hours.
+         *
+         * @param matsSocketSessionIds
+         */
+        void pingLivelinessForSessions(List<String> matsSocketSessionIds);
+
+        /**
+         * Invoked when the client explicitly tells us that he closed this session, CLOSE_SESSION.
+         *
+         * @param matsSocketSessionId
+         *            the MatsSocketSessionId that should be closed.
+         */
+        void terminateSession(String matsSocketSessionId);
+
+        /**
+         * Stores the message for the Session, returning the nodename for the node holding the session, if any. If the
+         * session is timed out, the message won't be stored (i.e. dumped on the floor) and the return value is empty.
+         *
+         * @param matsSocketSessionId
+         *            the matsSocketSessionId that the message is meant for.
+         * @param traceId
+         *            the server-side traceId for this message.
+         * @param type
+         *            the type of the reply, currently "REPLY" or "ERROR".
+         * @param message
+         *            the JSON-serialized MatsSocket <b>Envelope</b>.
+         * @return the nodename of the node holding the WebSocket Session, or empty if the Session is not connected.
+         */
+        Optional<String> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
+                String message);
+
+        List<StoredMessage> getMessagesForSession(String sessionId);
+
+        void messagesDelivered(String sessionId, List<Long> messageIds);
+
+        interface StoredMessage {
+            long getId();
+
+            long getStoredTimestamp();
+
+            String getType();
+
+            String getTraceId();
+
+            String getEnvelopeJson();
+        }
+    }
+
+    private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?, ?>> _matsSocketEndpointsByMatsSocketEndpointId = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, MatsSocketSession> _activeSessionsByMatsSocketSessionId = new ConcurrentHashMap<>();
 
     private final MatsFactory _matsFactory;
+    private final ClusterStoreAndForward _clusterStoreAndForward;
     private final ObjectMapper _jackson;
     private final String _replyTerminatorId;
 
-    private DefaultMatsSocketServer(MatsFactory matsFactory, ObjectMapper jackson, String replyTerminatorId) {
+    private DefaultMatsSocketServer(MatsFactory matsFactory, ClusterStoreAndForward clusterStoreAndForward,
+            String replyTerminatorId) {
         _matsFactory = matsFactory;
-        _jackson = jackson;
+        _clusterStoreAndForward = clusterStoreAndForward;
+        _jackson = jacksonMapper();
         _replyTerminatorId = replyTerminatorId;
 
         // Register our Reply-handler (common on all nodes - need forwarding to correct node)
-        // TODO: FORWARDING BETWEEN NODES!!
         matsFactory.terminator(replyTerminatorId, ReplyHandleStateDto.class, MatsObject.class,
-                this::processReply);
+                this::mats_processMatsReply);
+
+        // Register our Forward to WebSocket handler (common on all nodes).
+        matsFactory.subscriptionTerminator(pingTerminatorIdForNode(getMyNodename()), Void.class, String.class,
+                (processContext, state, matsSocketSessionId) -> localSessionMessageNotify(matsSocketSessionId));
+    }
+
+    private String getMyNodename() {
+        return _matsFactory.getFactoryConfig().getNodename();
+    }
+
+    private String pingTerminatorIdForNode(String nodename) {
+        return _replyTerminatorId + '.' + nodename;
     }
 
     private volatile Function<String, Principal> _authorizationToPrincipalFunction;
@@ -114,7 +216,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         MatsSocketEndpointRegistration<I, MI, MR, R> matsSocketRegistration = new MatsSocketEndpointRegistration<>(
                 matsSocketEndpointId, msIncomingClass, matsIncomingClass, matsReplyClass, msReplyClass,
                 incomingAuthEval);
-        MatsSocketEndpointRegistration existing = _matsSockets.putIfAbsent(matsSocketEndpointId,
+        MatsSocketEndpointRegistration existing = _matsSocketEndpointsByMatsSocketEndpointId.putIfAbsent(
+                matsSocketEndpointId,
                 matsSocketRegistration);
         // Assert that there was no existing mapping
         if (existing != null) {
@@ -133,19 +236,18 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     @Override
     public void shutdown() {
         log.info("Asked to shut down MatsSocketServer [" + id(this)
-                + "], containing [" + _activeSessionByMatsSocketSessionId.size() + "] sessions.");
-        _activeSessionByMatsSocketSessionId.values().forEach(s -> {
-            s.close(CloseCodes.SERVICE_RESTART,
+                + "], containing [" + _activeSessionsByMatsSocketSessionId.size() + "] sessions.");
+        _activeSessionsByMatsSocketSessionId.values().forEach(s -> {
+            s.closeWebSocket(CloseCodes.SERVICE_RESTART,
                     "From Server: Server instance is going down, please reconnect.");
         });
     }
 
     private MatsSocketEndpointRegistration getMatsSocketRegistration(String eid) {
-        MatsSocketEndpointRegistration matsSocketRegistration = _matsSockets.get(eid);
+        MatsSocketEndpointRegistration matsSocketRegistration = _matsSocketEndpointsByMatsSocketEndpointId.get(eid);
         log.info("MatsSocketRegistration for [" + eid + "]: " + matsSocketRegistration);
         if (matsSocketRegistration == null) {
-            // TODO / SECURITY: Better handling AND JSON/HTML ENCODING!!
-            throw new IllegalArgumentException("Cannot find MatsSocketRegistration for [" + eid + "]");
+            throw new IllegalArgumentException("Cannot find MatsSocketRegistration for [" + escape(eid) + "]");
         }
         return matsSocketRegistration;
     }
@@ -185,17 +287,18 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
     }
 
-    private void processReply(ProcessContext<Void> processContext, ReplyHandleStateDto state,
+    /**
+     * A "random" number picked by basically hammering on the keyboard and then carefully manually randomize it some
+     * more ;-) - used to string-replace the sending timestamp into the envelope on the WebSocket-forward side. If this
+     * by sheer randomness appears in the actual payload message (as ASCII literals), then it might be accidentally
+     * swapped out. If this happens, sorry - but you should <i>definitely</i> also sell your house and put all proceeds
+     * into all of your country's Lotto systems.
+     */
+    private static final Long REPLACE_VALUE = 3_945_608_518_157_027_723L;
+
+    private void mats_processMatsReply(ProcessContext<Void> processContext, ReplyHandleStateDto state,
             MatsObject incomingMsg) {
         long matsMessageReplyReceivedTimestamp = System.currentTimeMillis();
-        // TODO: THIS ASSUMES WE'RE THE ONE HOLDING THIS SESSION!
-        MatsSocketSession matsSocketSession = _activeSessionByMatsSocketSessionId.get(state.sid);
-        // TODO: TOTALLY not do this!
-        if (matsSocketSession == null) {
-            log.error("Dropping message on floor for MatsSocketSessionId [" + state.sid
-                    + "]: No Session!");
-            return;
-        }
 
         // Find the MatsSocketEndpoint for this reply
         MatsSocketEndpointRegistration registration = getMatsSocketRegistration(state.ms_eid);
@@ -204,7 +307,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         Object msReply;
         if (registration._replyAdapter != null) {
-            // TODO: Handle Principal.
             MatsSocketEndpointReplyContextImpl replyContext = new MatsSocketEndpointReplyContextImpl(
                     registration._matsSocketEndpointId, processContext);
             msReply = registration._replyAdapter.adaptReply(replyContext, matsReply);
@@ -224,19 +326,109 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         msReplyEnvelope.t = "REPLY";
         msReplyEnvelope.eid = state.ms_reid;
         msReplyEnvelope.cid = state.cid;
+        msReplyEnvelope.tid = processContext.getTraceId(); // TODO: Chop off last ":xyz", as that is added serverside.
         msReplyEnvelope.cmcts = state.cmcts;
         msReplyEnvelope.cmrts = state.cmrts;
         msReplyEnvelope.mmsts = state.mmsts;
         msReplyEnvelope.mmrts = matsMessageReplyReceivedTimestamp;
-        msReplyEnvelope.rmcts = System.currentTimeMillis();
+        msReplyEnvelope.rmcts = REPLACE_VALUE;
         msReplyEnvelope.msg = msReply;
 
-        Session session = matsSocketSession._session;
-        sendMessage(session, msReplyEnvelope);
+        String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
+        Optional<String> nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageForSession(
+                state.sid, "REPLY", processContext.getTraceId(), serializedEnvelope);
 
+        // ?: If we do have a nodename, ping it about new message
+        // TODO: Local ping if it is us. Just check directly on _activeSessions...
+        if (nodeNameHoldingWebSocket.isPresent()) {
+            // -> Yes we got a nodename, ping it.
+            processContext.initiate(init -> {
+                init.traceId("PingWebSocketHolder")
+                        .from(_replyTerminatorId)
+                        .to(pingTerminatorIdForNode(nodeNameHoldingWebSocket.get()))
+                        .publish(state.sid);
+            });
+        }
     }
 
-    private void sendMessage(Session session, MatsSocketEnvelopeDto msReplyEnvelope) {
+    private void localSessionMessageNotify(String matsSocketSessionId) {
+        MatsSocketSession matsSocketSession = _activeSessionsByMatsSocketSessionId.get(matsSocketSessionId);
+        // ?: If this Session does not exist at this node, we cannot deliver
+        if (matsSocketSession == null) {
+            // -> No Session here.
+            log.info("Got notified about new message to MatsSocketSessionId [" + matsSocketSessionId + "], but we"
+                    + " did not have that session anymore.");
+            // Since someone thought that we had it, but we did not, tell ClusterStoreAndForward that we do not have it
+            // (This is not dangerous, because it won't deregister any other Session home)
+            _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId);
+            // Find if the session resides on a different node
+            Optional<String> currentNode = _clusterStoreAndForward.getCurrentNodeForSession(matsSocketSessionId);
+
+            // ?: Is the session live at another node?
+            if (!currentNode.isPresent()) {
+                // -> Not, not live anywhere - cannot forward, must wait for reconnect
+                return;
+            }
+
+            // E-> It is evidently live at another node.
+
+            String newSessionNodename = currentNode.get();
+
+            // Assert that it is not us, but if it is, it is a case of:
+            // a) extreme asyncness, or
+            // b) someone trying to crack us, or broken ClusterStoreAndForward.
+
+            // ?: Is this us?!
+            if (getMyNodename().equals(newSessionNodename)) {
+                // -> Yes, it is us!!
+                // Try to again find Session at us
+                matsSocketSession = _activeSessionsByMatsSocketSessionId.get(matsSocketSessionId);
+                // ?: Did we have it this time?
+                if (matsSocketSession == null) {
+                    // -> No, so give up
+                    // Case 'b': Either someone is trying to crack us, or ClusterStoreAndForward is broken.
+                    log.warn("We got a message notify for sessionId. We did not have it. We said so to"
+                            + " ClusterStoreAndForward. We then queried who has the session. We again got us."
+                            + " BUT WE DO STILL NOT HAVE IT!! Ignoring by giving up.");
+                    return;
+                }
+                // E-> We found it, i.e. case 'a' extreme asyncness!
+            }
+            else {
+                // -> No, it is not us - so forward the ping
+                _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
+                    init.traceId("PingForwardOnChangedSessionHome[ms_sid:" + matsSocketSessionId + "]" + randomId())
+                            .from("MatsSocketSystem.pingForward")
+                            .to(pingTerminatorIdForNode(newSessionNodename))
+                            .publish(matsSocketSessionId);
+                });
+                return;
+            }
+            // ----- At this point, we should have session
+        }
+
+        // TODO: Shall become a single-thread-per-sessionId forwarder system
+
+        List<ClusterStoreAndForward.StoredMessage> messagesForSession = _clusterStoreAndForward
+                .getMessagesForSession(matsSocketSessionId);
+
+        Session session = matsSocketSession._session;
+        messagesForSession.forEach(m -> {
+            session.getAsyncRemote().sendText(m.getEnvelopeJson());
+        });
+        _clusterStoreAndForward.messagesDelivered(matsSocketSessionId,
+                messagesForSession.stream().map(StoredMessage::getId).collect(Collectors.toList()));
+    }
+
+    private void serializeAndSendEnvelope(Session session, MatsSocketEnvelopeDto msReplyEnvelope) {
+        String msReplyEnvelopeJson = serializeEnvelope(msReplyEnvelope);
+        // TODO: Need to think this Async through wrt. to "finishing" the stored message from the storage.
+        // TODO: Also, need to consider what to do wrt. timeouts that cannot be transmitted.
+        log.info("Sending reply [" + msReplyEnvelopeJson + "]");
+        session.getAsyncRemote().sendText(msReplyEnvelopeJson);
+    }
+
+    private String serializeEnvelope(MatsSocketEnvelopeDto msReplyEnvelope) {
         if (msReplyEnvelope.t == null) {
             throw new IllegalStateException("Type ('t') cannot be null.");
         }
@@ -247,18 +439,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             throw new IllegalStateException("ReplyMessageClientTimestamp ('rmcts') cannot be null.");
         }
         // JSONify the MatsSocket Reply.
-        String msReplyEnvelopeJson;
         try {
-            msReplyEnvelopeJson = _jackson.writeValueAsString(msReplyEnvelope);
+            return _jackson.writeValueAsString(msReplyEnvelope);
         }
         catch (JsonProcessingException e) {
             throw new AssertionError("Huh, couldn't serialize message?!");
         }
-
-        // TODO: Need to think this Async through wrt. to "finishing" the stored message from the storage.
-        // TODO: Also, need to consider what to do wrt. timeouts that cannot be transmitted.
-        log.info("Sending reply [" + msReplyEnvelopeJson + "]");
-        session.getAsyncRemote().sendText(msReplyEnvelopeJson);
     }
 
     private static class MatsSocketEndpointRegistration<I, MI, MR, R> implements MatsSocketEndpoint<I, MI, MR, R> {
@@ -299,11 +485,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         private MatsSocketSession _matsSocketSession;
 
-        public MatsWebSocketInstance(DefaultMatsSocketServer matsSocketServer,
-                ObjectMapper jackson, String matsSocketSessionId) {
+        public MatsWebSocketInstance(DefaultMatsSocketServer matsSocketServer) {
             log.info("Created MatsWebSocketEndpointInstance: " + id(this));
             _matsSocketServer = matsSocketServer;
-            _jackson = jackson;
+            _jackson = matsSocketServer._jackson;
         }
 
         @Override
@@ -324,11 +509,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         public void onClose(Session session, CloseReason closeReason) {
             log.info("WebSocket @OnClose, session:" + session.getId() + ", reason:" + closeReason.getReasonPhrase()
                     + ", this:" + id(this));
-            // Remove from Local view. (NOTICE: A pure "CLOSE" shall not kill sessionId by itself)
+            // ?: Have we gotten MatsSocketSession yet?
             if (_matsSocketSession != null) {
-                _matsSocketServer._activeSessionByMatsSocketSessionId.remove(_matsSocketSession._matsSocketSessionId);
+                // -> Yes, so remove us from local and global views
+                // We do not have it locally anymore
+                _matsSocketServer._activeSessionsByMatsSocketSessionId.remove(_matsSocketSession._matsSocketSessionId);
+                // Deregister session from the ClusterStoreAndForward
+                _matsSocketServer._clusterStoreAndForward.deregisterSessionFromThisNode(
+                        _matsSocketSession._matsSocketSessionId);
             }
-            // TODO: NOTIFY THE FORWARDING MECHANISM THAT WE NO LONGER HAVE THIS MatsSocketSession
         }
     }
 
@@ -402,7 +591,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     if (envelope.sid != null) {
                         // -> Yes, try to find it
                         // TODO: CHECK WITH THE FORWARDING WHETHER THIS SESSION ID EXISTS
-                        MatsSocketSession existingSession = _matsSocketServer._activeSessionByMatsSocketSessionId.get(
+                        MatsSocketSession existingSession = _matsSocketServer._activeSessionsByMatsSocketSessionId.get(
                                 envelope.sid);
                         // TODO: Implement remote invalidation
                         // ?: Is there an existing?
@@ -440,8 +629,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     }
 
                     // Add Session to our active-map
-                    // TODO: NOTIFY THE FORWARDING MECHANISM THAT WE NOW HAVE THIS MatsSocketSession
-                    _matsSocketServer._activeSessionByMatsSocketSessionId.put(_matsSocketSessionId, this);
+                    _matsSocketServer._activeSessionsByMatsSocketSessionId.put(_matsSocketSessionId, this);
+                    _matsSocketServer._clusterStoreAndForward.registerSessionAtThisNode(_matsSocketSessionId);
 
                     // ----- We're now a live MatsSocketSession
 
@@ -465,7 +654,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                         i = envelopes.size();
                     }
                     // Send message
-                    _matsSocketServer.sendMessage(_session, replyEnvelope);
+                    _matsSocketServer.serializeAndSendEnvelope(_session, replyEnvelope);
                     continue;
                 }
 
@@ -475,9 +664,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 }
 
                 if ("CLOSE_SESSION".equals(envelope.t)) {
-                    // TODO: DEREGISTER SESSION, NOTIFY FORWARDING MECHANISM
-                    _matsSocketServer._activeSessionByMatsSocketSessionId.remove(_matsSocketSessionId);
-                    close(CloseCodes.NORMAL_CLOSURE, "From Server: Client said CLOSE_SESSION (" +
+                    _matsSocketServer._activeSessionsByMatsSocketSessionId.remove(_matsSocketSessionId);
+                    _matsSocketServer._clusterStoreAndForward.terminateSession(_matsSocketSessionId);
+                    closeWebSocket(CloseCodes.NORMAL_CLOSURE, "From Server: Client said CLOSE_SESSION (" +
                             escape(envelope.desc) + "): Deleting session, closing WebSocket.");
                     continue;
                 }
@@ -489,8 +678,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 }
 
                 // ----- We are authenticated.
-
-                // TODO: Handle that ANY message can contain Authorization header!!
 
                 if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t)) {
                     String eid = envelope.eid;
@@ -521,7 +708,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                         replyEnvelope.mmsts = sentTimestamp;
                         replyEnvelope.rmcts = sentTimestamp;
                         // Send message
-                        _matsSocketServer.sendMessage(_session, replyEnvelope);
+                        _matsSocketServer.serializeAndSendEnvelope(_session, replyEnvelope);
                     }
 
                     continue;
@@ -529,7 +716,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             }
         }
 
-        private void close(CloseCode closeCode, String reasonPhrase) {
+        private void closeWebSocket(CloseCode closeCode, String reasonPhrase) {
             log.info("Shutting down WebSocket Session [" + _session + "]");
             try {
                 _session.close(new CloseReason(closeCode, reasonPhrase));
@@ -744,7 +931,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
     }
 
-    private static ObjectMapper jacksonMapper() {
+    protected ObjectMapper jacksonMapper() {
         // NOTE: This is stolen directly from MatsSerializer_DefaultJson.
         ObjectMapper mapper = new ObjectMapper();
 

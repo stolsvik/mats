@@ -43,6 +43,14 @@ public interface MatsSocketServer {
     void shutdown();
 
     interface MatsSocketEndpoint<I, MI, MR, R> {
+        /**
+         * Used to transform the message from the Mats-side to MatsSocket-side - or throw an Exception. <b>This should
+         * only be pure Java code, no IPC or lengthy computations</b>, such things should have happened in the Mats
+         * stages.
+         * 
+         * @param replyAdapter
+         *            a function-like lambda that transform the incoming Mats reply into the outgoing MatsSocket reply.
+         */
         void replyAdapter(MatsSocketEndpointReplyAdapter<MR, R> replyAdapter);
     }
 
