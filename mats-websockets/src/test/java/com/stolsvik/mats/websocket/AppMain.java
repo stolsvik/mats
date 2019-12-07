@@ -24,6 +24,7 @@ import javax.websocket.Session;
 import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpoint;
 
+import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
@@ -126,16 +127,17 @@ public class AppMain {
     }
 
     private static MatsSocketServer getMatsSocketServer(ServletContextEvent sce, MatsFactory matsFactory) {
-        Object wsServerContainer = sce.getServletContext().getAttribute(ServerContainer.class.getName());
-        if (!(wsServerContainer instanceof ServerContainer)) {
+        Object serverContainerAttrib = sce.getServletContext().getAttribute(ServerContainer.class.getName());
+        if (!(serverContainerAttrib instanceof ServerContainer)) {
             throw new AssertionError("Did not find '" + ServerContainer.class.getName() + "' object"
-                    + " in ServletContext, but [" + wsServerContainer + "].");
+                    + " in ServletContext, but [" + serverContainerAttrib + "].");
         }
         SingleNodeClusterStoreAndForward clusterStoreAndForward = new SingleNodeClusterStoreAndForward(matsFactory
                 .getFactoryConfig().getNodename());
 
+        ServerContainer wsServerContainer = (ServerContainer) serverContainerAttrib;
         return DefaultMatsSocketServer.createMatsSocketServer(
-                (ServerContainer) wsServerContainer, matsFactory, clusterStoreAndForward);
+                wsServerContainer, matsFactory, clusterStoreAndForward);
     }
 
     @WebServlet("/test")

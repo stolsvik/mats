@@ -3,14 +3,13 @@ package com.stolsvik.mats.websocket.impl;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
-import com.stolsvik.mats.websocket.DefaultMatsSocketServer.ClusterStoreAndForward;
+import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ClusterStoreAndForward;
 
 /**
  * @author Endre Stølsvik 2019-12-07 11:25 - http://stolsvik.com/, endre@stolsvik.com

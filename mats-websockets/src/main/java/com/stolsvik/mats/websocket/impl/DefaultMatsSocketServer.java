@@ -1,4 +1,4 @@
-package com.stolsvik.mats.websocket;
+package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
 import java.security.Principal;
@@ -47,7 +47,8 @@ import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
-import com.stolsvik.mats.websocket.DefaultMatsSocketServer.ClusterStoreAndForward.StoredMessage;
+import com.stolsvik.mats.websocket.MatsSocketServer;
+import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ClusterStoreAndForward.StoredMessage;
 
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -59,6 +60,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     public static MatsSocketServer createMatsSocketServer(ServerContainer serverContainer, MatsFactory matsFactory,
             ClusterStoreAndForward clusterStoreAndForward) {
+
         // TODO: "Escape" the AppName.
         String replyTerminatorId = REPLY_TERMINATOR_ID_PREFIX + matsFactory.getFactoryConfig().getAppName();
         DefaultMatsSocketServer matsSocketServer = new DefaultMatsSocketServer(matsFactory, clusterStoreAndForward,
@@ -92,14 +94,14 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     /**
      * It is assumed that the consumption of messages for a session is done single threaded, on one node only. That is,
      * only thread on one node will actually {@link #getMessagesForSession(String) get messages}, and, more importantly,
-     * {@link #messagesDelivered(List) register dem as delivered}. Wrt. multiple nodes, this should hold through, since
-     * only one node can hold a MatsSocket Session. I believe it is possible to construct a bad async situation here
-     * (connect to one node, authenticate, get SessionId, immediately disconnect and perform reconnect, and do this
-     * until this {@link ClusterStoreAndForward} has the wrong idea of which node holds the Session) but this should at
-     * most result in the client screwing up for himself (not getting messages), and a Session is not registered until
-     * the client has authenticated, and it will resolve if the client again performs a non-malicious reconnect. It is
-     * the server that constructs and holds SessionIds, a client cannot itself force the server side to create a Session
-     * or SessionId.
+     * {@link #messagesDelivered(String, List) register dem as delivered}. Wrt. multiple nodes, this should hold
+     * through, since only one node can hold a MatsSocket Session. I believe it is possible to construct a bad async
+     * situation here (connect to one node, authenticate, get SessionId, immediately disconnect and perform reconnect,
+     * and do this until this {@link ClusterStoreAndForward} has the wrong idea of which node holds the Session) but
+     * this should at most result in the client screwing up for himself (not getting messages), and a Session is not
+     * registered until the client has authenticated, and it will resolve if the client again performs a non-malicious
+     * reconnect. It is the server that constructs and holds SessionIds, a client cannot itself force the server side to
+     * create a Session or SessionId.
      */
     public interface ClusterStoreAndForward {
         /**
@@ -374,9 +376,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
             String newSessionNodename = currentNode.get();
 
-            // Assert that it is not us, but if it is, it is a case of:
+            // If this turns out to be ourselves (this node), it must be a case of
             // a) extreme asyncness, or
-            // b) someone trying to crack us, or broken ClusterStoreAndForward.
+            // b) someone trying to crack us by hammering new WebSockets, or broken ClusterStoreAndForward.
 
             // ?: Is this us?!
             if (getMyNodename().equals(newSessionNodename)) {
@@ -397,15 +399,16 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             else {
                 // -> No, it is not us - so forward the ping
                 _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
-                    init.traceId("PingForwardOnChangedSessionHome[ms_sid:" + matsSocketSessionId + "]" + randomId())
+                    init.traceId("PingForwardOnChangedSessionHome[ms_sid:" + matsSocketSessionId + "]" + rnd(5))
                             .from("MatsSocketSystem.pingForward")
                             .to(pingTerminatorIdForNode(newSessionNodename))
                             .publish(matsSocketSessionId);
                 });
                 return;
             }
-            // ----- At this point, we should have session
         }
+
+        // ----- At this point, we have Session
 
         // TODO: Shall become a single-thread-per-sessionId forwarder system
 
@@ -495,6 +498,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         public void onOpen(Session session, EndpointConfig config) {
             log.info("WebSocket opened, session:" + session.getId() + ", endpointConfig:" + config
                     + ", endpointInstance:" + id(this) + ", session:" + id(session));
+
+            // Set high limits, don't want to be held back on the protocol side of things.
+            session.setMaxBinaryMessageBufferSize(50 * 1024 * 1024);
+            session.setMaxTextMessageBufferSize(50 * 1024 * 1024);
+            // TODO: Experimenting with low idle timeouts
             session.setMaxIdleTimeout(20_000);
             _matsSocketSession = new MatsSocketSession(this, session);
             session.addMessageHandler(_matsSocketSession);
@@ -625,7 +633,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     // ?: Do we have a MatsSocketSessionId by now?
                     if (_matsSocketSessionId == null) {
                         // -> No, so make one.
-                        _matsSocketSessionId = randomId();
+                        _matsSocketSessionId = rnd(16);
                     }
 
                     // Add Session to our active-map
@@ -965,11 +973,19 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
     }
 
-    private static String randomId() {
-        // Roughly 126 bits of randomness.
-        long long1 = Math.abs(ThreadLocalRandom.current().nextLong());
-        long long2 = Math.abs(ThreadLocalRandom.current().nextLong());
-        return Long.toString(long1, 36) + "_" + Long.toString(long2, 36);
+    private static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+    /**
+     * @param length
+     *            the desired length of the returned random string.
+     * @return a random string of the specified length.
+     */
+    public static String rnd(int length) {
+        StringBuilder buf = new StringBuilder(length);
+        ThreadLocalRandom tlr = ThreadLocalRandom.current();
+        for (int i = 0; i < length; i++)
+            buf.append(ALPHABET.charAt(tlr.nextInt(ALPHABET.length())));
+        return buf.toString();
     }
 
     private static String id(Object x) {
