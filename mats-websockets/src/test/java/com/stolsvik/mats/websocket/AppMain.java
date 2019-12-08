@@ -25,8 +25,9 @@ import javax.websocket.Session;
 import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpoint;
 
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
-import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ClusterStoreAndForward;
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
@@ -67,8 +68,8 @@ public class AppMain {
 
             // :: H2 DataBase
             JdbcDataSource h2Ds = new JdbcDataSource();
-            h2Ds.setURL("jdbc:h2:h2_data;AUTO_SERVER=TRUE");
-            JdbcConnectionPool pooledH2Ds = JdbcConnectionPool.create(h2Ds);
+            h2Ds.setURL("jdbc:h2:~/temp/matsproject_dev_h2database/matssocket_dev;AUTO_SERVER=TRUE");
+            JdbcConnectionPool dataSource = JdbcConnectionPool.create(h2Ds);
 
             // :: ActiveMQ and MatsFactory
             _matsRule.before();
@@ -82,10 +83,11 @@ public class AppMain {
 
             // :: Create MatsSocketServer
             // Cluster-stuff for the MatsSocketServer
-            ClusterStoreAndForward_DummySingleNode clusterSaf = new ClusterStoreAndForward_DummySingleNode(matsFactory
+            ClusterStoreAndForward_DummySingleNode csaf = new ClusterStoreAndForward_DummySingleNode(matsFactory
                     .getFactoryConfig().getNodename());
-            // Create the MSS
-            _matsSocketServer = getMatsSocketServer(sce, matsFactory, clusterSaf);
+//            ClusterStoreAndForward_SQL csaf = ClusterStoreAndForward_SQL.create(dataSource, matsFactory.getFactoryConfig().getNodename());
+            // Create the MatsSocketServer
+            _matsSocketServer = getMatsSocketServer(sce, matsFactory, csaf);
 
             // .. stick in an Authentication plugin
             Function<String, Principal> authToPrincipalFunction = authHeader -> {

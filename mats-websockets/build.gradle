@@ -7,10 +7,13 @@ dependencies {
     // Relies on the WebSocket API
     compileOnly 'javax.websocket:javax.websocket-api:1.0'
 
-    // Dependency on the Jackson JSON library, which is the serialization mechanism in use for MatsSockets comms
+    // Jackson JSON library, which is the serialization mechanism in use for MatsSockets comms
     compile "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
     compile "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${jacksonVersion}"
     compile "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:${jacksonVersion}"
+
+    // Flyway, for DB preparation and migration for 'ClusterStoreAndForward_SQL'.
+    compile 'org.flywaydb:flyway-core:6.1.0'
 
     // :: TEST
 

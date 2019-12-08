@@ -1,6 +1,6 @@
 package com.stolsvik.mats.websocket.impl;
 
-import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ClusterStoreAndForward.StoredMessage;
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.StoredMessage;
 
 /**
  * @author Endre Stølsvik 2019-12-07 23:29 - http://stolsvik.com/, endre@stolsvik.com

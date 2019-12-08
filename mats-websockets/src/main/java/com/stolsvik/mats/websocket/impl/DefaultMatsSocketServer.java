@@ -48,7 +48,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.websocket.MatsSocketServer;
-import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ClusterStoreAndForward.StoredMessage;
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.StoredMessage;
 
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -60,6 +60,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     public static MatsSocketServer createMatsSocketServer(ServerContainer serverContainer, MatsFactory matsFactory,
             ClusterStoreAndForward clusterStoreAndForward) {
+        // Boot ClusterStoreAndForward
+        clusterStoreAndForward.boot();
 
         // TODO: "Escape" the AppName.
         String replyTerminatorId = REPLY_TERMINATOR_ID_PREFIX + matsFactory.getFactoryConfig().getAppName();
@@ -89,122 +91,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             throw new AssertionError("Could not register MatsSocket endpoint", e);
         }
         return matsSocketServer;
-    }
-
-    /**
-     * It is assumed that the consumption of messages for a session is done single threaded, on one node only. That is,
-     * only thread on one node will actually {@link #getMessagesForSession(String, int)} get messages}, and, more
-     * importantly, {@link #messagesComplete(String, List) register dem as delivered}. Wrt. multiple nodes, this should
-     * hold through, since only one node can hold a MatsSocket Session. I believe it is possible to construct a bad
-     * async situation here (connect to one node, authenticate, get SessionId, immediately disconnect and perform
-     * reconnect, and do this until this {@link ClusterStoreAndForward} has the wrong idea of which node holds the
-     * Session) but this should at most result in the client screwing up for himself (not getting messages), and a
-     * Session is not registered until the client has authenticated, and it will resolve if the client again performs a
-     * non-malicious reconnect. It is the server that constructs and holds SessionIds, a client cannot itself force the
-     * server side to create a Session or SessionId.
-     */
-    public interface ClusterStoreAndForward {
-        /**
-         * Registers a Session home to this node - only one node can ever be home, so implicitly any old is deleted.
-         *
-         * @param matsSocketSessionId
-         */
-        void registerSessionAtThisNode(String matsSocketSessionId);
-
-        /**
-         * Deregisters a Session home when a WebSocket is closed. This node's nodename is taken into account, so that if
-         * it has changed async, it will not deregister a new session home.
-         *
-         * @param matsSocketSessionId
-         */
-        void deregisterSessionFromThisNode(String matsSocketSessionId);
-
-        /**
-         * @param matsSocketSessionId
-         *            the MatsSocketSessionId for which to query for.
-         * @return the nodename of current node holding MatsSocket Session, or empty if none.
-         */
-        Optional<String> getCurrentNodeForSession(String matsSocketSessionId);
-
-        /**
-         * Shall be invoked on some kind of schedule (e.g. every 5 minute) by node to inform
-         * {@link ClusterStoreAndForward} about Session liveliness. Sessions that aren't live, will be scavenged after
-         * some time, e.g. 24 hours.
-         *
-         * @param matsSocketSessionIds
-         */
-        void pingLivelinessForSessions(List<String> matsSocketSessionIds);
-
-        /**
-         * Invoked when the client explicitly tells us that he closed this session, CLOSE_SESSION.
-         *
-         * @param matsSocketSessionId
-         *            the MatsSocketSessionId that should be closed.
-         */
-        void terminateSession(String matsSocketSessionId);
-
-        /**
-         * Stores the message for the Session, returning the nodename for the node holding the session, if any. If the
-         * session is timed out, the message won't be stored (i.e. dumped on the floor) and the return value is empty.
-         *
-         * @param matsSocketSessionId
-         *            the matsSocketSessionId that the message is meant for.
-         * @param traceId
-         *            the server-side traceId for this message.
-         * @param type
-         *            the type of the reply, currently "REPLY" or "ERROR".
-         * @param message
-         *            the JSON-serialized MatsSocket <b>Envelope</b>.
-         * @return the nodename of the node holding the WebSocket Session, or empty if the Session is not connected.
-         */
-        Optional<String> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
-                String message);
-
-        /**
-         * Fetch a set of messages, up to 'maxNumberOfMessages'.
-         *
-         * @param matsSocketSessionId
-         *            the matsSocketSessionId that the message is meant for.
-         * @param maxNumberOfMessages
-         *            the maximum number of messages to fetch.
-         * @return a list of json encoded messages destined for the WebSocket.
-         */
-        List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages);
-
-        /**
-         * States that the messages are delivered, or overran their delivery attempts. Will typically delete the
-         * message.
-         *
-         * @param matsSocketSessionId
-         *            the matsSocketSessionId that the messageIds refers to.
-         * @param messageIds
-         *            which messages are complete.
-         */
-        void messagesComplete(String matsSocketSessionId, List<Long> messageIds);
-
-        /**
-         * Notches the 'deliveryAttempt' one up for the specified messages.
-         *
-         * @param matsSocketSessionId
-         *            the matsSocketSessionId that the messageIds refers to.
-         * @param messageIds
-         *            which messages failed delivery.
-         */
-        void messagesFailedDelivery(String matsSocketSessionId, List<Long> messageIds);
-
-        interface StoredMessage {
-            long getId();
-
-            int getDeliveryAttempt();
-
-            long getStoredTimestamp();
-
-            String getType();
-
-            String getTraceId();
-
-            String getEnvelopeJson();
-        }
     }
 
     private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?, ?>> _matsSocketEndpointsByMatsSocketEndpointId = new ConcurrentHashMap<>();

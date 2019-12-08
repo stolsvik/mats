@@ -9,8 +9,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
-import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ClusterStoreAndForward;
-
 /**
  * Dummy in-memory implementation of {@link ClusterStoreAndForward} which only works for a single node.
  *
@@ -27,6 +25,11 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
     private ConcurrentHashMap<String, CopyOnWriteArrayList<StoredMessageImpl>> _currentSessions = new ConcurrentHashMap<>();
 
     @Override
+    public void boot() {
+        /* no-op */
+    }
+
+    @Override
     public void registerSessionAtThisNode(String matsSocketSessionId) {
         _currentSessions.put(matsSocketSessionId, new CopyOnWriteArrayList<>());
     }
@@ -37,19 +40,19 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
     }
 
     @Override
+    public void terminateSession(String matsSocketSessionId) {
+        // Also just remove it, as with deregister..
+        _currentSessions.remove(matsSocketSessionId);
+    }
+
+    @Override
     public Optional<String> getCurrentNodeForSession(String matsSocketSessionId) {
         return Optional.of(_nodename);
     }
 
     @Override
-    public void pingLivelinessForSessions(List<String> matsSocketSessionIds) {
+    public void notifySessionLiveliness(List<String> matsSocketSessionIds) {
         /* no-op for the time being */
-    }
-
-    @Override
-    public void terminateSession(String matsSocketSessionId) {
-        // Also just remove it, as with deregister..
-        _currentSessions.remove(matsSocketSessionId);
     }
 
     @Override
