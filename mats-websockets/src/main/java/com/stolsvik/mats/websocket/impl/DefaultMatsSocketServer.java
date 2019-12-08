@@ -93,15 +93,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     /**
      * It is assumed that the consumption of messages for a session is done single threaded, on one node only. That is,
-     * only thread on one node will actually {@link #getMessagesForSession(String) get messages}, and, more importantly,
-     * {@link #messagesDelivered(String, List) register dem as delivered}. Wrt. multiple nodes, this should hold
-     * through, since only one node can hold a MatsSocket Session. I believe it is possible to construct a bad async
-     * situation here (connect to one node, authenticate, get SessionId, immediately disconnect and perform reconnect,
-     * and do this until this {@link ClusterStoreAndForward} has the wrong idea of which node holds the Session) but
-     * this should at most result in the client screwing up for himself (not getting messages), and a Session is not
-     * registered until the client has authenticated, and it will resolve if the client again performs a non-malicious
-     * reconnect. It is the server that constructs and holds SessionIds, a client cannot itself force the server side to
-     * create a Session or SessionId.
+     * only thread on one node will actually {@link #getMessagesForSession(String, int)} get messages}, and, more
+     * importantly, {@link #messagesComplete(String, List) register dem as delivered}. Wrt. multiple nodes, this should
+     * hold through, since only one node can hold a MatsSocket Session. I believe it is possible to construct a bad
+     * async situation here (connect to one node, authenticate, get SessionId, immediately disconnect and perform
+     * reconnect, and do this until this {@link ClusterStoreAndForward} has the wrong idea of which node holds the
+     * Session) but this should at most result in the client screwing up for himself (not getting messages), and a
+     * Session is not registered until the client has authenticated, and it will resolve if the client again performs a
+     * non-malicious reconnect. It is the server that constructs and holds SessionIds, a client cannot itself force the
+     * server side to create a Session or SessionId.
      */
     public interface ClusterStoreAndForward {
         /**
@@ -160,12 +160,42 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         Optional<String> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
                 String message);
 
-        List<StoredMessage> getMessagesForSession(String sessionId);
+        /**
+         * Fetch a set of messages, up to 'maxNumberOfMessages'.
+         *
+         * @param matsSocketSessionId
+         *            the matsSocketSessionId that the message is meant for.
+         * @param maxNumberOfMessages
+         *            the maximum number of messages to fetch.
+         * @return a list of json encoded messages destined for the WebSocket.
+         */
+        List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages);
 
-        void messagesDelivered(String sessionId, List<Long> messageIds);
+        /**
+         * States that the messages are delivered, or overran their delivery attempts. Will typically delete the
+         * message.
+         *
+         * @param matsSocketSessionId
+         *            the matsSocketSessionId that the messageIds refers to.
+         * @param messageIds
+         *            which messages are complete.
+         */
+        void messagesComplete(String matsSocketSessionId, List<Long> messageIds);
+
+        /**
+         * Notches the 'deliveryAttempt' one up for the specified messages.
+         *
+         * @param matsSocketSessionId
+         *            the matsSocketSessionId that the messageIds refers to.
+         * @param messageIds
+         *            which messages failed delivery.
+         */
+        void messagesFailedDelivery(String matsSocketSessionId, List<Long> messageIds);
 
         interface StoredMessage {
             long getId();
+
+            int getDeliveryAttempt();
 
             long getStoredTimestamp();
 
@@ -413,13 +443,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         // TODO: Shall become a single-thread-per-sessionId forwarder system
 
         List<ClusterStoreAndForward.StoredMessage> messagesForSession = _clusterStoreAndForward
-                .getMessagesForSession(matsSocketSessionId);
+                .getMessagesForSession(matsSocketSessionId, 20);
 
         Session session = matsSocketSession._session;
         messagesForSession.forEach(m -> {
             session.getAsyncRemote().sendText(m.getEnvelopeJson());
         });
-        _clusterStoreAndForward.messagesDelivered(matsSocketSessionId,
+        _clusterStoreAndForward.messagesComplete(matsSocketSessionId,
                 messagesForSession.stream().map(StoredMessage::getId).collect(Collectors.toList()));
     }
 

@@ -3,26 +3,31 @@
 dependencies {
     // Uses the mats-lib project
     compile project(":mats-lib")
-    // "Pre-parse" incoming messages
-    // Dependency on the Jackson JSON library, which is the serialization mechanism in use.
-    compile "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
-    compile "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${jacksonVersion}"
-    compile "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:${jacksonVersion}"
+
     // Relies on the WebSocket API
     compileOnly 'javax.websocket:javax.websocket-api:1.0'
 
+    // Dependency on the Jackson JSON library, which is the serialization mechanism in use for MatsSockets comms
+    compile "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+    compile "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${jacksonVersion}"
+    compile "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:${jacksonVersion}"
+
     // :: TEST
+
+    // Testing tools for Mats
+    testCompile project(":mats-test")
 
     // Base Jetty Server
     testCompile 'org.eclipse.jetty:jetty-server:9.+'
-    // Jetty Servlets
+    // .. Jetty Servlets
     testCompile 'org.eclipse.jetty:jetty-webapp:9.+'
-    // Jetty: To get the Servlets annotation scanning.
+    // .. Jetty: To get the @WebListener etc. annotation scanning.
     testCompile 'org.eclipse.jetty:jetty-annotations:9.+'
-    // Jetty: JSR-356 javax.websocket implementation for Jetty
+    // .. Jetty: JSR-356 javax.websocket implementation for Jetty
     testCompile 'org.eclipse.jetty.websocket:javax-websocket-server-impl:9.+'
 
-    testCompile project(":mats-test")
+    // H2 Database
+    testCompile 'com.h2database:h2:1.4.200'
 
     // Logging
     testCompile "org.slf4j:log4j-over-slf4j:1.7.+"

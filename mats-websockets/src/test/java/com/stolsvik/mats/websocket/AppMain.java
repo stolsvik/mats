@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.net.URL;
 import java.security.Principal;
 import java.util.Collections;
+import java.util.function.Function;
 
 import javax.servlet.ServletContextEvent;
 import javax.servlet.ServletContextListener;
@@ -25,6 +26,7 @@ import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpoint;
 
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
+import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ClusterStoreAndForward;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
@@ -34,13 +36,15 @@ import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.webapp.Configuration;
 import org.eclipse.jetty.webapp.WebAppContext;
 import org.eclipse.jetty.webapp.WebXmlConfiguration;
+import org.h2.jdbcx.JdbcConnectionPool;
+import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.test.Rule_Mats;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
-import com.stolsvik.mats.websocket.impl.SingleNodeClusterStoreAndForward;
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_DummySingleNode;
 
 /**
  * @author Endre Stølsvik 2019-11-21 21:07 - http://stolsvik.com/, endre@stolsvik.com
@@ -60,24 +64,36 @@ public class AppMain {
         @Override
         public void contextInitialized(ServletContextEvent sce) {
             log.info("EndreXY contextInitialized: Test 1 2 3: " + sce);
+
+            // :: H2 DataBase
+            JdbcDataSource h2Ds = new JdbcDataSource();
+            h2Ds.setURL("jdbc:h2:h2_data;AUTO_SERVER=TRUE");
+            JdbcConnectionPool pooledH2Ds = JdbcConnectionPool.create(h2Ds);
+
+            // :: ActiveMQ and MatsFactory
             _matsRule.before();
 
             MatsFactory matsFactory = _matsRule.getMatsFactory();
 
-            // Make MatsEndpoint
+            // :: Test MatsEndpoint
             matsFactory.single("Test.single", MatsDataTO.class, MatsDataTO.class, (processContext, incomingDto) -> {
                 return new MatsDataTO(incomingDto.number, incomingDto.string + ":FromSimple", incomingDto.multiplier);
             });
 
-            // Create MatsSocketServer
-            _matsSocketServer = getMatsSocketServer(sce, matsFactory);
-            _matsSocketServer.setAuthorizationToPrincipalFunction(authHeader -> {
+            // :: Create MatsSocketServer
+            // Cluster-stuff for the MatsSocketServer
+            ClusterStoreAndForward_DummySingleNode clusterSaf = new ClusterStoreAndForward_DummySingleNode(matsFactory
+                    .getFactoryConfig().getNodename());
+            // Create the MSS
+            _matsSocketServer = getMatsSocketServer(sce, matsFactory, clusterSaf);
+
+            // .. stick in an Authentication plugin
+            Function<String, Principal> authToPrincipalFunction = authHeader -> {
                 log.info("Resolving Authorization header to principal for header [" + authHeader + "].");
                 long expires = Long.parseLong(authHeader.substring(authHeader.indexOf(':') + 1));
                 if (expires < System.currentTimeMillis()) {
                     throw new IllegalStateException("This DummyAuth is too old.");
                 }
-
                 return new Principal() {
                     @Override
                     public String getName() {
@@ -89,9 +105,10 @@ public class AppMain {
                         return "DummyPrincipal:" + authHeader;
                     }
                 };
-            });
+            };
+            _matsSocketServer.setAuthorizationToPrincipalFunction(authToPrincipalFunction);
 
-            // Make MatsSocketEndpoint
+            // :: MatsSocketEndpoint
             MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = _matsSocketServer
                     .matsSocketEndpoint("Test.single",
                             MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
@@ -126,14 +143,13 @@ public class AppMain {
         }
     }
 
-    private static MatsSocketServer getMatsSocketServer(ServletContextEvent sce, MatsFactory matsFactory) {
+    private static MatsSocketServer getMatsSocketServer(ServletContextEvent sce, MatsFactory matsFactory,
+            ClusterStoreAndForward clusterStoreAndForward) {
         Object serverContainerAttrib = sce.getServletContext().getAttribute(ServerContainer.class.getName());
         if (!(serverContainerAttrib instanceof ServerContainer)) {
             throw new AssertionError("Did not find '" + ServerContainer.class.getName() + "' object"
                     + " in ServletContext, but [" + serverContainerAttrib + "].");
         }
-        SingleNodeClusterStoreAndForward clusterStoreAndForward = new SingleNodeClusterStoreAndForward(matsFactory
-                .getFactoryConfig().getNodename());
 
         ServerContainer wsServerContainer = (ServerContainer) serverContainerAttrib;
         return DefaultMatsSocketServer.createMatsSocketServer(
@@ -225,6 +241,7 @@ public class AppMain {
         String portS = System.getProperty("jetty.http.port", "8080");
         int port = Integer.parseInt(portS);
         Server server = createServer(port);
+
 
         System.setProperty(DISABLE_SERVLET_CONTAINER_INITIALIZER_KEY, "true");
 
