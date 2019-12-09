@@ -4,10 +4,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.PriorityQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -29,8 +29,7 @@ import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 
 /**
- * Note: Kick-ass.
- * TODO: Make better JavaDoc
+ * Note: Kick-ass. TODO: Make better JavaDoc
  *
  * @author Endre Stølsvik 2019-08-25 20:35 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -41,9 +40,10 @@ public class MatsFuturizer implements AutoCloseable {
     /**
      * Creates a MatsFuturizer, <b>and you should only need one per MatsFactory</b> (which again mostly means one per
      * application or micro-service or JVM). The number of threads in the future-completer-pool is what
-     * {@link FactoryConfig#getConcurrency() matsFactory.getFactoryConfig().getConcurrency()} returns at creation time
-     * for "corePoolSize" (i.e. "min") and concurrency * 8 for "maximumPoolSize" (i.e. max). The pool is set up to let
-     * non-core threads expire after 5 minutes. The maximum number of outstanding promises is set to 50k.
+     * {@link FactoryConfig#getConcurrency() matsFactory.getFactoryConfig().getConcurrency()} returns at creation time x
+     * 4 for "corePoolSize", but at least 5, (i.e. "min"), and concurrency * 20, but at least 100, for "maximumPoolSize"
+     * (i.e. max). The pool is set up to let non-core threads expire after 5 minutes. The maximum number of outstanding
+     * promises is set to 50k.
      * 
      * @param matsFactory
      *            the underlying {@link MatsFactory} on which outgoing messages will be sent, and on which the receiving
@@ -57,8 +57,9 @@ public class MatsFuturizer implements AutoCloseable {
      *         SubscriptionTerminator}.
      */
     public static MatsFuturizer createMatsFuturizer(MatsFactory matsFactory, String endpointIdPrefix) {
-        int concurrency = matsFactory.getFactoryConfig().getConcurrency();
-        return createMatsFuturizer(matsFactory, endpointIdPrefix, concurrency, concurrency * 8, 50_000);
+        int corePoolSize = Math.max(5, matsFactory.getFactoryConfig().getConcurrency() * 4);
+        int maximumPoolSize = Math.max(100, matsFactory.getFactoryConfig().getConcurrency() * 20);
+        return createMatsFuturizer(matsFactory, endpointIdPrefix, corePoolSize, maximumPoolSize, 50_000);
     }
 
     /**
@@ -312,14 +313,35 @@ public class MatsFuturizer implements AutoCloseable {
         }
     }
 
-    protected ThreadPoolExecutor _newThreadPool(int corePoolSize, int maximumPoolSize) {
-        return new ThreadPoolExecutor(corePoolSize, maximumPoolSize, 5L, TimeUnit.MINUTES,
-                new LinkedBlockingQueue<>(), _newThreadFactory());
-    }
+    protected final AtomicInteger _threadNumber = new AtomicInteger();
 
-    protected ThreadFactory _newThreadFactory() {
-        AtomicInteger threadNumber = new AtomicInteger();
-        return r -> new Thread(r, "MatsFuturizer completer #" + threadNumber.getAndIncrement());
+    protected ThreadPoolExecutor _newThreadPool(int corePoolSize, int maximumPoolSize) {
+        // Trick to make ThreadPoolExecutor work as anyone in the world would expect:
+        // Have a constant pool of "corePoolSize", and then as more tasks are concurrently running than threads
+        // available, you increase the number of threads until "maximumPoolSize", at which point the rest go on queue.
+
+        // Snitched from https://stackoverflow.com/a/24493856
+
+        // Part 1: So, we extend a LinkedTransferQueue to behave a bit special on "offer(..)":
+        BlockingQueue<Runnable> queue = new LinkedTransferQueue<Runnable>() {
+            @Override
+            public boolean offer(Runnable e) {
+                // If there are any pool thread waiting for job, give it the job, otherwise return false.
+                // The TPE interprets false as "no more room on queue", so it rejects it. (cont'd on part 2)
+                return tryTransfer(e);
+            }
+        };
+        ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
+                5L, TimeUnit.MINUTES, queue,
+                r1 -> new Thread(r1, "MatsFuturizer completer #" + _threadNumber.getAndIncrement()));
+
+        // Part 2: We make a special RejectionExecutionHandler ...
+        threadPool.setRejectedExecutionHandler((r, executor) -> {
+            // ... which upon rejection due to "full queue" puts the task on queue nevertheless (LTQ is not bounded).
+            ((LinkedTransferQueue<Runnable>) executor.getQueue()).put(r);
+        });
+
+        return threadPool;
     }
 
     protected <T> Promise<T> _createPromise(String traceId, String from, Class<T> replyClass,
@@ -429,6 +451,7 @@ public class MatsFuturizer implements AutoCloseable {
             try {
                 MDC.put("traceId", promise._traceId);
                 // NOTICE! We don't log here, as the SubscriptionTerminator already has logged the ordinary mats lines.
+                log.debug(LOG_PREFIX + "Completing promise from [" + promise._from + "]: [" + promise + "]");
                 _uncheckedComplete(context, replyObject, promise);
             }
             // NOTICE! This catch will probably never be triggered, as if .thenAccept() and similar throws,
