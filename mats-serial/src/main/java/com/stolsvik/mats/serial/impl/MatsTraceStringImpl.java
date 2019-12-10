@@ -52,7 +52,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private Long tidl; // For future OpenTracing support: 16-byte TraceId LOW
     private Long sid; // For future OpenTracing support: Override SpanId for root
     private Long pid; // For future OpenTracing support: ParentId
-    private Byte f;  // For future OpenTracing support: Flags
+    private Byte f; // For future OpenTracing support: Flags
 
     private int d; // For future Debug options, issue #79
 
@@ -76,6 +76,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private final Boolean na; // NoAudit.
 
     private int cn; // Call Number. Not final due to clone-impl.
+    private int tcn; // For future "StackOverflow" detector: "Total Call Number", does not reset when initiation within.
 
     private List<CallImpl> c = new ArrayList<>(); // Calls, "Call Flow". Not final due to clone-impl.
     private List<StackStateImpl> ss = new ArrayList<>(); // StackStates. Not final due to clone-impl.
@@ -93,7 +94,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                 + "_" + Long.toUnsignedString(random.nextLong(), 36)
                 + Long.toUnsignedString(random.nextLong(), 36);
 
-        return new MatsTraceStringImpl(traceId, flowId, keepMatsTrace, nonPersistent, interactive, 0, false, 0);
+        return new MatsTraceStringImpl(traceId, flowId, keepMatsTrace, nonPersistent, interactive, 0, false);
     }
 
     /**
@@ -121,8 +122,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
      */
     public static MatsTrace<String> createNew(String traceId, String flowId,
             KeepMatsTrace keepMatsTrace, boolean nonPersistent, boolean interactive, long ttlMillis, boolean noAudit) {
-        return new MatsTraceStringImpl(traceId, flowId, keepMatsTrace, nonPersistent, interactive, ttlMillis, noAudit,
-                0);
+        return new MatsTraceStringImpl(traceId, flowId, keepMatsTrace, nonPersistent, interactive, ttlMillis, noAudit);
     }
 
     public MatsTraceStringImpl withDebugInfo(String initializingAppName, String initializingAppVersion,
@@ -145,7 +145,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         tid = null;
         id = null;
 
-        kt = KeepMatsTrace.COMPACT;
+        kt = null;
         np = null;
         ia = null;
         tl = null;
@@ -153,7 +153,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     private MatsTraceStringImpl(String traceId, String flowId, KeepMatsTrace keepMatsTrace, boolean nonPersistent,
-            boolean interactive, long ttlMillis, boolean noAudit, int callNumber) {
+            boolean interactive, long ttlMillis, boolean noAudit) {
         this.tid = traceId;
         this.id = flowId;
 
@@ -162,7 +162,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         this.ia = interactive ? Boolean.TRUE : null;
         this.tl = ttlMillis > 0 ? ttlMillis : null;
         this.na = noAudit ? Boolean.TRUE : null;
-        this.cn = callNumber;
+        this.cn = 0;
     }
 
     // == NOTICE == Serialization and deserialization is an implementation specific feature.
