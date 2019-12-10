@@ -1,8 +1,14 @@
 package com.stolsvik.mats.websocket.impl;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 
 import javax.sql.DataSource;
 
@@ -24,14 +30,20 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
      */
     public enum Database {
         /**
-         * H2: VARCHAR, VARBINARY (NOTE: H2 also handles {@link #MS_SQL})
+         * <b>Default:</b> MS SQL: NVARCHAR(MAX), VARBINARY(MAX) (NOTE: H2 also handles these).
          */
-        H2("VARCHAR", "VARBINARY"),
+        MS_SQL("NVARCHAR(MAX)", "VARBINARY(MAX)"),
 
         /**
-         * MS SQL: VARCHAR(MAX), VARBINARY(MAX) NOTE: H2 also handles these.
+         * MS SQL 2019 and above: VARCHAR(MAX) <b>(assumes UTF-8 collation type)</b>, VARBINARY(MAX) (NOTE: H2 also
+         * handles these).
          */
-        MS_SQL("VARCHAR(MAX)", "VARBINARY(MAX)"),
+        MS_SQL_2019("VARCHAR(MAX)", "VARBINARY(MAX)"),
+
+        /**
+         * H2: VARCHAR, VARBINARY (NOTE: H2 also handles {@link #MS_SQL} and {@link #MS_SQL_2019}).
+         */
+        H2("VARCHAR", "VARBINARY"),
 
         /**
          * PostgreSQL: TEXT, BYTEA
@@ -66,7 +78,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     /**
-     * Use MS SQL types - H2 also handles these.
+     * Use {@link Database#MS_SQL} types - H2 also handles these.
      */
     public static ClusterStoreAndForward_SQL create(DataSource dataSource, String nodename) {
         return new ClusterStoreAndForward_SQL(dataSource, nodename);
@@ -125,44 +137,230 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void registerSessionAtThisNode(String matsSocketSessionId) {
+    public void registerSessionAtThisNode(String matsSocketSessionId) throws DataAccessException {
+        try {
+            Connection con = _dataSource.getConnection();
+            try {
+                boolean autoCommitPre = con.getAutoCommit();
+                try {
+                    con.setAutoCommit(false);
+                    PreparedStatement delete = con.prepareStatement("DELETE FROM mats_socket_message"
+                            + " WHERE mats_session_id = ?");
+                    delete.setString(1, matsSocketSessionId);
+                    delete.execute();
 
+                    PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_session"
+                            + "(mats_session_id, nodename, liveliness_timestamp)"
+                            + "VALUES (?, ?, ?)");
+                    insert.setString(1, matsSocketSessionId);
+                    insert.setString(2, _nodename);
+                    insert.setLong(3, System.currentTimeMillis());
+                    insert.execute();
+                    con.commit();
+                }
+                finally {
+                    con.setAutoCommit(autoCommitPre);
+                }
+            }
+            finally {
+                con.close();
+            }
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Problems accessing DataSource.", e);
+        }
     }
 
     @Override
-    public void deregisterSessionFromThisNode(String matsSocketSessionId) {
-
+    public void deregisterSessionFromThisNode(String matsSocketSessionId) throws DataAccessException {
+        try {
+            Connection con = _dataSource.getConnection();
+            try {
+                // Note that we include a "WHERE nodename = us" here, so as to not mess up if he has already
+                // re-registered
+                PreparedStatement update = con.prepareStatement("UPDATE mats_socket_session"
+                        + "   SET nodename = NULL"
+                        + " WHERE mats_session_id = ?"
+                        + "   AND nodename = ?");
+                update.setString(1, matsSocketSessionId);
+                update.setString(2, _nodename);
+                update.execute();
+            }
+            finally {
+                con.close();
+            }
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Problems accessing DataSource.", e);
+        }
     }
 
     @Override
-    public Optional<String> getCurrentNodeForSession(String matsSocketSessionId) {
-        return Optional.empty();
+    public Optional<String> getCurrentNodeForSession(String matsSocketSessionId) throws DataAccessException {
+        try {
+            Connection con = _dataSource.getConnection();
+            try {
+                return currentNodeForSession(matsSocketSessionId, con);
+            }
+            finally {
+                con.close();
+            }
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Problems accessing DataSource.", e);
+        }
+    }
+
+    private Optional<String> currentNodeForSession(String matsSocketSessionId, Connection con) throws SQLException {
+        PreparedStatement select = con.prepareStatement("SELECT nodename FROM mats_socket_session"
+                + " WHERE mats_session_id = ?");
+        select.setString(1, matsSocketSessionId);
+        ResultSet resultSet = select.executeQuery();
+        boolean next = resultSet.next();
+        if (!next) {
+            return Optional.empty();
+        }
+        String nodename = resultSet.getString(1);
+        return Optional.of(nodename);
     }
 
     @Override
-    public void notifySessionLiveliness(List<String> matsSocketSessionIds) {
+    public void notifySessionLiveliness(List<String> matsSocketSessionIds) throws DataAccessException {
+        long now = System.currentTimeMillis();
+        try {
+            Connection con = _dataSource.getConnection();
+            try {
+                // TODO / OPTIMIZE: Make "in" and "batch" optimizations.
+                for (String matsSocketSessionId : matsSocketSessionIds) {
 
+                    PreparedStatement update = con.prepareStatement("UPDATE mats_socket_session"
+                            + "   SET liveliness_timestamp = ?"
+                            + " WHERE mats_session_id = ?");
+                    update.setLong(1, now);
+                    update.setString(2, matsSocketSessionId);
+                    update.execute();
+                }
+            }
+            finally {
+                con.close();
+            }
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Problems accessing DataSource.", e);
+        }
     }
 
     @Override
-    public void terminateSession(String matsSocketSessionId) {
+    public void terminateSession(String matsSocketSessionId) throws DataAccessException {
+        try {
+            Connection con = _dataSource.getConnection();
+            try {
+                // Notice that we DO NOT include WHERE nodename is us. User asked us to delete, and that we do.
+                PreparedStatement deleteSession = con.prepareStatement("DELETE FROM mats_socket_session"
+                        + " WHERE mats_session_id = ?");
+                deleteSession.setString(1, matsSocketSessionId);
+                deleteSession.execute();
 
+                PreparedStatement deleteMessages = con.prepareStatement("DELETE FROM mats_socket_message"
+                        + " WHERE mats_session_id = ?");
+                deleteMessages.setString(1, matsSocketSessionId);
+                deleteMessages.execute();
+            }
+            finally {
+                con.close();
+            }
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Problems accessing DataSource.", e);
+        }
     }
 
     @Override
     public Optional<String> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
-            String message) {
-        return Optional.empty();
+            String message) throws DataAccessException {
+
+        try {
+            Connection con = _dataSource.getConnection();
+            try {
+                PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_message"
+                        + "(message_id, mats_session_id, trace_id,"
+                        + " stored_timestamp, delivery_count, type, message_text)"
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?)");
+                long randomId = ThreadLocalRandom.current().nextLong();
+                insert.setLong(1, randomId);
+                insert.setString(2, matsSocketSessionId);
+                insert.setString(3, traceId);
+                insert.setLong(4, System.currentTimeMillis());
+                insert.setInt(5, 0);
+                insert.setString(6, type);
+                insert.setString(7, message);
+                insert.execute();
+
+                return currentNodeForSession(matsSocketSessionId, con);
+            }
+            finally {
+                con.close();
+            }
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Problems accessing DataSource.", e);
+        }
     }
 
     @Override
-    public List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages) {
-        return null;
+    public List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages) throws DataAccessException {
+        try {
+            Connection con = _dataSource.getConnection();
+            try {
+                // The old MS JDBC Driver 'jtds' don't handle parameter insertion for TOP.
+                PreparedStatement insert = con.prepareStatement("SELECT TOP " + maxNumberOfMessages
+                        + "          message_id, mats_session_id, trace_id,"
+                        + "          stored_timestamp, delivery_count, type, message_text"
+                        + "  FROM mats_socket_message"
+                        + " WHERE mats_session_id = ?");
+                insert.setString(1, matsSocketSessionId);
+                ResultSet rs = insert.executeQuery();
+                List<StoredMessage> list = new ArrayList<>();
+                while (rs.next()) {
+                    StoredMessageImpl sm = new StoredMessageImpl(rs.getLong(1), rs.getInt(5),
+                            rs.getLong(4), rs.getString(6), rs.getString(3),
+                            rs.getString(7));
+                    list.add(sm);
+                }
+                return list;
+            }
+            finally {
+                con.close();
+            }
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Problems accessing DataSource.", e);
+        }
     }
 
     @Override
-    public void messagesComplete(String matsSocketSessionId, List<Long> messageIds) {
+    public void messagesComplete(String matsSocketSessionId, List<Long> messageIds) throws DataAccessException {
+        try {
+            Connection con = _dataSource.getConnection();
+            try {
+                // TODO / OPTIMIZE: Make "in" and "batch" optimizations.
+                for (Long messageId : messageIds) {
 
+                    PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM mats_socket_message"
+                            + " WHERE mats_session_id = ?"
+                            + "   AND message_id = ?");
+                    deleteMsg.setString(1, matsSocketSessionId);
+                    deleteMsg.setLong(2, messageId);
+                    deleteMsg.execute();
+                }
+            }
+            finally {
+                con.close();
+            }
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Problems accessing DataSource.", e);
+        }
     }
 
     @Override

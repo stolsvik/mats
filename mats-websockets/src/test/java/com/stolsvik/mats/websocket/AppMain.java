@@ -26,8 +26,6 @@ import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpoint;
 
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
-import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
@@ -45,7 +43,9 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.test.Rule_Mats;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_DummySingleNode;
+import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
 
 /**
  * @author Endre Stølsvik 2019-11-21 21:07 - http://stolsvik.com/, endre@stolsvik.com
@@ -83,9 +83,10 @@ public class AppMain {
 
             // :: Create MatsSocketServer
             // Cluster-stuff for the MatsSocketServer
-            ClusterStoreAndForward_DummySingleNode csaf = new ClusterStoreAndForward_DummySingleNode(matsFactory
-                    .getFactoryConfig().getNodename());
-//            ClusterStoreAndForward_SQL csaf = ClusterStoreAndForward_SQL.create(dataSource, matsFactory.getFactoryConfig().getNodename());
+//             ClusterStoreAndForward_DummySingleNode csaf = new ClusterStoreAndForward_DummySingleNode(matsFactory
+//             .getFactoryConfig().getNodename());
+             ClusterStoreAndForward_SQL csaf = ClusterStoreAndForward_SQL.create(dataSource, matsFactory
+             .getFactoryConfig().getNodename());
             // Create the MatsSocketServer
             _matsSocketServer = getMatsSocketServer(sce, matsFactory, csaf);
 
@@ -243,7 +244,6 @@ public class AppMain {
         String portS = System.getProperty("jetty.http.port", "8080");
         int port = Integer.parseInt(portS);
         Server server = createServer(port);
-
 
         System.setProperty(DISABLE_SERVLET_CONTAINER_INITIALIZER_KEY, "true");
 

@@ -43,7 +43,7 @@ public interface ClusterStoreAndForward {
      *
      * @param matsSocketSessionId
      */
-    void registerSessionAtThisNode(String matsSocketSessionId);
+    void registerSessionAtThisNode(String matsSocketSessionId) throws DataAccessException;
 
     /**
      * Deregisters a Session home when a WebSocket is closed. This node's nodename is taken into account, so that if it
@@ -51,7 +51,7 @@ public interface ClusterStoreAndForward {
      *
      * @param matsSocketSessionId
      */
-    void deregisterSessionFromThisNode(String matsSocketSessionId);
+    void deregisterSessionFromThisNode(String matsSocketSessionId) throws DataAccessException;
 
     /**
      * Invoked when the client explicitly tells us that he closed this session, CLOSE_SESSION. Throws
@@ -60,14 +60,14 @@ public interface ClusterStoreAndForward {
      * @param matsSocketSessionId
      *            the MatsSocketSessionId that should be closed.
      */
-    void terminateSession(String matsSocketSessionId) throws IllegalStateException;
+    void terminateSession(String matsSocketSessionId) throws IllegalStateException, DataAccessException;
 
     /**
      * @param matsSocketSessionId
      *            the MatsSocketSessionId for which to find current session home.
      * @return the nodename of current node holding MatsSocket Session, or empty if none.
      */
-    Optional<String> getCurrentNodeForSession(String matsSocketSessionId);
+    Optional<String> getCurrentNodeForSession(String matsSocketSessionId) throws DataAccessException;
 
     /**
      * Shall be invoked on some kind of schedule (e.g. every 5 minute) by node to inform {@link ClusterStoreAndForward}
@@ -75,7 +75,7 @@ public interface ClusterStoreAndForward {
      *
      * @param matsSocketSessionIds
      */
-    void notifySessionLiveliness(List<String> matsSocketSessionIds);
+    void notifySessionLiveliness(List<String> matsSocketSessionIds) throws DataAccessException;
 
     /**
      * Stores the message for the Session, returning the nodename for the node holding the session, if any. If the
@@ -92,7 +92,7 @@ public interface ClusterStoreAndForward {
      * @return the nodename of the node holding the WebSocket Session, or empty if the Session is not connected.
      */
     Optional<String> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
-            String message);
+            String message) throws DataAccessException;
 
     /**
      * Fetch a set of messages, up to 'maxNumberOfMessages'.
@@ -103,7 +103,7 @@ public interface ClusterStoreAndForward {
      *            the maximum number of messages to fetch.
      * @return a list of json encoded messages destined for the WebSocket.
      */
-    List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages);
+    List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages) throws DataAccessException;
 
     /**
      * States that the messages are delivered, or overran their delivery attempts. Will typically delete the message.
@@ -113,7 +113,7 @@ public interface ClusterStoreAndForward {
      * @param messageIds
      *            which messages are complete.
      */
-    void messagesComplete(String matsSocketSessionId, List<Long> messageIds);
+    void messagesComplete(String matsSocketSessionId, List<Long> messageIds) throws DataAccessException;
 
     /**
      * Notches the 'deliveryAttempt' one up for the specified messages.
@@ -123,7 +123,7 @@ public interface ClusterStoreAndForward {
      * @param messageIds
      *            which messages failed delivery.
      */
-    void messagesFailedDelivery(String matsSocketSessionId, List<Long> messageIds);
+    void messagesFailedDelivery(String matsSocketSessionId, List<Long> messageIds) throws DataAccessException;
 
     interface StoredMessage {
         long getId();
@@ -137,5 +137,18 @@ public interface ClusterStoreAndForward {
         String getTraceId();
 
         String getEnvelopeJson();
+    }
+
+    /**
+     * If having problems accessing the underlying common data store.
+     */
+    class DataAccessException extends Exception {
+        public DataAccessException(String message) {
+            super(message);
+        }
+
+        public DataAccessException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 }

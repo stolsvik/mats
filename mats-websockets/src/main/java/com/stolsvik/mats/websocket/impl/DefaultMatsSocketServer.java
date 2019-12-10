@@ -48,6 +48,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.websocket.MatsSocketServer;
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.StoredMessage;
 
 /**
@@ -253,8 +254,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         msReplyEnvelope.msg = msReply;
 
         String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
-        Optional<String> nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageForSession(
-                state.sid, "REPLY", processContext.getTraceId(), serializedEnvelope);
+        Optional<String> nodeNameHoldingWebSocket;
+        try {
+            nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageForSession(
+                    state.sid, processContext.getTraceId(), msReplyEnvelope.t, serializedEnvelope);
+        }
+        catch (DataAccessException e) {
+            // TODO: Fix
+            throw new AssertionError("Damn", e);
+        }
 
         // ?: If we do have a nodename, ping it about new message
         // TODO: Local ping if it is us. Just check directly on _activeSessions...
@@ -278,9 +286,16 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     + " did not have that session anymore.");
             // Since someone thought that we had it, but we did not, tell ClusterStoreAndForward that we do not have it
             // (This is not dangerous, because it won't deregister any other Session home)
-            _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId);
-            // Find if the session resides on a different node
-            Optional<String> currentNode = _clusterStoreAndForward.getCurrentNodeForSession(matsSocketSessionId);
+            Optional<String> currentNode;
+            try {
+                _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId);
+                // Find if the session resides on a different node
+                currentNode = _clusterStoreAndForward.getCurrentNodeForSession(matsSocketSessionId);
+            }
+            catch (DataAccessException e) {
+                // TODO: Fix
+                throw new AssertionError("Damn.", e);
+            }
 
             // ?: Is the session live at another node?
             if (!currentNode.isPresent()) {
@@ -328,15 +343,28 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         // TODO: Shall become a single-thread-per-sessionId forwarder system
 
-        List<ClusterStoreAndForward.StoredMessage> messagesForSession = _clusterStoreAndForward
-                .getMessagesForSession(matsSocketSessionId, 20);
+        List<StoredMessage> messagesForSession;
+        try {
+            messagesForSession = _clusterStoreAndForward
+                    .getMessagesForSession(matsSocketSessionId, 20);
+        }
+        catch (DataAccessException e) {
+            // TODO: Fix
+            throw new AssertionError("Damn", e);
+        }
 
         Session session = matsSocketSession._session;
         messagesForSession.forEach(m -> {
             session.getAsyncRemote().sendText(m.getEnvelopeJson());
         });
-        _clusterStoreAndForward.messagesComplete(matsSocketSessionId,
-                messagesForSession.stream().map(StoredMessage::getId).collect(Collectors.toList()));
+        try {
+            _clusterStoreAndForward.messagesComplete(matsSocketSessionId,
+                    messagesForSession.stream().map(StoredMessage::getId).collect(Collectors.toList()));
+        }
+        catch (DataAccessException e) {
+            // TODO: Fix
+            throw new AssertionError("Damn", e);
+        }
     }
 
     private void serializeAndSendEnvelope(Session session, MatsSocketEnvelopeDto msReplyEnvelope) {
@@ -439,8 +467,14 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 // We do not have it locally anymore
                 _matsSocketServer._activeSessionsByMatsSocketSessionId.remove(_matsSocketSession._matsSocketSessionId);
                 // Deregister session from the ClusterStoreAndForward
-                _matsSocketServer._clusterStoreAndForward.deregisterSessionFromThisNode(
-                        _matsSocketSession._matsSocketSessionId);
+                try {
+                    _matsSocketServer._clusterStoreAndForward.deregisterSessionFromThisNode(
+                            _matsSocketSession._matsSocketSessionId);
+                }
+                catch (DataAccessException e) {
+                    // TODO: Fix
+                    throw new AssertionError("Damn", e);
+                }
             }
         }
     }
@@ -554,7 +588,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
                     // Add Session to our active-map
                     _matsSocketServer._activeSessionsByMatsSocketSessionId.put(_matsSocketSessionId, this);
-                    _matsSocketServer._clusterStoreAndForward.registerSessionAtThisNode(_matsSocketSessionId);
+                    try {
+                        _matsSocketServer._clusterStoreAndForward.registerSessionAtThisNode(_matsSocketSessionId);
+                    }
+                    catch (DataAccessException e) {
+                        // TODO: Fix
+                        throw new AssertionError("Damn", e);
+                    }
 
                     // ----- We're now a live MatsSocketSession
 
@@ -589,7 +629,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
                 if ("CLOSE_SESSION".equals(envelope.t)) {
                     _matsSocketServer._activeSessionsByMatsSocketSessionId.remove(_matsSocketSessionId);
-                    _matsSocketServer._clusterStoreAndForward.terminateSession(_matsSocketSessionId);
+                    try {
+                        _matsSocketServer._clusterStoreAndForward.terminateSession(_matsSocketSessionId);
+                    }
+                    catch (DataAccessException e) {
+                        // TODO: Fix
+                        throw new AssertionError("Damn", e);
+                    }
                     closeWebSocket(CloseCodes.NORMAL_CLOSURE, "From Server: Client said CLOSE_SESSION (" +
                             escape(envelope.desc) + "): Deleting session, closing WebSocket.");
                     continue;
