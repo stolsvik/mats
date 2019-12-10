@@ -67,21 +67,29 @@ public class Test_TimeToLive extends MatsBasicTest {
     private void doTest(long timeToLive, int expectedMessages) {
         DataTO finalDto = new DataTO(42, "FINAL");
         StateTO sto = new StateTO(420, 420.024);
+
+        // :: First send 4 messages with the specified TTL.
         matsRule.getMatsInitiator().initiateUnchecked(
                 (msg) -> {
-                    // First send 4 messages with the specified TTL.
                     for (int i = 0; i < 4; i++) {
                         DataTO dto = new DataTO(i, "DELAY");
                         msg.traceId(randomId())
                                 .from(INITIATOR)
                                 .to(SERVICE)
-                                .timeToLive(timeToLive)
+                                .nonPersistent(timeToLive)
+                                .interactive()
                                 .replyTo(TERMINATOR, sto)
                                 .request(dto);
                     }
-                    // Then send a "flushing" FINAL message, which is the one that resolves the latch.
-                    // NOTE: This does NOT set the TTL, to test that the default is 0, even though we sat the TTL for
-                    // the previous ones.
+                });
+
+        // :: Then send a "flushing" FINAL message, which is the one that resolves the latch.
+        // NOTE: This must be done in a separate transaction (i.e. separate initiation), or otherwise evidently the
+        // persistent (not nonPersistent) final "flushing" message somehow gets prioritization over the nonPersistent
+        // ones, and gets to the terminator before the above ones. So either I had to also make this one nonPersistent,
+        // or like this, do it in a separate initiation. Strange stuff.
+        matsRule.getMatsInitiator().initiateUnchecked(
+                (msg) -> {
                     msg.traceId(randomId())
                             .from(INITIATOR)
                             .to(SERVICE)
@@ -89,11 +97,10 @@ public class Test_TimeToLive extends MatsBasicTest {
                             .request(finalDto);
                 });
 
-        // Wait synchronously for terminator to finish.
+        // Wait synchronously for terminator to finish (that is, receives the flushing "FINAL" message).
         Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(finalDto.number * 2, finalDto.string + ":FromService"), result.getData());
         Assert.assertEquals(expectedMessages, _numberOfMessages.get());
     }
-
 }

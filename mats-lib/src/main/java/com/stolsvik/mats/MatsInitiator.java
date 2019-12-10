@@ -282,6 +282,51 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate nonPersistent();
 
         /**
+         * Same as {@link #nonPersistent()}, but you can set a time-to-live too. If the message gets this old and have
+         * not yet been delivered to the receiving Mats endpoint, it will be deleted and never delivered.
+         * <p/>
+         * This functionality often makes sense for messages that are <b>both</b> {@link #interactive() interactive} and
+         * {@link #nonPersistent() non-persistent}: Such messages shall only be "getters" free of any side effects (i.e.
+         * no state is changed by the entire message flow), and where a human is actively waiting for the reply. If
+         * there is a situation where such messages aren't consumed due to the receiving service having problems, it
+         * does not make sense to use processing resources to handle a massive stack of these messages when the
+         * consumption is restored an hour later, as e.g. the synchronously waiting HTTP call that was waiting for the
+         * reply has timed out, and the waiting human is probably long gone anyway.
+         * <p/>
+         * <b>Notice on use:</b> This should <b>NOT</b> be employed for message flows where any stage might change any
+         * state, i.e. message flows with side effects (Think "PUT", "POST" and "DELETE"-style messages) - which also
+         * should <b>NOT</b> employ {@link #nonPersistent() non-persistent} messaging. The rationale is that such
+         * messages should never just cease to exists, for any reason - they should have both guaranteed delivery and
+         * execution. You should also never use this to handle any business logic, e.g. some kind of order time-out
+         * where an order is only valid until 21:00, or something like this. This both because of the <i>"Note on
+         * implementation"</i> below, and that the entire facility of "time to live" is optional both for Mats and for
+         * the underlying message queue system.
+         * <p/>
+         * <b>Notice on implementation:</b> If the message is a part of a multi-message flow, which most Mats
+         * initiations pretty much invariably is (a request consists of a request-message and a reply-message), this TTL
+         * will be set afresh on every new message in the flow, possibly with the amount of time taken in the processing
+         * of the stage deducted. <u>However, the time that the message waited in queue will not be deducted.</u> The
+         * effective TTL of the flow might therefore be a multiple of what is set here. An example: The TTL of an
+         * initiation is set to 5000 ms. The request message stays 4 seconds in queue, before being received and
+         * processed, where the processing took 100 ms. The reply-message will thus have its TTL set to 4900 ms: 5000 ms
+         * TTL - 100 ms for processing. The reply message stays 4 seconds in queue before being received. The total
+         * "time in flight" has now been 8.1 seconds, and there was still 900 ms left of the reply-message's TTL. The
+         * rationale for not deducting queue-time on the subsequent message is that there is no easy way to get the
+         * "queue time" which does not involve taking the difference between two timestamps, but in a multi-server
+         * architecture there is a clear possibility of clock skews between different services, even instances of the
+         * same service. You could then deduce a too high queue time, deducting a too high value from the
+         * reply-message's TTL, and effectively time out the full message flow too early. However, for the intended use
+         * case - to hinder build-up of messages that will nevertheless be valueless when the answer is received since
+         * the interactively waiting human is long gone - this is no big problem.
+         *
+         * @param timeToLiveMillis
+         *            the number of milliseconds before this message is timed out and thus will never be delivered - 0
+         *            means "live forever", and this is the default.
+         * @return the {@link MatsInitiate} for chaining.
+         */
+        MatsInitiate nonPersistent(long timeToLiveMillis);
+
+        /**
          * <b>Prioritize this message & flow!</b> Hint to the underlying implementation that a human is actually waiting
          * for the result of a request, and that the flow therefore should be prioritized. This status will be kept
          * through the entire flow, so that all messages in the flow are prioritized. This makes it possible to use the
@@ -309,48 +354,10 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate interactive();
 
         /**
-         * Sets the Time To Live for this message. If the message gets this old before being delivered to the receiving
-         * Mats endpoint, it will be deleted and never delivered.
-         * <p/>
-         * This functionality often makes sense for messages that are <b>both</b> {@link #interactive() interactive} and
-         * {@link #nonPersistent() non-persistent}: Such messages shall only be "getters" free of any side effects (i.e.
-         * no state is changed by the entire message flow), and where a human is actively waiting for the reply. If
-         * there is a situation where such messages aren't consumed due to the receiving service having problems, it
-         * does not make sense to use processing resources to handle a massive stack of these messages when the
-         * consumption is restored an hour later, as e.g. the synchronously waiting HTTP call has timed out, and the
-         * waiting human is probably long gone anyway.
-         * <p/>
-         * <b>Notice on use:</b> This should <b>NOT</b> be employed for message flows where any stage might change any
-         * state, i.e. message flows with side effects (Think "PUT", "POST" and "DELETE"-style messages) - which also
-         * should <b>NOT</b> employ {@link #nonPersistent() non-persistent} messaging. The rationale is that such
-         * messages should never just cease to exists, for any reason - they should have both guaranteed delivery and
-         * execution. You should also never use this to handle any business logic, e.g. some kind of order time-out
-         * where an order is only valid until 21:00, or something like this. This both because of the <i>"Note on
-         * implementation"</i> below, and that the entire facility of "time to live" is optional both for Mats and for
-         * the underlying message queue system.
-         * <p/>
-         * <b>Notice on implementation:</b> If the message is a part of a multi-message flow, which most Mats
-         * initiations pretty much invariably is (a request consists of a request-message and a reply-message), this TTL
-         * will be set afresh on every new message in the flow, possibly with the amount of time taken in the processing
-         * of the stage deducted. <u>However, the time that the message waited in queue will not be deducted.</u> The
-         * effective TTL of the flow might therefore be a multiple of what is set here. An example: The TTL of an
-         * initiation is set to 5000 ms. The request message stays 4 seconds in queue, before being received and
-         * processed, where the processing took 100 ms. The reply-message will thus have its TTL set to 4900 ms: 5000 ms
-         * TTL - 100 ms for processing. The reply message stays 4 seconds in queue before being received. The total
-         * "time in flight" has now been 8.1 seconds, and there was still 900 ms left of the reply-message's TTL. The
-         * rationale for not deducting queue-time on the subsequent message is that there is no easy way to get the
-         * "queue time" which does not involve taking the difference between two timestamps, but in a multi-server
-         * architecture there is a clear possibility of clock skews between different services, even instances of the
-         * same service. You could then deduce a too high queue time, deducting a too high value from the
-         * reply-message's TTL, and effectively time out the full message flow too early. However, for the intended use
-         * case - to hinder build-up of messages that will nevertheless be valueless when the answer is received since
-         * the interactively waiting human is long gone - this is no big problem.
-         * 
-         * @param millis
-         *            the number of milliseconds before this message is timed out and thus will never be delivered - 0
-         *            means "live forever", and this is the default.
-         * @return the {@link MatsInitiate} for chaining.
+         * @deprecated Use {@link #nonPersistent(long)} instead. It makes little sense to have a timeToLive on a message
+         *             that is also persistent (i.e. not nonPersistent), therefore these was combined.
          */
+        @Deprecated
         MatsInitiate timeToLive(long millis);
 
         /**
@@ -373,8 +380,8 @@ public interface MatsInitiator extends Closeable {
          * is to be able to tally them, i.e. <i>"WebService.healthCheck is invoking AccountService.webStatus 52389052
          * times per day"</i> - both to see that it is probably a bit excessive, and to see that there is traffic there
          * at all (since AccountService.webStatus seems to be a pretty specific endpoint). However, there is probably
-         * not much use in storing the <i>contents</i> of such calls - and maybe not retain the calls for more than a few
-         * months.
+         * not much use in storing the <i>contents</i> of such calls - and maybe not retain the calls for more than a
+         * few months.
          *
          * @return the {@link MatsInitiate} for chaining.
          */

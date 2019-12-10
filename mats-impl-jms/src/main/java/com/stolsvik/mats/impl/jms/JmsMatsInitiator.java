@@ -276,7 +276,17 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
         @Override
         public MatsInitiate nonPersistent() {
+            nonPersistent(0);
+            return this;
+        }
+
+        @Override
+        public MatsInitiate nonPersistent(long timeToLiveMillis) {
+            if (timeToLiveMillis < 0) {
+                throw new IllegalArgumentException("timeToLive must be > 0");
+            }
             _nonPersistent = true;
+            _timeToLive = timeToLiveMillis;
             return this;
         }
 
@@ -287,8 +297,15 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         @Override
-        public MatsInitiate timeToLive(long millis) {
-            _timeToLive = millis;
+        public MatsInitiate timeToLive(long timeToLiveMillis) {
+//            if (!_nonPersistent) {
+//                throw new IllegalStateException("Cannot set TimeToLive on a message that is not also nonPersistent()"
+//                        + " - the method timeToLive() is deprecated, use nonPersistent(timeToLive) instead.");
+//            }
+            if (timeToLiveMillis < 0) {
+                throw new IllegalArgumentException("timeToLive must be > 0");
+            }
+            _timeToLive = timeToLiveMillis;
             return this;
         }
 
