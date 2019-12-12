@@ -3,11 +3,16 @@ package com.stolsvik.mats.websocket.impl;
 import java.io.IOException;
 import java.security.Principal;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -94,13 +99,16 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         return matsSocketServer;
     }
 
-    private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?, ?>> _matsSocketEndpointsByMatsSocketEndpointId = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, MatsSocketSession> _activeSessionsByMatsSocketSessionId = new ConcurrentHashMap<>();
-
+    // Constructor init
     private final MatsFactory _matsFactory;
     private final ClusterStoreAndForward _clusterStoreAndForward;
     private final ObjectMapper _jackson;
     private final String _replyTerminatorId;
+    private final MessageToWebSocketForwarder _messageToWebSocketForwarder;
+
+    // In-line init
+    private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?, ?>> _matsSocketEndpointsByMatsSocketEndpointId = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, MatsSocketSession> _activeSessionsByMatsSocketSessionId = new ConcurrentHashMap<>();
 
     private DefaultMatsSocketServer(MatsFactory matsFactory, ClusterStoreAndForward clusterStoreAndForward,
             String replyTerminatorId) {
@@ -109,13 +117,18 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         _jackson = jacksonMapper();
         _replyTerminatorId = replyTerminatorId;
 
+        int corePoolSize = Math.max(5, matsFactory.getFactoryConfig().getConcurrency() * 4);
+        int maximumPoolSize = Math.max(100, matsFactory.getFactoryConfig().getConcurrency() * 20);
+        _messageToWebSocketForwarder = new MessageToWebSocketForwarder(this,
+                corePoolSize, maximumPoolSize);
+
         // Register our Reply-handler (common on all nodes - need forwarding to correct node)
         matsFactory.terminator(replyTerminatorId, ReplyHandleStateDto.class, MatsObject.class,
                 this::mats_processMatsReply);
 
         // Register our Forward to WebSocket handler (common on all nodes).
         matsFactory.subscriptionTerminator(pingTerminatorIdForNode(getMyNodename()), Void.class, String.class,
-                (processContext, state, matsSocketSessionId) -> localSessionMessageNotify(matsSocketSessionId));
+                (processContext, state, matsSocketSessionId) -> mats_localSessionMessageNotify(matsSocketSessionId));
     }
 
     private String getMyNodename() {
@@ -123,6 +136,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     }
 
     private String pingTerminatorIdForNode(String nodename) {
+        // TODO: "Escape" the nodename (just in case)
         return _replyTerminatorId + '.' + nodename;
     }
 
@@ -156,6 +170,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     public void shutdown() {
         log.info("Asked to shut down MatsSocketServer [" + id(this)
                 + "], containing [" + _activeSessionsByMatsSocketSessionId.size() + "] sessions.");
+
+        _messageToWebSocketForwarder.shutdown();
+
         _activeSessionsByMatsSocketSessionId.values().forEach(s -> {
             s.closeWebSocket(CloseCodes.SERVICE_RESTART,
                     "From Server: Server instance is going down, please reconnect.");
@@ -215,8 +232,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
      */
     private static final Long REPLACE_VALUE = 3_945_608_518_157_027_723L;
 
-    private void mats_processMatsReply(ProcessContext<Void> processContext, ReplyHandleStateDto state,
-            MatsObject incomingMsg) {
+    private void mats_processMatsReply(ProcessContext<Void> processContext,
+            ReplyHandleStateDto state, MatsObject incomingMsg) {
         long matsMessageReplyReceivedTimestamp = System.currentTimeMillis();
 
         // Find the MatsSocketEndpoint for this reply
@@ -277,102 +294,327 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
     }
 
-    private void localSessionMessageNotify(String matsSocketSessionId) {
+    private void mats_localSessionMessageNotify(String matsSocketSessionId) {
         MatsSocketSession matsSocketSession = _activeSessionsByMatsSocketSessionId.get(matsSocketSessionId);
         // ?: If this Session does not exist at this node, we cannot deliver
         if (matsSocketSession == null) {
             // -> No Session here.
             log.info("Got notified about new message to MatsSocketSessionId [" + matsSocketSessionId + "], but we"
                     + " did not have that session anymore.");
+
             // Since someone thought that we had it, but we did not, tell ClusterStoreAndForward that we do not have it
             // (This is not dangerous, because it won't deregister any other Session home)
-            Optional<String> currentNode;
             try {
                 _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId);
-                // Find if the session resides on a different node
-                currentNode = _clusterStoreAndForward.getCurrentNodeForSession(matsSocketSessionId);
             }
             catch (DataAccessException e) {
-                // TODO: Fix
-                throw new AssertionError("Damn.", e);
-            }
-
-            // ?: Is the session live at another node?
-            if (!currentNode.isPresent()) {
-                // -> Not, not live anywhere - cannot forward, must wait for reconnect
+                log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to deregister MatsSocketSession"
+                        + " [ms_sid:" + matsSocketSessionId + "] from this node '" + getMyNodename() + "' using '"
+                        + _clusterStoreAndForward.getClass().getSimpleName() + "'. Bailing out, hoping for"
+                        + " self-healer process to figure it out.", e);
                 return;
             }
 
-            // E-> It is evidently live at another node.
+            notifyHomeNodeAboutNewMessage(matsSocketSessionId);
+        }
 
-            String newSessionNodename = currentNode.get();
+        // ----- At this point, we have determined that MatsSocketSession has home here
 
-            // If this turns out to be ourselves (this node), it must be a case of
-            // a) extreme asyncness, or
-            // b) someone trying to crack us by hammering new WebSockets, or broken ClusterStoreAndForward.
+        _messageToWebSocketForwarder.notifyMessageFor(matsSocketSession);
+    }
 
-            // ?: Is this us?!
-            if (getMyNodename().equals(newSessionNodename)) {
-                // -> Yes, it is us!!
-                // Try to again find Session at us
-                matsSocketSession = _activeSessionsByMatsSocketSessionId.get(matsSocketSessionId);
-                // ?: Did we have it this time?
-                if (matsSocketSession == null) {
-                    // -> No, so give up
-                    // Case 'b': Either someone is trying to crack us, or ClusterStoreAndForward is broken.
-                    log.warn("We got a message notify for sessionId. We did not have it. We said so to"
-                            + " ClusterStoreAndForward. We then queried who has the session. We again got us."
-                            + " BUT WE DO STILL NOT HAVE IT!! Ignoring by giving up.");
+    /**
+     * Gets a ping from the node-specific Topic, or when the client reconnects.
+     */
+    private static class MessageToWebSocketForwarder {
+        private final DefaultMatsSocketServer _matsSocketServer;
+        private final ClusterStoreAndForward _clusterStoreAndForward;
+
+        private final ThreadPoolExecutor _threadPool;
+
+        private final Map<String, Long> _handlersCurrentlyRunningWithNotificationCount = new HashMap<>();
+        private final AtomicInteger _threadNumber = new AtomicInteger();
+
+        public MessageToWebSocketForwarder(DefaultMatsSocketServer defaultMatsSocketServer,
+                int corePoolSize, int maximumPoolSize) {
+            _matsSocketServer = defaultMatsSocketServer;
+            _clusterStoreAndForward = defaultMatsSocketServer._clusterStoreAndForward;
+
+            // Trick to make ThreadPoolExecutor work as anyone in the world would expect:
+            // Have a constant pool of "corePoolSize", and then as more tasks are concurrently running than threads
+            // available, you increase the number of threads until "maximumPoolSize", at which point the rest go on
+            // queue.
+
+            // Snitched from https://stackoverflow.com/a/24493856
+
+            // Part 1: So, we extend a LinkedTransferQueue to behave a bit special on "offer(..)":
+            LinkedTransferQueue<Runnable> runQueue = new LinkedTransferQueue<Runnable>() {
+                @Override
+                public boolean offer(Runnable e) {
+                    // If there are any pool thread waiting for job, give it the job, otherwise return false.
+                    // The TPE interprets false as "no more room on queue", so it rejects it. (cont'd on part 2)
+                    return tryTransfer(e);
+                }
+            };
+            _threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
+                    5L, TimeUnit.MINUTES, runQueue,
+                    r1 -> new Thread(r1, "MatsSockets WebSocket Forwarder #" + _threadNumber.getAndIncrement()));
+
+            // Part 2: We make a special RejectionExecutionHandler ...
+            _threadPool.setRejectedExecutionHandler((r, executor) -> {
+                // ... which upon rejection due to "full queue" puts the task on queue nevertheless
+                // (LTQ is not bounded).
+                ((LinkedTransferQueue<Runnable>) _threadPool.getQueue()).put(r);
+            });
+        }
+
+        void shutdown() {
+            _threadPool.shutdown();
+            try {
+                _threadPool.awaitTermination(8, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException e) {
+                // Just re-set interrupted flag, and go on exiting.
+                Thread.currentThread().interrupt();
+            }
+            _threadPool.shutdownNow();
+        }
+
+        void notifyMessageFor(MatsSocketSession matsSocketSession) {
+            // :: Check if there is an existing handler for this MatsSocketSession
+            synchronized (_handlersCurrentlyRunningWithNotificationCount) {
+                // ?: Check if we already have a message handler running for this sessionId
+                Long count = _handlersCurrentlyRunningWithNotificationCount.get(matsSocketSession._matsSocketSessionId);
+                // ?: Did we have any count here?
+                if (count != null) {
+                    // -> Yes, so just increase this, and the existing handler will take care of it.
+                    _handlersCurrentlyRunningWithNotificationCount.put(matsSocketSession._matsSocketSessionId, count
+                            + 1);
+                    // We're done
                     return;
                 }
-                // E-> We found it, i.e. case 'a' extreme asyncness!
+
+                // E-> No, there was not a handler running, so we must make one
+                // We will now fire off a handler, with 1 in count
+                _handlersCurrentlyRunningWithNotificationCount.put(matsSocketSession._matsSocketSessionId, 1L);
             }
-            else {
-                // -> No, it is not us - so forward the ping
-                _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
-                    init.traceId("PingForwardOnChangedSessionHome[ms_sid:" + matsSocketSessionId + "]" + rnd(5))
-                            .from("MatsSocketSystem.pingForward")
-                            .to(pingTerminatorIdForNode(newSessionNodename))
-                            .publish(matsSocketSessionId);
-                });
-                return;
+
+            // ----- There was no existing handler for this MatsSocketSession
+
+            // Fire off a new handler.
+            _threadPool.execute(() -> this.handlerRunnable(matsSocketSession));
+        }
+
+        void handlerRunnable(MatsSocketSession matsSocketSession) {
+            String matsSocketSessionId = matsSocketSession._matsSocketSessionId;
+            Session session = matsSocketSession._webSocketSession;
+
+            try { // try-finally: Remove ourselves from the "currently running handlers".
+                  // LOOP: "Re-notifications"
+                while (true) {
+                    // ?: Check if WebSocket Session is still open.
+                    if (!session.isOpen()) {
+                        log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
+                                + " Session was closed. Notifying '"
+                                + _clusterStoreAndForward.getClass().getSimpleName()
+                                + "' that this MatsSocketSession does not reside here ["
+                                + _matsSocketServer.getMyNodename() + "] anymore, forwarding notification to new"
+                                + " MatsSocketSession home (if any), and exiting handler.");
+
+                        // :: Deregister from this node.
+                        try {
+                            _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId);
+                        }
+                        catch (DataAccessException e) {
+                            log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to notify "
+                                    + "[" + _clusterStoreAndForward.getClass().getSimpleName()
+                                    + "] about WebSocket Session being closed and thus MatsSocketSession not residing"
+                                    + " here [" + _matsSocketServer.getMyNodename() + "] anymore. Ignoring,"
+                                    + " exiting.", e);
+                            // Since the first thing the notifyHomeNodeAboutNewMessage() needs to do is query store,
+                            // this will pretty much guaranteed not work, so just exit out.
+                            return;
+                        }
+
+                        // Forward to new home.
+                        _matsSocketServer.notifyHomeNodeAboutNewMessage(matsSocketSessionId);
+                        // We're done, exit.
+                        return;
+                    }
+
+                    // LOOP: Clear out stored messages from ClusterStoreAndForward store
+                    while (true) {
+                        List<StoredMessage> messagesForSession;
+                        try {
+                            messagesForSession = _clusterStoreAndForward
+                                    .getMessagesForSession(matsSocketSessionId, 20);
+                        }
+                        catch (DataAccessException e) {
+                            log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to load messages from"
+                                    + " '" + _clusterStoreAndForward.getClass().getSimpleName()
+                                    + "'. Bailing out, hoping for self-healer process to figure it out.", e);
+                            return;
+                        }
+
+                        // ?: Check if we're empty of messages
+                        // (Notice how this logic always requires a final query which returns zero messages)
+                        if (messagesForSession.isEmpty()) {
+                            // -> Yes, it was empty. Break out of "Clear out stored messages.." loop.
+                            break;
+                        }
+
+                        String concatMessages = messagesForSession.stream()
+                                .map(StoredMessage::getEnvelopeJson)
+                                .collect(Collectors.joining(", ", "[", "]"));
+
+                        String traceIds = messagesForSession.stream()
+                                .map(StoredMessage::getTraceId)
+                                .collect(Collectors.joining(", "));
+
+                        List<Long> messageIds = messagesForSession.stream().map(StoredMessage::getId)
+                                .collect(Collectors.toList());
+
+                        try {
+                            session.getBasicRemote().sendText(concatMessages);
+
+                            log.info("Finished sending '" + messagesForSession.size() + "' message(s) with TraceIds ["
+                                    + traceIds + "] to MatsSession [" + matsSocketSession + "] over WebSocket session ["
+                                    + session + "].");
+
+                            // :: Mark as complete (i.e. delete them).
+                            try {
+                                _clusterStoreAndForward.messagesComplete(matsSocketSessionId, messageIds);
+                            }
+                            catch (DataAccessException e) {
+                                log.warn("Got '" + e.getClass().getSimpleName()
+                                        + "' when trying to invoke 'messagesComplete' on '" +
+                                        _clusterStoreAndForward.getClass().getSimpleName() + "' for '"
+                                        + messagesForSession.size() + "' messages with TraceIds [" + traceIds
+                                        + "]. Bailing out, hoping for self-healer process to figure it out.", e);
+                                return;
+                            }
+                        }
+                        catch (IOException ioe) {
+                            log.warn("Got [" + ioe.getClass().getSimpleName()
+                                    + "] while trying to send '" + messagesForSession.size()
+                                    + "' messages with TraceId [" + traceIds + "] to MatsSession [" + matsSocketSession
+                                    + "] over WebSocket session [" + session
+                                    + "]. Increasing 'delivery_count' for message, will try again.", ioe);
+
+                            // :: Increase delivery count
+                            try {
+                                _clusterStoreAndForward.messagesFailedDelivery(matsSocketSessionId, messageIds);
+                            }
+                            catch (DataAccessException e) {
+                                log.warn("Got '" + e.getClass().getSimpleName()
+                                        + "' when trying to invoke 'messagesFailedDelivery' on '" +
+                                        _clusterStoreAndForward.getClass().getSimpleName() + "' for '"
+                                        + messagesForSession.size() + "' messages with TraceIds [" + traceIds
+                                        + "]. Bailing out, hoping for self-healer process to figure it out.", e);
+                                return;
+                            }
+                        }
+                    }
+
+                    // ----- The database is (was) CURRENTLY empty of messages for this session.
+
+                    /*
+                     * Since we're finished with these messages, we reduce the number of outstanding count, and if zero
+                     * - remove and exit. There IS a race here: There can come in a new message WHILE we are exiting, so
+                     * we might exit right when we're being notified about a new message having come in.
+                     *
+                     * However, this decrease vs. increase of count is done transactionally within a synchronized:
+                     *
+                     * Either:
+                     *
+                     * 1. The new message comes in. It sees the count is 1 (because a MatsSessionId- specific handler is
+                     * already running), and thus increases to 2 and do NOT fire off a new handler. This has then (due
+                     * to synchronized) happened before the handler come and read and reduce it, so when the handler
+                     * reduce, it reduces to 1, and thus go back for one more message pull loop.
+                     *
+                     * 2. The new message comes in. The handler is JUST about to exit, so it reduces the count to 0, and
+                     * thus remove it - and then exits. The new message then do not see a handler running (the map does
+                     * not have an entry for the MatsSessionId, since it was just removed by the existing handler), puts
+                     * the count in with 1, and fires off a new handler. There might now be two handlers for a brief
+                     * time, but the old one is exiting, not touching the data store anymore, while the new is just
+                     * starting.
+                     *
+                     * Furthermore: We might already have handled the new message by the SELECT already having pulled it
+                     * in, before the code got time to notify us. This is not a problem: The only thing that will happen
+                     * is that we loop, ask for new messages, get ZERO back, and are thus finished. Such a thing could
+                     * conceivably happen many times in a row, but the ending result is always that there will ALWAYS be
+                     * a "last handler round", which might, or might not, get zero messages. For every message, there
+                     * will guaranteed be one handler that AFTER the INSERT will evaluate whether it is still on store.
+                     * Again: Either it was sweeped up in a previous handler round, or a new handler will be dispatched.
+                     */
+                    synchronized (_handlersCurrentlyRunningWithNotificationCount) {
+                        Long count = _handlersCurrentlyRunningWithNotificationCount.get(matsSocketSessionId);
+                        // ?: Is this 1, meaning that we are finishing off our handler rounds?
+                        if (count == 1) {
+                            // -> Yes, so this would be a decrease to zero
+                            // Finally handler will remove us from currently running handlers - we're done, exit.
+                            return;
+                        }
+                        // E-> It was MORE than 1.
+                        /*
+                         * Now we'll do "coalescing": Firstly, one pass through the handler will clear out all messages
+                         * stored for this MatsSocketSession. So, the point is that if we've got notified about several
+                         * messages while doing the rounds, we've EITHER already handled them in one of the loop rounds,
+                         * OR one final pass would handle any remaining. We can thus set the count down to 1, and be
+                         * sure that we will have handled any outstanding messages that we've been notified about /until
+                         * now/.
+                         */
+                        _handlersCurrentlyRunningWithNotificationCount.put(matsSocketSessionId, 1L);
+                    }
+                }
             }
-        }
+            finally {
+                // Before exiting, we must remove us from the "currently running handlers" map.
+                synchronized (_handlersCurrentlyRunningWithNotificationCount) {
+                    _handlersCurrentlyRunningWithNotificationCount.remove(matsSocketSessionId);
+                }
+            }
 
-        // ----- At this point, we have Session
-
-        // TODO: Shall become a single-thread-per-sessionId forwarder system
-
-        List<StoredMessage> messagesForSession;
-        try {
-            messagesForSession = _clusterStoreAndForward
-                    .getMessagesForSession(matsSocketSessionId, 20);
-        }
-        catch (DataAccessException e) {
-            // TODO: Fix
-            throw new AssertionError("Damn", e);
-        }
-
-        Session session = matsSocketSession._session;
-        messagesForSession.forEach(m -> {
-            session.getAsyncRemote().sendText(m.getEnvelopeJson());
-        });
-        try {
-            _clusterStoreAndForward.messagesComplete(matsSocketSessionId,
-                    messagesForSession.stream().map(StoredMessage::getId).collect(Collectors.toList()));
-        }
-        catch (DataAccessException e) {
-            // TODO: Fix
-            throw new AssertionError("Damn", e);
         }
     }
 
-    private void serializeAndSendEnvelope(Session session, MatsSocketEnvelopeDto msReplyEnvelope) {
+    private void notifyHomeNodeAboutNewMessage(String matsSocketSessionId) {
+        Optional<String> currentNode;
+        try {
+            // Find if the session resides on a different node
+            currentNode = _clusterStoreAndForward.getCurrentNodeForSession(matsSocketSessionId);
+        }
+        catch (DataAccessException e) {
+            log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to find node home for"
+                    + " [ms_sid:" + matsSocketSessionId + "] using '"
+                    + _clusterStoreAndForward.getClass().getSimpleName() + "'. Bailing out, hoping for"
+                    + " self-healer process to figure it out.", e);
+            return;
+        }
+
+        // ?: Did we get a node?
+        if (!currentNode.isPresent()) {
+            // -> No, so nothing to do - MatsSocket will get messages when he reconnect.
+            log.info("MatsSocketSession [" + matsSocketSessionId + "] is not present on any node.");
+            return;
+        }
+
+        // Send message to home for MatsSocketSession
+        _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
+            init.traceId("MatsSystemOutgoingMessageNotify[ms_sid:" + matsSocketSessionId + "]" + rnd(5))
+                    .from("MatsSocketSystem.notifyNodeAboutMessage")
+                    .to(pingTerminatorIdForNode(currentNode.get()))
+                    .publish(matsSocketSessionId);
+        });
+    }
+
+    private void serializeAndSendSingleEnvelope(Session session, MatsSocketEnvelopeDto msReplyEnvelope) {
         String msReplyEnvelopeJson = serializeEnvelope(msReplyEnvelope);
         // TODO: Need to think this Async through wrt. to "finishing" the stored message from the storage.
         // TODO: Also, need to consider what to do wrt. timeouts that cannot be transmitted.
         log.info("Sending reply [" + msReplyEnvelopeJson + "]");
-        session.getAsyncRemote().sendText(msReplyEnvelopeJson);
+        // NOTICE: We must stick the single envelope in an JSON Array.
+        session.getAsyncRemote().sendText('[' + msReplyEnvelopeJson + ']');
     }
 
     private String serializeEnvelope(MatsSocketEnvelopeDto msReplyEnvelope) {
@@ -485,7 +727,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 });
 
         private final MatsWebSocketInstance _matsWebSocketInstance;
-        private final Session _session;
+        private final Session _webSocketSession;
 
         // Derived
         private final DefaultMatsSocketServer _matsSocketServer;
@@ -496,9 +738,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         private Principal _principal;
 
         public MatsSocketSession(
-                MatsWebSocketInstance matsWebSocketInstance, Session session) {
+                MatsWebSocketInstance matsWebSocketInstance, Session webSocketSession) {
             _matsWebSocketInstance = matsWebSocketInstance;
-            _session = session;
+            _webSocketSession = webSocketSession;
 
             // Derived
             _matsSocketServer = _matsWebSocketInstance._matsSocketServer;
@@ -507,7 +749,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         @Override
         public void onMessage(String message) {
             long clientMessageReceivedTimestamp = System.currentTimeMillis();
-            log.info("WebSocket received message:" + message + ", session:" + _session.getId() + ", this:" + id(this));
+            log.info("WebSocket received message:" + message + ", session:" + _webSocketSession.getId() + ", this:"
+                    + id(this));
 
             List<MatsSocketEnvelopeDto> envelopes;
             try {
@@ -566,9 +809,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                              * up his life by doing reconnects when he does not need to, then OK.
                              */
                             // ?: If the existing is open, then close it.
-                            if (existingSession._session.isOpen()) {
+                            if (existingSession._webSocketSession.isOpen()) {
                                 try {
-                                    existingSession._session.close(new CloseReason(CloseCodes.PROTOCOL_ERROR,
+                                    existingSession._webSocketSession.close(new CloseReason(CloseCodes.PROTOCOL_ERROR,
                                             "Cannot have two MatsSockets with the same SessionId - closing the previous"));
                                 }
                                 catch (IOException e) {
@@ -618,7 +861,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                         i = envelopes.size();
                     }
                     // Send message
-                    _matsSocketServer.serializeAndSendEnvelope(_session, replyEnvelope);
+                    _matsSocketServer.serializeAndSendSingleEnvelope(_webSocketSession, replyEnvelope);
                     continue;
                 }
 
@@ -678,7 +921,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                         replyEnvelope.mmsts = sentTimestamp;
                         replyEnvelope.rmcts = sentTimestamp;
                         // Send message
-                        _matsSocketServer.serializeAndSendEnvelope(_session, replyEnvelope);
+                        _matsSocketServer.serializeAndSendSingleEnvelope(_webSocketSession, replyEnvelope);
                     }
 
                     continue;
@@ -687,12 +930,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
 
         private void closeWebSocket(CloseCode closeCode, String reasonPhrase) {
-            log.info("Shutting down WebSocket Session [" + _session + "]");
+            log.info("Shutting down WebSocket Session [" + _webSocketSession + "]");
             try {
-                _session.close(new CloseReason(closeCode, reasonPhrase));
+                _webSocketSession.close(new CloseReason(closeCode, reasonPhrase));
             }
             catch (IOException e) {
-                log.warn("Got Exception when trying to close WebSocket Session [" + _session
+                log.warn("Got Exception when trying to close WebSocket Session [" + _webSocketSession
                         + "], ignoring.", e);
             }
         }
@@ -748,10 +991,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     + eid + (reid == null ? "" : ",reid:" + reid)
                     + ",tid:" + tid + ",cid:" + cid;
         }
-    }
-
-    private static class Message {
-        String msg; // Just to get the entire JSON right here.
     }
 
     private static class DebugDto {
@@ -930,7 +1169,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         @Override
         public Object deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
             // TODO / OPTIMIZE: Find faster way to get as String, avoiding tons of JsonNode objects.
-            // Trick must be to just consume from the START_OBJECT to the /corresponding/ END_OBJECT.
+            // TODO: Trick must be to just consume from the START_OBJECT to the /corresponding/ END_OBJECT.
             return p.readValueAsTree().toString();
         }
     }

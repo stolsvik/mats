@@ -370,16 +370,28 @@ function MatsSocket(url, appName, appVersion) {
         _websocket.onmessage = function (event) {
             var receivedTimestamp = Date.now();
             var data = event.data;
-            var envelope = JSON.parse(data);
-            if (envelope.t === "WELCOME") {
-                // TODO: Handle WELCOME message better.
-                _sessionId = envelope.sid;
-                console.log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
-            } else {
-                // -> Assume message that contains EndpointId
-                var endpoint = _endpoints[envelope.eid];
-                if (endpoint !== undefined) {
-                    endpoint(eventFromEnvelope(envelope, receivedTimestamp));
+            var envelopes = JSON.parse(data);
+
+            var numMsgs = envelopes.length;
+            console.log("Got '" + numMsgs + "' messages.");
+
+            for (var i = 0; i < numMsgs; i++) {
+                var envelope = envelopes[i];
+
+                if (envelope.t === "WELCOME") {
+                    // TODO: Handle WELCOME message better.
+                    _sessionId = envelope.sid;
+                    console.log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
+                } else {
+                    // -> Assume message that contains EndpointId
+                    try {
+                        var endpoint = _endpoints[envelope.eid];
+                        if (endpoint !== undefined) {
+                            endpoint(eventFromEnvelope(envelope, receivedTimestamp));
+                        }
+                    } catch (error) {
+                        console.error("Got error while trying to invoke endpoint for message: " + error, error);
+                    }
                 }
             }
         };

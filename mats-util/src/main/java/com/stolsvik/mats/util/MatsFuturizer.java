@@ -323,7 +323,7 @@ public class MatsFuturizer implements AutoCloseable {
         // Snitched from https://stackoverflow.com/a/24493856
 
         // Part 1: So, we extend a LinkedTransferQueue to behave a bit special on "offer(..)":
-        BlockingQueue<Runnable> queue = new LinkedTransferQueue<Runnable>() {
+        LinkedTransferQueue<Runnable> queue = new LinkedTransferQueue<Runnable>() {
             @Override
             public boolean offer(Runnable e) {
                 // If there are any pool thread waiting for job, give it the job, otherwise return false.

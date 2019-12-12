@@ -7,12 +7,14 @@ CREATE TABLE mats_socket_session (
 );
 
 CREATE TABLE mats_socket_message (
-    message_id BIGINT NOT NULL,
     mats_session_id VARCHAR(255) NOT NULL,
+    message_id BIGINT NOT NULL,
     trace_id ${texttype} NOT NULL,
     stored_timestamp BIGINT NOT NULL,  -- millis since epoch.
-    delivery_count INT NOT NULL,
+    delivery_count INT NOT NULL, -- Starts at zero.
     type VARCHAR(255) NOT NULL,
     message_text ${texttype},
-    message_binary ${binarytype}
+    message_binary ${binarytype},
+
+    CONSTRAINT PK_mats_socket_message PRIMARY KEY (mats_session_id, message_id)
 );
