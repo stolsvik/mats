@@ -42,16 +42,43 @@ public interface ClusterStoreAndForward {
      * Registers a Session home to this node - only one node can ever be home, so implicitly any old is deleted.
      *
      * @param matsSocketSessionId
+     * @param connectionId
+     *            an id that is unique for this specific WebSocket Session (i.e. TCP Connection), so that if it closes,
+     *            a new registration will not be deregistered by the old MatsSocketSession realizing that it is closed
+     *            and then invoking {@link #deregisterSessionFromThisNode(String, String)}
      */
-    void registerSessionAtThisNode(String matsSocketSessionId) throws DataAccessException;
+    void registerSessionAtThisNode(String matsSocketSessionId, String connectionId) throws DataAccessException;
 
     /**
-     * Deregisters a Session home when a WebSocket is closed. This node's nodename is taken into account, so that if it
-     * has changed async, it will not deregister a new session home.
+     * @param matsSocketSessionId
+     *            the MatsSocketSessionId for which to find current session home.
+     * @return the current node holding MatsSocket Session, or empty if none.
+     */
+    Optional<CurrentNode> getCurrentRegisteredNodeForSession(String matsSocketSessionId) throws DataAccessException;
+
+    /**
+     * Shall be invoked on some kind of schedule (e.g. every 5 minute) by node to inform {@link ClusterStoreAndForward}
+     * about Sessions' liveliness. Sessions that aren't live, will be scavenged after some time, e.g. 24 hours.
+     *
+     * @param matsSocketSessionIds
+     */
+    void notifySessionLiveliness(List<String> matsSocketSessionIds) throws DataAccessException;
+
+    boolean isSessionExists(String matsSocketSessionId) throws DataAccessException;
+
+    /**
+     * Deregisters a Session home when a WebSocket is closed. This node's nodename and this WebSocket Session's
+     * ConnectionId is taken into account, so that if it has changed async, it will not deregister a new session home
+     * (which can potentially be on the same node, this the 'connectionId' parameter).
      *
      * @param matsSocketSessionId
+     * @param connectionId
+     *            an id that is unique for this specific WebSocket Session (i.e. TCP Connection), so that if it closes,
+     *            a new registration will not be deregistered by the old MatsSocketSession realizing that it is closed
+     *            and then invoking {@link #deregisterSessionFromThisNode(String, String)}
      */
-    void deregisterSessionFromThisNode(String matsSocketSessionId) throws DataAccessException;
+    void deregisterSessionFromThisNode(String matsSocketSessionId, String connectionId)
+            throws DataAccessException;
 
     /**
      * Invoked when the client explicitly tells us that he closed this session, CLOSE_SESSION. Throws
@@ -61,21 +88,6 @@ public interface ClusterStoreAndForward {
      *            the MatsSocketSessionId that should be closed.
      */
     void terminateSession(String matsSocketSessionId) throws IllegalStateException, DataAccessException;
-
-    /**
-     * @param matsSocketSessionId
-     *            the MatsSocketSessionId for which to find current session home.
-     * @return the nodename of current node holding MatsSocket Session, or empty if none.
-     */
-    Optional<String> getCurrentNodeForSession(String matsSocketSessionId) throws DataAccessException;
-
-    /**
-     * Shall be invoked on some kind of schedule (e.g. every 5 minute) by node to inform {@link ClusterStoreAndForward}
-     * about Sessions' liveliness. Sessions that aren't live, will be scavenged after some time, e.g. 24 hours.
-     *
-     * @param matsSocketSessionIds
-     */
-    void notifySessionLiveliness(List<String> matsSocketSessionIds) throws DataAccessException;
 
     /**
      * Stores the message for the Session, returning the nodename for the node holding the session, if any. If the
@@ -89,9 +101,9 @@ public interface ClusterStoreAndForward {
      *            the type of the reply, currently "REPLY" or "ERROR".
      * @param message
      *            the JSON-serialized MatsSocket <b>Envelope</b>.
-     * @return the nodename of the node holding the WebSocket Session, or empty if the Session is not connected.
+     * @return the current node holding MatsSocket Session, or empty if none.
      */
-    Optional<String> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
+    Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
             String message) throws DataAccessException;
 
     /**
@@ -103,7 +115,8 @@ public interface ClusterStoreAndForward {
      *            the maximum number of messages to fetch.
      * @return a list of json encoded messages destined for the WebSocket.
      */
-    List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages) throws DataAccessException;
+    List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages)
+            throws DataAccessException;
 
     /**
      * States that the messages are delivered, or overran their delivery attempts. Will typically delete the message.
@@ -124,6 +137,24 @@ public interface ClusterStoreAndForward {
      *            which messages failed delivery.
      */
     void messagesFailedDelivery(String matsSocketSessionId, List<Long> messageIds) throws DataAccessException;
+
+    class CurrentNode {
+        private final String nodename;
+        private final String connectionId;
+
+        public CurrentNode(String nodename, String connectionId) {
+            this.nodename = nodename;
+            this.connectionId = connectionId;
+        }
+
+        public String getNodename() {
+            return nodename;
+        }
+
+        public String getConnectionId() {
+            return connectionId;
+        }
+    }
 
     interface StoredMessage {
         long getId();

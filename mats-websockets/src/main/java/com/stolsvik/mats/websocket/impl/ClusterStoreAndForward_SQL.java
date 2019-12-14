@@ -142,22 +142,27 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void registerSessionAtThisNode(String matsSocketSessionId) throws DataAccessException {
+    public void registerSessionAtThisNode(String matsSocketSessionId, String connectionId) throws DataAccessException {
         withConnection(con -> {
             boolean autoCommitPre = con.getAutoCommit();
             try {
                 con.setAutoCommit(false);
-                PreparedStatement delete = con.prepareStatement("DELETE FROM mats_socket_message"
+
+                // :: Generic "UPSERT" implementation: DELETE, INSERT (no need for SELECT/UPDATE/INSERT here)
+                // Unconditionally delete session (
+                PreparedStatement delete = con.prepareStatement("DELETE FROM mats_socket_session"
                         + " WHERE mats_session_id = ?");
                 delete.setString(1, matsSocketSessionId);
                 delete.execute();
 
+                // Insert the new current row
                 PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_session"
-                        + "(mats_session_id, nodename, liveliness_timestamp)"
-                        + "VALUES (?, ?, ?)");
+                        + "(mats_session_id, connection_id, nodename, liveliness_timestamp)"
+                        + "VALUES (?, ?, ?, ?)");
                 insert.setString(1, matsSocketSessionId);
-                insert.setString(2, _nodename);
-                insert.setLong(3, System.currentTimeMillis());
+                insert.setString(2, connectionId);
+                insert.setString(3, _nodename);
+                insert.setLong(4, System.currentTimeMillis());
                 insert.execute();
                 con.commit();
             }
@@ -168,27 +173,29 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void deregisterSessionFromThisNode(String matsSocketSessionId) throws DataAccessException {
+    public void deregisterSessionFromThisNode(String matsSocketSessionId, String connectionId) throws DataAccessException {
         withConnection(con -> {
-            // Note that we include a "WHERE nodename = us" here, so as to not mess up if he has already
-            // re-registered
+            // Note that we include a "WHERE nodename=<thisnode> AND connection_id=<specified connectionId>"
+            // here, so as to not mess up if he has already re-registered with new socket, or on a new node.
             PreparedStatement update = con.prepareStatement("UPDATE mats_socket_session"
                     + "   SET nodename = NULL"
                     + " WHERE mats_session_id = ?"
+                    + "   AND connection_id = ?"
                     + "   AND nodename = ?");
             update.setString(1, matsSocketSessionId);
-            update.setString(2, _nodename);
+            update.setString(2, connectionId);
+            update.setString(3, _nodename);
             update.execute();
         });
     }
 
     @Override
-    public Optional<String> getCurrentNodeForSession(String matsSocketSessionId) throws DataAccessException {
-        return withConnectionReturn(con -> currentNodeForSession(matsSocketSessionId, con));
+    public Optional<CurrentNode> getCurrentRegisteredNodeForSession(String matsSocketSessionId) throws DataAccessException {
+        return withConnectionReturn(con -> _getSession(matsSocketSessionId, con, true));
     }
 
-    private Optional<String> currentNodeForSession(String matsSocketSessionId, Connection con) throws SQLException {
-        PreparedStatement select = con.prepareStatement("SELECT nodename FROM mats_socket_session"
+    private Optional<CurrentNode> _getSession(String matsSocketSessionId, Connection con, boolean onlyIfHasNode) throws SQLException {
+        PreparedStatement select = con.prepareStatement("SELECT nodename, connection_id FROM mats_socket_session"
                 + " WHERE mats_session_id = ?");
         select.setString(1, matsSocketSessionId);
         ResultSet resultSet = select.executeQuery();
@@ -197,7 +204,11 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             return Optional.empty();
         }
         String nodename = resultSet.getString(1);
-        return Optional.of(nodename);
+        if ((nodename == null) && onlyIfHasNode) {
+            return Optional.empty();
+        }
+        String connectionId = resultSet.getString(2);
+        return Optional.of(new CurrentNode(nodename, connectionId));
     }
 
     @Override
@@ -218,6 +229,11 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
+    public boolean isSessionExists(String matsSocketSessionId) throws DataAccessException {
+        return withConnectionReturn(con -> _getSession(matsSocketSessionId, con, false).isPresent());
+    }
+
+    @Override
     public void terminateSession(String matsSocketSessionId) throws DataAccessException {
         withConnection(con -> {
             // Notice that we DO NOT include WHERE nodename is us. User asked us to delete, and that we do.
@@ -234,7 +250,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public Optional<String> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
+    public Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
             String message) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_message"
@@ -251,7 +267,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             insert.setString(7, message);
             insert.execute();
 
-            return currentNodeForSession(matsSocketSessionId, con);
+            return _getSession(matsSocketSessionId, con, true);
         });
     }
 

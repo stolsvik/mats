@@ -54,8 +54,8 @@
             matsSocket.requestReplyTo("Test.single", "TraceId",
                 {string: "Periodic query", number: 100.001, requestTimestamp: Date.now()},
                 "ClientSide.testEndpoint", "TestTraceId_" + matsSocket.id(6));
-            // ping();
-        }, 200);
+            ping();
+        }, 500);
     };
     ping();
 </script>

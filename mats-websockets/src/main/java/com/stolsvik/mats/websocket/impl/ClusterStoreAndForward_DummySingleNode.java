@@ -22,32 +22,81 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
         _nodename = nodename;
     }
 
-    private ConcurrentHashMap<String, CopyOnWriteArrayList<StoredMessageImpl>> _currentSessions = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<String, MsStoreSession> _currentSessions = new ConcurrentHashMap<>();
 
     @Override
     public void boot() {
         /* no-op */
     }
 
-    @Override
-    public void registerSessionAtThisNode(String matsSocketSessionId) {
-        _currentSessions.put(matsSocketSessionId, new CopyOnWriteArrayList<>());
+    private static class MsStoreSession {
+        private volatile String _connectionId;
+        private final CopyOnWriteArrayList<StoredMessageImpl> _messages = new CopyOnWriteArrayList<>();
+
+        public MsStoreSession(String connectionId) {
+            _connectionId = connectionId;
+        }
+
+        void registerConnection(String connectionId) {
+            synchronized (this) {
+                _connectionId = connectionId;
+            }
+        }
+
+        void deregisterConnection(String connectionId) {
+            synchronized (this) {
+                // ?: Is it this Connection that wants to be deregistered?
+                // This guards against deregistering a new registration that has happened concurrently with us
+                // realizing that this current WebSocket Connection was dead
+                if (_connectionId.equals(connectionId)) {
+                    _connectionId = null;
+                }
+            }
+        }
+
+        boolean hasRegistration() {
+            synchronized (this) {
+                return _connectionId != null;
+            }
+        }
+
     }
 
     @Override
-    public void deregisterSessionFromThisNode(String matsSocketSessionId) {
-        _currentSessions.remove(matsSocketSessionId);
+    public void registerSessionAtThisNode(String matsSocketSessionId, String connectionId) {
+        MsStoreSession msStoreSession = _currentSessions.computeIfAbsent(matsSocketSessionId,
+                s -> new MsStoreSession(connectionId));
+        // Set registration to this connectionId (there is no concept of "node home" for this Single-Node CSAF impl.)
+        msStoreSession.registerConnection(connectionId);
+    }
+
+    @Override
+    public void deregisterSessionFromThisNode(String matsSocketSessionId, String connectionId) {
+        MsStoreSession msStoreSession = _currentSessions.get(matsSocketSessionId);
+        // ?: Did this Session exist?
+        if (msStoreSession != null) {
+            // -> Yes, Session exists.
+            // Deregister this ConnectionId (i.e. if correct 'correctionId', null out)
+            msStoreSession.deregisterConnection(connectionId);
+        }
     }
 
     @Override
     public void terminateSession(String matsSocketSessionId) {
-        // Also just remove it, as with deregister..
+        // Remove it unconditionally, as this is an explicit "terminate session" invocation from client.
         _currentSessions.remove(matsSocketSessionId);
     }
 
     @Override
-    public Optional<String> getCurrentNodeForSession(String matsSocketSessionId) {
-        return Optional.of(_nodename);
+    public Optional<CurrentNode> getCurrentRegisteredNodeForSession(String matsSocketSessionId) {
+        MsStoreSession msStoreSession = _currentSessions.get(matsSocketSessionId);
+        if (msStoreSession == null) {
+            return Optional.empty();
+        }
+        // Return current node
+        return msStoreSession.hasRegistration()
+                ? Optional.of(new CurrentNode(_nodename, msStoreSession._connectionId))
+                : Optional.empty();
     }
 
     @Override
@@ -56,25 +105,39 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
     }
 
     @Override
-    public Optional<String> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
+    public boolean isSessionExists(String matsSocketSessionId) throws DataAccessException {
+        return _currentSessions.get(matsSocketSessionId) != null;
+    }
+
+    @Override
+    public Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
             String message) {
-        CopyOnWriteArrayList<StoredMessageImpl> storedMessages = _currentSessions.get(matsSocketSessionId);
-        if (storedMessages == null) {
+        MsStoreSession msStoreSession = _currentSessions.get(matsSocketSessionId);
+        // ?: Did we have such a MatsSocketSession?
+        if (msStoreSession == null) {
+            // -> No, so drop the message, and return "no current registration".
             return Optional.empty();
         }
 
-        long messageId = ThreadLocalRandom.current().nextLong();
+        // :: Add the message (unconditionally - no matter whether the MatsSocketSession currently has a registration.
 
-        storedMessages.add(new StoredMessageImpl(messageId, 0, System.currentTimeMillis(), type, traceId,
-                message));
-        return Optional.of(_nodename);
+        // Make a random MessageId
+        long messageId = ThreadLocalRandom.current().nextLong();
+        // Store the message
+        msStoreSession._messages.add(new StoredMessageImpl(messageId, 0, System.currentTimeMillis(),
+                type, traceId, message));
+
+        // Return current node
+        return msStoreSession.hasRegistration()
+                ? Optional.of(new CurrentNode(_nodename, msStoreSession._connectionId))
+                : Optional.empty();
     }
 
     @Override
     public List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages) {
-        CopyOnWriteArrayList<StoredMessageImpl> storedMessages = _currentSessions.get(matsSocketSessionId);
-        if (storedMessages != null) {
-            return storedMessages.stream().limit(maxNumberOfMessages).collect(Collectors.toList());
+        MsStoreSession msStoreSession = _currentSessions.get(matsSocketSessionId);
+        if (msStoreSession != null) {
+            return msStoreSession._messages.stream().limit(maxNumberOfMessages).collect(Collectors.toList());
         }
         return Collections.emptyList();
     }
@@ -82,14 +145,14 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
     @Override
     public void messagesComplete(String sessionId, List<Long> messageIds) {
         HashSet<Long> messageIdsSet = new HashSet<>(messageIds);
-        CopyOnWriteArrayList<StoredMessageImpl> storedMessages = _currentSessions.get(sessionId);
+        CopyOnWriteArrayList<StoredMessageImpl> storedMessages = _currentSessions.get(sessionId)._messages;
         storedMessages.removeIf(next -> messageIdsSet.contains(next.getId()));
     }
 
     @Override
     public void messagesFailedDelivery(String matsSocketSessionId, List<Long> messageIds) {
         HashSet<Long> messageIdsSet = new HashSet<>(messageIds);
-        CopyOnWriteArrayList<StoredMessageImpl> storedMessages = _currentSessions.get(matsSocketSessionId);
+        CopyOnWriteArrayList<StoredMessageImpl> storedMessages = _currentSessions.get(matsSocketSessionId)._messages;
         storedMessages.stream().filter(m -> messageIdsSet.contains(m.getId())).forEach(m -> m._deliveryAttempt++);
     }
 

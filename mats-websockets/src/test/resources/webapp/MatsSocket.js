@@ -282,7 +282,8 @@ function MatsSocket(url, appName, appVersion) {
             _authorizationExpiredCallback(e2);
             return;
         }
-        // E-> Not pipelining, and auth is present.
+
+        // ----- Not pipelining, and auth is present.
 
         // :: Get WebSocket open. NOTE: Opening WebSocket is async...
         ensureWebSocket();
@@ -293,7 +294,8 @@ function MatsSocket(url, appName, appVersion) {
             // -> Yes, WebSocket is open, so send any outstanding messages
             // ?: Have we sent HELLO?
             if (!_helloSent) {
-                // -> No, HELLO not sent, so we create it now (auth is OK)
+                console.log("HELLO not sent, sending now.");
+                // -> No, HELLO not sent, so we create it now (auth is present, check above)
                 var connectMsg = {
                     t: "HELLO",
                     clv: "MatsSocketJs; User-Agent: " + navigator.userAgent,
@@ -306,12 +308,13 @@ function MatsSocket(url, appName, appVersion) {
                 };
                 // ?: Have we requested a reconnect?
                 if (_sessionId !== undefined) {
+                    console.log("We expect session to be there ["+_sessionId+"]");
                     // -> Evidently yes, so add the requested reconnect-to-sessionId.
-                    connectMsg.sessionId = _sessionId;
+                    connectMsg.sid = _sessionId;
                     // This implementation of MatsSocket client lib expects existing session
                     // when reconnecting, thus wants pipelined messages to be ditched if
                     // the assumption about existing session fails.
-                    connectMsg.st = "EXPECT_EXISTING";
+                    //connectMsg.st = "EXPECT_EXISTING";
                 } else {
                     // -> We want a new session (which is default anyway)
                     connectMsg.st = "NEW";
@@ -322,6 +325,8 @@ function MatsSocket(url, appName, appVersion) {
                 _helloSent = true;
             }
             // Send messages
+            console.log("Flushing pipeline of ["+_pipeline.length+"] messages.");
+            console.log(_pipeline);
             _websocket.send(JSON.stringify(_pipeline));
             // Clear pipeline
             _pipeline = [];
@@ -402,6 +407,7 @@ function MatsSocket(url, appName, appVersion) {
             _websocket = undefined;
             // .. and thus it is most definitely not open anymore.
             _socketOpen = false;
+            _helloSent = false;
         };
         _websocket.onerror = function (event) {
             console.log("onerror");
