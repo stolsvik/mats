@@ -343,10 +343,13 @@ function MatsSocket(url, appName, appVersion) {
             // Timestamps
             clientMessageCreated: envelope.cmcts,
             clientMessageReceived: envelope.cmrts,
+            clientMessageReceivedNodename: envelope.cmrnn,
             matsMessageSent: envelope.mmsts,
-            matsMessageReceived: envelope.mmrts,
+            matsMessageReceived: envelope.mmrrts,
+            matsMessageReceivedNodename: envelope.mmrrnn,
             replyMessageToClient: envelope.rmcts,
-            messageReceivedOnClient: receivedTimestamp,
+            replyMessageToClientNodename: envelope.rmcnn,
+            messageReceivedOnClient: receivedTimestamp
         };
         return eventToCallback;
     }

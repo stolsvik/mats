@@ -22,7 +22,10 @@
 
     matsSocket.endpoint("ClientSide.testEndpoint", function (e) {
         var millis = Date.now() - e.clientMessageCreated;
-        console.log("Got message! CorrelationId:" + e.correlationId + ", time taken: " + millis + "ms");
+        console.log("Got message! CorrelationId:" + e.correlationId + ", time taken: " + millis + "ms"
+            + ", clientMessageReceivedNodename: " + e.clientMessageReceivedNodename
+            + ", matsMessageReceivedNodename: " + e.matsMessageReceivedNodename
+            + ", replyMessageToClientNodename:" + e.replyMessageToClientNodename);
     });
 
     matsSocket.send("Test.single", "SendTraceId_" + matsSocket.id(6), {string: "The String", number: Math.PI},

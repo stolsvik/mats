@@ -408,11 +408,25 @@ public interface MatsFactory extends StartStoppable {
         String getAppVersion();
 
         /**
+         * Sets the nodename that {@link #getNodename()} should return. This is not necessary if the current hosts's
+         * hostname is a good enough nodename (which it in a normal production system should be, both running on iron,
+         * VMs and containers like Docker or Kubernetes), as that is what is returned by the getter by default. Must be
+         * set before anything that depends on the return value of {@link #getNodename()} is started, i.e. right away
+         * after having created the MatsFactory instance.
+         *
+         * @param nodename
+         *            the nodename that this MatsFactory should report from {@link #getNodename()}.
+         */
+        FactoryConfig setNodename(String nodename);
+
+        /**
          * Returns a node-specific identifier, that is, a name which is different between different instances of the
          * same app running of different nodes. This can be used to make node-specific topics, which are nice when you
          * need a message to return to the node that sent it, due to some synchronous process waiting for the message
          * (which entirely defeats the Messaging Oriented Middleware Architecture, but sometimes you need a solution..).
-         * This is used in the MatsFuturizer tool.
+         * This string is used for such a purpose in the MatsFuturizer tool and the "MatsSockets" WebSocket system. The
+         * nodename is also used by the MatsTrace "wire protocol" as debug information. It is not used by any
+         * Mats-internal parts.
          *
          * @return the nodename, which by default should be the hostname which the application is running on.
          */

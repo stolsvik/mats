@@ -16,6 +16,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.websocket.CloseReason;
@@ -153,8 +154,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 matsSocketEndpointId, msIncomingClass, matsIncomingClass, matsReplyClass, msReplyClass,
                 incomingAuthEval);
         MatsSocketEndpointRegistration existing = _matsSocketEndpointsByMatsSocketEndpointId.putIfAbsent(
-                matsSocketEndpointId,
-                matsSocketRegistration);
+                matsSocketEndpointId, matsSocketRegistration);
         // Assert that there was no existing mapping
         if (existing != null) {
             // -> There was existing mapping - shall not happen.
@@ -224,7 +224,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 _clusterStoreAndForward.deregisterSessionFromThisNode(s._matsSocketSessionId, s._connectionId);
             }
             catch (DataAccessException e) {
-                log.warn("Could not deregister MatsSocketSession ["+s._matsSocketSessionId+"] from CSAF, ignoring.", e);
+                log.warn("Could not deregister MatsSocketSession [" + s._matsSocketSessionId + "] from CSAF, ignoring.",
+                        e);
             }
         });
     }
@@ -249,27 +250,32 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         private final long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server
                                   // timestamp)
 
+        private final String recnn; // Received Nodeanme
+
         private ReplyHandleStateDto() {
             /* no-args constructor for Jackson */
             sid = null;
             cid = null;
             ms_eid = null;
             ms_reid = null;
-            this.cmcts = 0;
-            this.cmrts = 0;
-            this.mmsts = 0;
+            cmcts = 0;
+            cmrts = 0;
+            mmsts = 0;
+            recnn = null;
         }
 
         public ReplyHandleStateDto(String matsSocketSessionId, String matsSocketEndpointId, String replyEndpointId,
                 String correlationId, long clientMessageCreatedTimestamp,
-                long clientMessageReceivedTimestamp, long matsMessageSentTimestamp) {
+                long clientMessageReceivedTimestamp, long matsMessageSentTimestamp,
+                String receivedNodename) {
             sid = matsSocketSessionId;
             cid = correlationId;
             ms_eid = matsSocketEndpointId;
             ms_reid = replyEndpointId;
-            this.cmcts = clientMessageCreatedTimestamp;
-            this.cmrts = clientMessageReceivedTimestamp;
-            this.mmsts = matsMessageSentTimestamp;
+            cmcts = clientMessageCreatedTimestamp;
+            cmrts = clientMessageReceivedTimestamp;
+            mmsts = matsMessageSentTimestamp;
+            recnn = receivedNodename;
         }
     }
 
@@ -280,8 +286,18 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
      * swapped out. If this happens, sorry - but you should <i>definitely</i> also sell your house and put all proceeds
      * into all of your country's Lotto systems.
      */
-    private static final Long REPLACE_VALUE = 3_945_608_518_157_027_723L;
-    private static final String REPLACE_VALUE_STRING = REPLACE_VALUE.toString();
+    private static final long REPLACE_VALUE_TIMESTAMP = 3_945_608_518_157_027_723L;
+    private static final Pattern REPLACE_VALUE_TIMESTAMP_REGEX = Pattern.compile(
+            Long.toString(REPLACE_VALUE_TIMESTAMP), Pattern.LITERAL);
+
+    /**
+     * A "random" String made manually by hammering a little on the keyboard, and trying to find a very implausible
+     * string. This will be string-replaced by the sending hostname on the WebSocket-forward side. Must not include
+     * characters that will be JSON-encoded, as the replace will be literal.
+     */
+    private static final String REPLACE_VALUE_REPLY_NODENAME = "X&~est,O}@w.h£X";
+    private static final Pattern REPLACE_VALUE_REPLY_NODENAME_REGEX = Pattern.compile(
+            REPLACE_VALUE_REPLY_NODENAME, Pattern.LITERAL);
 
     private void mats_processMatsReply(ProcessContext<Void> processContext,
             ReplyHandleStateDto state, MatsObject incomingMsg) {
@@ -317,9 +333,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         msReplyEnvelope.cmcts = state.cmcts;
         msReplyEnvelope.cmrts = state.cmrts;
         msReplyEnvelope.mmsts = state.mmsts;
-        msReplyEnvelope.mmrts = matsMessageReplyReceivedTimestamp;
-        msReplyEnvelope.rmcts = REPLACE_VALUE;
-        msReplyEnvelope.msg = msReply;
+        msReplyEnvelope.mmrrts = matsMessageReplyReceivedTimestamp;
+        msReplyEnvelope.rmcts = REPLACE_VALUE_TIMESTAMP;
+        msReplyEnvelope.cmrnn = state.recnn; // The receiving nodename
+        msReplyEnvelope.mmrrnn = getMyNodename(); // The Mats-receiving nodename (this processing)
+        msReplyEnvelope.rmcnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
+        msReplyEnvelope.msg = msReply; // This object will be serialized.
 
         String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
         Optional<CurrentNode> nodeNameHoldingWebSocket;
@@ -501,7 +520,14 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
                         String nowString = Long.toString(System.currentTimeMillis());
                         String concatMessages = messagesForSession.stream()
-                                .map(m -> m.getEnvelopeJson().replace(REPLACE_VALUE_STRING, nowString))
+                                .map(m -> {
+                                    // Map top the Json'ed Envelope (raw, not yet replaced magic values)
+                                    String json = m.getEnvelopeJson();
+                                    // Replace magic values, and return
+                                    json = REPLACE_VALUE_TIMESTAMP_REGEX.matcher(json).replaceFirst(nowString);
+                                    return REPLACE_VALUE_REPLY_NODENAME_REGEX.matcher(json)
+                                            .replaceFirst(_matsSocketServer.getMyNodename());
+                                })
                                 .collect(Collectors.joining(", ", "[", "]"));
 
                         String traceIds = messagesForSession.stream()
@@ -845,13 +871,14 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
                     // ?: Do we assume that there is an already existing session?
                     if (envelope.sid != null) {
-                        log.info("MatsSocketSession Reconnect requested to MatsSocketSessionId ["+envelope.sid+"]");
+                        log.info("MatsSocketSession Reconnect requested to MatsSocketSessionId [" + envelope.sid + "]");
                         // -> Yes, try to find it
 
                         // TODO: Implement remote invalidation
 
                         // :: Local invalidation of existing session.
-                        Optional<MatsSocketSession> existingSession = _matsSocketServer.getRegisteredLocalMatsSocketSession(envelope.sid);
+                        Optional<MatsSocketSession> existingSession = _matsSocketServer
+                                .getRegisteredLocalMatsSocketSession(envelope.sid);
                         // ?: Is there an existing local Session?
                         if (existingSession.isPresent()) {
                             log.info(" \\- Existing LOCAL Session found!");
@@ -869,7 +896,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                             // ?: If the existing is open, then close it.
                             if (existingSession.get()._webSocketSession.isOpen()) {
                                 try {
-                                    existingSession.get()._webSocketSession.close(new CloseReason(CloseCodes.PROTOCOL_ERROR,
+                                    existingSession.get()._webSocketSession.close(new CloseReason(
+                                            CloseCodes.PROTOCOL_ERROR,
                                             "Cannot have two MatsSockets with the same SessionId - closing the previous"));
                                 }
                                 catch (IOException e) {
@@ -884,7 +912,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                             log.info(" \\- No existing local Session found, check CSAF..");
                             // -> No, no local existing session, but is there an existing session in CSAF?
                             try {
-                                boolean sessionExists = _matsSocketServer._clusterStoreAndForward.isSessionExists(envelope.sid);
+                                boolean sessionExists = _matsSocketServer._clusterStoreAndForward.isSessionExists(
+                                        envelope.sid);
                                 // ?: Is there a CSAF Session?
                                 if (sessionExists) {
                                     log.info(" \\- Existing CSAF Session found!");
@@ -994,19 +1023,21 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     matsSocketEndpointIncomingForwarder.handleIncoming(matsSocketContext, _principal, msg);
                     long sentTimestamp = System.currentTimeMillis();
 
-                    // ?: If SEND and we got a reply address, then insta-reply
+                    // ?: If SEND and we got a reply address, then acknowledge the reception by insta-replying.
                     if ("SEND".equals(envelope.t) && envelope.reid != null) {
                         // -> Yes, SEND, so create the reply message right here
                         MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
                         replyEnvelope.t = "RECEIVED";
-                        replyEnvelope.eid = envelope.reid;
-                        replyEnvelope.sid = _matsSocketSessionId;
-                        replyEnvelope.cid = envelope.cid;
-                        replyEnvelope.tid = envelope.tid;
-                        replyEnvelope.cmcts = envelope.cmcts;
+                        replyEnvelope.eid = envelope.reid; // Target EID == Reply EID
+                        // Note: Not setting MatsSocketSessionId - Client already has this
+                        replyEnvelope.tid = envelope.tid; // TraceId
+                        replyEnvelope.cid = envelope.cid; // CorrelationId
+                        replyEnvelope.cmcts = envelope.cmcts; // Set by client..
                         replyEnvelope.cmrts = clientMessageReceivedTimestamp;
                         replyEnvelope.mmsts = sentTimestamp;
                         replyEnvelope.rmcts = sentTimestamp;
+                        replyEnvelope.cmrnn = replyEnvelope.rmcnn = _matsSocketServer.getMyNodename();
+
                         // Send message
                         _matsSocketServer.serializeAndSendSingleEnvelope(_webSocketSession, replyEnvelope);
                     }
@@ -1049,28 +1080,34 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         String auth; // Authorization header
 
+        String tid; // TraceId
+        String sid; // SessionId
+        String cid; // CorrelationId
+        String eid; // target MatsSocketEndpointId: Which MatsSocket Endpoint (server/client) this message is for
+        String reid; // reply MatsSocketEndpointId: Which MatsSocket Endpoint (client/server) this message is for
+
         String t; // Type
         String st; // "SubType": AUTH_FAIL:"enum", EXCEPTION:Classname, MSGERROR:"enum"
         String desc; // Description of "st" of failure, exception message, multiline, may include stacktrace if authz.
         String inMsg; // On MSGERROR: Incoming Message, BASE64 encoded.
         Integer drop; // How many messages was dropped on an "EXPECT" that went sour.
 
-        Long cmcts; // Client Message Created TimeStamp (when message was created on Client side, Client timestamp)
-        Long cmrts; // Client Message Received Timestamp (when message was received on Server side, Server timestamp)
-        Long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server timestamp)
-        Long mmrts; // Mats Message Reply/Recv Timestamp (when the message was received from Mats, Server timestamp)
-        Long rmcts; // Reply Message to Client Timestamp (when the message was replied to Client side, Server timestamp)
-
-        String tid; // TraceId
-        String sid; // SessionId
-        String cid; // CorrelationId
-        String eid; // target MatsSocketEndpointId
-        String reid; // reply MatsSocketEndpointId
-
         @JsonDeserialize(using = MessageToStringDeserializer.class)
         Object msg; // Message, JSON
 
-        DebugDto dbg; // Debug
+        // ::: Debug info
+
+        // :: Timings and Nodenames
+        Long cmcts; // Client Message Created TimeStamp (when message was created on Client side, Client timestamp)
+        Long cmrts; // Client Message Received Timestamp (when message was received on Server side, Server timestamp)
+        String cmrnn; // Client Message Received on NodeName (and Mats message is also sent from this)
+        Long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server timestamp)
+        Long mmrrts; // Mats Message Reply Received Timestamp (when the message was received from Mats, Server timestamp)
+        String mmrrnn; // Mats Message Reply Received on NodeName
+        Long rmcts; // Reply Message to Client Timestamp (when the message was replied to Client side, Server timestamp)
+        String rmcnn; // Reply Message to Client from NodeName (typically same as cmrnn)
+
+        DebugDto dbg; // Debug info object - enabled if requested and principal is allowed. (Not Yet Impl)
 
         @Override
         public String toString() {
@@ -1173,7 +1210,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
                             _matsSocketEndpointRegistration._matsSocketEndpointId, _envelope.reid,
                             _envelope.cid, _envelope.cmcts, _clientMessageReceivedTimestamp,
-                            System.currentTimeMillis());
+                            System.currentTimeMillis(), _matsSocketServer.getMyNodename());
                     // Set ReplyTo parameter
                     init.replyTo(_matsSocketServer._replyTerminatorId, sto);
                     // Invoke the customizer

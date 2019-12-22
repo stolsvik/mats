@@ -145,15 +145,16 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public void registerSessionAtThisNode(String matsSocketSessionId, String connectionId) throws DataAccessException {
         withConnection(con -> {
             boolean autoCommitPre = con.getAutoCommit();
-            try {
+            try { // turn back autocommit, just to be sure we've not changed state of connection.
+
+                // Start transaction
                 con.setAutoCommit(false);
 
                 // :: Generic "UPSERT" implementation: DELETE, INSERT (no need for SELECT/UPDATE/INSERT here)
-                // Unconditionally delete session (
+                // Unconditionally delete session (we'll add the new values).
                 PreparedStatement delete = con.prepareStatement("DELETE FROM mats_socket_session"
                         + " WHERE mats_session_id = ?");
                 delete.setString(1, matsSocketSessionId);
-                delete.execute();
 
                 // Insert the new current row
                 PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_session"
@@ -163,7 +164,12 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 insert.setString(2, connectionId);
                 insert.setString(3, _nodename);
                 insert.setLong(4, System.currentTimeMillis());
+
+                // Execute them both
+                delete.execute();
                 insert.execute();
+
+                // Commit transaction.
                 con.commit();
             }
             finally {

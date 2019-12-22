@@ -73,6 +73,12 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
         log.info(LOG_PREFIX + "Created [" + idThis() + "].");
     }
 
+    private final List<JmsMatsEndpoint<?, ?, Z>> _createdEndpoints = new ArrayList<>();
+    private final List<JmsMatsInitiator<Z>> _createdInitiators = new ArrayList<>();
+
+    private volatile String _nodename = getHostname_internal();
+    private volatile boolean _holdEndpointsUntilFactoryIsStarted;
+
     private static String getHostname_internal() {
         try (BufferedInputStream in = new BufferedInputStream(Runtime.getRuntime().exec("hostname").getInputStream())) {
             byte[] b = new byte[256];
@@ -90,8 +96,6 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
         }
     }
 
-    private String __hostname = getHostname_internal();
-
     public JmsMatsJmsSessionHandler getJmsMatsJmsSessionHandler() {
         return _jmsMatsJmsSessionHandler;
     }
@@ -103,9 +107,6 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
     public MatsSerializer<Z> getMatsSerializer() {
         return _matsSerializer;
     }
-
-    private final List<JmsMatsEndpoint<?, ?, Z>> _createdEndpoints = new ArrayList<>();
-    private final List<JmsMatsInitiator<Z>> _createdInitiators = new ArrayList<>();
 
     @Override
     public FactoryConfig getFactoryConfig() {
@@ -311,8 +312,6 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
         }
     }
 
-    private volatile boolean _holdEndpointsUntilFactoryIsStarted;
-
     @Override
     public void holdEndpointsUntilFactoryIsStarted() {
         log.info(LOG_PREFIX + getClass().getSimpleName() + ".holdEndpointsUntilFactoryIsStarted() invoked - will not"
@@ -482,7 +481,13 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
 
         @Override
         public String getNodename() {
-            return __hostname;
+            return _nodename;
+        }
+
+        @Override
+        public FactoryConfig setNodename(String nodename) {
+            _nodename = nodename;
+            return this;
         }
 
         @Override

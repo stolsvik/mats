@@ -103,7 +103,7 @@ public class MatsLocalVmActiveMq {
     }
 
     /**
-     * @return the test ActiveMQ ConnectionFactory.
+     * @return the instance of ActiveMQ ConnectionFactory connecting to the ActiveMQ instance.
      */
     public ActiveMQConnectionFactory getConnectionFactory() {
         return _activeMQConnectionFactory;
@@ -217,11 +217,14 @@ public class MatsLocalVmActiveMq {
     }
 
     /**
+     * Public since it can be nice to have in other completely unrelated scenarios - but you should probably be
+     * using {@link #getConnectionFactory()}.
+     *
      * @return an ActiveMq JMS ConnectionFactory, based on the value of system property
      *         {@link #SYSPROP_MATS_TEST_ACTIVEMQ} - if this is not set, it connects to the BrokerService that was
      *         created with {@link #createBrokerService(String)}, assuming the provided brokername is the same.
      */
-    protected static ActiveMQConnectionFactory createConnectionFactory(String brokername) {
+    public static ActiveMQConnectionFactory createConnectionFactory(String brokername) {
         String sysprop_matsTestActiveMq = System.getProperty(SYSPROP_MATS_TEST_ACTIVEMQ);
 
         // :: Find which broker URL to use

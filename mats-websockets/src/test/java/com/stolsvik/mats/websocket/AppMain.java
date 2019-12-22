@@ -1,7 +1,5 @@
 package com.stolsvik.mats.websocket;
 
-import static ch.qos.logback.core.CoreConstants.DISABLE_SERVLET_CONTAINER_INITIALIZER_KEY;
-
 import java.io.IOException;
 import java.net.URL;
 import java.security.Principal;
@@ -25,7 +23,11 @@ import javax.websocket.Session;
 import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpoint;
 
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
+import com.stolsvik.mats.impl.jms.JmsMatsFactory;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
+import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
+import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
+import org.apache.activemq.ActiveMQConnectionFactory;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
@@ -41,30 +43,36 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.test.Rule_Mats;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward;
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_DummySingleNode;
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
+
+import ch.qos.logback.core.CoreConstants;
 
 /**
  * @author Endre Stølsvik 2019-11-21 21:07 - http://stolsvik.com/, endre@stolsvik.com
  */
 public class AppMain {
 
-    private static final Logger log = LoggerFactory.getLogger(AppMain.class);
+    private static final String CONTEXT_ATTRIBUTE_PORTNUMBER = "ServerPortNumber";
 
-    private static MatsSocketServer __matsSocketServer;
+    private static final String COMMON_AMQ_NAME = "CommonAMQ";
+
+    private static final Logger log = LoggerFactory.getLogger(AppMain.class);
 
     @WebListener
     public static class SCL_Endre implements ServletContextListener {
 
-        private final Rule_Mats _matsRule = new Rule_Mats();
         private MatsSocketServer _matsSocketServer;
+        private MatsFactory _matsFactory;
+        private MatsLocalVmActiveMq _commonAmq;
 
         @Override
         public void contextInitialized(ServletContextEvent sce) {
             log.info("EndreXY contextInitialized: Test 1 2 3: " + sce);
+
+            log.info("ServletContext: " + sce.getServletContext());
 
             // :: H2 DataBase
             JdbcDataSource h2Ds = new JdbcDataSource();
@@ -72,23 +80,35 @@ public class AppMain {
             JdbcConnectionPool dataSource = JdbcConnectionPool.create(h2Ds);
 
             // :: ActiveMQ and MatsFactory
-            _matsRule.before();
+            ActiveMQConnectionFactory connectionFactory = MatsLocalVmActiveMq.createConnectionFactory(COMMON_AMQ_NAME);
+            MatsSerializer_DefaultJson matsSerializer = new MatsSerializer_DefaultJson();
+            _matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
+                    this.getClass().getSimpleName(), "*testing*",
+                    new JmsMatsJmsSessionHandler_Pooling((s) -> connectionFactory.createConnection()),
+                    matsSerializer);
 
-            MatsFactory matsFactory = _matsRule.getMatsFactory();
+            Integer portNumber = (Integer) sce.getServletContext().getAttribute(CONTEXT_ATTRIBUTE_PORTNUMBER);
+            _matsFactory.getFactoryConfig().setConcurrency(1);
+            _matsFactory.getFactoryConfig().setName("MF_Server_" + portNumber);
+            _matsFactory.getFactoryConfig().setNodename("EndreBox_" + portNumber);
 
             // :: Test MatsEndpoint
-            matsFactory.single("Test.single", MatsDataTO.class, MatsDataTO.class, (processContext, incomingDto) -> {
+            _matsFactory.single("Test.single", MatsDataTO.class, MatsDataTO.class, (processContext, incomingDto) -> {
                 return new MatsDataTO(incomingDto.number, incomingDto.string + ":FromSimple", incomingDto.multiplier);
             });
 
             // :: Create MatsSocketServer
             // Cluster-stuff for the MatsSocketServer
-//             ClusterStoreAndForward_DummySingleNode csaf = new ClusterStoreAndForward_DummySingleNode(matsFactory
-//             .getFactoryConfig().getNodename());
-             ClusterStoreAndForward_SQL csaf = ClusterStoreAndForward_SQL.create(dataSource, matsFactory
-             .getFactoryConfig().getNodename());
+            // ClusterStoreAndForward_DummySingleNode csaf = new ClusterStoreAndForward_DummySingleNode(matsFactory
+            // .getFactoryConfig().getNodename());
+            ClusterStoreAndForward_SQL csaf = ClusterStoreAndForward_SQL.create(dataSource, _matsFactory
+                    .getFactoryConfig().getNodename());
             // Create the MatsSocketServer
-            _matsSocketServer = getMatsSocketServer(sce, matsFactory, csaf);
+            _matsSocketServer = getMatsSocketServer(sce, _matsFactory, csaf);
+            sce.getServletContext().setAttribute(MatsSocketServer.class.getName(), _matsSocketServer);
+            MatsSocketServer matsSocketServer = (MatsSocketServer) sce.getServletContext().getAttribute(
+                    MatsSocketServer.class.getName());
+            log.info("EndreXY: servletContext MatsSocketServer:" + matsSocketServer);
 
             // .. stick in an Authentication plugin
             Function<String, Principal> authToPrincipalFunction = authHeader -> {
@@ -134,15 +154,14 @@ public class AppMain {
                 return new MatsSocketReplyDto(matsReply.string.length(), matsReply.number,
                         ctx.getMatsContext().getTraceProperty("requestTimestamp", Long.class));
             });
-
-            __matsSocketServer = _matsSocketServer;
         }
 
         @Override
         public void contextDestroyed(ServletContextEvent sce) {
             log.info("EndreXY contextDestroyed: Test 1 2 3: " + sce);
             _matsSocketServer.shutdown();
-            _matsRule.after();
+            _matsFactory.stop(1000);
+            _commonAmq.close();
         }
     }
 
@@ -197,15 +216,17 @@ public class AppMain {
     }
 
     public static Server createServer(int port) {
-        WebAppContext webapp = new WebAppContext();
-        webapp.setContextPath("/");
-        webapp.setBaseResource(Resource.newClassPathResource("webapp"));
-        webapp.setThrowUnavailableOnStartupException(true);
+        WebAppContext webAppContext = new WebAppContext();
+        webAppContext.setContextPath("/");
+        webAppContext.setBaseResource(Resource.newClassPathResource("webapp"));
+        webAppContext.setThrowUnavailableOnStartupException(true);
+
+        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_PORTNUMBER, port);
 
         // Override the default configurations, stripping down and adding AnnotationConfiguration.
         // https://www.eclipse.org/jetty/documentation/9.4.x/configuring-webapps.html
         // Note: The default resides in WebAppContext.DEFAULT_CONFIGURATION_CLASSES
-        webapp.setConfigurations(new Configuration[] {
+        webAppContext.setConfigurations(new Configuration[] {
                 // new WebInfConfiguration(),
                 new WebXmlConfiguration(), // Evidently adds the DefaultServlet, as otherwise no read of "/webapp/"
                 // new MetaInfConfiguration(),
@@ -217,21 +238,25 @@ public class AppMain {
         // Find "this" location for current classes
         URL classes = AppMain.class.getProtectionDomain().getCodeSource().getLocation();
         // Set this location to be scanned.
-        webapp.getMetaData().setWebInfClassesDirs(Collections.singletonList(Resource.newResource(classes)));
+        webAppContext.getMetaData().setWebInfClassesDirs(Collections.singletonList(Resource.newResource(classes)));
 
         Server server = new Server(port);
 
         // Add StatisticsHandler
         StatisticsHandler stats = new StatisticsHandler();
-        stats.setHandler(webapp);
+        stats.setHandler(webAppContext);
         server.setHandler(stats);
 
         // Add a Jetty Lifecycle Listener to cleanly shut down the MatsSocketServer.
         server.addLifeCycleListener(new AbstractLifeCycleListener() {
             @Override
             public void lifeCycleStopping(LifeCycle event) {
-                log.info("XXXX lifeCycleStopping, event:" + event);
-                __matsSocketServer.shutdown();
+                log.info("XXXX lifeCycleStopping for " + port + ", event:" + event + ", context:" + webAppContext);
+                log.info("  test.elg: "+webAppContext.getServletContext().getAttribute("test.elg"));
+                MatsSocketServer matsSocketServer = (MatsSocketServer) webAppContext.getServletContext().getAttribute(MatsSocketServer.class
+                        .getName());
+                log.info("MatsSocketServer instance:" + matsSocketServer);
+                matsSocketServer.shutdown();
             }
         });
 
@@ -241,19 +266,21 @@ public class AppMain {
     }
 
     public static void main(String... args) throws Exception {
-        String portS = System.getProperty("jetty.http.port", "8080");
-        int port = Integer.parseInt(portS);
-        Server server = createServer(port);
+        // Turn off LogBack's absurd SCI
+        System.setProperty(CoreConstants.DISABLE_SERVLET_CONTAINER_INITIALIZER_KEY, "true");
 
-        System.setProperty(DISABLE_SERVLET_CONTAINER_INITIALIZER_KEY, "true");
+        // Create common AMQ
+        MatsLocalVmActiveMq inVmActiveMq = MatsLocalVmActiveMq.createInVmActiveMq(COMMON_AMQ_NAME);
 
-        log.info("EndreXY: Starting server.");
+        Server server1 = createServer(8080);
+        Server server2 = createServer(8081);
 
-        server.start();
+        log.info("######### Starting server 1");
+        server1.start();
+        log.info("######### Starting server 2");
+        server2.start();
 
-        server.dumpStdErr();
-
-        server.join();
+        server1.join();
+        server2.join();
     }
-
 }
