@@ -1070,7 +1070,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     }
 
     private static class MatsSocketEnvelopeDto {
-        String clv; // Client Lib and Versions, e.g.
+        String clv; // Client Lib and Versions, informative, e.g.
         // "MatsSockLibCsharp,v2.0.3; iOS,v13.2"
         // "MatsSockLibAlternativeJava,v12.3; ASDKAndroid,vKitKat.4.4"
         // Java lib: "MatsSockLibJava,v0.8.9; Java,v11.03:Windows,v2019"
