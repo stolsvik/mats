@@ -67,6 +67,18 @@ Auth, "isAuthOk?"
 * Topic on which to query for all active Sessions, with a "replyToQueue" for where to send back info
   * Contains nodename, timestamp, and an object for each Session, with hos,an,av and "last msg ts"
 
+// Queueing on Client side.
+* Getting explicit "got your message" reply, removing from internal queue.
+* Will try to resend if fails.
+
+// Other types of authentication:
+* How to handle HttpSession-style auth?
+* How to handle Servlet Container auth?
+* Maybe for both: Possible for de-auth to send special message to current WebSocket connection and ask to reevaluate
+   Auth (we do have the currently provided Authorization string as part of session). If fails: tells Client about this,
+   which will possibly simply disconnect and reconnect, and then get the auth failed.
+   
+
 ```java
 @MatsSocket("Endpoint.id")
 public void handleMessage(MatsSocketContext<Blabla> context) {

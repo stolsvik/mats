@@ -143,7 +143,10 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
     @Override
     public void close() {
-        // TODO: Implement close semantics: Close all Sessions in any pool, and close Connection(s).
+        /*
+         * Nothing to do in JMS Mats implementation, as we only "loan" JMS Sessions from the JmsMatsJmsSessionHandler,
+         * which is the one that closes everything on shutdown.
+         */
     }
 
     @Override
@@ -224,6 +227,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 _from = _existingMatsTrace.getCurrentCall().getTo().getId();
 
                 // Copy over the properties which so far has been set in the stage (before this message is initiated).
+                // (This is a reset() function, thus we must clear the map in case this is message #x, x>1).
                 _props.clear();
                 _props.putAll(_tracePropertiesSetSoFarInStage);
             }
@@ -298,10 +302,6 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
         @Override
         public MatsInitiate timeToLive(long timeToLiveMillis) {
-//            if (!_nonPersistent) {
-//                throw new IllegalStateException("Cannot set TimeToLive on a message that is not also nonPersistent()"
-//                        + " - the method timeToLive() is deprecated, use nonPersistent(timeToLive) instead.");
-//            }
             if (timeToLiveMillis < 0) {
                 throw new IllegalArgumentException("timeToLive must be > 0");
             }
@@ -645,6 +645,10 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         private void checkCommon(String msg) {
+            if ((_timeToLive > 0) && (!_nonPersistent)) {
+                throw new IllegalStateException("TimeToLive is set [" + _timeToLive
+                        + "], but message is not NonPersistent - illegal combination.");
+            }
             if (_traceId == null) {
                 throw new NullPointerException(msg + ": Missing 'traceId'.");
             }

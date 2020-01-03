@@ -1,0 +1,104 @@
+<html>
+<meta charset="UTF-8"/>
+<head>
+    <style>
+        #request_table, td {
+            border: 1px solid black;
+            border-collapse: collapse;
+            font-size: 8px;
+            table-layout: fixed;
+            width: 2000px;
+        }
+
+        td {
+            width: 40px;
+            overflow: hidden;
+        }
+
+    </style>
+</head>
+<body>
+<h1 id="title_heading">Many requests</h1>
+Sends off a couple of thousand requests, using <code>setTimeout(..., 0)</code>. This gives a semi-parallel execution,
+which is visualised below.<br>
+Each Request is passed onto the MatsSocket directly, no pipelining. Each request uses
+a separate callback that completes the round-trip by updating the specific cell with its timing information.<br>
+<i id="total">Here will be information...</i>
+
+<script>
+</script>
+
+<script src="MatsSocket.js"></script>
+
+<script>
+    function tableCreate(rows, columns) {
+        var body = document.body;
+        var table = document.createElement('table');
+        table.id = "request_table";
+
+        for (var i = 0; i < rows; i++) {
+            var tr = table.insertRow();
+            for (var j = 0; j < columns; j++) {
+                var cellNum = j * rows + i;
+                var td = tr.insertCell();
+                td.id = "request_" + cellNum;
+                td.innerHTML = "x";
+            }
+        }
+        body.appendChild(table);
+    }
+
+    var rows = 80;
+    var columns = 50;
+
+    tableCreate(rows, columns);
+    var total = rows * columns;
+
+    document.getElementById("title_heading").innerText = total + " requests";
+
+    var matsSocket = new MatsSocket("TestApp", "1.2.3",
+        ["ws://localhost:8080/matssocket/json", "ws://localhost:8081/matssocket/json"]);
+    matsSocket.setCurrentAuthorization("DummyAuth:" + Date.now() + 100000, -1);
+
+    var count = 0; // Number of received messages
+    var sumTime = 0; // Sum of millis per message, to get average.
+
+    var startMillis = Date.now();
+
+    for (var i = 0; i < total; i++) {
+        // Goddamn scopes of JS. Cool, but a bit too magic.
+        setTimeout((function (innerI) {
+            return function () {
+                var requestId = "request_" + innerI;
+                var requestCell = document.getElementById(requestId);
+                requestCell.innerHTML = "Req " + innerI;
+
+                matsSocket.request("Test.single", requestId + ":" + matsSocket.id(6), {
+                        string: "Request String:" + requestId,
+                        number: Math.E * innerI
+                    },
+                    function (event) {
+                        var timeTakenMs = Date.now() - event.clientMessageCreated;
+                        sumTime += timeTakenMs;
+                        requestCell.innerHTML = "<b>" + timeTakenMs + " ms</b>";
+                        count++;
+
+                        // ?: Are we at end?
+                        if (count === total) {
+                            var totalMillis = Date.now() - startMillis;
+                            var averagePerMessage = sumTime / total;
+                            var throughputPerSecond = (total / totalMillis) * 1000;
+                            document.getElementById("total").innerHTML =
+                                "Total time: " + totalMillis + "ms, average per message: " + averagePerMessage + "ms,"
+                                + " throughput: "+throughputPerSecond + "msg/sec";
+                        }
+                    });
+
+            }
+        })(i), 0);
+    }
+</script>
+
+
+</body>
+</html>

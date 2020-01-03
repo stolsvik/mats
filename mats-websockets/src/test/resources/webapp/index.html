@@ -1,67 +1,16 @@
-<html>
-<meta charset="UTF-8"/>
-<body>
-<h1>Testing 1, 2, 3</h1>
-
-<script src="MatsSocket.js"></script>
-
-<script>
-    var matsSocket = new MatsSocket("ws://localhost:8080/matssocket/json", "TestApp", "1.2.3");
-
-    matsSocket.setAuthorizationExpiredCallback(function (event) {
-        console.log("AuthorizationExpiredCallback");
-        console.log(event);
-
-        // Emulate that it takes some time to get new auth.
-        setTimeout(function () {
-            var now = Date.now();
-            var expiry = now + 20000;
-            matsSocket.setCurrentAuthorization("DummyAuth:" + expiry, expiry, 10000);
-        }, 100 + (100 * Math.random()));
-    });
-
-    matsSocket.endpoint("ClientSide.testEndpoint", function (e) {
-        var millis = Date.now() - e.clientMessageCreated;
-        console.log("Got message! CorrelationId:" + e.correlationId + ", time taken: " + millis + "ms"
-            + ", clientMessageReceivedNodename: " + e.clientMessageReceivedNodename
-            + ", matsMessageReceivedNodename: " + e.matsMessageReceivedNodename
-            + ", replyMessageToClientNodename:" + e.replyMessageToClientNodename);
-    });
-
-    matsSocket.send("Test.single", "SendTraceId_" + matsSocket.id(6), {string: "The String", number: Math.PI},
-        function (event) {
-            var now = Date.now();
-            console.log("Got callback on send! Took " + (now - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
-        });
-
-    matsSocket.request("Test.single", "RequestTraceId_" + matsSocket.id(6), {string: "Request String", number: Math.E},
-        function (event) {
-            var now = Date.now();
-            console.log("Got callback on request! Took " + (now - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
-        });
-
-    matsSocket.pipeline(function (ms) {
-        ms.requestReplyTo("Test.single", "Pipeline_1_" + matsSocket.id(6),
-            {string: "Messge 1", number: 100.001, requestTimestamp: Date.now()},
-            "ClientSide.testEndpoint", "pipeline_1_" + matsSocket.id(10));
-        ms.requestReplyTo("Test.single", "Pipeline_2_" + matsSocket.id(6),
-            {string: "Message 2", number: 200.002, requestTimestamp: Date.now()},
-            "ClientSide.testEndpoint", "pipeline_2_" + matsSocket.id(10));
-        ms.requestReplyTo("Test.single", "Pipeline_3_" + matsSocket.id(6),
-            {string: "Message 3", number: 300.003, requestTimestamp: Date.now()},
-            "ClientSide.testEndpoint", "pipeline_3_" + matsSocket.id(10));
-    });
-
-    var ping = function () {
-        setTimeout(function () {
-            matsSocket.requestReplyTo("Test.single", "TraceId",
-                {string: "Periodic query", number: 100.001, requestTimestamp: Date.now()},
-                "ClientSide.testEndpoint", "TestTraceId_" + matsSocket.id(6));
-            ping();
-        }, 500);
-    };
-    ping();
-</script>
-
-</body>
-</html>
+<htlm>
+    <meta charset="UTF-8"/>
+    <body>
+    <h1>MatsSockets test pages</h1>
+    <h2>A couple of pages that performs some different MatsSockets operations</h2>
+    These pages assumes that you have the two instances of the test-app running on port 8080 and 8081, i.e. running
+    the AppMain.java, which boots one ActiveMQ and two Jetty instances on these ports. Note that this is not a "model"
+    of how to code with MatsSockets, as it has several features aimed at testing the actual JavaScript/Java/WebSockets
+    interactions: It has a "no-op" authentication plugin. It is specially instrumented to be able to control "booting"
+    of the two server instances. And other crazy stuff.
+    <ul>
+        <li><a href="simple_tests.html">Simple tests</a> - assumes that you have the JavaScript Console open.</li>
+        <li><a href="many_requests.html">4000 requests</a> - a table-full of request-replies, timings.</li>
+    </ul>
+    </body>
+</htlm>

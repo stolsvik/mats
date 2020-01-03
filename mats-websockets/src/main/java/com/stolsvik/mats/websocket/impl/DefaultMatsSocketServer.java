@@ -93,7 +93,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         };
         try {
             serverContainer.addEndpoint(Builder.create(MatsWebSocketInstance.class, "/matssocket/json")
-                    .subprotocols(Collections.singletonList("mats"))
+                    .subprotocols(Collections.singletonList("matssocket"))
                     .configurator(configurator)
                     .build());
         }
@@ -653,19 +653,28 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             // ?: Did we get a node?
             if (!currentNode.isPresent()) {
                 // -> No, so nothing to do - MatsSocket will get messages when he reconnect.
-                log.info("MatsSocketSession [" + matsSocketSessionId + "] is not present on any node.");
+                log.info("MatsSocketSession [" + matsSocketSessionId + "] is not present on any node. Ignoring,"
+                        + " hoping that client will come back and get his messages later.");
                 return;
             }
 
             // ?: Was the node /this/ node?
             if (currentNode.get().getNodename().equalsIgnoreCase(getMyNodename())) {
-                // -> Oops, yes. If this is not true, then fix that
+                // -> Oops, yes.
+                // Find the local session.
                 Optional<MatsSocketSession> localSession = getRegisteredLocalMatsSocketSession(matsSocketSessionId);
-                // ?: Do we have such a session?
+                // ?: Do we have this session locally?!
                 if (!localSession.isPresent()) {
-                    // -> No, we do NOT have this session - point that out for the CSAF
+                    // -> No, we do NOT have this session locally!
+                    // NOTICE: This could e.g. happen if DB down when trying to deregister the MatsSocketSession.
+                    log.info("MatsSocketSession [" + matsSocketSessionId + "] is said live on this node, but we do not"
+                            + " have it. Tell the CSAF this, and ignore, hoping that client will come back and get"
+                            + " his messages later.");
+                    // Fix this wrongness: Tell CSAF that we do not have this session!
                     _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId, currentNode.get()
                             .getConnectionId());
+                    // No can do.
+                    return;
                 }
             }
         }
@@ -677,7 +686,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             return;
         }
 
-        // Send message to home for MatsSocketSession
+        // Send message to home for MatsSocketSession (it /might/ be us if massive async, but that'll be handled.)
         _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
             init.traceId("MatsSystemOutgoingMessageNotify[ms_sid:" + matsSocketSessionId + "]" + rnd(5))
                     .from("MatsSocketSystem.notifyNodeAboutMessage")
@@ -1102,7 +1111,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         Long cmrts; // Client Message Received Timestamp (when message was received on Server side, Server timestamp)
         String cmrnn; // Client Message Received on NodeName (and Mats message is also sent from this)
         Long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server timestamp)
-        Long mmrrts; // Mats Message Reply Received Timestamp (when the message was received from Mats, Server timestamp)
+        Long mmrrts; // Mats Message Reply Received Timestamp (when the message was received from Mats, Server
+                     // timestamp)
         String mmrrnn; // Mats Message Reply Received on NodeName
         Long rmcts; // Reply Message to Client Timestamp (when the message was replied to Client side, Server timestamp)
         String rmcnn; // Reply Message to Client from NodeName (typically same as cmrnn)
