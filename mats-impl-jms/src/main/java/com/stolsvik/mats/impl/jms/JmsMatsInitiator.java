@@ -301,6 +301,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         @Override
+        @Deprecated
         public MatsInitiate timeToLive(long timeToLiveMillis) {
             if (timeToLiveMillis < 0) {
                 throw new IllegalArgumentException("timeToLive must be > 0");
