@@ -27,16 +27,6 @@ public interface MatsSocketServer {
             MatsSocketEndpointIncomingAuthEval<I, MI, R> incomingAuthEval);
 
     /**
-     * This is mandatory. Must be pretty fast, as it is invoked synchronously - keep any IPC fast and keep relatively
-     * short timeouts, otherwise all your threads of the container might be used up. If the function throws or returns
-     * null, authorization did not go through.
-     *
-     * @param authorizationToPrincipalFunction
-     *            a Function that turns an Authorization String into a Principal.
-     */
-    void setAuthorizationToPrincipalFunction(Function<String, Principal> authorizationToPrincipalFunction);
-
-    /**
      * Closes all WebSockets with {@link CloseCodes#SERVICE_RESTART} (assuming that a MatsSocket service will never
      * truly go down..)
      */

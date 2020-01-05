@@ -96,14 +96,7 @@ public class AppMain {
             // .getFactoryConfig().getNodename());
             ClusterStoreAndForward_SQL csaf = ClusterStoreAndForward_SQL.create(dataSource, _matsFactory
                     .getFactoryConfig().getNodename());
-            // Create the MatsSocketServer
-            _matsSocketServer = getMatsSocketServer(sce, _matsFactory, csaf);
-            sce.getServletContext().setAttribute(MatsSocketServer.class.getName(), _matsSocketServer);
-            MatsSocketServer matsSocketServer = (MatsSocketServer) sce.getServletContext().getAttribute(
-                    MatsSocketServer.class.getName());
-            log.info("EndreXY: servletContext MatsSocketServer:" + matsSocketServer);
-
-            // .. stick in an Authentication plugin
+            // Make a Dummy Authentication plugin
             Function<String, Principal> authToPrincipalFunction = authHeader -> {
                 log.info("Resolving Authorization header to principal for header [" + authHeader + "].");
                 long expires = Long.parseLong(authHeader.substring(authHeader.indexOf(':') + 1));
@@ -122,7 +115,12 @@ public class AppMain {
                     }
                 };
             };
-            _matsSocketServer.setAuthorizationToPrincipalFunction(authToPrincipalFunction);
+            // Create the MatsSocketServer
+            _matsSocketServer = getMatsSocketServer(sce, _matsFactory, csaf, authToPrincipalFunction);
+            sce.getServletContext().setAttribute(MatsSocketServer.class.getName(), _matsSocketServer);
+            MatsSocketServer matsSocketServer = (MatsSocketServer) sce.getServletContext().getAttribute(
+                    MatsSocketServer.class.getName());
+            log.info("EndreXY: servletContext MatsSocketServer:" + matsSocketServer);
 
             // :: Make MatsSocketEndpoint
             MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = _matsSocketServer
@@ -159,7 +157,7 @@ public class AppMain {
     }
 
     private static MatsSocketServer getMatsSocketServer(ServletContextEvent sce, MatsFactory matsFactory,
-            ClusterStoreAndForward clusterStoreAndForward) {
+            ClusterStoreAndForward clusterStoreAndForward, Function<String, Principal> authToPrincipalFunction) {
         Object serverContainerAttrib = sce.getServletContext().getAttribute(ServerContainer.class.getName());
         if (!(serverContainerAttrib instanceof ServerContainer)) {
             throw new AssertionError("Did not find '" + ServerContainer.class.getName() + "' object"
@@ -168,7 +166,7 @@ public class AppMain {
 
         ServerContainer wsServerContainer = (ServerContainer) serverContainerAttrib;
         return DefaultMatsSocketServer.createMatsSocketServer(
-                wsServerContainer, matsFactory, clusterStoreAndForward);
+                wsServerContainer, matsFactory, clusterStoreAndForward, authToPrincipalFunction);
     }
 
     @WebServlet("/test")

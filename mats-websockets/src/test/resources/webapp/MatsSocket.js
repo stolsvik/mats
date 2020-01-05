@@ -5,7 +5,8 @@ function MatsSocket(appName, appVersion, urls) {
     this.appName = appName;
     this.appVersion = appVersion;
     this.urls = [].concat(urls); // Ensure array
-    this.logging = false; // Whether to log
+
+    this.logging = false; // Whether to log via console.log
 
     /**
      * Only set this if you explicitly want to continue a previous Session. In an SPA where the MatsSocket is
@@ -145,13 +146,12 @@ function MatsSocket(appName, appVersion, urls) {
      * Add a message to the outgoing pipeline, evaluates whether to send the pipeline afterwards (i.e. if pipelining
      * is active or not).
      */
-    this.addMessageToPipeline = function (type, msg, callback) {
-        // TODO: if third arg is function, set 'reid' and 'correlationId'.
+    this.addMessageToPipeline = function (type, envelope, resolve, reject, receiveCallback) {
         var now = Date.now();
         _lastMessageEnqueuedMillisSinceEpoch = now;
         // Add common params
-        msg.t = type;
-        msg.cmcts = now;
+        envelope.t = type;
+        envelope.cmcts = now;
 
         // ?: Is this a close session message?
         if (type === "CLOSE_SESSION") {
@@ -160,7 +160,7 @@ function MatsSocket(appName, appVersion, urls) {
             // Any new message will be under new Session.
             _sessionId = undefined;
             // Drop any pipelined messages (why invoke shutdown() if you are pipelining?!).
-            _pipeline = [];
+            _pipeline.length = 0;
             // Keep a temp ref to WebSocket, while we clear it out
             var tempSocket = _websocket;
             var tempOpen = _socketOpen;
@@ -170,7 +170,7 @@ function MatsSocket(appName, appVersion, urls) {
             // ?: Was it open?
             if (tempOpen) {
                 // -> Yes, so off it goes.
-                tempSocket.send(JSON.stringify([msg]))
+                tempSocket.send(JSON.stringify([envelope]))
             }
             // We're done. This MatsSocket should be as good as new.
             return;
@@ -178,15 +178,66 @@ function MatsSocket(appName, appVersion, urls) {
 
         // E-> Not special messages.
 
-        // If we got a callback function, then register this
-        if (typeof (callback) == 'function') {
-            msg.reid = "MS.CBR";
-            msg.cid = this.id(10);
-            _callbacks[msg.cid] = callback;
+        // ?: Send or Request?
+        if ((type === "SEND") || (type === "REQUEST")) {
+            // If it is a REQUEST /without/ a specific Reply (client) Endpoint defined, then it is a ...
+            var requestWithPromiseCompletion = (type === "REQUEST") && (envelope.reid === undefined);
+            // Make lambda for what happens when it has been RECEIVED on server.
+            var outstandingSendOrRequest = {};
+            // ?: Is it an ordinary REQUEST with Promise-completion?
+            if (requestWithPromiseCompletion) {
+                // -> Yes, ordinary REQUEST with Promise-completion
+                // Upon RECEIVED->ACK, invoke receiveCallback if provided
+                outstandingSendOrRequest.resolve = function (envelope) {
+                    // ?: Did we get a receiveCallback?
+                    if (receiveCallback !== undefined) {
+                        // -> Yes, so invoke it
+                        receiveCallback(envelope);
+                    } else {
+                        // -> No, so just log a bit.
+                        log(".. note: REQUEST-with-Promise: No receiveCallback provided.", envelope);
+                    }
+                };
+            } else {
+                // -> No, it is SEND or REQUEST-with-ReplyTo.
+                // Upon RECEIVED->ACK, resolve the Promise with the Received-acknowledgement
+                outstandingSendOrRequest.resolve = function (envelope) {
+                    resolve(envelope);
+                };
+            }
+            // Common for RECEIVED->SERVER_ERROR or ->NACK is that the Promise will be rejected.
+            outstandingSendOrRequest.reject = function (envelope) {
+                reject(envelope);
+            };
+
+            // Store the message itself
+            outstandingSendOrRequest.envelope = envelope;
+
+            // TODO: ^^ Wrap the envelope in a better event object, or Error.
+
+            // Add the message Sequence Id
+            var thisMessageSequenceId = _messageSequenceId++;
+            envelope.mseq = thisMessageSequenceId;
+            // Store the outstanding Send or Request
+            _outstandingSendsAndRequests[thisMessageSequenceId] = outstandingSendOrRequest;
+
+            // ?: If this is a request, we'll have a future to look forward to.
+            if (type === "REQUEST") {
+                // ?: Is this a Request-with-Promise-completion?
+                if (envelope.reid === undefined) {
+                    // -> Yes, since no Reply (Client) Endpoint Id specified
+                    // We set it to the generic Promise completer
+                    envelope.reid = "MS.Promise";
+                }
+                _futures[thisMessageSequenceId] = {
+                    resolve: resolve,
+                    reject: reject
+                };
+            }
         }
 
-        _pipeline.push(msg);
-        log("Pushed to pipeline: " + JSON.stringify(msg))
+        _pipeline.push(envelope);
+        log("Pushed to pipeline: " + JSON.stringify(envelope));
         evaluatePipelineSend();
     };
 
@@ -209,8 +260,9 @@ function MatsSocket(appName, appVersion, urls) {
             lambda(this);
         } catch (err) {
             // The lambda raised some error, thus we log this and clear the pipeline.
-            error("Caught error while executing pipeline()-lambda: Dropping any added messages.")
-            _pipeline = [];
+            // TODO: ERROR
+            error("pipelining", "Caught error while executing pipeline()-lambda: Dropping any added messages.");
+            _pipeline = existingMessages;
             throw err;
         } finally {
             // Turn off pipelining
@@ -251,6 +303,20 @@ function MatsSocket(appName, appVersion, urls) {
 
     // PRIVATE
 
+    function error(type, msg, err) {
+        console.error(type + ": " + msg, err);
+    }
+
+    function log(msg, object) {
+        if (that.logging) {
+            if (object !== undefined) {
+                console.log(msg, object);
+            } else {
+                console.log(msg);
+            }
+        }
+    }
+
     // https://stackoverflow.com/a/12646864/39334
     function shuffleArray(array) {
         for (var i = array.length - 1; i > 0; i--) {
@@ -287,26 +353,18 @@ function MatsSocket(appName, appVersion, urls) {
     var _authorizationExpiredCallback = undefined;
     var _lastMessageEnqueuedMillisSinceEpoch = Date.now(); // Start by assuming that it was just used.
 
+    var _messageSequenceId = 0; // Increases for each SEND or REQUEST
+
     // When we've informed the app that we need auth, we do not need to do it again until it has set it.
     var _authExpiredCallbackInvoked = false;
 
-    // Outstanding callbacks
-    var _callbacks = {};
+    // Outstanding Futures resolving the Promises
+    var _futures = {};
+    // Outstanding SEND and RECEIVE messages waiting for Received ACK/SERVER_ERROR/NACK
+    var _outstandingSendsAndRequests = {};
 
     // "That" reference
     var that = this;
-
-    function log(msg, object) {
-        if (that.logging) {
-            if (object !== undefined) {
-                console.log(msg, object);
-            }
-            else {
-                console.log(msg);
-            }
-        }
-    }
-
 
     // Add "onbeforeunload" event listener to shut down the MatsSocket cleanly (closing session) when user navigates
     // away from page.
@@ -316,17 +374,26 @@ function MatsSocket(appName, appVersion, urls) {
     });
 
     // Register the MatsSocket's system Callback Reply Endpoint
-    this.endpoint("MS.CBR", function (event) {
-        // Get the outstanding callback
-        var callback = _callbacks[event.correlationId];
-        // Delete the outstanding callback (we will complete it now)
-        delete _callbacks[event.correlationId];
-        // Invoke the callback if it was registered
-        if (callback !== undefined) {
-            callback(event);
+    this.endpoint("MS.Promise", function (event) {
+        log("MS.Promise: WTF?", event);
+        // Get the outstanding future
+        var future = _futures[event.messageSequenceId];
+        // Delete the outstanding future (we will complete it now)
+        delete _futures[event.messageSequenceId];
+        // Invoke the future if it was registered
+        if (future === undefined) {
+            error("missing future", "When getting a reply to a Promise, we did not find the future for message sequence [" + event.messageSequenceId + "].", event);
+            return;
+        }
+        // -> We found the future
+        if (event.subType === "RESOLVE") {
+            future.resolve(event);
+        }
+        else {
+            future.reject(event);
         }
     });
-    
+
     /**
      * Sends pipelined messages if pipelining is not engaged.
      */
@@ -423,10 +490,10 @@ function MatsSocket(appName, appVersion, urls) {
 
             // Send messages, if there are any
             if (_pipeline.length > 0) {
-                log("Flushing pipeline of [" + _pipeline.length + "] messages.");
+                if (that.logging) log("Flushing pipeline of [" + _pipeline.length + "] messages.");
                 _websocket.send(JSON.stringify(_pipeline));
                 // Clear pipeline
-                _pipeline = [];
+                _pipeline.length = 0;
             }
         }
     }
@@ -435,11 +502,12 @@ function MatsSocket(appName, appVersion, urls) {
         var eventToCallback = {
             data: envelope.msg,
             type: envelope.t,
-            subType: envelope.ts,
+            subType: envelope.st,
             traceId: envelope.tid,
             correlationId: envelope.cid,
+            messageSequenceId: envelope.mseq,
 
-            // Timestamps and handling nodenames
+            // Timestamps and handling nodenames (pretty much debug information).
             clientMessageCreated: envelope.cmcts,
             clientMessageReceived: envelope.cmrts,
             clientMessageReceivedNodename: envelope.cmrnn,
@@ -474,8 +542,7 @@ function MatsSocket(appName, appVersion, urls) {
         log("Using urlIndexCurrentlyConnecting [" + _urlIndexCurrentlyConnecting + "]: " + _useUrls[_urlIndexCurrentlyConnecting]);
         _websocket = new WebSocket(_useUrls[_urlIndexCurrentlyConnecting], "matssocket");
         _websocket.onopen = function (event) {
-            log("onopen");
-            log(event);
+            log("onopen", event);
             // Socket is now ready for business
 
             // TODO: Clear all reconnection settings
@@ -492,31 +559,52 @@ function MatsSocket(appName, appVersion, urls) {
             var envelopes = JSON.parse(data);
 
             var numEnvelopes = envelopes.length;
-            log("Got " + numEnvelopes + " messages.");
+            if (that.logging) log("onmessage: Got " + numEnvelopes + " messages.");
 
             for (var i = 0; i < numEnvelopes; i++) {
                 var envelope = envelopes[i];
+                if (that.logging) log(" \\- onmessage: handling message " + i + ": " + envelope.t + ": " + JSON.stringify(envelope));
 
                 if (envelope.t === "WELCOME") {
                     // TODO: Handle WELCOME message better.
                     _sessionId = envelope.sid;
                     log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
-                } else {
+                } else if (envelope.t === "RECEIVED") {
+                    // -> RECEIVED ack/server_error/nack
+                    var outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.mseq];
+                    delete _outstandingSendsAndRequests[envelope.mseq];
+                    // ?: Check that we found it.
+                    if (outstandingSendOrRequest === undefined) {
+                        // -> No, the OutstandingSendOrRequest was not present.
+                        // TODO: This might imply double delivery..
+                        error("message acknowledgement", "Missing OutstandingSendOrRequest for envelope.mseq [" + envelope.mseq + "]");
+                        continue;
+                    }
+                    // E-> Yes, we had OutstandingSendOrRequest
+                    if (envelope.st === "ACK") {
+                        // TODO: Something else than envelope?
+                        outstandingSendOrRequest.resolve(envelope);
+                    } else {
+                        outstandingSendOrRequest.reject(envelope);
+                    }
+                } else if (envelope.t === "REPLY") {
+                    // -> Reply to REQUEST
                     // -> Assume message that contains EndpointId
                     try {
                         var endpoint = _endpoints[envelope.eid];
-                        if (endpoint !== undefined) {
-                            endpoint(eventFromEnvelope(envelope, receivedTimestamp));
+                        if (endpoint === undefined) {
+                            error("missing client endpoint", "The Client Endpoint [" + envelope.eid + "] is not present!", envelope);
+                            continue;
                         }
-                    } catch (error) {
-                        error("Got error while trying to invoke endpoint for message: " + error, error);
+                        endpoint(eventFromEnvelope(envelope, receivedTimestamp));
+                    } catch (err) {
+                        error("reply", "Got error while trying to invoke endpoint for message: ", err);
                     }
                 }
             }
         };
         _websocket.onclose = function (event) {
-            log("onclose");
-            log(event);
+            log("onclose", event);
             // Ditch this WebSocket
             _websocket = undefined;
             // .. and thus it is most definitely not open anymore.
@@ -524,38 +612,78 @@ function MatsSocket(appName, appVersion, urls) {
             _helloSent = false;
         };
         _websocket.onerror = function (event) {
-            log("onerror");
-            log(event);
+            error("websocket.onerror", "Got 'onerror' error", event);
         };
     }
 }
 
-MatsSocket.prototype.send = function (endpointId, traceId, message, callback) {
-    this.addMessageToPipeline("SEND", {
-        eid: endpointId,
-        tid: traceId,
-        msg: message
-    }, callback);
+/**
+ * "Fire-and-forget"-style send-a-message. The returned promise is Resolved if the server receives and accepts it,
+ * while it is Rejected if either the current authorization is not accepted ("authHandle") or it cannot be forwarded
+ * to the Mats infrastructure (e.g. MQ or any outbox DB is down).
+ *
+ * @param endpointId
+ * @param traceId
+ * @param message
+ * @returns {Promise<unknown>}
+ */
+MatsSocket.prototype.send = function (endpointId, traceId, message) {
+    var that = this;
+    return new Promise(function (resolve, reject) {
+        that.addMessageToPipeline("SEND", {
+            eid: endpointId,
+            tid: traceId,
+            msg: message
+        }, resolve, reject);
+    });
 };
 
-MatsSocket.prototype.request = function (endpointId, traceId, message, callback) {
-    if (typeof (callback) !== 'function') {
-        throw new Error("When using 'MatsSocket.request(...)', you shall provide a callback function.");
-    }
-    this.addMessageToPipeline("REQUEST", {
-        eid: endpointId,
-        tid: traceId,
-        msg: message
-    }, callback);
+/**
+ * Perform a Request, and have the reply come back via the returned Promise. As opposed to Send, where the
+ * returned Promise is resolved when the server accepts the message, the Promise is now resolved by the Reply.
+ * To get information of whether the server accepted the message, you can provide a receivedCallback - this is
+ * invoked when the server accepts the message.
+ *
+ * @param endpointId
+ * @param traceId
+ * @param message
+ * @param receivedCallback
+ * @returns {Promise<unknown>}
+ */
+MatsSocket.prototype.request = function (endpointId, traceId, message, receivedCallback) {
+    var that = this;
+    return new Promise(function (resolve, reject) {
+        that.addMessageToPipeline("REQUEST", {
+            eid: endpointId,
+            tid: traceId,
+            msg: message
+        }, resolve, reject, receivedCallback);
+    });
 };
 
+/**
+ * Perform a Request, but send the reply to a specific client endpoint registered on this MatsSocket instance.
+ * The returned Promise functions as for Send, since the reply will not go to the Promise now. Notice that you
+ * can set a CorrelationId which will be available for the Client endpoint when it receives the reply - this
+ * is pretty much free form.
+ *
+ * @param endpointId
+ * @param traceId
+ * @param message
+ * @param replyToEndpointId
+ * @param correlationId
+ * @returns {Promise<unknown>}
+ */
 MatsSocket.prototype.requestReplyTo = function (endpointId, traceId, message, replyToEndpointId, correlationId) {
-    this.addMessageToPipeline("REQUEST", {
-        eid: endpointId,
-        reid: replyToEndpointId,
-        cid: correlationId,
-        tid: traceId,
-        msg: message
+    var that = this;
+    return new Promise(function (resolve, reject) {
+        that.addMessageToPipeline("REQUEST", {
+            eid: endpointId,
+            reid: replyToEndpointId,
+            cid: correlationId,
+            tid: traceId,
+            msg: message
+        }, resolve, reject);
     });
 };
 

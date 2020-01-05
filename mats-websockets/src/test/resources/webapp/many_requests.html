@@ -19,14 +19,12 @@
 </head>
 <body>
 <h1 id="title_heading">Many requests</h1>
-Sends off a couple of thousand requests, using <code>setTimeout(..., 0)</code>. This gives a semi-parallel execution,
-which is visualised below.<br>
-Each Request is passed onto the MatsSocket directly, no pipelining. Each request uses
-a separate callback that completes the round-trip by updating the specific cell with its timing information.<br>
-<i id="total">Here will be information...</i>
-
-<script>
-</script>
+Sends off a couple of thousand requests, each being fired off in its own "event" using <code>setTimeout(..., 0)</code>.
+This gives a semi-parallel execution, which is visualised below.<br>
+Each Request is passed onto the MatsSocket directly, no pipelining. Each Request uses
+its own separate callback (i.e. not targeting a common MatsSocket "Endpoint") that completes the round-trip by updating
+the specific cell with its timing information.<br>
+<i id="statistics">Here will be statistics...</i>
 
 <script src="MatsSocket.js"></script>
 
@@ -58,39 +56,48 @@ a separate callback that completes the round-trip by updating the specific cell 
 
     var matsSocket = new MatsSocket("TestApp", "1.2.3",
         ["ws://localhost:8080/matssocket/json", "ws://localhost:8081/matssocket/json"]);
-    matsSocket.setCurrentAuthorization("DummyAuth:" + Date.now() + 100000, -1);
+    matsSocket.setCurrentAuthorization("DummyAuth:" + (Date.now() + 100000), -1);
 
-    var count = 0; // Number of received messages
-    var sumTime = 0; // Sum of millis per message, to get average.
+    var receivedCount = 0; // Number of received messages
+    var sumTimeMillis = 0; // Sum of millis per message, to get average.
 
     var startMillis = Date.now();
 
+    // Fire off a request for each of the Table's cells.
     for (var i = 0; i < total; i++) {
-        // Goddamn scopes of JS. Cool, but a bit too magic.
+        // Rant: Goddamn scopes of JS. Cool, but a bit too magic. (Problem: the "i" is closed-over in the setTimeout function closure)
         setTimeout((function (innerI) {
+            // .. this "return function" here is to get a separately-scoped "i", called "innerI".
             return function () {
                 var requestId = "request_" + innerI;
                 var requestCell = document.getElementById(requestId);
                 requestCell.innerHTML = "Req " + innerI;
 
-                matsSocket.request("Test.single", requestId + ":" + matsSocket.id(6), {
+                // Fire off the MatsSocket request
+                matsSocket.request("Test.single", requestId + ":" + matsSocket.id(6),
+                    // The Request DTO
+                    {
                         string: "Request String:" + requestId,
                         number: Math.E * innerI
                     },
+                    // This is the Reply-callback
                     function (event) {
+                        // Setting data in Table's cell
                         var timeTakenMs = Date.now() - event.clientMessageCreated;
-                        sumTime += timeTakenMs;
+                        sumTimeMillis += timeTakenMs;
                         requestCell.innerHTML = "<b>" + timeTakenMs + " ms</b>";
-                        count++;
+                        receivedCount++;
 
-                        // ?: Are we at end?
-                        if (count === total) {
+                        // ?: Is this the last reply coming in?
+                        if (receivedCount === total) {
+                            // -> Yes, last reply - so update the stats message at top.
                             var totalMillis = Date.now() - startMillis;
-                            var averagePerMessage = sumTime / total;
+                            var averagePerMessage = sumTimeMillis / total;
                             var throughputPerSecond = (total / totalMillis) * 1000;
-                            document.getElementById("total").innerHTML =
-                                "Total time: " + totalMillis + "ms, average per message: " + averagePerMessage + "ms,"
-                                + " throughput: "+throughputPerSecond + "msg/sec";
+                            document.getElementById("statistics").innerHTML =
+                                "Total time for " + total + " requests: " + totalMillis
+                                + " ms, average per message: " + averagePerMessage
+                                + " ms, throughput: " + throughputPerSecond + " msg/sec";
                         }
                     });
 

@@ -108,7 +108,7 @@ Supports pipelining: Send multiple messages as list.
 TODO: Handle debug information 
 
 
-### Client-to-server: CONNECT and CONNECT_EXPECT (both initial, and reconnects), establishing MWSSID
+### DONE Client-to-server: HELLO, establishing MWSSID
 * System message
 * Further messages can be pipelined in the same go - but read further for distinction between CONNECT and CONNECT_EXPECT.
 * SessionId SHALL NOT be included when starting a new Session
@@ -136,7 +136,7 @@ TODO: Handle debug information
 }]
 ```
 
-### Server-to-client: SESSION_NEW and SESSION_RECONNECT
+### DONE Server-to-client: WELCOME
 * System message - reply from CONNECT/CONNECT_EXPECT message
 * Always includes current SessionId for this Mats WebSocket.
 * If SessionId was not included in CONNECT, it will always be a SESSION_NEW (with, obviously, a new SessionId).
@@ -215,10 +215,49 @@ TODO: Handle debug information
 }]
 ```
 
-### Server-to-Client: Reply to request
+## Problems:
+
+Relevant for both SEND and REQUEST:
+* Server fails to handle the incoming message
+  * Cannot send to MQ  (system level)
+  * The handleAuth/adaptRequest method throws or rejects (?) (application level)
+
+Relevant only for REQUEST:
+* The adaptReply method throws or rejects
+
+
+### Server-to-Client: RECEIVED: ACK/SERVER_ERROR/NACK - whether we managed to receive and handle the message
+* ACK: All worked out: handleAuth OK, Sent to MQ
+  * Resolves Promise for SEND, does NOT Resolve promise for Request.
+  * For Request: invokes receptionCallback
+* SERVER_ERROR: Failed to deliver to MQ, or otherwise failed on a system level.
+  * Rejects Promise for both SEND and REQUEST
+* NACK: handleAuth did not accept message (i.e. failed authorization, or DTO not correct etc.)
+  * Rejects Promise for both SEND and REQUEST
+
+[{
+    type: "RECEIVED"
+    subtype: "ACK" / "SERVER_ERROR" / "NACK"
+    traceId: Order.place[pid:489342][cartId:4212]mncje42ax
+    sessionId: 428959fjfvf8eh83
+    correlationId: 4289nd28df324329
+    message: { 
+       .. json ..
+       .. json ..
+    }
+}]
+
+
+
+### Server-to-Client: REPLY to request (note: This is basically "Resolve/Reject")
+
+Only relevant for REQUESTs. The reply can be done both directly by the handleAuth method (resolve/reject), or as normal,
+by the Mats reply, which is fed through the adaptReply - which can do both resolve and reject. 
+
 ```
 [{
     type: "REPLY"
+    subtype: "RESOLVE" / "REJECT"
     traceId: Order.place[pid:489342][cartId:4212]mncje42ax
     sessionId: 428959fjfvf8eh83
     correlationId: 4289nd28df324329
@@ -229,6 +268,10 @@ TODO: Handle debug information
 }]
 
 ```
+
+
+
+
 
 ### Server-to-Client: REQUEST (expecting reply)
 WILL NOT BE IMPLEMENTED IN FIRST ITERATION, but is awesome cool.

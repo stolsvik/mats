@@ -27,20 +27,24 @@
 
     matsSocket.endpoint("ClientSide.testEndpoint", function (e) {
         var millis = Date.now() - e.clientMessageCreated;
+        console.log(e);
         console.log("Got message! CorrelationId:" + e.correlationId + ", time taken: " + millis + "ms"
             + ", clientMessageReceivedNodename: " + e.clientMessageReceivedNodename
             + ", matsMessageReplyReceivedNodename: " + e.matsMessageReplyReceivedNodename
             + ", replyMessageToClientNodename:" + e.replyMessageToClientNodename);
     });
 
-    matsSocket.send("Test.single", "SendTraceId_" + matsSocket.id(6), {string: "The String", number: Math.PI},
-        function (event) {
+    matsSocket.send("Test.single", "SendTraceId_" + matsSocket.id(6), {string: "The String", number: Math.PI})
+        .then(function (event) {
             var now = Date.now();
             console.log("Got callback on send! Took " + (now - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
         });
 
     matsSocket.request("Test.single", "RequestTraceId_" + matsSocket.id(6), {string: "Request String", number: Math.E},
         function (event) {
+            console.log("receivedCallback: The server acknowledged our message!", event);
+        })
+        .then(function (event) {
             var now = Date.now();
             console.log("Got callback on request! Took " + (now - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
         });
