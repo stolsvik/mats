@@ -355,7 +355,7 @@ public interface MatsInitiator extends Closeable {
 
         /**
          * @deprecated Use {@link #nonPersistent(long)} instead. It makes little sense to have a timeToLive on a message
-         *             that is also persistent (i.e. not nonPersistent), therefore these was combined.
+         *             that is also persistent (i.e. <i>not</i> nonPersistent), therefore these was combined.
          */
         @Deprecated
         MatsInitiate timeToLive(long millis);

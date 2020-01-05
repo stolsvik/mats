@@ -129,16 +129,20 @@ function MatsSocket(appName, appVersion, urls) {
 
     /**
      * @param endpointId the id of this client side endpoint.
-     * @param callback takes two args: message, and optional correlationId.
+     * @param messageCallback receives an Event when everything went OK, containing the message on the "data" property.
+     * @param errorCallback is relevant if this endpoint is set as the replyTo-target on a requestReplyTo(..) invocation, and will
+     * get invoked with the Event if the corresponding Promise-variant would have been rejected.
      */
-    this.endpoint = function (endpointId, callback) {
+    this.endpoint = function (endpointId, messageCallback, errorCallback) {
         // :: Assert for double-registrations
         if (_endpoints[endpointId] !== undefined) {
-            throw new Error("Cannot register more than one endpoint to same endpointId [" + endpointId
-                + "], existing: " + _endpoints[endpointId]);
+            throw new Error("Cannot register more than one endpoint to same endpointId [" + endpointId + "], existing: " + _endpoints[endpointId]);
         }
-        log("Registering endpoint on id [" + endpointId + "]: " + callback);
-        _endpoints[endpointId] = callback;
+        log("Registering endpoint on id [" + endpointId + "]:\n #messageCallback: " + messageCallback + "\n #errorCallback: " + errorCallback);
+        _endpoints[endpointId] = {
+            resolve: messageCallback,
+            reject: errorCallback
+        };
     };
 
     /**
@@ -188,32 +192,17 @@ function MatsSocket(appName, appVersion, urls) {
             if (requestWithPromiseCompletion) {
                 // -> Yes, ordinary REQUEST with Promise-completion
                 // Upon RECEIVED->ACK, invoke receiveCallback if provided
-                outstandingSendOrRequest.resolve = function (envelope) {
-                    // ?: Did we get a receiveCallback?
-                    if (receiveCallback !== undefined) {
-                        // -> Yes, so invoke it
-                        receiveCallback(envelope);
-                    } else {
-                        // -> No, so just log a bit.
-                        log(".. note: REQUEST-with-Promise: No receiveCallback provided.", envelope);
-                    }
-                };
+                outstandingSendOrRequest.resolve = receiveCallback;
             } else {
                 // -> No, it is SEND or REQUEST-with-ReplyTo.
                 // Upon RECEIVED->ACK, resolve the Promise with the Received-acknowledgement
-                outstandingSendOrRequest.resolve = function (envelope) {
-                    resolve(envelope);
-                };
+                outstandingSendOrRequest.resolve = resolve;
             }
             // Common for RECEIVED->SERVER_ERROR or ->NACK is that the Promise will be rejected.
-            outstandingSendOrRequest.reject = function (envelope) {
-                reject(envelope);
-            };
+            outstandingSendOrRequest.reject = reject;
 
             // Store the message itself
             outstandingSendOrRequest.envelope = envelope;
-
-            // TODO: ^^ Wrap the envelope in a better event object, or Error.
 
             // Add the message Sequence Id
             var thisMessageSequenceId = _messageSequenceId++;
@@ -223,12 +212,12 @@ function MatsSocket(appName, appVersion, urls) {
 
             // ?: If this is a request, we'll have a future to look forward to.
             if (type === "REQUEST") {
-                // ?: Is this a Request-with-Promise-completion?
-                if (envelope.reid === undefined) {
-                    // -> Yes, since no Reply (Client) Endpoint Id specified
-                    // We set it to the generic Promise completer
-                    envelope.reid = "MS.Promise";
-                }
+                // // ?: Is this a Request-with-Promise-completion?
+                // if (envelope.reid === undefined) {
+                //     // -> Yes, since no Reply (Client) Endpoint Id specified
+                //     // We set it to the generic Promise completer
+                //     envelope.reid = "MS.Promise";
+                // }
                 _futures[thisMessageSequenceId] = {
                     resolve: resolve,
                     reject: reject
@@ -373,27 +362,6 @@ function MatsSocket(appName, appVersion, urls) {
         that.closeSession("'window.onbeforeunload'");
     });
 
-    // Register the MatsSocket's system Callback Reply Endpoint
-    this.endpoint("MS.Promise", function (event) {
-        log("MS.Promise: WTF?", event);
-        // Get the outstanding future
-        var future = _futures[event.messageSequenceId];
-        // Delete the outstanding future (we will complete it now)
-        delete _futures[event.messageSequenceId];
-        // Invoke the future if it was registered
-        if (future === undefined) {
-            error("missing future", "When getting a reply to a Promise, we did not find the future for message sequence [" + event.messageSequenceId + "].", event);
-            return;
-        }
-        // -> We found the future
-        if (event.subType === "RESOLVE") {
-            future.resolve(event);
-        }
-        else {
-            future.reject(event);
-        }
-    });
-
     /**
      * Sends pipelined messages if pipelining is not engaged.
      */
@@ -499,7 +467,7 @@ function MatsSocket(appName, appVersion, urls) {
     }
 
     function eventFromEnvelope(envelope, receivedTimestamp) {
-        var eventToCallback = {
+        return {
             data: envelope.msg,
             type: envelope.t,
             subType: envelope.st,
@@ -518,7 +486,6 @@ function MatsSocket(appName, appVersion, urls) {
             replyMessageToClientNodename: envelope.rmcnn,
             messageReceivedOnClient: receivedTimestamp
         };
-        return eventToCallback;
     }
 
     var _tryingToConnect = false;
@@ -553,9 +520,9 @@ function MatsSocket(appName, appVersion, urls) {
             // Fire off any waiting messages
             evaluatePipelineSend();
         };
-        _websocket.onmessage = function (event) {
+        _websocket.onmessage = function (webSocketEvent) {
             var receivedTimestamp = Date.now();
-            var data = event.data;
+            var data = webSocketEvent.data;
             var envelopes = JSON.parse(data);
 
             var numEnvelopes = envelopes.length;
@@ -563,43 +530,46 @@ function MatsSocket(appName, appVersion, urls) {
 
             for (var i = 0; i < numEnvelopes; i++) {
                 var envelope = envelopes[i];
-                if (that.logging) log(" \\- onmessage: handling message " + i + ": " + envelope.t + ": " + JSON.stringify(envelope));
+                try {
+                    if (that.logging) log(" \\- onmessage: handling message " + i + ": " + envelope.t + ", envelope:" + JSON.stringify(envelope));
 
-                if (envelope.t === "WELCOME") {
-                    // TODO: Handle WELCOME message better.
-                    _sessionId = envelope.sid;
-                    log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
-                } else if (envelope.t === "RECEIVED") {
-                    // -> RECEIVED ack/server_error/nack
-                    var outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.mseq];
-                    delete _outstandingSendsAndRequests[envelope.mseq];
-                    // ?: Check that we found it.
-                    if (outstandingSendOrRequest === undefined) {
-                        // -> No, the OutstandingSendOrRequest was not present.
-                        // TODO: This might imply double delivery..
-                        error("message acknowledgement", "Missing OutstandingSendOrRequest for envelope.mseq [" + envelope.mseq + "]");
-                        continue;
-                    }
-                    // E-> Yes, we had OutstandingSendOrRequest
-                    if (envelope.st === "ACK") {
-                        // TODO: Something else than envelope?
-                        outstandingSendOrRequest.resolve(envelope);
-                    } else {
-                        outstandingSendOrRequest.reject(envelope);
-                    }
-                } else if (envelope.t === "REPLY") {
-                    // -> Reply to REQUEST
-                    // -> Assume message that contains EndpointId
-                    try {
-                        var endpoint = _endpoints[envelope.eid];
-                        if (endpoint === undefined) {
-                            error("missing client endpoint", "The Client Endpoint [" + envelope.eid + "] is not present!", envelope);
+                    if (envelope.t === "WELCOME") {
+                        // TODO: Handle WELCOME message better.
+                        _sessionId = envelope.sid;
+                        log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
+                    } else if (envelope.t === "RECEIVED") {
+                        // -> RECEIVED ack/server_error/nack
+                        var outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.mseq];
+                        delete _outstandingSendsAndRequests[envelope.mseq];
+                        // ?: Check that we found it.
+                        if (outstandingSendOrRequest === undefined) {
+                            // -> No, the OutstandingSendOrRequest was not present.
+                            // TODO: This might imply double delivery..
+                            error("message acknowledgement", "Missing OutstandingSendOrRequest for envelope.mseq [" + envelope.mseq + "]");
                             continue;
                         }
-                        endpoint(eventFromEnvelope(envelope, receivedTimestamp));
-                    } catch (err) {
-                        error("reply", "Got error while trying to invoke endpoint for message: ", err);
+                        // E-> Yes, we had OutstandingSendOrRequest
+                        // ?: Was it a "good" RECEIVED?
+                        if (envelope.st === "ACK") {
+                            // -> Yes, it was "ACK" - so Server was happy.
+                            if (outstandingSendOrRequest.resolve)
+                                outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
+                        } else {
+                            // -> No, it was "SERVER_ERROR" or "NACK", so message has not been forwarded to Mats
+                            if (outstandingSendOrRequest.reject)
+                                outstandingSendOrRequest.reject(eventFromEnvelope(envelope, receivedTimestamp));
+                            // Check if it was a REQUEST, in which case we have to reject that too (Promise, or errorCallback on endpoint).
+                            if (outstandingSendOrRequest.envelope.t === "REQUEST") {
+                                var requestEnvelope = outstandingSendOrRequest.envelope;
+                                completeFuture(requestEnvelope.reid, "REJECT", envelope, receivedTimestamp);
+                            }
+                        }
+                    } else if (envelope.t === "REPLY") {
+                        // -> Reply to REQUEST
+                        completeFuture(envelope.eid, envelope.st, envelope, receivedTimestamp);
                     }
+                } catch (err) {
+                    error("reply", "Got error while trying to inform about REPLY: " + JSON.stringify(envelope), err);
                 }
             }
         };
@@ -614,6 +584,45 @@ function MatsSocket(appName, appVersion, urls) {
         _websocket.onerror = function (event) {
             error("websocket.onerror", "Got 'onerror' error", event);
         };
+    }
+
+    function completeFuture(endpointId, resolveOrReject, envelope, receivedTimestamp) {
+        // ?: Is this a REQUEST-with-Promise?
+        if (endpointId === undefined) {
+            // -> Yes, REQUEST-with-Promise (missing (client) EndpointId)
+            // Get the outstanding future
+            var future = _futures[envelope.mseq];
+            // Delete the outstanding future (we will complete it now)
+            delete _futures[envelope.mseq];
+            // ?: Did we have a future?
+            if (future === undefined) {
+                // -> No, missing future, no Promise. Pretty strange, really (error in this code..)
+                error("missing future", "When getting a reply to a Promise, we did not find the future for message sequence [" + webSocketEvent.messageSequenceId + "].", webSocketEvent);
+                return;
+            }
+            // E-> We found the future
+            if (resolveOrReject === "RESOLVE") {
+                future.resolve(eventFromEnvelope(envelope, receivedTimestamp));
+            } else {
+                future.reject(eventFromEnvelope(envelope, receivedTimestamp));
+            }
+        } else {
+            // -> No, this is a REQUEST-with-ReplyTo
+            // Find the (client) Endpoint which the Reply should go to
+            var endpoint = _endpoints[endpointId];
+            // ?: Do we not have it?
+            if (endpoint === undefined) {
+                // -> No, we do not have this. Programming error from app.
+                error("missing client endpoint", "The Client Endpoint [" + envelope.eid + "] is not present!", envelope);
+                return;
+            }
+            // E-> We found the endpoint to tell
+            if (envelope.st === "RESOLVE") {
+                endpoint.resolve(eventFromEnvelope(envelope, receivedTimestamp));
+            } else if (endpoint.reject) {
+                endpoint.reject(eventFromEnvelope(envelope, receivedTimestamp));
+            }
+        }
     }
 }
 

@@ -1,7 +1,9 @@
 package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
+import java.io.Writer;
 import java.security.Principal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -83,6 +85,9 @@ class MatsSocketSession implements Whole<String> {
         }
 
         log.info("Messages: " + envelopes);
+        List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
+        boolean shouldNotifyAboutExisting = false;
+        String shouldCloseSession = null;
         for (int i = 0; i < envelopes.size(); i++) {
             MatsSocketEnvelopeDto envelope = envelopes.get(i);
 
@@ -210,11 +215,11 @@ class MatsSocketSession implements Whole<String> {
                     // Set i to size() to stop iteration.
                     i = envelopes.size();
                 }
-                // Send WELCOME message
-                _matsSocketServer.serializeAndSendSingleEnvelope(_webSocketSession, replyEnvelope);
+                // Add WELCOME reply message to "queue"
+                replyEnvelopes.add(replyEnvelope);
 
                 // Notify ourselves about "new" (as in existing) messages, just in case there are any.
-                _matsSocketServer.getMessageToWebSocketForwarder().notifyMessageFor(this);
+                shouldNotifyAboutExisting = true;
 
                 continue;
             }
@@ -235,10 +240,9 @@ class MatsSocketSession implements Whole<String> {
                     // TODO: Fix
                     throw new AssertionError("Damn", e);
                 }
-                closeWebSocket(CloseCodes.NORMAL_CLOSURE, "From Server: Client said CLOSE_SESSION (" +
-                        DefaultMatsSocketServer.escape(envelope.desc)
-                        + "): Terminated MatsSocketSession, closing WebSocket.");
-                continue;
+                shouldCloseSession = (envelope.desc != null ? envelope.desc : "");
+                // Won't do rest of pipeline of messages, as it seems rather absurd to stick more after a close session.
+                break;
             }
 
             // ----- We do NOT KNOW whether we're authenticated!
@@ -290,11 +294,41 @@ class MatsSocketSession implements Whole<String> {
                 replyEnvelope.mmsts = nowMillis;
                 // Note: Not setting Reply Message to Client Timestamp and Nodename: This ain't no Reply.
 
-                // Send RECEIVED message
-                _matsSocketServer.serializeAndSendSingleEnvelope(_webSocketSession, replyEnvelope);
+                // Add RECEIVED message to "queue"
+                replyEnvelopes.add(replyEnvelope);
 
                 continue;
             }
+        }
+
+        // TODO: Store last messageSequenceId
+
+        // Send all replies
+        if (replyEnvelopes.size() > 0) {
+            try {
+                Writer sendWriter = _webSocketSession.getBasicRemote().getSendWriter();
+                // Evidently this closes the Writer..
+                _matsSocketServer.getJackson().writeValue(sendWriter, replyEnvelopes);
+            }
+            catch (JsonProcessingException e) {
+                throw new AssertionError("Huh, couldn't serialize message?!", e);
+            }
+            catch (IOException e) {
+                // TODO: Handle!
+                // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
+                throw new AssertionError("Hot damn.", e);
+            }
+        }
+        // ?: Notify about existing messages
+        if (shouldNotifyAboutExisting) {
+            // -> Yes, so do it now.
+            _matsSocketServer.getMessageToWebSocketForwarder().notifyMessageFor(this);
+        }
+        // ?: Should we close the session?
+        if (shouldCloseSession != null) {
+            closeWebSocket(CloseCodes.NORMAL_CLOSURE, "From Server: Client said CLOSE_SESSION (" +
+                    DefaultMatsSocketServer.escape(shouldCloseSession)
+                    + "): Terminated MatsSocketSession, closing WebSocket.");
         }
     }
 
@@ -392,7 +426,7 @@ class MatsSocketSession implements Whole<String> {
                 if (isRequest()) {
                     ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
                             _matsSocketEndpointRegistration.getMatsSocketEndpointId(), _envelope.reid,
-                            _envelope.cid, _envelope.mseq,  _envelope.cmcts, _clientMessageReceivedTimestamp,
+                            _envelope.cid, _envelope.mseq, _envelope.cmcts, _clientMessageReceivedTimestamp,
                             System.currentTimeMillis(), _matsSocketServer.getMyNodename());
                     // Set ReplyTo parameter
                     init.replyTo(_matsSocketServer.getReplyTerminatorId(), sto);

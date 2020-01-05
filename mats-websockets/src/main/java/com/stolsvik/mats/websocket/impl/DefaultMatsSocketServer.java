@@ -371,6 +371,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         msReplyEnvelope.rmcnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
         msReplyEnvelope.msg = msReply; // This object will be serialized.
 
+        // Serialize and store the message for forward ("StoreAndForward")
         String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
         Optional<CurrentNode> nodeNameHoldingWebSocket;
         try {
