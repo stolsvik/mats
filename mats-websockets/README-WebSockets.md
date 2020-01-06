@@ -226,18 +226,34 @@ Relevant only for REQUEST:
 * The adaptReply method throws or rejects
 
 
-### Server-to-Client: RECEIVED: ACK/SERVER_ERROR/NACK - whether we managed to receive and handle the message
-* ACK: All worked out: handleAuth OK, Sent to MQ
-  * Resolves Promise for SEND, does NOT Resolve promise for Request.
-  * For Request: invokes receptionCallback
-* SERVER_ERROR: Failed to deliver to MQ, or otherwise failed on a system level.
-  * Rejects Promise for both SEND and REQUEST
-* NACK: handleAuth did not accept message (i.e. failed authorization, or DTO not correct etc.)
-  * Rejects Promise for both SEND and REQUEST
+### Server-to-Client: RECEIVED: ACK/ERROR/RETRY/NACK - whether we managed to receive and handle the message
+SubTypes:
+* ACK:
+  * All worked out: handleAuth OK, Sent to MQ OK
+  -> Resolves Promise for SEND, does NOT Resolve promise for Request.
+  -> For Request: invokes receptionCallback
+* RETRY:
+  * Failed to deliver to MQ, or otherwise failed on a system level.
+  * handleAuth(..) can also trigger this (e.g. DB is down or some other temporary situation).
+  -> Client should retry the delivery of the message at a later time (i.e. in 500 ms)
+* AUTH_FAIL
+  * The Authorization header that was delivered with this message, or another message in pipeline, failed validation
+  * The Authorization was revoked
+  * NOTE: Another type:AUTH_FAIL (this is subtype) will also be sent, which the client can react to
+  -> Client may retry the delivery of the message at a later time (i.e. in 500 ms, or after gotten new auth)
+* LOST_SESSION
+  * Upon an "EXPECT_EXISTING", the existing session was no longer available
+  -> Rejects Promise for both SEND and REQUEST
+* ERROR:
+  * "Protocol error", client does not behave as expected, e.g. HELLO (in pipeline) does not contain expected info
+  -> Rejects Promise for both SEND and REQUEST
+* NACK:
+  * handleAuth did not accept message (i.e. failed authorization, or DTO not correct etc.)
+  -> Rejects Promise for both SEND and REQUEST
 
 [{
     type: "RECEIVED"
-    subtype: "ACK" / "SERVER_ERROR" / "NACK"
+    subtype: "ACK" / "ERROR" / "NACK"
     traceId: Order.place[pid:489342][cartId:4212]mncje42ax
     sessionId: 428959fjfvf8eh83
     correlationId: 4289nd28df324329

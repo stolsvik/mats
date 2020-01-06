@@ -266,7 +266,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     static class ReplyHandleStateDto {
         private final String sid;
         private final String cid;
-        private final String mseq;
+        private final String cmseq;
         private final String ms_eid;
         private final String ms_reid;
 
@@ -281,7 +281,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             /* no-args constructor for Jackson */
             sid = null;
             cid = null;
-            mseq = null;
+            cmseq = null;
             ms_eid = null;
             ms_reid = null;
             cmcts = 0;
@@ -296,7 +296,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 String receivedNodename) {
             sid = matsSocketSessionId;
             cid = correlationId;
-            mseq = messageSequence;
+            cmseq = messageSequence;
             ms_eid = matsSocketEndpointId;
             ms_reid = replyEndpointId;
             cmcts = clientMessageCreatedTimestamp;
@@ -359,16 +359,16 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         msReplyEnvelope.st = "RESOLVE";
         msReplyEnvelope.eid = state.ms_reid;
         msReplyEnvelope.cid = state.cid;
-        msReplyEnvelope.mseq = state.mseq;
+        msReplyEnvelope.cmseq = state.cmseq;
         msReplyEnvelope.tid = processContext.getTraceId(); // TODO: Chop off last ":xyz", as that is added serverside.
         msReplyEnvelope.cmcts = state.cmcts;
         msReplyEnvelope.cmrts = state.cmrts;
         msReplyEnvelope.mmsts = state.mmsts;
         msReplyEnvelope.mmrrts = matsMessageReplyReceivedTimestamp;
-        msReplyEnvelope.rmcts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
+        msReplyEnvelope.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
         msReplyEnvelope.cmrnn = state.recnn; // The receiving nodename
         msReplyEnvelope.mmrrnn = getMyNodename(); // The Mats-receiving nodename (this processing)
-        msReplyEnvelope.rmcnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
+        msReplyEnvelope.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
         msReplyEnvelope.msg = msReply; // This object will be serialized.
 
         // Serialize and store the message for forward ("StoreAndForward")
@@ -561,8 +561,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             // Set high limits, don't want to be held back on the protocol side of things.
             session.setMaxBinaryMessageBufferSize(50 * 1024 * 1024);
             session.setMaxTextMessageBufferSize(50 * 1024 * 1024);
-            // TODO: Experimenting with low idle timeouts
-            session.setMaxIdleTimeout(20_000);
+            // Set low time to say HELLO
+            session.setMaxIdleTimeout(5000);
             _matsSocketSession = new MatsSocketSession(_matsSocketServer, session);
             session.addMessageHandler(_matsSocketSession);
         }

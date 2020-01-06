@@ -17,7 +17,7 @@ class MatsSocketEnvelopeDto {
     // "MatsSockLibCsharp,v2.0.3; iOS,v13.2"
     // "MatsSockLibAlternativeJava,v12.3; ASDKAndroid,vKitKat.4.4"
     // Java lib: "MatsSockLibJava,v0.8.9; Java,v11.03:Windows,v2019"
-    // browsers/JS: "MatsSocketJs,v0.8.9; User-Agent: <navigator.userAgent string>",
+    // browsers/JS: "MatsSocket.js,v0.8.9; User-Agent: <navigator.userAgent string>",
     String an; // AppName
     String av; // AppVersion
 
@@ -26,7 +26,8 @@ class MatsSocketEnvelopeDto {
     String tid; // TraceId
     String sid; // SessionId
     String cid; // CorrelationId
-    String mseq; // MessageSequenceNumber, From Client - this is for SEND and REQUEST messages.
+    String cmseq; // ClientMessageSequenceNumber, Sequence from Client - this is for SEND and REQUEST messages.
+    String smseq; // ServerMessageSequenceNumber - not yet used (for SEND and REQUEST from Server to Client)
     String eid; // target MatsSocketEndpointId: Which MatsSocket Endpoint (server/client) this message is for
     String reid; // reply MatsSocketEndpointId: Which MatsSocket Endpoint (client/server) this message is for
 
@@ -34,7 +35,6 @@ class MatsSocketEnvelopeDto {
     String st; // "SubType": AUTH_FAIL:"enum", EXCEPTION:Classname, MSGERROR:"enum"
     String desc; // Description of "st" of failure, exception message, multiline, may include stacktrace if authz.
     String inMsg; // On MSGERROR: Incoming Message, BASE64 encoded.
-    Integer drop; // How many messages was dropped on an "EXPECT" that went sour.
 
     @JsonDeserialize(using = MessageToStringDeserializer.class)
     Object msg; // Message, JSON
@@ -49,8 +49,8 @@ class MatsSocketEnvelopeDto {
     Long mmrrts; // Mats Message Reply Received Timestamp (when the message was received from Mats, Server
     // timestamp)
     String mmrrnn; // Mats Message Reply Received on NodeName
-    Long rmcts; // Reply Message to Client Timestamp (when the message was replied to Client side, Server timestamp)
-    String rmcnn; // Reply Message to Client from NodeName (typically same as cmrnn)
+    Long mscts; // Message Sent to Client Timestamp (when the message was replied to Client side, Server timestamp)
+    String mscnn; // Message Sent to Client from NodeName (typically same as cmrnn, unless reconnect in between)
 
     DebugDto dbg; // Debug info object - enabled if requested and principal is allowed. (Not Yet Impl)
 
