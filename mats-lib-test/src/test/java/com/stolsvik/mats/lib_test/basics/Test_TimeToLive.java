@@ -98,7 +98,7 @@ public class Test_TimeToLive extends MatsBasicTest {
                 });
 
         // Wait synchronously for terminator to finish (that is, receives the flushing "FINAL" message).
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        Result<StateTO, DataTO> result = matsTestLatch.waitForResult(10_000);
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(finalDto.number * 2, finalDto.string + ":FromService"), result.getData());
         Assert.assertEquals(expectedMessages, _numberOfMessages.get());
