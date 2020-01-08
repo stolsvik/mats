@@ -49,6 +49,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     private static final Logger log = LoggerFactory.getLogger(DefaultMatsSocketServer.class);
 
     private static final String REPLY_TERMINATOR_ID_PREFIX = "MatsSockets.replyHandler.";
+    public static final String PATH = "/matssocket/json";
 
     /**
      * Create a MatsSocketServer, piecing together necessary bits.
@@ -97,7 +98,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             }
         };
         try {
-            serverContainer.addEndpoint(Builder.create(MatsWebSocketInstance.class, "/matssocket/json")
+            serverContainer.addEndpoint(Builder.create(MatsWebSocketInstance.class, PATH)
                     .subprotocols(Collections.singletonList("matssocket"))
                     .configurator(configurator)
                     .build());

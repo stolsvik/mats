@@ -54,7 +54,7 @@ the specific cell with its timing information.<br>
 
     document.getElementById("title_heading").innerText = total + " requests";
 
-    var matsSocket = new MatsSocket("TestApp", "1.2.3",
+    var matsSocket = new mats.MatsSocket("TestApp", "1.2.3",
         ["ws://localhost:8080/matssocket/json", "ws://localhost:8081/matssocket/json"]);
     matsSocket.setCurrentAuthorization("DummyAuth:" + (Date.now() + 100000), -1);
 

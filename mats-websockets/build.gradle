@@ -1,4 +1,9 @@
 // mats-websockets
+plugins {
+    id "com.github.node-gradle.node" version "2.1.1"
+}
+
+apply from: 'javascript.gradle'
 
 dependencies {
     // Uses the mats-lib project

@@ -1,0 +1,23 @@
+{
+  "name": "mats-websocket",
+  "version": "0.8.9",
+  "description": "JavaScript client for Mats websocket server",
+  "main": "lib/MatsSocket.js",
+  "repository": "https://github.com/stolsvik/mats",
+  "author": "Endre Stølsvik",
+  "license": "Apache-2.0",
+  "private": false,
+  "scripts": {
+    "serve": "node pub/server.js",
+    "test": "mocha test/unit.js",
+    "integrationTest": "mocha test/integration.js"
+  },
+  "devDependencies": {
+    "mocha": "^7.0.0",
+    "opn": "^6.0.0",
+    "sinon": "^8.0.4"
+  },
+  "dependencies": {
+    "ws": "^7.2.1"
+  }
+}
