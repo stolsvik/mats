@@ -4,11 +4,15 @@ import java.io.IOException;
 import java.net.URL;
 import java.security.Principal;
 import java.util.Collections;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Function;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import javax.jms.ConnectionFactory;
 import javax.servlet.ServletContextEvent;
 import javax.servlet.ServletContextListener;
+import javax.servlet.ServletException;
 import javax.servlet.annotation.WebListener;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
@@ -17,8 +21,11 @@ import javax.servlet.http.HttpServletResponse;
 import javax.websocket.server.ServerContainer;
 
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
+import org.eclipse.jetty.server.AbstractNetworkConnector;
 import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.component.AbstractLifeCycle.AbstractLifeCycleListener;
 import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.resource.Resource;
@@ -45,13 +52,13 @@ import ch.qos.logback.core.CoreConstants;
 /**
  * @author Endre Stølsvik 2019-11-21 21:07 - http://stolsvik.com/, endre@stolsvik.com
  */
-public class AppMain {
+public class MatsTestWebsocketServer {
 
     private static final String CONTEXT_ATTRIBUTE_PORTNUMBER = "ServerPortNumber";
 
     private static final String COMMON_AMQ_NAME = "CommonAMQ";
 
-    private static final Logger log = LoggerFactory.getLogger(AppMain.class);
+    private static final Logger log = LoggerFactory.getLogger(MatsTestWebsocketServer.class);
 
     @WebListener
     public static class SCL_Endre implements ServletContextListener {
@@ -177,6 +184,17 @@ public class AppMain {
         }
     }
 
+    @WebServlet("/shutdown")
+    public static class ShutdownServlet extends HttpServlet {
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            resp.getWriter().println("Shutting down");
+
+            // Shut down the process
+            ForkJoinPool.commonPool().submit(() -> System.exit(0));
+        }
+    }
+
     public static String id(Object x) {
         return x.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(x));
     }
@@ -202,7 +220,7 @@ public class AppMain {
 
         // :: Get Jetty to Scan project classes too: https://stackoverflow.com/a/26220672/39334
         // Find location for current classes
-        URL classes = AppMain.class.getProtectionDomain().getCodeSource().getLocation();
+        URL classes = MatsTestWebsocketServer.class.getProtectionDomain().getCodeSource().getLocation();
         // Set this location to be scanned.
         webAppContext.getMetaData().setWebInfClassesDirs(Collections.singletonList(Resource.newResource(classes)));
 
@@ -240,16 +258,47 @@ public class AppMain {
         // Create common AMQ
         MatsLocalVmActiveMq inVmActiveMq = MatsLocalVmActiveMq.createInVmActiveMq(COMMON_AMQ_NAME);
 
-        // Create two Jetty servers and thus two instances of the "full application".
-        Server server1 = createServer(8080);
-        Server server2 = createServer(8081);
+        // Read in the server count as an argument, or assume 2
+        int serverCount = (args.length > 0) ? Integer.parseInt(args[0]) : 2;
+        // Read in start port to count up from, defaulting to 8080
+        int nextPort = (args.length > 1) ? Integer.parseInt(args[0]) : 8080;
 
-        log.info("######### Starting server 1");
-        server1.start();
-        log.info("######### Starting server 2");
-        server2.start();
+        // Start the desired number of servers
+        Server[] servers = new Server[serverCount];
+        for (int i = 0; i < servers.length; i++) {
+            int serverId = i + 1;
 
-        server1.join();
-        server2.join();
+            // Keep looping until we have found a free port that the server was able to start on
+            while (true) {
+                int port = nextPort;
+                servers[i] = createServer(port);
+                log.info("######### Starting server [" + serverId + "] on [" + port + "]");
+
+                // Add a life cycle hook to log when the server has started
+                servers[i].addLifeCycleListener(new AbstractLifeCycleListener() {
+                    @Override
+                    public void lifeCycleStarted(LifeCycle event) {
+                        log.info("######### Started server " + serverId + " on port " + port);
+                        log.info("WS_URL: ws://localhost:" + port + DefaultMatsSocketServer.PATH);
+                    }
+                });
+
+                // Try and start the server on the port we set. If this fails, we will increment the port number
+                // and try again.
+                try {
+                    servers[i].start();
+                    break;
+                }
+                catch (Exception e) {
+                    log.info("######### Failed to start server [" + serverId + "] on [" + port + "], trying next port.", e);
+                }
+                finally {
+                    // Always increment the port number
+                    nextPort++;
+                }
+            }
+        }
+
+
     }
 }

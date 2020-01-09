@@ -51,7 +51,7 @@ After one "screenful", timings are calculated, and we start over. The memory sit
 
     document.getElementById("title_heading").innerText = "Continuous, sequential requests, " + total + " per round.";
 
-    var matsSocket = new MatsSocket("TestApp", "1.2.3",
+    var matsSocket = new mats.MatsSocket("TestApp", "1.2.3",
         ["ws://localhost:8080/matssocket/json", "ws://localhost:8081/matssocket/json"]);
     matsSocket.setCurrentAuthorization("DummyAuth:" + (Date.now() + 100000), -1);
 
