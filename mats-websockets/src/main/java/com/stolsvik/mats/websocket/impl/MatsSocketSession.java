@@ -163,6 +163,7 @@ class MatsSocketSession implements Whole<String> {
                     // Any remaining messages will be rejected..
                     allMessagesReceivedFailSubtype = "ERROR";
                     allMessagesReceivedFailDescription = "Client just closed the session!";
+                    continue;
                 }
 
                 // ----- We do NOT KNOW whether we're authenticated!
