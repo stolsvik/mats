@@ -411,10 +411,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             // Do forward of notification - it will handle if we're the node being registered.
             notifyHomeNodeIfAnyAboutNewMessage(matsSocketSessionId);
         }
-
-        // ----- We have determined that MatsSocketSession has home here
-
-        _messageToWebSocketForwarder.notifyMessageFor(localMatsSocketSession.get());
+        else {
+            // ----- We have determined that MatsSocketSession has home here
+            _messageToWebSocketForwarder.notifyMessageFor(localMatsSocketSession.get());
+        }
     }
 
     void notifyHomeNodeIfAnyAboutNewMessage(String matsSocketSessionId) {
