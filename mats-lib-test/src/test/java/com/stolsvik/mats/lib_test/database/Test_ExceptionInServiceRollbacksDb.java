@@ -28,8 +28,6 @@ import com.stolsvik.mats.test.Rule_MatsWithDb.DatabaseException;
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
-    private static int WAIT_MILLIS = 500;
-
     @Before
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
@@ -79,7 +77,7 @@ public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
                 });
 
         // Wait synchronously for terminator to finish.
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult(WAIT_MILLIS);
+        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), result.getData());
 

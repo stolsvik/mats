@@ -104,7 +104,7 @@ stopMatsTestWebsocketServer.mustRunAfter(mochaIntegrationTest)
 
 // :: Helper methods for people too lazy to figure out node and run these from the javascript client folder.
 
-// Run the integration test continously, retriggering on change in the javascript code. This assumes there is
+// Run the integration test continuously, retriggering on change in the javascript code. This assumes there is
 // a server listening on ws://localhost:8080/matssocket/json
 task mochaIntegrationTestWatch(type: YarnTask, dependsOn: [yarnInstall]) {
     args = ['integrationTest', '--watch']

@@ -1,6 +1,6 @@
 package com.stolsvik.mats.websocket.impl;
 
-import java.security.Principal;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -9,16 +9,20 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.function.Function;
 import java.util.regex.Pattern;
 
 import javax.websocket.CloseReason;
+import javax.websocket.CloseReason.CloseCode;
 import javax.websocket.CloseReason.CloseCodes;
 import javax.websocket.DeploymentException;
 import javax.websocket.Endpoint;
 import javax.websocket.EndpointConfig;
+import javax.websocket.Extension;
+import javax.websocket.HandshakeResponse;
 import javax.websocket.Session;
+import javax.websocket.server.HandshakeRequest;
 import javax.websocket.server.ServerContainer;
+import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Builder;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
@@ -39,6 +43,7 @@ import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.websocket.MatsSocketServer;
+import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.DataAccessException;
 
@@ -63,11 +68,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
      *            an implementation of {@link ClusterStoreAndForward} which temporarily holds replies while finding the
      *            right node that holds the WebSocket connection - and hold them till the client reconnects in case he
      *            has disconnected in the mean time.
-     * @param authorizationToPrincipalFunction
-     *            a Function that turns an Authorization String into a Principal. This is mandatory. Must be pretty
-     *            fast, as it is invoked synchronously - keep any IPC fast and keep relatively short timeouts, otherwise
-     *            all your threads of the container might be used up. If the function throws or returns null,
-     *            authorization did not go through.
+     * @param authenticationPlugin
+     *            the piece of code that turns an Authorization String into a Principal. Must be pretty fast, as it is
+     *            invoked synchronously - keep any IPC fast, otherwise all your threads of the container might be used
+     *            up. If the function throws or returns null, authorization did not go through.
      *
      * @return a MatsSocketServer instance, now hooked into both the WebSocket {@link ServerContainer} and the
      *         {@link MatsFactory}.
@@ -75,17 +79,49 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     public static MatsSocketServer createMatsSocketServer(ServerContainer serverContainer,
             MatsFactory matsFactory,
             ClusterStoreAndForward clusterStoreAndForward,
-            Function<String, Principal> authorizationToPrincipalFunction) {
+            AuthenticationPlugin authenticationPlugin) {
         // Boot ClusterStoreAndForward
         clusterStoreAndForward.boot();
 
         // TODO: "Escape" the AppName.
         String replyTerminatorId = REPLY_TERMINATOR_ID_PREFIX + matsFactory.getFactoryConfig().getAppName();
+        // Create the MatsSocketServer..
         DefaultMatsSocketServer matsSocketServer = new DefaultMatsSocketServer(matsFactory, clusterStoreAndForward,
-                replyTerminatorId, authorizationToPrincipalFunction);
+                replyTerminatorId, authenticationPlugin);
 
         log.info("Registering MatsSockets' sole WebSocket endpoint.");
         Configurator configurator = new Configurator() {
+
+            ThreadLocal<HandshakeRequestResponse> _threadLocal = new ThreadLocal<>();
+
+            @Override
+            public boolean checkOrigin(String originHeaderValue) {
+                log.info("WebSocket requested, checkOrigin: originHeaderValue: " + originHeaderValue);
+                return super.checkOrigin(originHeaderValue);
+            }
+
+            @Override
+            public String getNegotiatedSubprotocol(List<String> supported, List<String> requested) {
+                log.info(" \\- getNegotiatedSubprotocol: supported by MatsSocket impl:" + supported
+                        + ", requested by client:" + requested);
+                return super.getNegotiatedSubprotocol(supported, requested);
+            }
+
+            @Override
+            public List<Extension> getNegotiatedExtensions(List<Extension> installed, List<Extension> requested) {
+                log.info(" \\- getNegotiatedExtensions: installed in server:" + installed + ", requested by client:"
+                        + requested);
+                return super.getNegotiatedExtensions(installed, requested);
+            }
+
+            @Override
+            public void modifyHandshake(ServerEndpointConfig sec, HandshakeRequest request,
+                    HandshakeResponse response) {
+                log.info(" \\- modifyHandshake, keeping the HandshakeRequest and HandshakeResponse for auth.");
+                _threadLocal.set(new HandshakeRequestResponse(request, response));
+                super.modifyHandshake(sec, request, response);
+            }
+
             @Override
             @SuppressWarnings("unchecked") // The cast to (T) is not dodgy.
             public <T> T getEndpointInstance(Class<T> endpointClass) {
@@ -93,8 +129,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     throw new AssertionError("Cannot create Endpoints of type [" + endpointClass.getName()
                             + "]");
                 }
-                log.info("Instantiating a MatsSocketEndpoint!");
-                return (T) new MatsWebSocketInstance(matsSocketServer);
+                log.info(" \\- Instantiating a MatsSocketEndpoint!");
+                HandshakeRequestResponse handshakeRequestResponse = _threadLocal.get();
+                _threadLocal.remove();
+                return (T) new MatsWebSocketInstance(matsSocketServer, handshakeRequestResponse);
             }
         };
         try {
@@ -109,25 +147,35 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         return matsSocketServer;
     }
 
+    private static class HandshakeRequestResponse {
+        private final HandshakeRequest _handshakeRequest;
+        private final HandshakeResponse _handshakeResponse;
+
+        public HandshakeRequestResponse(HandshakeRequest handshakeRequest, HandshakeResponse handshakeResponse) {
+            _handshakeRequest = handshakeRequest;
+            _handshakeResponse = handshakeResponse;
+        }
+    }
+
     // Constructor init
     private final MatsFactory _matsFactory;
     private final ClusterStoreAndForward _clusterStoreAndForward;
     private final ObjectMapper _jackson;
     private final String _replyTerminatorId;
     private final MessageToWebSocketForwarder _messageToWebSocketForwarder;
-    private final Function<String, Principal> _authorizationToPrincipalFunction;
+    private final AuthenticationPlugin _authenticationPlugin;
 
     // In-line init
     private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?, ?>> _matsSocketEndpointsByMatsSocketEndpointId = new ConcurrentHashMap<>();
     private final Map<String, MatsSocketSession> _activeSessionsByMatsSocketSessionId_x = new LinkedHashMap<>();
 
     private DefaultMatsSocketServer(MatsFactory matsFactory, ClusterStoreAndForward clusterStoreAndForward,
-            String replyTerminatorId, Function<String, Principal> authorizationToPrincipalFunction) {
+            String replyTerminatorId, AuthenticationPlugin authenticationPlugin) {
         _matsFactory = matsFactory;
         _clusterStoreAndForward = clusterStoreAndForward;
         _jackson = jacksonMapper();
         _replyTerminatorId = replyTerminatorId;
-        _authorizationToPrincipalFunction = authorizationToPrincipalFunction;
+        _authenticationPlugin = authenticationPlugin;
 
         int corePoolSize = Math.max(5, matsFactory.getFactoryConfig().getConcurrency() * 4);
         int maximumPoolSize = Math.max(100, matsFactory.getFactoryConfig().getConcurrency() * 20);
@@ -167,8 +215,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         return _replyTerminatorId;
     }
 
-    public Function<String, Principal> getAuthorizationToPrincipalFunction() {
-        return _authorizationToPrincipalFunction;
+    public AuthenticationPlugin getAuthenticationPlugin() {
+        return _authenticationPlugin;
     }
 
     private String pingTerminatorIdForNode(String nodename) {
@@ -240,7 +288,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         getCurrentLocalRegisteredMatsSocketSessions().forEach(s -> {
             // Close WebSocket
-            s.closeWebSocket(CloseCodes.SERVICE_RESTART,
+            closeWebSocket(s.getWebSocketSession(), CloseCodes.SERVICE_RESTART,
                     "From Server: Server instance is going down, please reconnect.");
             // Local deregister
             deregisterLocalMatsSocketSession(s.getId(), s.getConnectionId());
@@ -262,6 +310,202 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             throw new IllegalArgumentException("Cannot find MatsSocketRegistration for [" + escape(eid) + "]");
         }
         return matsSocketRegistration;
+    }
+
+    /**
+     * Shall be one instance per socket (i.e. from the docs: "..there will be precisely one endpoint instance per active
+     * client connection"), thus there should be 1:1 correlation between this instance and the single Session object for
+     * the same cardinality (per client:server connection).
+     */
+    static class MatsWebSocketInstance extends Endpoint {
+        private final DefaultMatsSocketServer _matsSocketServer;
+        private final HandshakeRequestResponse _handshakeRequestResponse;
+
+        // Will be set when onOpen is invoked
+        private MatsSocketSession _matsSocketSession;
+
+        public MatsWebSocketInstance(DefaultMatsSocketServer matsSocketServer,
+                HandshakeRequestResponse handshakeRequestResponse) {
+            log.info("Created MatsWebSocketEndpointInstance: " + id(this));
+            _matsSocketServer = matsSocketServer;
+            _handshakeRequestResponse = handshakeRequestResponse;
+        }
+
+        public DefaultMatsSocketServer getMatsSocketServer() {
+            return _matsSocketServer;
+        }
+
+        @Override
+        public void onOpen(Session session, EndpointConfig config) {
+            log.info("WebSocket opened, session:" + session.getId() + ", endpointConfig:" + config
+                    + ", endpointInstance:" + id(this) + ", session:" + id(session));
+
+            // Set high limits, don't want to be held back on the protocol side of things.
+            session.setMaxBinaryMessageBufferSize(50 * 1024 * 1024);
+            session.setMaxTextMessageBufferSize(50 * 1024 * 1024);
+            // Set low time to say HELLO
+            session.setMaxIdleTimeout(5000);
+
+            SessionAuthenticator sessionAuthenticator = _matsSocketServer.getAuthenticationPlugin()
+                    .newSessionAuthenticator();
+            try {
+                sessionAuthenticator.evaluateHandshakeRequest(_handshakeRequestResponse._handshakeRequest, session);
+            }
+            catch (Throwable t) {
+                log.error("Got throwable when SessionAuthenticator.evaluateHandshakeRequest(..). Closing WebSocket.",
+                        t);
+                DefaultMatsSocketServer.closeWebSocket(session, CloseCodes.VIOLATED_POLICY,
+                        "Authentication failed upon evaluating Handshake");
+                return;
+            }
+
+            _matsSocketSession = new MatsSocketSession(_matsSocketServer, session,
+                    _handshakeRequestResponse._handshakeRequest,
+                    sessionAuthenticator);
+            session.addMessageHandler(_matsSocketSession);
+        }
+
+        @Override
+        public void onError(Session session, Throwable thr) {
+            log.info("WebSocket @OnError, session:" + session.getId() + ", this:" + id(this), thr);
+        }
+
+        @Override
+        public void onClose(Session session, CloseReason closeReason) {
+            log.info("WebSocket @OnClose, session:" + session.getId() + ", reason:" + closeReason.getReasonPhrase()
+                    + ", this:" + id(this));
+            // ?: Have we gotten MatsSocketSession yet? (In case "onOpen" has not been invoked yet. Can it happen?!).
+            if (_matsSocketSession != null) {
+                // -> Yes, so remove us from local and global views
+                // Deregister session locally
+                _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketSession.getId(),
+                        _matsSocketSession.getConnectionId());
+                // Deregister session from the ClusterStoreAndForward
+                try {
+                    _matsSocketServer._clusterStoreAndForward.deregisterSessionFromThisNode(
+                            _matsSocketSession.getId(), _matsSocketSession.getConnectionId());
+                }
+                catch (DataAccessException e) {
+                    // TODO: Fix
+                    throw new AssertionError("Damn", e);
+                }
+            }
+        }
+    }
+
+    static void closeWebSocket(Session webSocketSession, CloseCode closeCode, String reasonPhrase) {
+        log.info("Closing WebSocket Session [" + webSocketSession + "]: code: [" + closeCode
+                + "], reason:[" + reasonPhrase + "]");
+        try {
+            webSocketSession.close(new CloseReason(closeCode, reasonPhrase));
+        }
+        catch (IOException e) {
+            log.warn("Got Exception when trying to close WebSocket Session [" + webSocketSession
+                    + "], ignoring.", e);
+        }
+    }
+
+    /**
+     * Registrations of MatsSocketEndpoint - these are the definitions of which targets a MatsSocket client can send
+     * messages to, i.e. SEND or REQUEST.
+     *
+     * @param <I>
+     *            incoming MatsSocket DTO
+     * @param <MI>
+     *            incoming Mats DTO
+     * @param <MR>
+     *            reply Mats DTO
+     * @param <R>
+     *            reply MatsSocket DTO
+     */
+    static class MatsSocketEndpointRegistration<I, MI, MR, R> implements MatsSocketEndpoint<I, MI, MR, R> {
+        private final String _matsSocketEndpointId;
+        private final Class<I> _msIncomingClass;
+        private final Class<MI> _matsIncomingClass;
+        private final Class<MR> _matsReplyClass;
+        private final Class<R> _msReplyClass;
+        private final MatsSocketEndpointIncomingAuthEval<I, MI, R> _incomingAuthEval;
+
+        public MatsSocketEndpointRegistration(String matsSocketEndpointId, Class<I> msIncomingClass,
+                Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
+                MatsSocketEndpointIncomingAuthEval<I, MI, R> incomingAuthEval) {
+            _matsSocketEndpointId = matsSocketEndpointId;
+            _msIncomingClass = msIncomingClass;
+            _matsIncomingClass = matsIncomingClass;
+            _matsReplyClass = matsReplyClass;
+            _msReplyClass = msReplyClass;
+            _incomingAuthEval = incomingAuthEval;
+        }
+
+        private volatile MatsSocketEndpointReplyAdapter<MR, R> _replyAdapter;
+
+        String getMatsSocketEndpointId() {
+            return _matsSocketEndpointId;
+        }
+
+        public Class<I> getMsIncomingClass() {
+            return _msIncomingClass;
+        }
+
+        MatsSocketEndpointIncomingAuthEval<I, MI, R> getIncomingAuthEval() {
+            return _incomingAuthEval;
+        }
+
+        @Override
+        public void replyAdapter(MatsSocketEndpointReplyAdapter<MR, R> replyAdapter) {
+            _replyAdapter = replyAdapter;
+        }
+    }
+
+    private static class MatsSocketEndpointReplyContextImpl implements MatsSocketEndpointReplyContext {
+        private final String _matsSocketEndpointId;
+        private final DetachedProcessContext _detachedProcessContext;
+
+        public MatsSocketEndpointReplyContextImpl(String matsSocketEndpointId,
+                DetachedProcessContext detachedProcessContext) {
+            _matsSocketEndpointId = matsSocketEndpointId;
+            _detachedProcessContext = detachedProcessContext;
+        }
+
+        @Override
+        public String getMatsSocketEndpointId() {
+            return _matsSocketEndpointId;
+        }
+
+        @Override
+        public DetachedProcessContext getMatsContext() {
+            return _detachedProcessContext;
+        }
+
+        @Override
+        public void addBinary(String key, byte[] payload) {
+            throw new IllegalStateException("Not implemented. Yet.");
+        }
+    }
+
+    protected ObjectMapper jacksonMapper() {
+        // NOTE: This is stolen directly from MatsSerializer_DefaultJson.
+        ObjectMapper mapper = new ObjectMapper();
+
+        // Read and write any access modifier fields (e.g. private)
+        mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
+        mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
+
+        // Drop nulls
+        mapper.setSerializationInclusion(Include.NON_NULL);
+
+        // If props are in JSON that aren't in Java DTO, do not fail.
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        // Write e.g. Dates as "1975-03-11" instead of timestamp, and instead of array-of-ints [1975, 3, 11].
+        // Uses ISO8601 with milliseconds and timezone (if present).
+        mapper.registerModule(new JavaTimeModule());
+        mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
+
+        // Handle Optional, OptionalLong, OptionalDouble
+        mapper.registerModule(new Jdk8Module());
+
+        return mapper;
     }
 
     static class ReplyHandleStateDto {
@@ -469,15 +713,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         });
     }
 
-    void serializeAndSendSingleEnvelope(Session session, MatsSocketEnvelopeDto msReplyEnvelope) {
-        String msReplyEnvelopeJson = serializeEnvelope(msReplyEnvelope);
-        // TODO: Need to think this Async through wrt. to "finishing" the stored message from the storage.
-        // TODO: Also, need to consider what to do wrt. timeouts that cannot be transmitted.
-        log.info("Sending reply [" + msReplyEnvelopeJson + "]");
-        // NOTICE: We must stick the single envelope in an JSON Array.
-        session.getAsyncRemote().sendText('[' + msReplyEnvelopeJson + ']');
-    }
-
     private String serializeEnvelope(MatsSocketEnvelopeDto msReplyEnvelope) {
         if (msReplyEnvelope.t == null) {
             throw new IllegalStateException("Type ('t') cannot be null.");
@@ -492,159 +727,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         catch (JsonProcessingException e) {
             throw new AssertionError("Huh, couldn't serialize message?!");
         }
-    }
-
-    static class MatsSocketEndpointRegistration<I, MI, MR, R> implements MatsSocketEndpoint<I, MI, MR, R> {
-        private final String _matsSocketEndpointId;
-        private final Class<I> _msIncomingClass;
-        private final Class<MI> _matsIncomingClass;
-        private final Class<MR> _matsReplyClass;
-        private final Class<R> _msReplyClass;
-        private final MatsSocketEndpointIncomingAuthEval<I, MI, R> _incomingAuthEval;
-
-        public MatsSocketEndpointRegistration(String matsSocketEndpointId, Class<I> msIncomingClass,
-                Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-                MatsSocketEndpointIncomingAuthEval<I, MI, R> incomingAuthEval) {
-            _matsSocketEndpointId = matsSocketEndpointId;
-            _msIncomingClass = msIncomingClass;
-            _matsIncomingClass = matsIncomingClass;
-            _matsReplyClass = matsReplyClass;
-            _msReplyClass = msReplyClass;
-            _incomingAuthEval = incomingAuthEval;
-        }
-
-        private volatile MatsSocketEndpointReplyAdapter<MR, R> _replyAdapter;
-
-        String getMatsSocketEndpointId() {
-            return _matsSocketEndpointId;
-        }
-
-        public Class<I> getMsIncomingClass() {
-            return _msIncomingClass;
-        }
-
-        MatsSocketEndpointIncomingAuthEval<I, MI, R> getIncomingAuthEval() {
-            return _incomingAuthEval;
-        }
-
-        @Override
-        public void replyAdapter(MatsSocketEndpointReplyAdapter<MR, R> replyAdapter) {
-            _replyAdapter = replyAdapter;
-        }
-    }
-
-    /**
-     * Shall be one instance per socket (i.e. from the docs: "..there will be precisely one endpoint instance per active
-     * client connection"), thus there should be 1:1 correlation between this instance and the single Session object for
-     * the same cardinality (per client:server connection).
-     */
-    public static class MatsWebSocketInstance extends Endpoint {
-        private final DefaultMatsSocketServer _matsSocketServer;
-        private final ObjectMapper _jackson;
-
-        private MatsSocketSession _matsSocketSession;
-
-        public MatsWebSocketInstance(DefaultMatsSocketServer matsSocketServer) {
-            log.info("Created MatsWebSocketEndpointInstance: " + id(this));
-            _matsSocketServer = matsSocketServer;
-            _jackson = matsSocketServer._jackson;
-        }
-
-        public DefaultMatsSocketServer getMatsSocketServer() {
-            return _matsSocketServer;
-        }
-
-        @Override
-        public void onOpen(Session session, EndpointConfig config) {
-            log.info("WebSocket opened, session:" + session.getId() + ", endpointConfig:" + config
-                    + ", endpointInstance:" + id(this) + ", session:" + id(session));
-
-            // Set high limits, don't want to be held back on the protocol side of things.
-            session.setMaxBinaryMessageBufferSize(50 * 1024 * 1024);
-            session.setMaxTextMessageBufferSize(50 * 1024 * 1024);
-            // Set low time to say HELLO
-            session.setMaxIdleTimeout(5000);
-            _matsSocketSession = new MatsSocketSession(_matsSocketServer, session);
-            session.addMessageHandler(_matsSocketSession);
-        }
-
-        @Override
-        public void onError(Session session, Throwable thr) {
-            log.info("WebSocket @OnError, session:" + session.getId() + ", this:" + id(this), thr);
-        }
-
-        @Override
-        public void onClose(Session session, CloseReason closeReason) {
-            log.info("WebSocket @OnClose, session:" + session.getId() + ", reason:" + closeReason.getReasonPhrase()
-                    + ", this:" + id(this));
-            // ?: Have we gotten MatsSocketSession yet? (In case "onOpen" has not been invoked yet. Can it happen?!).
-            if (_matsSocketSession != null) {
-                // -> Yes, so remove us from local and global views
-                // Deregister session locally
-                _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketSession.getId(),
-                        _matsSocketSession.getConnectionId());
-                // Deregister session from the ClusterStoreAndForward
-                try {
-                    _matsSocketServer._clusterStoreAndForward.deregisterSessionFromThisNode(
-                            _matsSocketSession.getId(), _matsSocketSession.getConnectionId());
-                }
-                catch (DataAccessException e) {
-                    // TODO: Fix
-                    throw new AssertionError("Damn", e);
-                }
-            }
-        }
-    }
-
-    private static class MatsSocketEndpointReplyContextImpl implements MatsSocketEndpointReplyContext {
-        private final String _matsSocketEndpointId;
-        private final DetachedProcessContext _detachedProcessContext;
-
-        public MatsSocketEndpointReplyContextImpl(String matsSocketEndpointId,
-                DetachedProcessContext detachedProcessContext) {
-            _matsSocketEndpointId = matsSocketEndpointId;
-            _detachedProcessContext = detachedProcessContext;
-        }
-
-        @Override
-        public String getMatsSocketEndpointId() {
-            return _matsSocketEndpointId;
-        }
-
-        @Override
-        public DetachedProcessContext getMatsContext() {
-            return _detachedProcessContext;
-        }
-
-        @Override
-        public void addBinary(String key, byte[] payload) {
-            throw new IllegalStateException("Not implemented. Yet.");
-        }
-    }
-
-    protected ObjectMapper jacksonMapper() {
-        // NOTE: This is stolen directly from MatsSerializer_DefaultJson.
-        ObjectMapper mapper = new ObjectMapper();
-
-        // Read and write any access modifier fields (e.g. private)
-        mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
-        mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
-
-        // Drop nulls
-        mapper.setSerializationInclusion(Include.NON_NULL);
-
-        // If props are in JSON that aren't in Java DTO, do not fail.
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-        // Write e.g. Dates as "1975-03-11" instead of timestamp, and instead of array-of-ints [1975, 3, 11].
-        // Uses ISO8601 with milliseconds and timezone (if present).
-        mapper.registerModule(new JavaTimeModule());
-        mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
-
-        // Handle Optional, OptionalLong, OptionalDouble
-        mapper.registerModule(new Jdk8Module());
-
-        return mapper;
     }
 
     private static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";

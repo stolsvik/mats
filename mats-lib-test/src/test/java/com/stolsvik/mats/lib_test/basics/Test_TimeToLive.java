@@ -29,7 +29,7 @@ public class Test_TimeToLive extends MatsBasicTest {
                 (context, dto) -> {
                     if ("DELAY".equals(dto.string)) {
                         try {
-                            Thread.sleep(300);
+                            Thread.sleep(400);
                         }
                         catch (InterruptedException e) {
                             throw new IllegalStateException(e);
@@ -61,7 +61,7 @@ public class Test_TimeToLive extends MatsBasicTest {
 
     @Test
     public void testWithTimeToLive() {
-        doTest(100, 2);
+        doTest(200, 2);
     }
 
     private void doTest(long timeToLive, int expectedMessages) {

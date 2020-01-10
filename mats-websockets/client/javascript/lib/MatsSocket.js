@@ -23,13 +23,15 @@
         if (typeof appVersion !== "string") {
             throw new Error("appVersion must be a string, was: [" + appVersion + "]");
         }
-        if (!Array.isArray(urls) || urls.length < 1) {
+        // 'urls' must either be a string, String, or an Array that is not 0 elements.
+        let urlsOk = ((typeof urls === 'string') || (urls instanceof String)) || (Array.isArray(urls) && urls.length > 0);
+        if (!urlsOk) {
             throw new Error("urls must have at least 1 url set, got: [" + urls + "]");
         }
 
         // :: Provide default for socket factory if not defined.
         if (socketFactory === undefined) {
-            socketFactory = function(url, protocol) {
+            socketFactory = function (url, protocol) {
                 return new WebSocket(url, protocol);
             }
         }
@@ -64,10 +66,13 @@
          * frame (e.g. expires within minutes). For an Oauth2-style authorization scheme, this could be "Bearer: ......".
          * This must correspond to what the server side authorization plugin expects.
          * <p />
-         * <b>NOTE: This SHALL NEVER be used to CHANGE the user! It should only refresh an existing authorization for the
-         * initially authenticated user. One MatsSocket (Session) shall only ever be used by a single user: If changing
-         * user, you should ditch the existing MatsSocket (preferably invoking 'shutdown' to close the session properly on
-         * the server side too), and make a new MatsSocket thus getting a new Session.
+         * <b>NOTE: This SHOULD NOT be used to CHANGE the user!</b> It should only refresh an existing authorization for the
+         * initially authenticated user. One MatsSocket (Session) should only be used by a single user: If changing
+         * user, you should ditch the existing MatsSocket (preferably invoking 'shutdown' to close the session properly
+         * on the server side too), and make a new MatsSocket thus getting a new Session.
+         * <p />
+         * Note: If the underlying WebSocket has not been established and HELLO sent, then invoking this method will do
+         * that.
          *
          * @param authorization the authorization String which will be resolved to a Principal on the server side by the
          * authorization plugin (and which potentially also will be forwarded to other resources that requires
@@ -87,7 +92,6 @@
             _roomForLatencyMillis = roomForLatencyMillis;
             _sendAuthorizationToServer = true;
             _authExpiredCallbackInvoked = false;
-            // TODO: If no message pending, then make an AUTH message.
 
             log("Got Authorization with expirationTimeMillisSinceEpoch: " + expirationTimeMillisSinceEpoch + "," +
                 "roomForLatencyMillis: " + roomForLatencyMillis, authorization);
@@ -174,9 +178,6 @@
             // :: Assert for double-registrations
             if (_endpoints[endpointId] !== undefined) {
                 throw new Error("Cannot register more than one endpoint to same endpointId [" + endpointId + "], existing: " + _endpoints[endpointId]);
-            }
-            errorCallback = errorCallback || function (error) {
-                console.error("Failure on %s, reply: %o", endpointId, error)
             }
             log("Registering endpoint on id [" + endpointId + "]:\n #messageCallback: " + messageCallback + "\n #errorCallback: " + errorCallback);
             _endpoints[endpointId] = {
@@ -307,6 +308,13 @@
         };
 
         /**
+         * Flush any pipelined messages.
+         */
+        this.flush = function () {
+            // TODO: Implement.
+        };
+
+        /**
          * Do not randomize the provided WebSocket URLs. Should only be used for testing, as you definitely want
          * randomization of which URL to connect to - it will always go for the 0th element first.
          */
@@ -393,15 +401,15 @@
         const that = this;
 
         // ?: Is the self object an EventTarget (ie. window in a Browser context)
-        if (typeof(self) === 'object' && typeof(self.addEventListener) === 'function') {
-            // Yes -> Add "onbeforeunload" event listener to shut down the MatsSocket cleanly (closing session) when user navigates
-            //        away from page.
+        if (typeof (self) === 'object' && typeof (self.addEventListener) === 'function') {
+            // Yes -> Add "onbeforeunload" event listener to shut down the MatsSocket cleanly (closing session) when
+            //        user navigates away from page.
             self.addEventListener("beforeunload", function (event) {
-                log("OnBeforeUnload: Shutting down MatsSocket [" + that.url + "] due to [" + event.type + "]");
+                log("OnBeforeUnload: Shutting down MatsSocket [" + _websocket.url + "] due to [" + event.type + "]");
                 that.closeSession("'window.onbeforeunload'");
             });
         }
-        const userAgent = (typeof(self) === 'object' && typeof(self.navigator) === 'object') ? self.navigator.userAgent : "Unknown";
+        const userAgent = (typeof (self) === 'object' && typeof (self.navigator) === 'object') ? self.navigator.userAgent : "Unknown";
 
         /**
          * Sends pipelined messages if pipelining is not engaged.
@@ -413,7 +421,7 @@
                 return;
             }
             // ?: Is the pipeline empty?
-            if (_pipeline.length == 0) {
+            if (_pipeline.length === 0) {
                 // -> Yes, so nothing to do.
                 return;
             }
@@ -468,12 +476,14 @@
 
             // ?: Is the WebSocket open? (Otherwise, the opening of the WebSocket will re-invoke this function)
             if (_socketOpen) {
+                let prePipeline = [];
+
                 // -> Yes, WebSocket is open, so send any outstanding messages
                 // ?: Have we sent HELLO?
                 if (!_helloSent) {
-                    log("HELLO not sent, prepending it to the pipeline now.");
+                    log("HELLO not sent, adding it to the pre-pipeline now.");
                     // -> No, HELLO not sent, so we create it now (auth is present, check above)
-                    let connectMsg = {
+                    let helloMessage = {
                         t: "HELLO",
                         clv: clientLibNameAndVersion + "; User-Agent: " + userAgent,
                         ts: Date.now(),
@@ -487,22 +497,29 @@
                     if (_sessionId !== undefined) {
                         log("We expect session to be there [" + _sessionId + "]");
                         // -> Evidently yes, so add the requested reconnect-to-sessionId.
-                        connectMsg.sid = _sessionId;
+                        helloMessage.sid = _sessionId;
                         // This implementation of MatsSocket client lib expects existing session
                         // when reconnecting, thus wants pipelined messages to be ditched if
                         // the assumption about existing session fails.
-                        connectMsg.st = "EXPECT_EXISTING";
+                        helloMessage.st = "EXPECT_EXISTING";
                     } else {
                         // -> We want a new session (which is default anyway)
-                        connectMsg.st = "NEW";
+                        helloMessage.st = "NEW";
                     }
-                    // Add HELLO msg to front of pipeline
-                    _pipeline.unshift(connectMsg);
+                    // Add the HELLO to the prePipeline
+                    prePipeline.unshift(helloMessage);
                     // We will now have sent the HELLO.
                     _helloSent = true;
                 }
 
-                // Send messages, if there are any
+                // :: Send pre-pipeline messages, if there are any
+                // (Before the HELLO is sent and sessionId is established, the max size of message is low on the server)
+                if (prePipeline.length > 0) {
+                    if (that.logging) log("Flushing prePipeline of [" + prePipeline.length + "] messages.");
+                    _websocket.send(JSON.stringify(prePipeline));
+                    prePipeline.length = 0;
+                }
+                // :: Send any pipelined messages.
                 if (_pipeline.length > 0) {
                     if (that.logging) log("Flushing pipeline of [" + _pipeline.length + "] messages.");
                     _websocket.send(JSON.stringify(_pipeline));

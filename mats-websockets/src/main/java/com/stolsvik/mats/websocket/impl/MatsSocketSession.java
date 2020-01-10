@@ -10,10 +10,10 @@ import java.util.List;
 import java.util.Optional;
 
 import javax.websocket.CloseReason;
-import javax.websocket.CloseReason.CloseCode;
 import javax.websocket.CloseReason.CloseCodes;
 import javax.websocket.MessageHandler.Whole;
 import javax.websocket.Session;
+import javax.websocket.server.HandshakeRequest;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +28,11 @@ import com.stolsvik.mats.MatsInitiator.MatsBackendRuntimeException;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendRuntimeException;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingAuthEval;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
+import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_Authenticated;
+import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_StillValid;
+import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.AuthenticationContext;
+import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.AuthenticationResult;
+import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.MatsSocketEndpointRegistration;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleStateDto;
@@ -43,33 +48,42 @@ class MatsSocketSession implements Whole<String> {
 
     private final Session _webSocketSession;
     private final String _connectionId;
+    private final HandshakeRequest _handshakeRequest;
+    private final SessionAuthenticator _sessionAuthenticator;
 
     // Derived
     private final DefaultMatsSocketServer _matsSocketServer;
+    private final AuthenticationContext _authenticationContext;
 
     // Set
     private String _matsSocketSessionId;
     private String _authorization;
     private Principal _principal;
+    private String _userId;
 
     private String _clientLibAndVersion;
     private String _appName;
     private String _appVersion;
 
-    MatsSocketSession(DefaultMatsSocketServer matsSocketServer, Session webSocketSession) {
+    MatsSocketSession(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
+            HandshakeRequest handshakeRequest,
+            SessionAuthenticator sessionAuthenticator) {
         _webSocketSession = webSocketSession;
+        _handshakeRequest = handshakeRequest;
         _connectionId = webSocketSession.getId() + "_" + DefaultMatsSocketServer.rnd(10);
+        _sessionAuthenticator = sessionAuthenticator;
 
         // Derived
         _matsSocketServer = matsSocketServer;
-    }
-
-    String getId() {
-        return _matsSocketSessionId;
+        _authenticationContext = new AuthenticationContextImpl(_handshakeRequest, _webSocketSession);
     }
 
     Session getWebSocketSession() {
         return _webSocketSession;
+    }
+
+    String getId() {
+        return _matsSocketSessionId;
     }
 
     String getConnectionId() {
@@ -101,23 +115,35 @@ class MatsSocketSession implements Whole<String> {
         String allMessagesReceivedFailSubtype = null;
         String allMessagesReceivedFailDescription = null;
 
-        // :: First look for AUTH in any of the messages
+        // :: First look for Authorization header in any of the messages
         // NOTE! Authorization header can come with ANY message!
         for (MatsSocketEnvelopeDto envelope : envelopes) {
             // ?: Pick out any Authorization header, i.e. the auth-string - it can come in any message.
             if (envelope.auth != null) {
                 // -> Yes, there was an authorization header sent along with this message
-                _principal = _matsSocketServer.getAuthorizationToPrincipalFunction().apply(envelope.auth);
-                if (_principal == null) {
-                    allMessagesReceivedFailSubtype = "AUTH_FAIL";
-                    allMessagesReceivedFailDescription = "The authorization header ["
-                            + DefaultMatsSocketServer.escape(envelope.auth) + "] did not produce a Principal.";
-
-                    // TODO: SEND AUTH_FAILED (also if auth function throws)
-                }
                 _authorization = envelope.auth;
+                // No 'break', as we want to go through all messages and find the latest.
             }
         }
+
+        // AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
+
+        // First - do we have Authorization header? (I.e. it must sent along in the very first pipeline..)
+        if (_authorization == null) {
+            log.error("We have not got Authorization header!");
+            // TODO: Make sure that we're deregistering the session, both locally and CSAF
+            // TODO: Client can reject all its outstanding messages, but then we need to send it a message about this!
+            // Closing the WebSocket will end up invoking onClose, which will deregister us if needed
+            DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.VIOLATED_POLICY,
+                    "Missing Authorization header");
+            return;
+        }
+
+        boolean authenticationOk = doAuthentication();
+        if (!authenticationOk) {
+            return;
+        }
+
         // :: Then look for a HELLO message (should be first, but we will reply to it immediately even if part of
         // pipeline).
         for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
@@ -148,8 +174,9 @@ class MatsSocketSession implements Whole<String> {
                 break;
             }
         }
-        List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
+
         // :: Now go through and handle all the messages
+        List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
         for (MatsSocketEnvelopeDto envelope : envelopes) {
             try { // try-finally: MDC.clear()
                 MDC.put("matssocket.type", envelope.t);
@@ -159,17 +186,28 @@ class MatsSocketSession implements Whole<String> {
 
                 if ("CLOSE_SESSION".equals(envelope.t)) {
                     handleCloseSession();
+                    // We do not close right away, instead running pipeline and closing at end.
                     shouldCloseSession = (envelope.desc != null ? envelope.desc : "");
-                    // Any remaining messages will be rejected..
+                    // Any remaining messages will be rejected.. (There should not really be any!)
                     allMessagesReceivedFailSubtype = "ERROR";
                     allMessagesReceivedFailDescription = "Client just closed the session!";
+                    // This message is handled, do next in pipeline.
                     continue;
                 }
 
                 // ----- We do NOT KNOW whether we're authenticated!
 
+                // Assert auth: ?: We do not accept other messages before authentication
+                if ((_matsSocketSessionId == null) || (_principal == null)) {
+                    allMessagesReceivedFailSubtype = "AUTH_FAIL";
+                    allMessagesReceivedFailDescription = "Missing authentication.";
+                    // NOTE NOTE! Do NOT do 'continue' here, as the currently processing message should be failed!!
+                    // NOT 'continue'!!
+                }
+
                 // ?: Should we fail all messages?
                 if (allMessagesReceivedFailSubtype != null) {
+                    // -> Yes, some other process has decided that the all/the rest of the messages should be dropped.
                     MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
                     replyEnvelope.t = "RECEIVED";
                     replyEnvelope.st = allMessagesReceivedFailSubtype;
@@ -182,35 +220,19 @@ class MatsSocketSession implements Whole<String> {
                     replyEnvelope.cmrnn = _matsSocketServer.getMyNodename();
                     replyEnvelope.mscts = System.currentTimeMillis();
                     replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
-
-                    // Add RECEIVED:<failed> message to "queue"
+                    // Add this RECEIVED:<failed> message to return-pipeline.
                     replyEnvelopes.add(replyEnvelope);
-                    // This is handled, so go to next..
+                    // This is handled, so go to next.. (which also will be handled the same - failed)
                     continue;
                 }
 
-                // ?: We do not accept other messages before authentication
+                // ?: Because I am paranoid, we check this once again.
                 if ((_matsSocketSessionId == null) || (_principal == null)) {
-                    MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
-                    replyEnvelope.t = "RECEIVED";
-                    replyEnvelope.st = "AUTH_FAIL";
-                    replyEnvelope.desc = "Missing Authorization.";
-                    replyEnvelope.cmseq = envelope.cmseq;
-                    replyEnvelope.tid = envelope.tid; // TraceId
-                    replyEnvelope.cid = envelope.cid; // CorrelationId
-                    replyEnvelope.cmcts = envelope.cmcts; // Set by client..
-                    replyEnvelope.cmrts = clientMessageReceivedTimestamp;
-                    replyEnvelope.cmrnn = _matsSocketServer.getMyNodename();
-                    replyEnvelope.mscts = System.currentTimeMillis();
-                    replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
-
-                    // Add RECEIVED:<failed> message to "queue"
-                    replyEnvelopes.add(replyEnvelope);
-                    // This ERROR is handled, so go to next message
-                    continue;
+                    // -> Well, someone must have changed the code to fuck this up.
+                    throw new AssertionError("Principal or MatsSessionId was null at a place where it should not be.");
                 }
 
-                // ----- We are authenticated.
+                // ----- We ARE authenticated!
 
                 if ("PING".equals(envelope.t)) {
                     MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
@@ -224,13 +246,15 @@ class MatsSocketSession implements Whole<String> {
                     replyEnvelope.mscts = System.currentTimeMillis();
                     replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
 
-                    // Add PONG message to "queue" (should be sole message, really)
+                    // Add PONG message to return-pipeline (should be sole message, really - not pipelined)
                     replyEnvelopes.add(replyEnvelope);
+                    // The pong is handled, so go to next message
                     continue;
                 }
 
                 if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t)) {
                     handleSendOrRequest(clientMessageReceivedTimestamp, replyEnvelopes, envelope);
+                    // The message is handled, so go to next message.
                     continue;
                 }
             }
@@ -253,10 +277,103 @@ class MatsSocketSession implements Whole<String> {
         }
         // ?: Should we close the session?
         if (shouldCloseSession != null) {
-            closeWebSocket(CloseCodes.NORMAL_CLOSURE, "From Server: Client said CLOSE_SESSION (" +
-                    DefaultMatsSocketServer.escape(shouldCloseSession)
-                    + "): Terminated MatsSocketSession, closing WebSocket.");
+            DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.NORMAL_CLOSURE,
+                    "From Server: Client said CLOSE_SESSION (" +
+                            DefaultMatsSocketServer.escape(shouldCloseSession)
+                            + "): Terminated MatsSocketSession, closing WebSocket.");
         }
+    }
+
+    private boolean doAuthentication() {
+        // ?: Do we have principal already?
+        if (_principal == null) {
+            // -> NO, we do not have principal
+            // Ask SessionAuthenticator if it likes this Authorization header
+            AuthenticationResult authenticationResult;
+            try {
+                authenticationResult = _sessionAuthenticator.initialAuthentication(_authenticationContext,
+                        _authorization);
+            }
+            catch (RuntimeException re) {
+                _principal = null;
+                _userId = null;
+                log.error("Got Exception when invoking SessionAuthenticator.initialAuthentication(..),"
+                        + " Authorization header: " + _authorization, re);
+                _authorization = null;
+                // TODO: Make sure that we're deregistering the session, both locally and CSAF
+                // Closing the WebSocket will end up invoking onClose, which will deregister us if needed
+                DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.VIOLATED_POLICY,
+                        "Authentication plugin could not evaluate Authorization string");
+                return false;
+            }
+            if (authenticationResult instanceof AuthenticationResult_Authenticated) {
+                // -> Authenticated
+                AuthenticationResult_Authenticated result = (AuthenticationResult_Authenticated) authenticationResult;
+                _principal = result._principal;
+                _userId = result._userId;
+            }
+            else {
+                // -> Null, or any other result.
+                _principal = null;
+                _userId = null;
+                log.error("We have not been authenticated! " + authenticationResult + ", Authorization header: "
+                        + _authorization);
+                _authorization = null;
+                // TODO: Make sure that we're deregistering the session, both locally and CSAF
+                // Closing the WebSocket will end up invoking onClose, which will deregister us if needed
+                DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.VIOLATED_POLICY,
+                        "Authorization header not accepted");
+                return false;
+            }
+        }
+        else {
+            // -> Yes, we already have principal
+            // Ask SessionAuthenticator whether he still is happy with this Principal being authenticated, or supplies
+            // a new Principal
+            AuthenticationResult authenticationResult;
+            try {
+                authenticationResult = _sessionAuthenticator.reevaluateAuthentication(_authenticationContext,
+                        _authorization, _principal);
+            }
+            catch (RuntimeException re) {
+                _principal = null;
+                _userId = null;
+                log.error("Got Exception when invoking SessionAuthenticator.reevaluateAuthentication(..),"
+                        + " Authorization header: " + _authorization, re);
+                _authorization = null;
+                log.error("", re);
+                // TODO: Make sure that we're deregistering the session, both locally and CSAF
+                // Closing the WebSocket will end up invoking onClose, which will deregister us if needed
+                DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.VIOLATED_POLICY,
+                        "Authentication plugin could not re-evaluate Authorization string");
+                return false;
+            }
+            if (authenticationResult instanceof AuthenticationResult_Authenticated) {
+                // -> Authenticated anew
+                AuthenticationResult_Authenticated result = (AuthenticationResult_Authenticated) authenticationResult;
+                _principal = result._principal;
+                _userId = result._userId;
+            }
+            else if (authenticationResult instanceof AuthenticationResult_StillValid) {
+                // -> The existing authentication is still valid
+                log.debug("Still authenticated with UserId: [" + _userId + "] and Principal [" + _principal + "]");
+            }
+            else {
+                // -> Null, or any other result.
+                _principal = null;
+                _userId = null;
+                log.error("We have not been authenticated! " + authenticationResult + ", Authorization header: "
+                        + _authorization);
+                _authorization = null;
+                // TODO: Make sure that we're deregistering the session, both locally and CSAF
+                // Closing the WebSocket will end up invoking onClose, which will deregister us if needed
+                DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.VIOLATED_POLICY,
+                        "Authorization header not accepted");
+                return false;
+            }
+
+        }
+        return true;
     }
 
     private void sendReplies(List<MatsSocketEnvelopeDto> replyEnvelopes) {
@@ -335,13 +452,14 @@ class MatsSocketSession implements Whole<String> {
                 // ?: If the existing is open, then close it.
                 if (existingSession.get()._webSocketSession.isOpen()) {
                     try {
-                        existingSession.get()._webSocketSession.close(new CloseReason(
-                                CloseCodes.PROTOCOL_ERROR,
+                        existingSession.get()._webSocketSession.close(new CloseReason(CloseCodes.PROTOCOL_ERROR,
                                 "Cannot have two MatsSockets with the same SessionId - closing the previous"));
                     }
                     catch (IOException e) {
-                        log.warn("Got IOException when trying to close an existing session upon reconnect.",
-                                e);
+                        log.warn("Got IOException when trying to close an existing WebSocket Session"
+                                + " [MatsSocketSessionId: " + envelope.sid + ", existing WebSocket Session Id:["
+                                + existingSession.get()._webSocketSession.getId() + "]] upon Client Reconnect."
+                                + " Ignoring, probably just as well (that is, it had already closed).", e);
                     }
                 }
                 // You're allowed to use this, since the sessionId was already existing.
@@ -378,14 +496,16 @@ class MatsSocketSession implements Whole<String> {
             _matsSocketSessionId = DefaultMatsSocketServer.rnd(16);
         }
 
-        // Add Session to our active-map
+        // Register Session locally
         _matsSocketServer.registerLocalMatsSocketSession(this);
+        // Register Session in CSAF
         try {
             _matsSocketServer.getClusterStoreAndForward().registerSessionAtThisNode(_matsSocketSessionId,
                     _connectionId);
         }
         catch (DataAccessException e) {
             // TODO: Fix
+            // TODO: Deny HELLO (i.e. "NOT WELCOME"),
             throw new AssertionError("Damn", e);
         }
 
@@ -445,7 +565,7 @@ class MatsSocketSession implements Whole<String> {
         }
         long nowMillis = System.currentTimeMillis();
 
-        // :: Pipleline RECEIVED message
+        // :: Pipeline RECEIVED message
         MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
         replyEnvelope.t = "RECEIVED";
         replyEnvelope.st = "ACK"; // TODO: Handle failures.
@@ -473,17 +593,6 @@ class MatsSocketSession implements Whole<String> {
         catch (DataAccessException e) {
             // TODO: Fix
             throw new AssertionError("Damn", e);
-        }
-    }
-
-    void closeWebSocket(CloseCode closeCode, String reasonPhrase) {
-        log.info("Shutting down WebSocket Session [" + _webSocketSession + "]");
-        try {
-            _webSocketSession.close(new CloseReason(closeCode, reasonPhrase));
-        }
-        catch (IOException e) {
-            log.warn("Got Exception when trying to close WebSocket Session [" + _webSocketSession
-                    + "], ignoring.", e);
         }
     }
 

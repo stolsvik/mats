@@ -21,7 +21,6 @@ describe('MatsSocket', function () {
     });
 
     describe('authorization', function () {
-
         it('Should invoke authorization callback before making calls', function(done) {
             let authCallbackCalled = false;
 
@@ -89,8 +88,7 @@ describe('MatsSocket', function () {
             // Return a promise, that mocha will watch and resolve
             return matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {string: "The String", number: Math.PI});
         });
-
-    })
+    });
 
     describe("request", function () {
         // Set a valid authorization before each request
@@ -106,7 +104,6 @@ describe('MatsSocket', function () {
                 // Call the done method when we receive the ack
                 () => done());
         })
-
     });
 
     describe("requestReplyTo", function () {
@@ -128,7 +125,6 @@ describe('MatsSocket', function () {
             // Return a promise, that mocha will watch and resolve
             matsSocket.requestReplyTo("Test.single", "REQUEST-with-Promise_" + matsSocket.id(6), {string: "Request String", number: Math.E}, "ClientSide.customEndpoint", correlationId)
         });
-
     });
 
     describe("pipeline", function () {
@@ -156,8 +152,5 @@ describe('MatsSocket', function () {
                     "ClientSide.testEndpoint", "pipeline_3_" + matsSocket.id(10));
             });
         });
-
     });
-
-
 });

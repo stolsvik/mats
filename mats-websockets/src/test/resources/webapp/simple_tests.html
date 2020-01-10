@@ -3,7 +3,7 @@
 <body>
 <h1>Testing 1, 2, 3</h1>
 
-<script src="MatsSocket.js"></script>
+<script src="mats/MatsSocket.js"></script>
 
 <script>
     var matsSocket = new mats.MatsSocket("TestApp", "1.2.3",
@@ -42,16 +42,16 @@
         });
 
     matsSocket.request("Test.single", "REQUEST-with-Promise_" + matsSocket.id(6), {string: "Request String", number: Math.E})
-        .then(function (event) {
-            console.log("REQUEST-with-Promise resolved! (I.e. REPLY from Mats Endpoint) Took " + (Date.now() - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
+        .then(function (reply) {
+            console.log("REQUEST-with-Promise resolved! (I.e. REPLY from Mats Endpoint) Took " + (Date.now() - reply.clientMessageCreated) + "ms: " + JSON.stringify(reply));
         });
 
     matsSocket.request("Test.single", "REQUEST-with-Promise-and-receivedCallback_" + matsSocket.id(6), {string: "Request String", number: Math.E},
         function (event) {
             console.log("REQUEST receivedCallback: (message received on server). Took " + (Date.now() - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
         })
-        .then(function (event) {
-            console.log("REQUEST-with-Promise-and-receivedCallback resolved! (I.e. REPLY from Mats Endpoint) Took " + (Date.now() - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
+        .then(function (reply) {
+            console.log("REQUEST-with-Promise-and-receivedCallback resolved! (I.e. REPLY from Mats Endpoint) Took " + (Date.now() - reply.clientMessageCreated) + "ms: " + JSON.stringify(reply));
         });
 
     matsSocket.pipeline(function (ms) {

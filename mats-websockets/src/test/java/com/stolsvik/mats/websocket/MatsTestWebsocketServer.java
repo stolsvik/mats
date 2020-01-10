@@ -1,18 +1,19 @@
 package com.stolsvik.mats.websocket;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.Principal;
 import java.util.Collections;
 import java.util.concurrent.ForkJoinPool;
-import java.util.function.Function;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import javax.jms.ConnectionFactory;
 import javax.servlet.ServletContextEvent;
 import javax.servlet.ServletContextListener;
-import javax.servlet.ServletException;
+import javax.servlet.ServletOutputStream;
 import javax.servlet.annotation.WebListener;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
@@ -21,11 +22,8 @@ import javax.servlet.http.HttpServletResponse;
 import javax.websocket.server.ServerContainer;
 
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
-import org.eclipse.jetty.server.AbstractNetworkConnector;
 import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
-import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.component.AbstractLifeCycle.AbstractLifeCycleListener;
 import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.resource.Resource;
@@ -43,6 +41,10 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
+import com.stolsvik.mats.websocket.impl.AuthenticationPlugin;
+import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.AuthenticationContext;
+import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.AuthenticationResult;
+import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
@@ -55,6 +57,7 @@ import ch.qos.logback.core.CoreConstants;
 public class MatsTestWebsocketServer {
 
     private static final String CONTEXT_ATTRIBUTE_PORTNUMBER = "ServerPortNumber";
+    private static final String CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH = "Path to MatsSocket.js";
 
     private static final String COMMON_AMQ_NAME = "CommonAMQ";
 
@@ -92,7 +95,7 @@ public class MatsTestWebsocketServer {
             _matsFactory.getFactoryConfig().setName("MF_Server_" + portNumber);
             _matsFactory.getFactoryConfig().setNodename("EndreBox_" + portNumber);
 
-            // :: Make MatsEndpoint
+            // :: Make Mats Endpoint
             _matsFactory.single("Test.single", MatsDataTO.class, MatsDataTO.class, (processContext, incomingDto) -> {
                 return new MatsDataTO(incomingDto.number, incomingDto.string + ":FromSimple", incomingDto.multiplier);
             });
@@ -104,32 +107,16 @@ public class MatsTestWebsocketServer {
             ClusterStoreAndForward_SQL csaf = ClusterStoreAndForward_SQL.create(dataSource, _matsFactory
                     .getFactoryConfig().getNodename());
             // Make a Dummy Authentication plugin
-            Function<String, Principal> authToPrincipalFunction = authHeader -> {
-                log.info("Resolving Authorization header to principal for header [" + authHeader + "].");
-                long expires = Long.parseLong(authHeader.substring(authHeader.indexOf(':') + 1));
-                if (expires < System.currentTimeMillis()) {
-                    throw new IllegalStateException("This DummyAuth is too old.");
-                }
-                return new Principal() {
-                    @Override
-                    public String getName() {
-                        return "Mr. Dummy Auth";
-                    }
-
-                    @Override
-                    public String toString() {
-                        return "DummyPrincipal:" + authHeader;
-                    }
-                };
-            };
+            AuthenticationPlugin authenticationPlugin = DummySessionAuthenticator::new;
             // Create the MatsSocketServer
-            _matsSocketServer = getMatsSocketServer(sce, _matsFactory, csaf, authToPrincipalFunction);
+            _matsSocketServer = getMatsSocketServer(sce, _matsFactory, csaf, authenticationPlugin);
+
             sce.getServletContext().setAttribute(MatsSocketServer.class.getName(), _matsSocketServer);
             MatsSocketServer matsSocketServer = (MatsSocketServer) sce.getServletContext().getAttribute(
                     MatsSocketServer.class.getName());
             log.info("EndreXY: servletContext MatsSocketServer:" + matsSocketServer);
 
-            // :: Make MatsSocketEndpoint
+            // :: Make MatsSocket Endpoint
             MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = _matsSocketServer
                     .matsSocketEndpoint("Test.single",
                             MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
@@ -164,7 +151,7 @@ public class MatsTestWebsocketServer {
     }
 
     private static MatsSocketServer getMatsSocketServer(ServletContextEvent sce, MatsFactory matsFactory,
-            ClusterStoreAndForward clusterStoreAndForward, Function<String, Principal> authToPrincipalFunction) {
+            ClusterStoreAndForward clusterStoreAndForward, AuthenticationPlugin authenticationPlugin) {
         Object serverContainerAttrib = sce.getServletContext().getAttribute(ServerContainer.class.getName());
         if (!(serverContainerAttrib instanceof ServerContainer)) {
             throw new AssertionError("Did not find '" + ServerContainer.class.getName() + "' object"
@@ -173,7 +160,37 @@ public class MatsTestWebsocketServer {
 
         ServerContainer wsServerContainer = (ServerContainer) serverContainerAttrib;
         return DefaultMatsSocketServer.createMatsSocketServer(
-                wsServerContainer, matsFactory, clusterStoreAndForward, authToPrincipalFunction);
+                wsServerContainer, matsFactory, clusterStoreAndForward, authenticationPlugin);
+    }
+
+    private static class DummySessionAuthenticator implements SessionAuthenticator {
+
+        @Override
+        public AuthenticationResult initialAuthentication(AuthenticationContext context, String authorizationHeader) {
+            log.info("Resolving Authorization header to principal for header [" + authorizationHeader + "].");
+            long expires = Long.parseLong(authorizationHeader.substring(authorizationHeader.indexOf(':') + 1));
+            if (expires < System.currentTimeMillis()) {
+                throw new IllegalStateException("This DummyAuth is too old.");
+            }
+            Principal princial = new Principal() {
+                @Override
+                public String getName() {
+                    return "Mr. Dummy Auth";
+                }
+
+                @Override
+                public String toString() {
+                    return "DummyPrincipal:" + authorizationHeader;
+                }
+            };
+            return context.authenticated(princial, "endre");
+        }
+
+        @Override
+        public AuthenticationResult reevaluateAuthentication(AuthenticationContext context, String authorizationHeader,
+                Principal existingPrincipal) {
+            return context.stillValid();
+        }
     }
 
     @WebServlet("/test")
@@ -192,6 +209,40 @@ public class MatsTestWebsocketServer {
 
             // Shut down the process
             ForkJoinPool.commonPool().submit(() -> System.exit(0));
+        }
+    }
+
+    @WebServlet("/mats/MatsSocket.js")
+    public static class MatsSocketLibServlet extends HttpServlet {
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            String dirForMatsSocket = (String) req.getServletContext().getAttribute(
+                    CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH);
+            if (dirForMatsSocket == null) {
+                resp.sendError(501,
+                        "Cannot find the MatsSocket.js file (path not existing) - this only works when in development.");
+                return;
+            }
+
+            Path pathWithFile = Paths.get(dirForMatsSocket, "MatsSocket.js");
+            if (!Files.exists(pathWithFile)) {
+                resp.sendError(501,
+                        "Cannot find the MatsSocket.js file (file not found) - this only works when in development.");
+                return;
+            }
+            log.info("MatsSocket.js path: " + pathWithFile);
+
+            resp.setContentType("application/javascript");
+            resp.setCharacterEncoding("UTF-8");
+            resp.setContentLengthLong(Files.size(pathWithFile));
+            // Copy over the File to the HTTP Response's OutputStream
+            InputStream inputStream = Files.newInputStream(pathWithFile);
+            ServletOutputStream outputStream = resp.getOutputStream();
+            int n;
+            byte[] buffer = new byte[16384];
+            while ((n = inputStream.read(buffer)) > -1) {
+                outputStream.write(buffer, 0, n);
+            }
         }
     }
 
@@ -220,9 +271,19 @@ public class MatsTestWebsocketServer {
 
         // :: Get Jetty to Scan project classes too: https://stackoverflow.com/a/26220672/39334
         // Find location for current classes
-        URL classes = MatsTestWebsocketServer.class.getProtectionDomain().getCodeSource().getLocation();
+        URL classesLocation = MatsTestWebsocketServer.class.getProtectionDomain().getCodeSource().getLocation();
         // Set this location to be scanned.
-        webAppContext.getMetaData().setWebInfClassesDirs(Collections.singletonList(Resource.newResource(classes)));
+        webAppContext.getMetaData().setWebInfClassesDirs(Collections.singletonList(Resource.newResource(
+                classesLocation)));
+
+        // :: Find the path to the MatsSocket.js file
+        String pathToClasses = classesLocation.getPath();
+        // .. strip down to the 'mats-websockets' path
+        int pos = pathToClasses.indexOf("mats-websockets");
+        String pathToMatsSocket = pos == -1
+                ? null
+                : pathToClasses.substring(0, pos) + "mats-websockets/client/javascript/lib";
+        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH, pathToMatsSocket);
 
         // Create the actual Jetty Server
         Server server = new Server(port);
@@ -236,7 +297,7 @@ public class MatsTestWebsocketServer {
         server.addLifeCycleListener(new AbstractLifeCycleListener() {
             @Override
             public void lifeCycleStopping(LifeCycle event) {
-                log.info("XXXX lifeCycleStopping for " + port + ", event:" + event + ", WebAppContext:" + webAppContext
+                log.info("server.lifeCycleStopping for " + port + ", event:" + event + ", WebAppContext:" + webAppContext
                         + ", servletContext:" + webAppContext.getServletContext());
                 MatsSocketServer matsSocketServer = (MatsSocketServer) webAppContext.getServletContext().getAttribute(
                         MatsSocketServer.class.getName());
@@ -290,7 +351,8 @@ public class MatsTestWebsocketServer {
                     break;
                 }
                 catch (Exception e) {
-                    log.info("######### Failed to start server [" + serverId + "] on [" + port + "], trying next port.", e);
+                    log.info("######### Failed to start server [" + serverId + "] on [" + port + "], trying next port.",
+                            e);
                 }
                 finally {
                     // Always increment the port number
@@ -298,7 +360,6 @@ public class MatsTestWebsocketServer {
                 }
             }
         }
-
 
     }
 }
