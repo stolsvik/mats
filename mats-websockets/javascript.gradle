@@ -22,7 +22,7 @@ task yarnInstall(type: YarnTask) {
 
 // Task to start a MatsTestWebsocketServer for integration tests. We will monitor the log until we get the expected number
 // of ws urls, that other tasks can then depend on
-task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspath]) {
+task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspath, compileTestJava]) {
     ext {
         wsUrls = []
     }
