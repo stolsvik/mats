@@ -82,8 +82,9 @@ task stopMatsTestWebsocketServer(dependsOn: startMatsTestWebsocketServer) {
         String shutdownUrl = startMatsTestWebsocketServer.wsUrls[0]
                 .replace("ws://", "http://")
                 .replace("/matssocket/json", "/shutdown");
-        logger.info("Shutting down MatsTestWebsocketServer")
-        logger.info("Response: ${new URL(shutdownUrl).text}")
+        logger.info("Shutting down MatsTestWebsocketServer by invoking '$shutdownUrl")
+        String response = new URL(shutdownUrl).text;
+        logger.info("Response: '${response}'")
     }
 }
 

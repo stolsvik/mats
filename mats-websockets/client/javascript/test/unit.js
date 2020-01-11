@@ -6,25 +6,24 @@ const {MatsSocket} = require('../lib/MatsSocket');
 describe('MatsSocket', function () {
     describe('constructor', function () {
         it('Should fail on no arg invocation', function () {
-            assert.throws(() => new MatsSocket())
+            assert.throws(() => new MatsSocket());
         });
 
         it('Should fail if appVersion and urls are missing', function () {
-            assert.throws(() => new MatsSocket("Test"))
+            assert.throws(() => new MatsSocket("Test"));
         });
 
         it('Should fail if urls are missing', function () {
-            assert.throws(() => new MatsSocket("Test", "1.0"))
+            assert.throws(() => new MatsSocket("Test", "1.0"));
         });
         it('Should not invoke the WebSocket constructor', function () {
-            const callback = sinon.spy(ws)
+            const callback = sinon.spy(ws);
             new MatsSocket("Test", "1.0", ["ws://localhost:8080/"]);
             assert(!callback.called);
-        })
+        });
     });
 
     describe('authorization', function () {
-
         const webSocket = {
             send(payload) {
                 const [, message] = JSON.parse(payload);
@@ -101,7 +100,5 @@ describe('MatsSocket', function () {
             assert(authCallbackCalled);
         });
     });
-
-
 });
 

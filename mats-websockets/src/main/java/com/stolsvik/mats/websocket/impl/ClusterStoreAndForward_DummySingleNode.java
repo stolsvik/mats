@@ -82,7 +82,7 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
     }
 
     @Override
-    public void terminateSession(String matsSocketSessionId) {
+    public void closeSession(String matsSocketSessionId) {
         // Remove it unconditionally, as this is an explicit "terminate session" invocation from client.
         _currentSessions.remove(matsSocketSessionId);
     }

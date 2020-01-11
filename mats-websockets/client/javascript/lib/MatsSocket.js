@@ -48,6 +48,22 @@
         this.logging = false; // Whether to log via console.log
 
         /**
+         * If this is set to a function, it will be invoked if close(..) is invoked and sessionId is present, the
+         * argument being a object with two keys:
+         * <ol>
+         *     <li>'currentWsUrl' is the current WebSocket url (the one that the WebSocket was last connected to, and
+         *       would have connected to again, e.g. "wss://example.com/matssocket").</li>
+         *     <li>'sessionId' is the current MatsSocket SessionId</li>
+         * </ol>
+         * The default is 'undefined', which effectively results in the invocation of
+         * <code>navigator.sendBeacon(currentWsUrl.replace('ws', 'http)+"/close_session?sessionId={sessionId}")<code>.
+         * Note that replace is replace-first, and that any 's' in 'wss' results in 'https'.
+         *
+         * @type {Function}
+         */
+        this.outofbandclose = undefined;
+
+        /**
          * Only set this if you explicitly want to continue a previous Session. In an SPA where the MatsSocket is
          * instantiated upon "boot" of the SPA, you probably do not want to set this, as you rather want the new Session
          * provided by the server. You cannot invent a SessionId, it will always originate from the server - this facility
@@ -220,7 +236,6 @@
                     // -> Yes, so off it goes.
                     log("Sending CLOSE_SESSION message on open WebSocket: " + JSON.stringify(envelope));
                     tempSocket.send(JSON.stringify([envelope]))
-                    tempSocket.close();
                 }
                 // We're done. This MatsSocket should be as good as new.
                 return;
@@ -237,7 +252,7 @@
                 // ?: Is it an ordinary REQUEST with Promise-completion?
                 if (requestWithPromiseCompletion) {
                     // -> Yes, ordinary REQUEST with Promise-completion
-                    // Upon RECEIVED->ACK, invoke receiveCallback if provided
+                    // Upon RECEIVED->ACK, invoke receiveCallback
                     outstandingSendOrRequest.resolve = receiveCallback;
                 } else {
                     // -> No, it is SEND or REQUEST-with-ReplyTo.
@@ -266,7 +281,8 @@
                     // }
                     _futures[thisMessageSequenceId] = {
                         resolve: resolve,
-                        reject: reject
+                        reject: reject,
+                        envelope: envelope
                     };
                 }
             }
@@ -327,6 +343,79 @@
         };
 
         /**
+         * Sends a 'CLOSE_SESSION' message - authorization expiration check is not performed (the server does not evaluate
+         * auth for CLOSE_SESSION). If there currently is a pipeline, this will be dropped (i.e. messages deleted). The effect
+         * is to cleanly shut down the Session and MatsSocket (closing session on server side), which will reply by shutting
+         * down the underlying WebSocket.
+         * <p />
+         * // TODO: Is this true? Notice: Afterwards, the MatsSocket is as clean as if it was newly instantiated and all initializations was run
+         * (i.e. auth callback set, endpoints defined etc), and can be started up again by sending a message. The SessionId on
+         * this client MatsSocket is cleared, and the previous Session on the server is gone anyway, so this will give a new
+         * server side Session. If you want a totally clean MatsSocket, then just ditch this instance and make a new one.
+         *
+         * <b>Note: An 'onBeforeUnload' event handler is registered on 'window', which invokes this method.</b>
+         *
+         * @param {string} reason short descriptive string. Will be returned as part of reason string, must be quite short.
+         */
+        this.close = function (reason) {
+            let existingSessionId = _sessionId;
+            log("close(): Closing MatsSocketSession, id:[" + existingSessionId + "] due to [" + reason + "], currently connected: [" + (_websocket ? _websocket.url : "not connected") + "]");
+
+            // :: In-band session close
+            // ?: Do we have socket open?
+            if (_websocket && _socketOpen) {
+                // -> Yes, so send the CLOSE_SESSION message
+                let closeMessage = {
+                    t: "CLOSE_SESSION",
+                    desc: reason,
+                    tid: "MatsSocket_close[" + reason + "]" + this.id(6),
+                    cmcts: Date.now()
+                };
+                log(" \\-> WebSocket open, so we send a CLOSE_SESSION message over it: " + JSON.stringify(closeMessage));
+                _websocket.send(JSON.stringify([closeMessage]));
+                _websocket.close();
+            } else {
+                log(" \\-> WebSocket NOT open, so CANNOT send a CLOSE_SESSION message over it.");
+            }
+
+            // Get the current websocket URL before clearing state
+            let currentWsUrl = currentWebSocketUrl();
+
+            // :: Clear out the state of this MatsSocket.
+            _websocket = undefined;
+            _socketOpen = false;
+            _sessionId = undefined;
+            _urlIndexCurrentlyConnecting = 0;
+            clearPipelineAndFuturesAndOutstandingMessages("session close");
+
+            // :: Out-of-band session close
+            // ?: Do we have a sessionId - and a navigator?
+            if (existingSessionId) {
+                // ?: Is the out-of-band close function defined?
+                if (this.outofbandclose !== undefined) {
+                    // -> Yes, so invoke it
+                    this.outofbandclose({
+                        currentWsUrl: currentWsUrl,
+                        sessionId: existingSessionId
+                    });
+                } else {
+                    // -> No, so do default logic
+                    // ?: Do we have 'navigator'?
+                    if ((typeof window !== 'undefined') && (typeof window.navigator !== 'undefined')) {
+                        // -> Yes, navigator present, so then we can fire off the out-of-band close too
+                        // Fire off a "close" over HTTP using navigator.sendBeacon(), so that even if the socket is closed, it is possible to terminate the MatsSocket SessionId.
+                        let closeSesionUrl = currentWsUrl.replace("ws", "http") + "/close_session?sessionId=" + existingSessionId;
+                        log("  \\- Send an out-of-band (i.e. HTTP) close_session, using navigator.sendBeacon('" + closeSesionUrl + "').");
+                        let success = window.navigator.sendBeacon(closeSesionUrl);
+                        log("    \\- Result: " + (success ? "Enqueued POST, but do not know whether anyone received it - check Network tab of Dev Tools." : "Did NOT manage to enqueue a POST."));
+                    } else {
+                        log("  \\- Was about to do out-of-band (i.e. HTTP) close_session, but we had no sessionId (HELLO/WELCOME not yet performed).");
+                    }
+                }
+            }
+        };
+
+        /**
          * Convenience method for making random strings for correlationIds (choose e.g. length=10) and
          * "add-on to traceId to make it pretty unique" (choose length=6).
          *
@@ -346,10 +435,14 @@
         // PRIVATE
 
         function error(type, msg, err) {
-            console.error(type + ": " + msg, err);
+            if (err) {
+                console.error(type + ": " + msg, err);
+            } else {
+                console.error(type + ": " + msg);
+            }
         }
 
-        function log(msg, object) {
+        function log() {
             if (that.logging) {
                 console.log.apply(console, arguments);
             }
@@ -409,22 +502,51 @@
             // Yes -> Add "onbeforeunload" event listener to shut down the MatsSocket cleanly (closing session) when
             //        user navigates away from page.
             self.addEventListener("beforeunload", function (event) {
-                let existingSessionId = _sessionId;
-                if (existingSessionId) {
-                    log("OnBeforeUnload: Shutting down MatsSocket SessionId [" + existingSessionId + "] due to [" + event.type + "], currently connected: [" + (_websocket ? _websocket.url : "not connected") + "]");
-                    that.closeSession("'window.onbeforeunload'");
-                    // Fire off a "close" over HTTP using navigator.sendBeacon(), so that even if the socket is closed, it is possible to terminate the MatsSocket SessionId.
-                    // TODO: Let this be a property on 'this', which can be "undefined" (using default logic), a String (which then gets the sessionId appended), or a function (in which case will be invoked with the sessionId).
-                    let closeSesionUrl = currentWebSocketUrl().replace("ws", "http") + "/close_session?sessionId=" + existingSessionId;
-                    log("Doing navigator.sendBeacon('" + closeSesionUrl + "')");
-                    let success = navigator.sendBeacon(closeSesionUrl);
-                    log(" \\- success: " + success);
-                } else {
-                    log("OnBeforeUnload: Currently no MatSocket SessionId to close, ignoring.");
-                }
+                that.close("window.onbeforeunload");
             });
         }
         const userAgent = (typeof (self) === 'object' && typeof (self.navigator) === 'object') ? self.navigator.userAgent : "Unknown";
+
+        function clearPipelineAndFuturesAndOutstandingMessages(reason) {
+            // :: Clear pipeline
+            _pipeline.length = 0;
+
+            // :: Reject all outstanding messages
+            for (let cmseq in _outstandingSendsAndRequests) {
+                if (!_outstandingSendsAndRequests.hasOwnProperty(cmseq)) continue;
+
+                let outstandingMessage = _outstandingSendsAndRequests[cmseq];
+                delete _outstandingSendsAndRequests[cmseq];
+
+                log("Clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "].");
+                if (outstandingMessage.reject) {
+                    try {
+                        // TODO: Make better event object
+                        outstandingMessage.reject({type: "CLEARED", description: reason});
+                    } catch (err) {
+                        error("Got error while clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "].", err);
+                    }
+                }
+            }
+
+            // :: Reject all futures
+            for (let cmseq in _futures) {
+                if (!_futures.hasOwnProperty(cmseq)) continue;
+
+                let future = _futures[cmseq];
+                delete _futures[cmseq];
+
+                log("Clearing REQUEST future [" + future.envelope.t + "] to [" + future.envelope.eid + "].");
+                if (future.reject) {
+                    try {
+                        // TODO: Make better reply object
+                        future.reject({type: "CLEARED", description: reason});
+                    } catch (err) {
+                        error("Got error while clearing REQUEST future to [" + future.envelope.eid + "].", err);
+                    }
+                }
+            }
+        }
 
         /**
          * Sends pipelined messages if pipelining is not engaged.
@@ -572,8 +694,7 @@
         let _connectionTimeout = 250; // Milliseconds for this fallback level. Doubles, up to 10 seconds where stays.
 
         function currentWebSocketUrl() {
-            log(_useUrls);
-            log("Using urlIndexCurrentlyConnecting [" + _urlIndexCurrentlyConnecting + "]: " + _useUrls[_urlIndexCurrentlyConnecting]);
+            log("## Using urlIndexCurrentlyConnecting [" + _urlIndexCurrentlyConnecting + "]: " + _useUrls[_urlIndexCurrentlyConnecting]);
             return _useUrls[_urlIndexCurrentlyConnecting];
         }
 
@@ -603,6 +724,15 @@
                 evaluatePipelineSend();
             };
             _websocket.onmessage = function (webSocketEvent) {
+                // ?: Is this message received on the current '_websocket' instance (i.e. different (reconnect), or cleared/closed)?
+                if (this !== _websocket) {
+                    // -> NO! This received-message is not on the current _websocket instance.
+                    // We just drop the messages on the floor, as nobody is waiting for them anymore:
+                    // If we closed with outstanding messages or futures, they were rejected.
+                    // NOTE: This happens all the time on the node.js integration tests, triggering the if-missing-
+                    // outstandingSendOrRequest error-output below.
+                    return;
+                }
                 let receivedTimestamp = Date.now();
                 let data = webSocketEvent.data;
                 let envelopes = JSON.parse(data);
@@ -627,7 +757,7 @@
                             if (outstandingSendOrRequest === undefined) {
                                 // -> No, the OutstandingSendOrRequest was not present.
                                 // TODO: This might imply double delivery..
-                                error("received", "Missing OutstandingSendOrRequest for envelope.cmseq [" + envelope.cmseq + "]");
+                                error("received", "Missing OutstandingSendOrRequest for envelope.cmseq [" + envelope.cmseq + "]: " + JSON.stringify(envelope));
                                 continue;
                             }
                             // E-> Yes, we had OutstandingSendOrRequest
@@ -637,7 +767,7 @@
                                 if (that.logging) log("OutstandingSendOrRequest already handled (by REPLY) for envelope.cmseq [" + envelope.cmseq + "]: " + JSON.stringify(envelope));
                                 // ?: Assert that this is a ACK (it cannot be ERROR or NACK, as it should then never have gotten a Reply)
                                 if (envelope.st !== "ACK") {
-                                    error("assertion failed", "When getting a RECEIVED, it was already resolved by an earlier REPLY. However, the SubType was not ACK, but [" + envelope.st + "]: ", envelope);
+                                    error("assertion failed", "When getting a RECEIVED, it was already resolved by an earlier REPLY. However, the SubType of RECEIVED was not ACK, but [" + envelope.st + "]: ", envelope);
                                 }
                                 // Do not resolve the OutstandingSendOrRequest by this RECEIVED, as it has already been done.
                                 continue;
@@ -802,28 +932,6 @@
                 tid: traceId,
                 msg: message
             }, resolve, reject);
-        });
-    };
-
-    /**
-     * Sends a 'CLOSE_SESSION' message - authorization expiration check is not performed (the server does not evaluate
-     * auth for CLOSE_SESSION). If there currently is a pipeline, this will be dropped (i.e. messages deleted). The effect
-     * is to cleanly shut down the Session and MatsSocket (closing session on server side), which will reply by shutting
-     * down the underlying WebSocket.
-     * <p />
-     * // TODO: Is this true? Notice: Afterwards, the MatsSocket is as clean as if it was newly instantiated and all initializations was run
-     * (i.e. auth callback set, endpoints defined etc), and can be started up again by sending a message. The SessionId on
-     * this client MatsSocket is cleared, and the previous Session on the server is gone anyway, so this will give a new
-     * server side Session. If you want a totally clean MatsSocket, then just ditch this instance and make a new one.
-     *
-     * <b>Note: An 'onBeforeUnload' event handler is registered on 'window', which invokes this method.</b>
-     *
-     * @param {string} reason short descriptive string. Will be returned as part of reason string, must be quite short.
-     */
-    MatsSocket.prototype.closeSession = function (reason) {
-        this.addMessageToPipeline("CLOSE_SESSION", {
-            tid: "MatsSocket_shutdown[" + reason + "]" + this.id(6),
-            desc: reason
         });
     };
 

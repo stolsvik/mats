@@ -240,7 +240,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void terminateSession(String matsSocketSessionId) throws DataAccessException {
+    public void closeSession(String matsSocketSessionId) throws DataAccessException {
         withConnection(con -> {
             // Notice that we DO NOT include WHERE nodename is us. User asked us to delete, and that we do.
             PreparedStatement deleteSession = con.prepareStatement("DELETE FROM mats_socket_session"

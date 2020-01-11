@@ -87,7 +87,7 @@ public interface ClusterStoreAndForward {
      * @param matsSocketSessionId
      *            the MatsSocketSessionId that should be closed.
      */
-    void terminateSession(String matsSocketSessionId) throws IllegalStateException, DataAccessException;
+    void closeSession(String matsSocketSessionId) throws IllegalStateException, DataAccessException;
 
     /**
      * Stores the message for the Session, returning the nodename for the node holding the session, if any. If the

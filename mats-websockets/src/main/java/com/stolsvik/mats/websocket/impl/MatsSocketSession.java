@@ -111,11 +111,26 @@ class MatsSocketSession implements Whole<String> {
 
         log.info("Messages: " + envelopes);
         boolean shouldNotifyAboutExistingMessages = false;
-        String shouldCloseSession = null;
         String allMessagesReceivedFailSubtype = null;
         String allMessagesReceivedFailDescription = null;
 
-        // :: First look for Authorization header in any of the messages
+        // :: 1. First check whether client want to close.
+        for (MatsSocketEnvelopeDto envelope : envelopes) {
+            if ("CLOSE_SESSION".equals(envelope.t)) {
+                // ?: Assert: CLOSE_SESSION should come alone.
+                if (envelopes.size() > 1) {
+                    // -> Not alone: Break!
+                    policyViolation("CLOSE_SESSION shall not be pipelined.");
+                    return;
+                }
+                // Close session
+                closeSession("From MatsSocketServer: Got CLOSE_SESSION (" +
+                        DefaultMatsSocketServer.escape(envelope.desc) + "): Closed!");
+                return;
+            }
+        }
+
+        // :: 2. Look for Authorization header in any of the messages
         // NOTE! Authorization header can come with ANY message!
         for (MatsSocketEnvelopeDto envelope : envelopes) {
             // ?: Pick out any Authorization header, i.e. the auth-string - it can come in any message.
@@ -128,23 +143,22 @@ class MatsSocketSession implements Whole<String> {
 
         // AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
 
-        // First - do we have Authorization header? (I.e. it must sent along in the very first pipeline..)
+        // :: 3. do we have Authorization header? (I.e. it must sent along in the very first pipeline..)
         if (_authorization == null) {
             log.error("We have not got Authorization header!");
-            // TODO: Make sure that we're deregistering the session, both locally and CSAF
-            // TODO: Client can reject all its outstanding messages, but then we need to send it a message about this!
-            // Closing the WebSocket will end up invoking onClose, which will deregister us if needed
-            DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.VIOLATED_POLICY,
-                    "Missing Authorization header");
+            policyViolation("Missing Authorization header");
             return;
         }
 
+        // :: 4. Evaluate Authentication by Authorization header
         boolean authenticationOk = doAuthentication();
+        // ?: Did this go OK?
         if (!authenticationOk) {
+            // -> No, not OK - doAuthentication() has already closed session and websocket and the lot.
             return;
         }
 
-        // :: Then look for a HELLO message (should be first, but we will reply to it immediately even if part of
+        // :: 5. look for a HELLO message (should be first/alone, but we will reply to it immediately even if part of
         // pipeline).
         for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
             MatsSocketEnvelopeDto envelope = it.next();
@@ -175,24 +189,13 @@ class MatsSocketSession implements Whole<String> {
             }
         }
 
-        // :: Now go through and handle all the messages
+        // :: 6. Now go through and handle all the messages
         List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
         for (MatsSocketEnvelopeDto envelope : envelopes) {
             try { // try-finally: MDC.clear()
                 MDC.put("matssocket.type", envelope.t);
                 if (envelope.st != null) {
                     MDC.put("matssocket.subType", envelope.st);
-                }
-
-                if ("CLOSE_SESSION".equals(envelope.t)) {
-                    handleCloseSession();
-                    // We do not close right away, instead running pipeline and closing at end.
-                    shouldCloseSession = (envelope.desc != null ? envelope.desc : "");
-                    // Any remaining messages will be rejected.. (There should not really be any!)
-                    allMessagesReceivedFailSubtype = "ERROR";
-                    allMessagesReceivedFailDescription = "Client just closed the session!";
-                    // This message is handled, do next in pipeline.
-                    continue;
                 }
 
                 // ----- We do NOT KNOW whether we're authenticated!
@@ -275,13 +278,39 @@ class MatsSocketSession implements Whole<String> {
             // -> Yes, so do it now.
             _matsSocketServer.getMessageToWebSocketForwarder().notifyMessageFor(this);
         }
-        // ?: Should we close the session?
-        if (shouldCloseSession != null) {
-            DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.NORMAL_CLOSURE,
-                    "From Server: Client said CLOSE_SESSION (" +
-                            DefaultMatsSocketServer.escape(shouldCloseSession)
-                            + "): Terminated MatsSocketSession, closing WebSocket.");
+    }
+
+    private void closeSession(String reason) {
+        shutdownSessionAndWebSocket(CloseCodes.NORMAL_CLOSURE, reason);
+    }
+
+    private void policyViolation(String reason) {
+        shutdownSessionAndWebSocket(CloseCodes.VIOLATED_POLICY, reason);
+    }
+
+    private void shutdownSessionAndWebSocket(CloseCodes closeCode, String reason) {
+        // :: Deregister locally and from CSAF
+        if (_matsSocketSessionId != null) {
+            // Local deregister
+            _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketSessionId, _connectionId);
+            try {
+                // CSAF terminate
+                _matsSocketServer.getClusterStoreAndForward().closeSession(_matsSocketSessionId);
+            }
+            catch (DataAccessException e) {
+                // TODO: Fix
+                throw new AssertionError("Damn", e);
+            }
         }
+
+        // :: Drop all references to session, just in case of later fuck-ups.
+        _matsSocketSessionId = null;
+        _authorization = null;
+        _principal = null;
+        _userId = null;
+
+        // :: Close WebSocket
+        DefaultMatsSocketServer.closeWebSocket(_webSocketSession, closeCode, reason);
     }
 
     private boolean doAuthentication() {
@@ -295,15 +324,9 @@ class MatsSocketSession implements Whole<String> {
                         _authorization);
             }
             catch (RuntimeException re) {
-                _principal = null;
-                _userId = null;
                 log.error("Got Exception when invoking SessionAuthenticator.initialAuthentication(..),"
                         + " Authorization header: " + _authorization, re);
-                _authorization = null;
-                // TODO: Make sure that we're deregistering the session, both locally and CSAF
-                // Closing the WebSocket will end up invoking onClose, which will deregister us if needed
-                DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.VIOLATED_POLICY,
-                        "Authentication plugin could not evaluate Authorization string");
+                policyViolation("Authentication plugin could not initial-evaluate Authorization string");
                 return false;
             }
             if (authenticationResult instanceof AuthenticationResult_Authenticated) {
@@ -314,15 +337,9 @@ class MatsSocketSession implements Whole<String> {
             }
             else {
                 // -> Null, or any other result.
-                _principal = null;
-                _userId = null;
                 log.error("We have not been authenticated! " + authenticationResult + ", Authorization header: "
                         + _authorization);
-                _authorization = null;
-                // TODO: Make sure that we're deregistering the session, both locally and CSAF
-                // Closing the WebSocket will end up invoking onClose, which will deregister us if needed
-                DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.VIOLATED_POLICY,
-                        "Authorization header not accepted");
+                policyViolation("Authorization header not accepted on initial evaluation");
                 return false;
             }
         }
@@ -336,16 +353,9 @@ class MatsSocketSession implements Whole<String> {
                         _authorization, _principal);
             }
             catch (RuntimeException re) {
-                _principal = null;
-                _userId = null;
                 log.error("Got Exception when invoking SessionAuthenticator.reevaluateAuthentication(..),"
                         + " Authorization header: " + _authorization, re);
-                _authorization = null;
-                log.error("", re);
-                // TODO: Make sure that we're deregistering the session, both locally and CSAF
-                // Closing the WebSocket will end up invoking onClose, which will deregister us if needed
-                DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.VIOLATED_POLICY,
-                        "Authentication plugin could not re-evaluate Authorization string");
+                policyViolation("Authentication plugin could not re-evaluate Authorization string");
                 return false;
             }
             if (authenticationResult instanceof AuthenticationResult_Authenticated) {
@@ -360,19 +370,13 @@ class MatsSocketSession implements Whole<String> {
             }
             else {
                 // -> Null, or any other result.
-                _principal = null;
-                _userId = null;
                 log.error("We have not been authenticated! " + authenticationResult + ", Authorization header: "
                         + _authorization);
-                _authorization = null;
-                // TODO: Make sure that we're deregistering the session, both locally and CSAF
-                // Closing the WebSocket will end up invoking onClose, which will deregister us if needed
-                DefaultMatsSocketServer.closeWebSocket(_webSocketSession, CloseCodes.VIOLATED_POLICY,
-                        "Authorization header not accepted");
+                policyViolation("Authorization header not accepted on re-evaluation");
                 return false;
             }
-
         }
+        // This went smooth.
         return true;
     }
 
@@ -581,19 +585,6 @@ class MatsSocketSession implements Whole<String> {
 
         // Add RECEIVED message to "queue"
         replyEnvelopes.add(replyEnvelope);
-    }
-
-    private void handleCloseSession() {
-        // Local deregister
-        _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketSessionId, _connectionId);
-        try {
-            // CSAF terminate
-            _matsSocketServer.getClusterStoreAndForward().terminateSession(_matsSocketSessionId);
-        }
-        catch (DataAccessException e) {
-            // TODO: Fix
-            throw new AssertionError("Damn", e);
-        }
     }
 
     private <T> T deserialize(String serialized, Class<T> clazz) {
