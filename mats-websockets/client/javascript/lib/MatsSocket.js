@@ -206,6 +206,9 @@
                 _sessionId = undefined;
                 // Drop any pipelined messages (why invoke shutdown() if you are pipelining?!).
                 _pipeline.length = 0;
+
+                // TODO: This only works if the socket is open. If it is closed, should use navigator.sendBeacon() instead
+
                 // Keep a temp ref to WebSocket, while we clear it out
                 let tempSocket = _websocket;
                 let tempOpen = _socketOpen;
@@ -215,6 +218,7 @@
                 // ?: Was it open?
                 if (tempOpen) {
                     // -> Yes, so off it goes.
+                    log("Sending CLOSE_SESSION message on open WebSocket: " + JSON.stringify(envelope));
                     tempSocket.send(JSON.stringify([envelope]))
                     tempSocket.close();
                 }
@@ -405,8 +409,19 @@
             // Yes -> Add "onbeforeunload" event listener to shut down the MatsSocket cleanly (closing session) when
             //        user navigates away from page.
             self.addEventListener("beforeunload", function (event) {
-                log("OnBeforeUnload: Shutting down MatsSocket [" + _websocket.url + "] due to [" + event.type + "]");
-                that.closeSession("'window.onbeforeunload'");
+                let existingSessionId = _sessionId;
+                if (existingSessionId) {
+                    log("OnBeforeUnload: Shutting down MatsSocket SessionId [" + existingSessionId + "] due to [" + event.type + "], currently connected: [" + (_websocket ? _websocket.url : "not connected") + "]");
+                    that.closeSession("'window.onbeforeunload'");
+                    // Fire off a "close" over HTTP using navigator.sendBeacon(), so that even if the socket is closed, it is possible to terminate the MatsSocket SessionId.
+                    // TODO: Let this be a property on 'this', which can be "undefined" (using default logic), a String (which then gets the sessionId appended), or a function (in which case will be invoked with the sessionId).
+                    let closeSesionUrl = currentWebSocketUrl().replace("ws", "http") + "/close_session?sessionId=" + existingSessionId;
+                    log("Doing navigator.sendBeacon('" + closeSesionUrl + "')");
+                    let success = navigator.sendBeacon(closeSesionUrl);
+                    log(" \\- success: " + success);
+                } else {
+                    log("OnBeforeUnload: Currently no MatSocket SessionId to close, ignoring.");
+                }
             });
         }
         const userAgent = (typeof (self) === 'object' && typeof (self.navigator) === 'object') ? self.navigator.userAgent : "Unknown";
@@ -556,6 +571,12 @@
         let _connectionFallbackLevel = 0; // When cycled one time through, increases.
         let _connectionTimeout = 250; // Milliseconds for this fallback level. Doubles, up to 10 seconds where stays.
 
+        function currentWebSocketUrl() {
+            log(_useUrls);
+            log("Using urlIndexCurrentlyConnecting [" + _urlIndexCurrentlyConnecting + "]: " + _useUrls[_urlIndexCurrentlyConnecting]);
+            return _useUrls[_urlIndexCurrentlyConnecting];
+        }
+
         function ensureWebSocket() {
             // ?: Do we have the WebSocket object in place?
             if (_websocket !== undefined) {
@@ -568,9 +589,7 @@
             _helloSent = false;
             // The WebSocket is definitely not open yet, since we've not created it yet.
             _socketOpen = false;
-            log(_useUrls);
-            log("Using urlIndexCurrentlyConnecting [" + _urlIndexCurrentlyConnecting + "]: " + _useUrls[_urlIndexCurrentlyConnecting]);
-            _websocket = socketFactory(_useUrls[_urlIndexCurrentlyConnecting], "matssocket");
+            _websocket = socketFactory(currentWebSocketUrl(), "matssocket");
             _websocket.onopen = function (event) {
                 log("onopen", event);
                 // Socket is now ready for business
@@ -599,7 +618,7 @@
                         if (envelope.t === "WELCOME") {
                             // TODO: Handle WELCOME message better. At least notify if sessionLost..
                             _sessionId = envelope.sid;
-                            log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
+                            if (that.logging) log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
                         } else if (envelope.t === "RECEIVED") {
                             // -> RECEIVED ack/server_error/nack
                             let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmseq];

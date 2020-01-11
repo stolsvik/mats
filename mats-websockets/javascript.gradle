@@ -28,11 +28,12 @@ task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspat
     }
 
     doLast {
+        String serverClassname = "com.stolsvik.mats.websocket.MatsTestWebsocketServer";
         logger.info("Starting MatsTestWebsocketServer");
         List<String> cmd = [
                 "${System.getenv("JAVA_HOME")}/bin/java",
                 "-classpath", sourceSets.test.runtimeClasspath.asPath,
-                "com.stolsvik.mats.websocket.MatsTestWebsocketServer",
+                serverClassname,
                 "3"
         ]
         Process server = cmd.execute()
@@ -58,9 +59,9 @@ task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspat
         if (wsUrls.isEmpty()) {
             server.errorStream.eachLine { logger.error(it) }
             logger.error("Failed to execute: [${cmd.join(" ")}]")
-            throw new GradleScriptException("Failed to start MatstestWebsocketServer")
+            throw new GradleException("Failed to start $serverClassname, check log above for command.");
         }
-        logger.info("MatsTestWebsocketServer started");
+        logger.info("$serverClassname started");
 
         // Fork a new thread to just keep reading and logging the MatsTestWebsocketServer
         new Thread({
