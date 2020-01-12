@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
@@ -13,6 +14,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import javax.sql.DataSource;
 
+import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import org.flywaydb.core.Flyway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -218,7 +220,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void notifySessionLiveliness(List<String> matsSocketSessionIds) throws DataAccessException {
+    public void notifySessionLiveliness(Collection<String> matsSocketSessionIds) throws DataAccessException {
         withConnection(con -> {
             long now = System.currentTimeMillis();
             // TODO / OPTIMIZE: Make "in" optimizations.
@@ -291,7 +293,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             ResultSet rs = insert.executeQuery();
             List<StoredMessage> list = new ArrayList<>();
             while (rs.next()) {
-                StoredMessageImpl sm = new StoredMessageImpl(rs.getLong(1), rs.getInt(5),
+                SimpleStoredMessage sm = new SimpleStoredMessage(rs.getLong(1), rs.getInt(5),
                         rs.getLong(4), rs.getString(6), rs.getString(3),
                         rs.getString(7));
                 list.add(sm);
@@ -301,7 +303,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void messagesComplete(String matsSocketSessionId, List<Long> messageIds) throws DataAccessException {
+    public void messagesComplete(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException {
         withConnection(con -> {
             // TODO / OPTIMIZE: Make "in" optimizations.
             PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM mats_socket_message"
@@ -317,7 +319,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void messagesFailedDelivery(String matsSocketSessionId, List<Long> messageIds) throws DataAccessException {
+    public void messagesFailedDelivery(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException {
         withConnection(con -> {
             PreparedStatement update = con.prepareStatement("UPDATE mats_socket_message"
                     + "   SET delivery_count = delivery_count + 1"

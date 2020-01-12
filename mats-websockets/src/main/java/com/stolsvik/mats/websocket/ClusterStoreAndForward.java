@@ -1,5 +1,6 @@
-package com.stolsvik.mats.websocket.impl;
+package com.stolsvik.mats.websocket;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -23,14 +24,17 @@ import java.util.Optional;
  * <p />
  * It is assumed that the consumption of messages for a session is done single threaded, on one node only. That is, only
  * one thread on one node will actually {@link #getMessagesForSession(String, int)} get messages}, and, more
- * importantly, {@link #messagesComplete(String, List) register dem as completed}. Wrt. multiple nodes, this argument
- * still holds, since only one node can hold a MatsSocket Session. I believe it is possible to construct a bad async
- * situation here (connect to one node, authenticate, get SessionId, immediately disconnect and perform reconnect, and
- * do this until the current {@link ClusterStoreAndForward} has the wrong idea of which node holds the Session) but this
- * should at most result in the client screwing up for himself (not getting messages), and a Session is not registered
- * until the client has authenticated. Such a situation will also resolve if the client again performs a non-malicious
- * reconnect. It is the server that constructs and holds SessionIds: A client cannot itself force the server side to
- * create a Session or SessionId - it can only reconnect to an existing SessionId that it was given earlier.
+ * importantly, {@link #messagesComplete(String, Collection) register dem as completed}. Wrt. multiple nodes, this
+ * argument still holds, since only one node can hold a MatsSocket Session. I believe it is possible to construct a bad
+ * async situation here (connect to one node, authenticate, get SessionId, immediately disconnect and perform reconnect,
+ * and do this until the current {@link ClusterStoreAndForward} has the wrong idea of which node holds the Session) but
+ * this should at most result in the client screwing up for himself (not getting messages), and a Session is not
+ * registered until the client has authenticated. Such a situation will also resolve if the client again performs a
+ * non-malicious reconnect. It is the server that constructs and holds SessionIds: A client cannot itself force the
+ * server side to create a Session or SessionId - it can only reconnect to an existing SessionId that it was given
+ * earlier.
+ *
+ * @author Endre Stølsvik 2019-12-07 23:29 - http://stolsvik.com/, endre@stolsvik.com
  */
 public interface ClusterStoreAndForward {
     /**
@@ -62,7 +66,7 @@ public interface ClusterStoreAndForward {
      *
      * @param matsSocketSessionIds
      */
-    void notifySessionLiveliness(List<String> matsSocketSessionIds) throws DataAccessException;
+    void notifySessionLiveliness(Collection<String> matsSocketSessionIds) throws DataAccessException;
 
     boolean isSessionExists(String matsSocketSessionId) throws DataAccessException;
 
@@ -126,7 +130,7 @@ public interface ClusterStoreAndForward {
      * @param messageIds
      *            which messages are complete.
      */
-    void messagesComplete(String matsSocketSessionId, List<Long> messageIds) throws DataAccessException;
+    void messagesComplete(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException;
 
     /**
      * Notches the 'deliveryAttempt' one up for the specified messages.
@@ -136,7 +140,7 @@ public interface ClusterStoreAndForward {
      * @param messageIds
      *            which messages failed delivery.
      */
-    void messagesFailedDelivery(String matsSocketSessionId, List<Long> messageIds) throws DataAccessException;
+    void messagesFailedDelivery(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException;
 
     class CurrentNode {
         private final String nodename;
@@ -156,6 +160,19 @@ public interface ClusterStoreAndForward {
         }
     }
 
+    /**
+     * If having problems accessing the underlying common data store.
+     */
+    class DataAccessException extends Exception {
+        public DataAccessException(String message) {
+            super(message);
+        }
+
+        public DataAccessException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     interface StoredMessage {
         long getId();
 
@@ -170,16 +187,53 @@ public interface ClusterStoreAndForward {
         String getEnvelopeJson();
     }
 
-    /**
-     * If having problems accessing the underlying common data store.
-     */
-    class DataAccessException extends Exception {
-        public DataAccessException(String message) {
-            super(message);
+    class SimpleStoredMessage implements StoredMessage {
+        private final long _id;
+        private final int _deliveryAttempt;
+        private final long _storedTimestamp;
+
+        private final String _type;
+        private final String _traceId;
+        private final String _envelopeJson;
+
+        public SimpleStoredMessage(long id, int deliveryAttempt, long storedTimestamp, String type, String traceId,
+                String envelopeJson) {
+            _id = id;
+            _deliveryAttempt = deliveryAttempt;
+            _storedTimestamp = storedTimestamp;
+            _type = type;
+            _traceId = traceId;
+            _envelopeJson = envelopeJson;
         }
 
-        public DataAccessException(String message, Throwable cause) {
-            super(message, cause);
+        @Override
+        public long getId() {
+            return _id;
+        }
+
+        @Override
+        public int getDeliveryAttempt() {
+            return _deliveryAttempt;
+        }
+
+        @Override
+        public long getStoredTimestamp() {
+            return _storedTimestamp;
+        }
+
+        @Override
+        public String getType() {
+            return _type;
+        }
+
+        @Override
+        public String getTraceId() {
+            return _traceId;
+        }
+
+        @Override
+        public String getEnvelopeJson() {
+            return _envelopeJson;
         }
     }
 }

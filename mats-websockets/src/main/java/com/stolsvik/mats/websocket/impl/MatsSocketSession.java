@@ -30,10 +30,10 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingAu
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_Authenticated;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_StillValid;
-import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.AuthenticationContext;
-import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.AuthenticationResult;
-import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.SessionAuthenticator;
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.DataAccessException;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.MatsSocketEndpointRegistration;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleStateDto;
 

@@ -26,6 +26,8 @@ import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Builder;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
+import com.stolsvik.mats.websocket.AuthenticationPlugin;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,9 +45,9 @@ import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.websocket.MatsSocketServer;
-import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.SessionAuthenticator;
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.CurrentNode;
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.DataAccessException;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -54,7 +56,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     private static final Logger log = LoggerFactory.getLogger(DefaultMatsSocketServer.class);
 
     private static final String REPLY_TERMINATOR_ID_PREFIX = "MatsSockets.replyHandler.";
-    public static final String PATH = "/matssocket/json";
 
     /**
      * Create a MatsSocketServer, piecing together necessary bits.
@@ -72,6 +73,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
      *            the piece of code that turns an Authorization String into a Principal. Must be pretty fast, as it is
      *            invoked synchronously - keep any IPC fast, otherwise all your threads of the container might be used
      *            up. If the function throws or returns null, authorization did not go through.
+     * @param websocketPath
+     *            The path onto which the WebSocket Server Endpoint will be mounted. Suggestion: "/matssocket". If you
+     *            need multiple {@link MatsSocketServer}s, e.g. because you need two types of authentication, they need
+     *            to be mounted on different paths.
      *
      * @return a MatsSocketServer instance, now hooked into both the WebSocket {@link ServerContainer} and the
      *         {@link MatsFactory}.
@@ -79,7 +84,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     public static MatsSocketServer createMatsSocketServer(ServerContainer serverContainer,
             MatsFactory matsFactory,
             ClusterStoreAndForward clusterStoreAndForward,
-            AuthenticationPlugin authenticationPlugin) {
+            AuthenticationPlugin authenticationPlugin,
+            String websocketPath) {
         // Boot ClusterStoreAndForward
         clusterStoreAndForward.boot();
 
@@ -136,7 +142,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             }
         };
         try {
-            serverContainer.addEndpoint(Builder.create(MatsWebSocketInstance.class, PATH)
+            serverContainer.addEndpoint(Builder.create(MatsWebSocketInstance.class, websocketPath)
                     .subprotocols(Collections.singletonList("matssocket"))
                     .configurator(configurator)
                     .build());
@@ -360,8 +366,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             }
 
             _matsSocketSession = new MatsSocketSession(_matsSocketServer, session,
-                    _handshakeRequestResponse._handshakeRequest,
-                    sessionAuthenticator);
+                    _handshakeRequestResponse._handshakeRequest, sessionAuthenticator);
             session.addMessageHandler(_matsSocketSession);
         }
 

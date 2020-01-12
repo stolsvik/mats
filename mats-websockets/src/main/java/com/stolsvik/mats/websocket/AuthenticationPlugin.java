@@ -1,4 +1,4 @@
-package com.stolsvik.mats.websocket.impl;
+package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
 
@@ -9,10 +9,15 @@ import javax.websocket.server.HandshakeRequest;
 import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
-import com.stolsvik.mats.websocket.MatsSocketServer;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingAuthEval;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
 
+/**
+ * Plugin that must evaluate whether a MatsSocket connection is authenticated. It receives the String that the client
+ * provides, and evaluates whether it is good, and if so returns a Principal and a UserId.
+ *
+ * @author Endre Stølsvik 2020-01-10 - http://stolsvik.com/, endre@stolsvik.com
+ */
 @FunctionalInterface
 public interface AuthenticationPlugin {
 
@@ -20,7 +25,7 @@ public interface AuthenticationPlugin {
      * Invoked by the {@link MatsSocketServer} upon each WebSocket connection that wants to establish a MatsSocket -
      * that is, you may provide a connections-specific instance per connection. The server will then invoke the
      * different methods on the returned {@link SessionAuthenticator}.
-     * 
+     *
      * @return an instance of {@link SessionAuthenticator}, where the implementation may choose whether it is a
      *         singleton, or a new is returned per invocation (which then means there is a unique instance per
      *         connection, thus you can hold values for the connection there).
@@ -37,7 +42,7 @@ public interface AuthenticationPlugin {
          * thing that could be of interest, is to {@link Session#setMaxIdleTimeout(long) increase the max idle timeout}
          * - which will have effect wrt. to the initial authentication message that is expected, as the timeout is set
          * to a quite small value (after auth, the timeout is increased).
-         * 
+         *
          * @param handshakeRequest
          */
         default void evaluateHandshakeRequest(HandshakeRequest handshakeRequest, Session session) {
@@ -58,7 +63,7 @@ public interface AuthenticationPlugin {
          * not ideal as a general solution. Also, it makes for problems with "localhost" when developing. Lastly, we
          * could have added it as a URI parameter, but this is
          * <a href="https://tools.ietf.org/html/rfc6750#section-2.3">strongly discouraged</a>.
-         * 
+         *
          * @param context
          *            were you may get additional information (the {@link HandshakeRequest} and the WebSocket
          *            {@link Session}), and can create {@link AuthenticationResult} to return.
@@ -115,7 +120,7 @@ public interface AuthenticationPlugin {
          * {@link SessionAuthenticator#reevaluateAuthentication(AuthenticationContext, String, Principal)}
          * SessionAuthenticator.reevaluateAuthentication(..)} to denote BAD authentication, supplying a reason string
          * which will be sent all the way to the client (so do not include sensitive information).
-         * 
+         *
          * @param reason
          *            a String which will be sent all the way to the client (so do not include sensitive information).
          * @return an {@link AuthenticationResult} that can be returned by the methods of {@link SessionAuthenticator}.
@@ -131,7 +136,7 @@ public interface AuthenticationPlugin {
          * SessionAuthenticator.reevaluateAuthentication(..)} if you want to change the Principal, typically just to
          * update some meta data values, as it would be strange if such reevaluation of authentication resulted in a
          * different user than last time.
-         * 
+         *
          * @param principal
          *            the Principal that will be supplied to all
          *            {@link MatsSocketEndpointIncomingAuthEval#handleIncoming(MatsSocketEndpointRequestContext, Principal, Object)}

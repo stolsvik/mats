@@ -12,11 +12,12 @@ import java.util.stream.Collectors;
 
 import javax.websocket.Session;
 
+import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.DataAccessException;
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward.StoredMessage;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredMessage;
 
 /**
  * Gets a ping from the node-specific Topic, or when the client reconnects.

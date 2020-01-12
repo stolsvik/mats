@@ -1,13 +1,17 @@
 package com.stolsvik.mats.websocket.impl;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
+
+import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 
 /**
  * Dummy in-memory implementation of {@link ClusterStoreAndForward} which only works for a single node.
@@ -31,7 +35,7 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
 
     private static class MsStoreSession {
         private volatile String _connectionId;
-        private final CopyOnWriteArrayList<StoredMessageImpl> _messages = new CopyOnWriteArrayList<>();
+        private final CopyOnWriteArrayList<SimpleStoredMessage> _messages = new CopyOnWriteArrayList<>();
 
         public MsStoreSession(String connectionId) {
             _connectionId = connectionId;
@@ -100,7 +104,7 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
     }
 
     @Override
-    public void notifySessionLiveliness(List<String> matsSocketSessionIds) {
+    public void notifySessionLiveliness(Collection<String> matsSocketSessionIds) {
         /* no-op for the time being */
     }
 
@@ -124,7 +128,7 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
         // Make a random MessageId
         long messageId = ThreadLocalRandom.current().nextLong();
         // Store the message
-        msStoreSession._messages.add(new StoredMessageImpl(messageId, 0, System.currentTimeMillis(),
+        msStoreSession._messages.add(new SimpleStoredMessage(messageId, 0, System.currentTimeMillis(),
                 type, traceId, message));
 
         // Return current node
@@ -143,17 +147,26 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
     }
 
     @Override
-    public void messagesComplete(String sessionId, List<Long> messageIds) {
+    public void messagesComplete(String sessionId, Collection<Long> messageIds) {
         HashSet<Long> messageIdsSet = new HashSet<>(messageIds);
-        CopyOnWriteArrayList<StoredMessageImpl> storedMessages = _currentSessions.get(sessionId)._messages;
+        CopyOnWriteArrayList<SimpleStoredMessage> storedMessages = _currentSessions.get(sessionId)._messages;
         storedMessages.removeIf(next -> messageIdsSet.contains(next.getId()));
     }
 
     @Override
-    public void messagesFailedDelivery(String matsSocketSessionId, List<Long> messageIds) {
+    public void messagesFailedDelivery(String matsSocketSessionId, Collection<Long> messageIds) {
         HashSet<Long> messageIdsSet = new HashSet<>(messageIds);
-        CopyOnWriteArrayList<StoredMessageImpl> storedMessages = _currentSessions.get(matsSocketSessionId)._messages;
-        storedMessages.stream().filter(m -> messageIdsSet.contains(m.getId())).forEach(m -> m._deliveryAttempt++);
+        CopyOnWriteArrayList<SimpleStoredMessage> storedMessages = _currentSessions.get(matsSocketSessionId)._messages;
+        for (Iterator<SimpleStoredMessage> it = storedMessages.iterator(); it.hasNext();) {
+            SimpleStoredMessage msg = it.next();
+            if (messageIdsSet.contains(msg.getId())) {
+                it.remove();
+                // Add it back with deliveryAttempts increased + 1.
+                // NOTE: This is OK since it is CopyOnWriteArrayList
+                storedMessages.add(new SimpleStoredMessage(msg.getId(), msg.getDeliveryAttempt() + 1, msg
+                        .getStoredTimestamp(), msg.getType(), msg.getTraceId(), msg.getEnvelopeJson()));
+            }
+        }
     }
 
 }

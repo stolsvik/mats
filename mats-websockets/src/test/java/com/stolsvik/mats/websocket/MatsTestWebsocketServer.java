@@ -41,11 +41,9 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
-import com.stolsvik.mats.websocket.impl.AuthenticationPlugin;
-import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.AuthenticationContext;
-import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.AuthenticationResult;
-import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.SessionAuthenticator;
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
 
@@ -58,6 +56,8 @@ public class MatsTestWebsocketServer {
 
     private static final String CONTEXT_ATTRIBUTE_PORTNUMBER = "ServerPortNumber";
     private static final String CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH = "Path to MatsSocket.js";
+
+    private static final String WEBSOCKET_PATH = "/matssocket/json";
 
     private static final String COMMON_AMQ_NAME = "CommonAMQ";
 
@@ -74,14 +74,16 @@ public class MatsTestWebsocketServer {
             log.info("ServletContextListener.contextInitialized(...): " + sce);
             log.info("  \\- ServletContext: " + sce.getServletContext());
 
-            // :: ActiveMQ and MatsFactory
+            // ## Create MatsFactory
+            // ActiveMQ ConnectionFactory
             ConnectionFactory connectionFactory = MatsLocalVmActiveMq.createConnectionFactory(COMMON_AMQ_NAME);
+            // MatsSerializer
             MatsSerializer_DefaultJson matsSerializer = new MatsSerializer_DefaultJson();
+            // Create the MatsFactory
             _matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
                     this.getClass().getSimpleName(), "*testing*",
                     new JmsMatsJmsSessionHandler_Pooling((s) -> connectionFactory.createConnection()),
                     matsSerializer);
-
             // Configure the MatsFactory for testing (remember, we're running two instances in same JVM)
             // .. Concurrency of only 1
             _matsFactory.getFactoryConfig().setConcurrency(1);
@@ -95,7 +97,7 @@ public class MatsTestWebsocketServer {
                 return new MatsDataTO(incomingDto.number, incomingDto.string + ":FromSimple", incomingDto.multiplier);
             });
 
-            // :: Create MatsSocketServer
+            // ## Create MatsSocketServer
             // Create DataSource using H2
             JdbcDataSource h2Ds = new JdbcDataSource();
             h2Ds.setURL("jdbc:h2:~/temp/matsproject_dev_h2database/matssocket_dev;AUTO_SERVER=TRUE");
@@ -112,9 +114,9 @@ public class MatsTestWebsocketServer {
             ServerContainer wsServerContainer = (ServerContainer) sce.getServletContext()
                     .getAttribute(ServerContainer.class.getName());
 
-            // Create the MatsSocketServer, piecing together the four needed elements
+            // Create the MatsSocketServer, piecing together the four needed elements + websocket mount point
             _matsSocketServer = DefaultMatsSocketServer.createMatsSocketServer(
-                    wsServerContainer, _matsFactory, clusterStoreAndForward, authenticationPlugin);
+                    wsServerContainer, _matsFactory, clusterStoreAndForward, authenticationPlugin, WEBSOCKET_PATH);
 
             // Set back the MatsSocketServer into ServletContext, to be able to shut it down properly.
             sce.getServletContext().setAttribute(MatsSocketServer.class.getName(), _matsSocketServer);
@@ -332,7 +334,7 @@ public class MatsTestWebsocketServer {
                     @Override
                     public void lifeCycleStarted(LifeCycle event) {
                         log.info("######### Started server " + serverId + " on port " + port);
-                        log.info("WS_URL: ws://localhost:" + port + DefaultMatsSocketServer.PATH);
+                        log.info("WS_URL: ws://localhost:" + port + WEBSOCKET_PATH);
                     }
                 });
 
@@ -343,8 +345,8 @@ public class MatsTestWebsocketServer {
                     break;
                 }
                 catch (Exception e) {
-                    log.info("######### Failed to start server [" + serverId + "] on [" + port + "], trying next port.",
-                            e);
+                    log.info("######### Failed to start server [" + serverId
+                                    + "] on [" + port + "], trying next port.", e);
                 }
                 finally {
                     // Always increment the port number

@@ -5,8 +5,8 @@ import java.security.Principal;
 import javax.websocket.Session;
 import javax.websocket.server.HandshakeRequest;
 
-import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.AuthenticationContext;
-import com.stolsvik.mats.websocket.impl.AuthenticationPlugin.AuthenticationResult;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
 
 /**
  * @author Endre Stølsvik 2020-01-10 10:17 - http://stolsvik.com/, endre@stolsvik.com
