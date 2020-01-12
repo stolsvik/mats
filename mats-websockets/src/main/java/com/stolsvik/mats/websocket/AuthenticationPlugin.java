@@ -9,7 +9,7 @@ import javax.websocket.server.HandshakeRequest;
 import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingAuthEval;
+import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
 
 /**
@@ -139,7 +139,7 @@ public interface AuthenticationPlugin {
          *
          * @param principal
          *            the Principal that will be supplied to all
-         *            {@link MatsSocketEndpointIncomingAuthEval#handleIncoming(MatsSocketEndpointRequestContext, Principal, Object)}
+         *            {@link IncomingAuthorizationAndAdapter#handleIncoming(MatsSocketEndpointRequestContext, Principal, Object)}
          *            calls, for the MatsSocket endpoints to evaluate for authorization or to get needed user specific
          *            data from (typically thus casting the Principal to a specific class for this
          *            {@link AuthenticationPlugin}).

@@ -1,7 +1,6 @@
 package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
-import java.util.function.Function;
 
 import javax.websocket.CloseReason.CloseCodes;
 
@@ -24,7 +23,7 @@ public interface MatsSocketServer {
      */
     <I, MI, MR, R> MatsSocketEndpoint<I, MI, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
             Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-            MatsSocketEndpointIncomingAuthEval<I, MI, R> incomingAuthEval);
+            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval);
 
     /**
      * Closes all WebSockets with {@link CloseCodes#SERVICE_RESTART} (assuming that a MatsSocket service will never
@@ -37,20 +36,20 @@ public interface MatsSocketServer {
          * Used to transform the message from the Mats-side to MatsSocket-side - or throw an Exception. <b>This should
          * only be pure Java code, no IPC or lengthy computations</b>, such things should have happened in the Mats
          * stages.
-         * 
+         *
          * @param replyAdapter
          *            a function-like lambda that transform the incoming Mats reply into the outgoing MatsSocket reply.
          */
-        void replyAdapter(MatsSocketEndpointReplyAdapter<MR, R> replyAdapter);
+        void replyAdapter(ReplyAdapter<MR, R> replyAdapter);
     }
 
     @FunctionalInterface
-    interface MatsSocketEndpointIncomingAuthEval<I, MI, R> {
+    interface IncomingAuthorizationAndAdapter<I, MI, R> {
         void handleIncoming(MatsSocketEndpointRequestContext<MI, R> ctx, Principal principal, I msIncoming);
     }
 
     @FunctionalInterface
-    interface MatsSocketEndpointReplyAdapter<MR, R> {
+    interface ReplyAdapter<MR, R> {
         R adaptReply(MatsSocketEndpointReplyContext<MR, R> ctx, MR matsReply);
     }
 

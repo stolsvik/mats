@@ -26,7 +26,7 @@ import com.fasterxml.jackson.databind.type.TypeFactory;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsBackendRuntimeException;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendRuntimeException;
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingAuthEval;
+import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_Authenticated;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_StillValid;
@@ -552,7 +552,7 @@ class MatsSocketSession implements Whole<String> {
                 + envelope.msg + "].");
         MatsSocketEndpointRegistration<?, ?, ?, ?> registration = _matsSocketServer
                 .getMatsSocketEndpointRegistration(eid);
-        MatsSocketEndpointIncomingAuthEval incomingAuthEval = registration.getIncomingAuthEval();
+        IncomingAuthorizationAndAdapter incomingAuthEval = registration.getIncomingAuthEval();
         log.info("MatsSocketEndpointHandler for [" + eid + "]: " + incomingAuthEval);
 
         Object msg = deserialize((String) envelope.msg, registration.getMsIncomingClass());

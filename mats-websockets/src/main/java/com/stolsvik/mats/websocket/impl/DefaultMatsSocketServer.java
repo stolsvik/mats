@@ -233,7 +233,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     @Override
     public <I, MI, MR, R> MatsSocketEndpoint<I, MI, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
             Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-            MatsSocketEndpointIncomingAuthEval<I, MI, R> incomingAuthEval) {
+            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval) {
         MatsSocketEndpointRegistration<I, MI, MR, R> matsSocketRegistration = new MatsSocketEndpointRegistration<>(
                 matsSocketEndpointId, msIncomingClass, matsIncomingClass, matsReplyClass, msReplyClass,
                 incomingAuthEval);
@@ -429,11 +429,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         private final Class<MI> _matsIncomingClass;
         private final Class<MR> _matsReplyClass;
         private final Class<R> _msReplyClass;
-        private final MatsSocketEndpointIncomingAuthEval<I, MI, R> _incomingAuthEval;
+        private final IncomingAuthorizationAndAdapter<I, MI, R> _incomingAuthEval;
 
         public MatsSocketEndpointRegistration(String matsSocketEndpointId, Class<I> msIncomingClass,
                 Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-                MatsSocketEndpointIncomingAuthEval<I, MI, R> incomingAuthEval) {
+                IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval) {
             _matsSocketEndpointId = matsSocketEndpointId;
             _msIncomingClass = msIncomingClass;
             _matsIncomingClass = matsIncomingClass;
@@ -442,7 +442,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             _incomingAuthEval = incomingAuthEval;
         }
 
-        private volatile MatsSocketEndpointReplyAdapter<MR, R> _replyAdapter;
+        private volatile ReplyAdapter<MR, R> _replyAdapter;
 
         String getMatsSocketEndpointId() {
             return _matsSocketEndpointId;
@@ -452,12 +452,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             return _msIncomingClass;
         }
 
-        MatsSocketEndpointIncomingAuthEval<I, MI, R> getIncomingAuthEval() {
+        IncomingAuthorizationAndAdapter<I, MI, R> getIncomingAuthEval() {
             return _incomingAuthEval;
         }
 
         @Override
-        public void replyAdapter(MatsSocketEndpointReplyAdapter<MR, R> replyAdapter) {
+        public void replyAdapter(ReplyAdapter<MR, R> replyAdapter) {
             _replyAdapter = replyAdapter;
         }
     }
