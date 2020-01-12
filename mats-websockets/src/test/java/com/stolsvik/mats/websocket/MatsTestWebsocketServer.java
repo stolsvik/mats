@@ -74,11 +74,6 @@ public class MatsTestWebsocketServer {
             log.info("ServletContextListener.contextInitialized(...): " + sce);
             log.info("  \\- ServletContext: " + sce.getServletContext());
 
-            // :: H2 DataBase
-            JdbcDataSource h2Ds = new JdbcDataSource();
-            h2Ds.setURL("jdbc:h2:~/temp/matsproject_dev_h2database/matssocket_dev;AUTO_SERVER=TRUE");
-            JdbcConnectionPool dataSource = JdbcConnectionPool.create(h2Ds);
-
             // :: ActiveMQ and MatsFactory
             ConnectionFactory connectionFactory = MatsLocalVmActiveMq.createConnectionFactory(COMMON_AMQ_NAME);
             MatsSerializer_DefaultJson matsSerializer = new MatsSerializer_DefaultJson();
@@ -87,7 +82,7 @@ public class MatsTestWebsocketServer {
                     new JmsMatsJmsSessionHandler_Pooling((s) -> connectionFactory.createConnection()),
                     matsSerializer);
 
-            // Configure the MatsFactory for testing (remember, two instances on same box)
+            // Configure the MatsFactory for testing (remember, we're running two instances in same JVM)
             // .. Concurrency of only 1
             _matsFactory.getFactoryConfig().setConcurrency(1);
             // .. Use port number of current server as postfix for name of MatsFactory, and of nodename
@@ -95,26 +90,34 @@ public class MatsTestWebsocketServer {
             _matsFactory.getFactoryConfig().setName("MF_Server_" + portNumber);
             _matsFactory.getFactoryConfig().setNodename("EndreBox_" + portNumber);
 
-            // :: Make Mats Endpoint
+            // :: Make simple single Mats Endpoint
             _matsFactory.single("Test.single", MatsDataTO.class, MatsDataTO.class, (processContext, incomingDto) -> {
                 return new MatsDataTO(incomingDto.number, incomingDto.string + ":FromSimple", incomingDto.multiplier);
             });
 
             // :: Create MatsSocketServer
-            // Cluster-stuff for the MatsSocketServer
-            // ClusterStoreAndForward_DummySingleNode csaf = new ClusterStoreAndForward_DummySingleNode(matsFactory
-            // .getFactoryConfig().getNodename());
-            ClusterStoreAndForward_SQL csaf = ClusterStoreAndForward_SQL.create(dataSource, _matsFactory
-                    .getFactoryConfig().getNodename());
+            // Create DataSource using H2
+            JdbcDataSource h2Ds = new JdbcDataSource();
+            h2Ds.setURL("jdbc:h2:~/temp/matsproject_dev_h2database/matssocket_dev;AUTO_SERVER=TRUE");
+            JdbcConnectionPool dataSource = JdbcConnectionPool.create(h2Ds);
+
+            // Create SQL-based ClusterStoreAndForward
+            ClusterStoreAndForward_SQL clusterStoreAndForward = ClusterStoreAndForward_SQL.create(dataSource,
+                    _matsFactory.getFactoryConfig().getNodename());
+
             // Make a Dummy Authentication plugin
             AuthenticationPlugin authenticationPlugin = DummySessionAuthenticator::new;
-            // Create the MatsSocketServer
-            _matsSocketServer = getMatsSocketServer(sce, _matsFactory, csaf, authenticationPlugin);
 
+            // Fetch the WebSocket ServerContainer
+            ServerContainer wsServerContainer = (ServerContainer) sce.getServletContext()
+                    .getAttribute(ServerContainer.class.getName());
+
+            // Create the MatsSocketServer, piecing together the four needed elements
+            _matsSocketServer = DefaultMatsSocketServer.createMatsSocketServer(
+                    wsServerContainer, _matsFactory, clusterStoreAndForward, authenticationPlugin);
+
+            // Set back the MatsSocketServer into ServletContext, to be able to shut it down properly.
             sce.getServletContext().setAttribute(MatsSocketServer.class.getName(), _matsSocketServer);
-            MatsSocketServer matsSocketServer = (MatsSocketServer) sce.getServletContext().getAttribute(
-                    MatsSocketServer.class.getName());
-            log.info("EndreXY: servletContext MatsSocketServer:" + matsSocketServer);
 
             // :: Make MatsSocket Endpoint
             MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = _matsSocketServer
@@ -134,6 +137,7 @@ public class MatsTestWebsocketServer {
                                                     .setTraceProperty("requestTimestamp", msIncoming.requestTimestamp);
                                         });
                             });
+            // .. add the optional ReplyAdapter, needed here due to differing ReplyDTO between Mats and MatsSocket
             matsSocketEndpoint.replyAdapter((ctx, matsReply) -> {
                 log.info("Adapting message: " + matsReply);
                 return new MatsSocketReplyDto(matsReply.string.length(), matsReply.number,
@@ -150,21 +154,7 @@ public class MatsTestWebsocketServer {
         }
     }
 
-    private static MatsSocketServer getMatsSocketServer(ServletContextEvent sce, MatsFactory matsFactory,
-            ClusterStoreAndForward clusterStoreAndForward, AuthenticationPlugin authenticationPlugin) {
-        Object serverContainerAttrib = sce.getServletContext().getAttribute(ServerContainer.class.getName());
-        if (!(serverContainerAttrib instanceof ServerContainer)) {
-            throw new AssertionError("Did not find '" + ServerContainer.class.getName() + "' object"
-                    + " in ServletContext, but [" + serverContainerAttrib + "].");
-        }
-
-        ServerContainer wsServerContainer = (ServerContainer) serverContainerAttrib;
-        return DefaultMatsSocketServer.createMatsSocketServer(
-                wsServerContainer, matsFactory, clusterStoreAndForward, authenticationPlugin);
-    }
-
     private static class DummySessionAuthenticator implements SessionAuthenticator {
-
         @Override
         public AuthenticationResult initialAuthentication(AuthenticationContext context, String authorizationHeader) {
             log.info("Resolving Authorization header to principal for header [" + authorizationHeader + "].");
@@ -193,14 +183,6 @@ public class MatsTestWebsocketServer {
         }
     }
 
-    @WebServlet("/test")
-    public static class TestServlet extends HttpServlet {
-        @Override
-        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-            resp.getWriter().println("Testing Servlet");
-        }
-    }
-
     @WebServlet("/shutdown")
     public static class ShutdownServlet extends HttpServlet {
         @Override
@@ -212,6 +194,17 @@ public class MatsTestWebsocketServer {
         }
     }
 
+    @WebServlet("/matssocket/json")
+    public static class TestServletSamePath extends HttpServlet {
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            resp.getWriter().println("Testing Servlet on same path as WebSocket");
+        }
+    }
+
+    /**
+     * Servlet to supply the MatsSocket.js file - this only works in development (i.e. running from e.g. IntelliJ).
+     */
     @WebServlet("/mats/MatsSocket.js")
     public static class MatsSocketLibServlet extends HttpServlet {
         @Override
@@ -281,8 +274,7 @@ public class MatsTestWebsocketServer {
         // .. strip down to the 'mats-websockets' path
         int pos = pathToClasses.indexOf("mats-websockets");
         String pathToMatsSocket = pos == -1
-                ? null
-                : pathToClasses.substring(0, pos) + "mats-websockets/client/javascript/lib";
+                ? null : pathToClasses.substring(0, pos) + "mats-websockets/client/javascript/lib";
         webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH, pathToMatsSocket);
 
         // Create the actual Jetty Server
@@ -297,8 +289,8 @@ public class MatsTestWebsocketServer {
         server.addLifeCycleListener(new AbstractLifeCycleListener() {
             @Override
             public void lifeCycleStopping(LifeCycle event) {
-                log.info("server.lifeCycleStopping for " + port + ", event:" + event + ", WebAppContext:" + webAppContext
-                        + ", servletContext:" + webAppContext.getServletContext());
+                log.info("server.lifeCycleStopping for " + port + ", event:" + event + ", WebAppContext:"
+                        + webAppContext + ", servletContext:" + webAppContext.getServletContext());
                 MatsSocketServer matsSocketServer = (MatsSocketServer) webAppContext.getServletContext().getAttribute(
                         MatsSocketServer.class.getName());
                 log.info("MatsSocketServer instance:" + matsSocketServer);
