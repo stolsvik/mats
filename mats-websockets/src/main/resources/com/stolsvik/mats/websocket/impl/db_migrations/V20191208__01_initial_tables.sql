@@ -1,20 +1,22 @@
 
--- Note: Only one row per 'mats_session_id'. The 'connection_id' is a guard against races that can occur when one
+-- Note: There is only one row per 'session_id'. The 'connection_id' is a guard against races that can occur when one
 -- WebSocket closes and the client immediately reconnects to the same host. There might now be two MatsSocketSession
 -- instances floating around in the JVM, one soon about to understand that his WebSocket Session is closed. To avoid
--- that he upon realizing this, deregisters the /new/ instance's registration, he must provide his 'connection_id'
--- when deregistering.
+-- that the "old" session upon realizing this, deregisters the /new/ instance's registration, he must provide his
+-- 'connection_id' when deregistering, i.e. it is a guard against the DELETE, which thus has /two/ args in its WHERE
+-- clause.
 CREATE TABLE mats_socket_session (
-    mats_session_id VARCHAR(255) NOT NULL,
-    connection_id VARCHAR(255), -- An id for the physical connection, to avoid races. Read above.
-    nodename VARCHAR(255),  -- NULL if no node has this session anymore. Row is deleted if terminated.
-    liveliness_timestamp BIGINT NOT NULL,  -- millis since epoch.
+    session_id VARCHAR(255) NOT NULL,
+    connection_id VARCHAR(255), -- An id for the physical connection, to avoid accidental session deletion upon races. Read above.
+    user_id VARCHAR(255), -- An id for the owning user of this session, supplied by the AuthenticationPlugin
+    nodename VARCHAR(255),  -- NULL if no node has this session anymore. Row is deleted if session closed.
+    liveliness_timestamp BIGINT NOT NULL,  -- millis since epoch. Should be updated upon node-attach, and periodically.
 
-    CONSTRAINT PK_mats_socket_session PRIMARY KEY (mats_session_id)
+    CONSTRAINT PK_mats_socket_session PRIMARY KEY (session_id)
 );
 
 CREATE TABLE mats_socket_message (
-    mats_session_id VARCHAR(255) NOT NULL,
+    session_id VARCHAR(255) NOT NULL,
     message_id BIGINT NOT NULL,
     trace_id ${texttype} NOT NULL,
     stored_timestamp BIGINT NOT NULL,  -- millis since epoch.
@@ -23,5 +25,5 @@ CREATE TABLE mats_socket_message (
     message_text ${texttype},
     message_binary ${binarytype},
 
-    CONSTRAINT PK_mats_socket_message PRIMARY KEY (mats_session_id, message_id)
+    CONSTRAINT PK_mats_socket_message PRIMARY KEY (session_id, message_id)
 );

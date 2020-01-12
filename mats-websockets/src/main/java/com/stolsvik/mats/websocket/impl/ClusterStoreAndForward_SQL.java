@@ -14,12 +14,21 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import javax.sql.DataSource;
 
-import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import org.flywaydb.core.Flyway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.websocket.ClusterStoreAndForward;
+
 /**
+ * <b>NOTE: If in a Spring JDBC environment, where the MatsFactory is created using the
+ * <code>JmsMatsTransactionManager_JmsAndSpringDstm</code> Mats transaction manager, it would be good if the supplied
+ * {@link DataSource} was wrapped in a Spring <code>TransactionAwareDataSourceProxy</code>.</b> This since several of
+ * the methods on this interface will be invoked within a Mats process lambda, and thus participating in the
+ * transactional demarcation established there won't hurt. However, the sole method that is transactional
+ * ({@link #registerSessionAtThisNode(String, String)}) handles the transaction demarcation itself, so any fallout
+ * should be small.
+ *
  * @author Endre Stølsvik 2019-12-08 11:00 - http://stolsvik.com/, endre@stolsvik.com
  */
 public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
@@ -41,10 +50,10 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
          * MS SQL 2019 and above: <b>(assumes UTF-8 collation type)</b> VARCHAR(MAX), VARBINARY(MAX) (NOTE: H2 also
          * handles these).
          */
-        MS_SQL_2019("VARCHAR(MAX)", "VARBINARY(MAX)"),
+        MS_SQL_2019_UTF8("VARCHAR(MAX)", "VARBINARY(MAX)"),
 
         /**
-         * H2: VARCHAR, VARBINARY (NOTE: H2 also handles {@link #MS_SQL} and {@link #MS_SQL_2019}).
+         * H2: VARCHAR, VARBINARY (NOTE: H2 also handles {@link #MS_SQL} and {@link #MS_SQL_2019_UTF8}).
          */
         H2("VARCHAR", "VARBINARY"),
 
@@ -78,13 +87,6 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         public String getBinaryType() {
             return _binaryType;
         }
-    }
-
-    /**
-     * Use {@link Database#MS_SQL} types - H2 also handles these.
-     */
-    public static ClusterStoreAndForward_SQL create(DataSource dataSource, String nodename) {
-        return new ClusterStoreAndForward_SQL(dataSource, nodename);
     }
 
     public static ClusterStoreAndForward_SQL create(DataSource dataSource, String nodename, Database database) {
@@ -149,18 +151,21 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             boolean autoCommitPre = con.getAutoCommit();
             try { // turn back autocommit, just to be sure we've not changed state of connection.
 
-                // Start transaction
-                con.setAutoCommit(false);
+                // ?: If transactional-mode was not on, turn it on now (i.e. autoCommot->false)
+                if (autoCommitPre) {
+                    // Start transaction
+                    con.setAutoCommit(false);
+                }
 
                 // :: Generic "UPSERT" implementation: DELETE, INSERT (no need for SELECT/UPDATE/INSERT here)
                 // Unconditionally delete session (we'll add the new values).
                 PreparedStatement delete = con.prepareStatement("DELETE FROM mats_socket_session"
-                        + " WHERE mats_session_id = ?");
+                        + " WHERE session_id = ?");
                 delete.setString(1, matsSocketSessionId);
 
                 // Insert the new current row
                 PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_session"
-                        + "(mats_session_id, connection_id, nodename, liveliness_timestamp)"
+                        + "(session_id, connection_id, nodename, liveliness_timestamp)"
                         + "VALUES (?, ?, ?, ?)");
                 insert.setString(1, matsSocketSessionId);
                 insert.setString(2, connectionId);
@@ -171,23 +176,30 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 delete.execute();
                 insert.execute();
 
-                // Commit transaction.
-                con.commit();
+                // ?: If we turned off autocommit, we should commit now.
+                if (autoCommitPre) {
+                    // Commit transaction.
+                    con.commit();
+                }
             }
             finally {
-                con.setAutoCommit(autoCommitPre);
+                // ?: If we changed the autoCommit to false to get transaction (since it was true), we turn it back now.
+                if (autoCommitPre) {
+                    con.setAutoCommit(true);
+                }
             }
         });
     }
 
     @Override
-    public void deregisterSessionFromThisNode(String matsSocketSessionId, String connectionId) throws DataAccessException {
+    public void deregisterSessionFromThisNode(String matsSocketSessionId, String connectionId)
+            throws DataAccessException {
         withConnection(con -> {
             // Note that we include a "WHERE nodename=<thisnode> AND connection_id=<specified connectionId>"
             // here, so as to not mess up if he has already re-registered with new socket, or on a new node.
             PreparedStatement update = con.prepareStatement("UPDATE mats_socket_session"
                     + "   SET nodename = NULL"
-                    + " WHERE mats_session_id = ?"
+                    + " WHERE session_id = ?"
                     + "   AND connection_id = ?"
                     + "   AND nodename = ?");
             update.setString(1, matsSocketSessionId);
@@ -198,13 +210,15 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public Optional<CurrentNode> getCurrentRegisteredNodeForSession(String matsSocketSessionId) throws DataAccessException {
+    public Optional<CurrentNode> getCurrentRegisteredNodeForSession(String matsSocketSessionId)
+            throws DataAccessException {
         return withConnectionReturn(con -> _getSession(matsSocketSessionId, con, true));
     }
 
-    private Optional<CurrentNode> _getSession(String matsSocketSessionId, Connection con, boolean onlyIfHasNode) throws SQLException {
+    private Optional<CurrentNode> _getSession(String matsSocketSessionId, Connection con, boolean onlyIfHasNode)
+            throws SQLException {
         PreparedStatement select = con.prepareStatement("SELECT nodename, connection_id FROM mats_socket_session"
-                + " WHERE mats_session_id = ?");
+                + " WHERE session_id = ?");
         select.setString(1, matsSocketSessionId);
         ResultSet resultSet = select.executeQuery();
         boolean next = resultSet.next();
@@ -226,7 +240,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             // TODO / OPTIMIZE: Make "in" optimizations.
             PreparedStatement update = con.prepareStatement("UPDATE mats_socket_session"
                     + "   SET liveliness_timestamp = ?"
-                    + " WHERE mats_session_id = ?");
+                    + " WHERE session_id = ?");
             for (String matsSocketSessionId : matsSocketSessionIds) {
                 update.setLong(1, now);
                 update.setString(2, matsSocketSessionId);
@@ -246,12 +260,12 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         withConnection(con -> {
             // Notice that we DO NOT include WHERE nodename is us. User asked us to delete, and that we do.
             PreparedStatement deleteSession = con.prepareStatement("DELETE FROM mats_socket_session"
-                    + " WHERE mats_session_id = ?");
+                    + " WHERE session_id = ?");
             deleteSession.setString(1, matsSocketSessionId);
             deleteSession.execute();
 
             PreparedStatement deleteMessages = con.prepareStatement("DELETE FROM mats_socket_message"
-                    + " WHERE mats_session_id = ?");
+                    + " WHERE session_id = ?");
             deleteMessages.setString(1, matsSocketSessionId);
             deleteMessages.execute();
         });
@@ -262,7 +276,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             String message) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_message"
-                    + "(message_id, mats_session_id, trace_id,"
+                    + "(message_id, session_id, trace_id,"
                     + " stored_timestamp, delivery_count, type, message_text)"
                     + "VALUES (?, ?, ?, ?, ?, ?, ?)");
             long randomId = ThreadLocalRandom.current().nextLong();
@@ -285,10 +299,10 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         return withConnectionReturn(con -> {
             // The old MS JDBC Driver 'jtds' don't handle parameter insertion for TOP.
             PreparedStatement insert = con.prepareStatement("SELECT TOP " + maxNumberOfMessages
-                    + "          message_id, mats_session_id, trace_id,"
+                    + "          message_id, session_id, trace_id,"
                     + "          stored_timestamp, delivery_count, type, message_text"
                     + "  FROM mats_socket_message"
-                    + " WHERE mats_session_id = ?");
+                    + " WHERE session_id = ?");
             insert.setString(1, matsSocketSessionId);
             ResultSet rs = insert.executeQuery();
             List<StoredMessage> list = new ArrayList<>();
@@ -307,7 +321,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         withConnection(con -> {
             // TODO / OPTIMIZE: Make "in" optimizations.
             PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM mats_socket_message"
-                    + " WHERE mats_session_id = ?"
+                    + " WHERE session_id = ?"
                     + "   AND message_id = ?");
             for (Long messageId : messageIds) {
                 deleteMsg.setString(1, matsSocketSessionId);
@@ -319,11 +333,12 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void messagesFailedDelivery(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException {
+    public void messagesFailedDelivery(String matsSocketSessionId, Collection<Long> messageIds)
+            throws DataAccessException {
         withConnection(con -> {
             PreparedStatement update = con.prepareStatement("UPDATE mats_socket_message"
                     + "   SET delivery_count = delivery_count + 1"
-                    + " WHERE mats_session_id = ?"
+                    + " WHERE session_id = ?"
                     + "   AND message_id = ?");
             for (Long messageId : messageIds) {
                 update.setString(1, matsSocketSessionId);
@@ -340,12 +355,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     private <T> T withConnectionReturn(Lambda<T> lambda) throws DataAccessException {
         try {
-            Connection con = _dataSource.getConnection();
-            try {
+            try (Connection con = _dataSource.getConnection()) {
                 return lambda.transact(con);
-            }
-            finally {
-                con.close();
             }
         }
         catch (SQLException e) {

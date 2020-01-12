@@ -21,6 +21,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.websocket.server.ServerContainer;
 
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL.Database;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
@@ -105,7 +106,7 @@ public class MatsTestWebsocketServer {
 
             // Create SQL-based ClusterStoreAndForward
             ClusterStoreAndForward_SQL clusterStoreAndForward = ClusterStoreAndForward_SQL.create(dataSource,
-                    _matsFactory.getFactoryConfig().getNodename());
+                    _matsFactory.getFactoryConfig().getNodename(), Database.MS_SQL);
 
             // Make a Dummy Authentication plugin
             AuthenticationPlugin authenticationPlugin = DummySessionAuthenticator::new;

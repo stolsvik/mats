@@ -43,7 +43,7 @@ public interface ClusterStoreAndForward {
     void boot();
 
     /**
-     * Registers a Session home to this node - only one node can ever be home, so implicitly any old is deleted.
+     * Registers a Session home to this node - only one node can ever be home, so any old is deleted.
      *
      * @param matsSocketSessionId
      * @param connectionId
@@ -85,8 +85,9 @@ public interface ClusterStoreAndForward {
             throws DataAccessException;
 
     /**
-     * Invoked when the client explicitly tells us that he closed this session, CLOSE_SESSION. Throws
-     * {@link IllegalStateException} if this node is not the home of the session.
+     * Invoked when the client explicitly tells us that he closed this session, CLOSE_SESSION. This deletes the session
+     * instance, and any messages in queue for it. Throws {@link IllegalStateException} if this node is not the home of
+     * the session.
      *
      * @param matsSocketSessionId
      *            the MatsSocketSessionId that should be closed.
