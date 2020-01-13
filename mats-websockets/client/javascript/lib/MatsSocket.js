@@ -14,7 +14,7 @@
 
     function MatsSocket(appName, appVersion, urls, socketFactory) {
 
-        let clientLibNameAndVersion = "integration.js,v0.8.9";
+        let clientLibNameAndVersion = "MatsSocket.js,v0.8.9";
 
         // :: Validate primary arguments
         if (typeof appName !== "string") {

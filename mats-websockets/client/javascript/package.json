@@ -10,7 +10,7 @@
   "scripts": {
     "serve": "node pub/server.js",
     "test": "mocha test/unit.js",
-    "integrationTest": "mocha test/integration.js"
+    "testAll": "mocha test/integration.js test/unit.js"
   },
   "devDependencies": {
     "mocha": "^7.0.0",

@@ -26,15 +26,18 @@ describe('MatsSocket', function () {
     describe('authorization', function () {
         const webSocket = {
             send(payload) {
-                const [, message] = JSON.parse(payload);
-                setTimeout(() => {
-                    webSocket.onmessage({
-                        data: JSON.stringify([
-                            {t: "WELCOME"},
-                            {t: "RECEIVED", cmseq: message.cmseq, st: "ACK"}
-                        ])
-                    });
-                }, 0);
+                JSON.parse(payload).forEach(({t, cmseq}, idx) => {
+                    if (t === 'HELLO') {
+                        setTimeout(() => {
+                            webSocket.onmessage({data: JSON.stringify([{t: "WELCOME"}])});
+                        }, idx);
+                    }
+                    if (cmseq !== undefined) {
+                        setTimeout(() => {
+                            webSocket.onmessage({data: JSON.stringify([{t: "RECEIVED", cmseq: cmseq, st: "ACK"}])});
+                        }, idx);
+                    }
+                });
             }
         };
         Object.defineProperty(webSocket, "onopen", {
