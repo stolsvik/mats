@@ -40,6 +40,15 @@ task dartTest(dependsOn: startMatsTestWebsocketServer) {
             from zipTree(configurations.dartSdk.asPath)
             into buildDir
         }
+
+        // Update dart dependencies
+        exec {
+            def os = org.gradle.internal.os.OperatingSystem.current();
+            executable os.getScriptName("$dartSdkPath/bin/pub")
+            workingDir "$projectDir/client/dart"
+            args = ['get']
+        }
+
         exec {
             def os = org.gradle.internal.os.OperatingSystem.current();
             executable os.getScriptName("$dartSdkPath/bin/pub")
@@ -59,6 +68,7 @@ task dartTest(dependsOn: startMatsTestWebsocketServer) {
             }
             args = ['run', 'test', 'test/integration.dart', 'test/unit.dart']
         }
+
     }
 }
 
