@@ -345,9 +345,16 @@ public class MatsTestWebsocketServer {
                     servers[i].start();
                     break;
                 }
-                catch (Exception e) {
-                    log.info("######### Failed to start server [" + serverId
-                                    + "] on [" + port + "], trying next port.", e);
+                catch (IOException e) {
+                    // ?: Is this IOException indicating that we failed to bind to the port
+                    if (e.getMessage().contains("Failed to bind")) {
+                        // Yes -> Log, and try the next port by looping again
+                        log.info("######### Failed to start server [" + serverId
+                                + "] on [" + port + "], trying next port.", e);
+                    } else {
+                        // No -> Some other IOException, re-throw to stop the server from starting.
+                        throw e;
+                    }
                 }
                 finally {
                     // Always increment the port number
