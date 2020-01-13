@@ -92,7 +92,7 @@ describe('MatsSocket', function () {
         //              promise rejections that are not handled will terminate the Node.js process with a non-zero exit
         //              code.
 
-        it('Should create a promise that resolves', function () {
+        it('Should have a promise that resolves when received', function () {
             // Return a promise, that mocha will watch and resolve
             return matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {string: "The String", number: Math.PI});
         });

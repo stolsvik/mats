@@ -20,77 +20,9 @@ task yarnInstall(type: YarnTask) {
     }
 }
 
-// Task to start a MatsTestWebsocketServer for integration tests. We will monitor the log until we get the expected number
-// of ws urls, that other tasks can then depend on
-task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspath, compileTestJava]) {
-    ext {
-        wsUrls = []
-    }
-
-    doLast {
-        String serverClassname = "com.stolsvik.mats.websocket.MatsTestWebsocketServer";
-        logger.info("Starting MatsTestWebsocketServer");
-        List<String> cmd = [
-                "${System.getenv("JAVA_HOME")}/bin/java",
-                "-classpath", sourceSets.test.runtimeClasspath.asPath,
-                serverClassname,
-                "3"
-        ]
-        Process server = cmd.execute()
-
-        // Keep a log file of the server output
-        File log = new File("$buildDir/logs/matsSocketServer-${LocalDateTime.now().withNano(0)}.log")
-        log.parentFile.mkdirs();
-
-        BufferedReader reader = new BufferedReader(new InputStreamReader(server.inputStream, StandardCharsets.UTF_8));
-        log.withWriterAppend { out ->
-            String line;
-            while (wsUrls.size < 3 && (line = reader.readLine()) != null) {
-                out.writeLine(line)
-                int urlStart = line.indexOf("WS_URL: ")
-                int urlEnd = line.indexOf("json")
-                if (urlStart > -1 && urlEnd > urlStart) {
-                    String url = line.substring(urlStart + 8, urlEnd + 4)
-                    wsUrls.add(url)
-                    logger.info("Registering WS URL: $url");
-                }
-            }
-        }
-        if (wsUrls.isEmpty()) {
-            server.errorStream.eachLine { logger.error(it) }
-            logger.error("Failed to execute: [${cmd.join(" ")}]")
-            throw new GradleException("Failed to start $serverClassname, check log above for command.");
-        }
-        logger.info("$serverClassname started");
-
-        // Fork a new thread to just keep reading and logging the MatsTestWebsocketServer
-        new Thread({
-            log.withWriterAppend { out ->
-                reader.eachLine { line ->
-                    out.writeLine(line)
-                }
-            }
-        }, "MatsTestWebsocketServer-logprinter").start()
-    }
-}
-
-// Stop the MatsTestWebsocketServer, this is done by inspecting the wsUrls field on the start task,
-// and creating a url to the shutdown page based on the first websocket url. The shutdown page is
-// a servlet that will do System.exit(0) to shutdown the server.
-task stopMatsTestWebsocketServer(dependsOn: startMatsTestWebsocketServer) {
-    doLast {
-        String shutdownUrl = startMatsTestWebsocketServer.wsUrls[0]
-                .replace("ws://", "http://")
-                .replace("/matssocket/json", "/shutdown");
-        logger.info("Shutting down MatsTestWebsocketServer by invoking '$shutdownUrl")
-        String response = new URL(shutdownUrl).text;
-        logger.info("Response: '${response}'")
-    }
-}
-
 // Execute the integration tests against a test MatsTestWebsocketServer
-task mochaIntegrationTest(type: YarnTask, dependsOn: [yarnInstall, startMatsTestWebsocketServer]) {
-    args = ['integrationTest']
+task javascriptTest(type: YarnTask, dependsOn: [yarnInstall, startMatsTestWebsocketServer]) {
+    args = ['testAll']
 
     doFirst {
         execOverrides {
@@ -99,24 +31,23 @@ task mochaIntegrationTest(type: YarnTask, dependsOn: [yarnInstall, startMatsTest
         }
     }
 }
-// Make sure that the startMatsTestWebsocketServer is finalized and shut down, while also making sure that
-// we do not shut down until mochaIntegrationTest has completed first.
-startMatsTestWebsocketServer.finalizedBy(stopMatsTestWebsocketServer)
-stopMatsTestWebsocketServer.mustRunAfter(mochaIntegrationTest)
+
+// We need to ensure that javascript tests are run before stop
+stopMatsTestWebsocketServer.mustRunAfter(javascriptTest)
 
 // :: Helper methods for people too lazy to figure out node and run these from the javascript client folder.
 
 // Run the integration test continuously, retriggering on change in the javascript code. This assumes there is
 // a server listening on ws://localhost:8080/matssocket/json
-task mochaIntegrationTestWatch(type: YarnTask, dependsOn: [yarnInstall]) {
-    args = ['integrationTest', '--watch']
+task javascriptTestWatch(type: YarnTask, dependsOn: [yarnInstall]) {
+    args = ['testAll', '--watch']
 
     execOverrides {
         it.workingDir = "${projectDir}/client/javascript"
     }
 }
 
-check.dependsOn(mochaIntegrationTest)
+check.dependsOn(javascriptTest)
 
 // Start a server to host sample html files along with the MatsSocket.js library
 task serveHtml(type: YarnTask, dependsOn: [yarnInstall]) {
