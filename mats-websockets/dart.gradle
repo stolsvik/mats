@@ -1,0 +1,69 @@
+repositories {
+    // Create a custom ivy repository that represents the dart sdk download, so that we
+    // can download the SDK using gradles download mechanisms and cache.
+    ivy {
+        url "https://storage.googleapis.com/dart-archive/channels/stable/release/"
+        patternLayout {
+            artifact "[revision]/sdk/[artifact]-[classifier]-release.[ext]"
+        }
+        metadataSources {
+            artifact()
+        }
+    }
+}
+configurations {
+    dartSdk
+}
+ext {
+    dartVersion = '2.7.0'
+}
+
+dependencies {
+    def os = org.gradle.internal.os.OperatingSystem.current();
+    if (os.isWindows()) {
+        dartSdk "com.google.dart:dartsdk:${dartVersion}:windows-x64@zip"
+    }
+    else if (os.isMacOsX()) {
+        dartSdk "com.google.dart:dartsdk:${dartVersion}:macos-x64@zip"
+    }
+    else if (os.isLinux()) {
+        dartSdk "com.google.dart:dartsdk:${dartVersion}:linux-x64@zip"
+    }
+}
+
+task dartTest(dependsOn: startMatsTestWebsocketServer) {
+    ext {
+        dartSdkPath = file("$buildDir/dart-sdk")
+    }
+    doLast {
+        copy {
+            from zipTree(configurations.dartSdk.asPath)
+            into buildDir
+        }
+        exec {
+            def os = org.gradle.internal.os.OperatingSystem.current();
+            executable os.getScriptName("$dartSdkPath/bin/pub")
+            workingDir "$projectDir/client/dart"
+            environment("MATS_SOCKET_URLS", startMatsTestWebsocketServer.wsUrls.join(","))
+
+            // logging.level returns null, so we need to check which log level is enabled to pass
+            // on to the tests, so that they log if needed.
+            if (logger.isEnabled(LogLevel.DEBUG)) {
+                environment("LOG_LEVEL", "DEBUG")
+            }
+            else if (logger.isEnabled(LogLevel.INFO)) {
+                environment("LOG_LEVEL", "INFO")
+            }
+            else {
+                environment("LOG_LEVEL", "SEVERE")
+            }
+            args = ['run', 'test', 'test/integration.dart', 'test/unit.dart']
+        }
+    }
+}
+
+// We need to ensure that dart tests are run before stop
+stopMatsTestWebsocketServer.mustRunAfter(dartTest)
+
+// Include the dart tests in the test suites.
+check.dependsOn(dartTest)

@@ -115,3 +115,4 @@ task stopMatsTestWebsocketServer(dependsOn: startMatsTestWebsocketServer) {
 startMatsTestWebsocketServer.finalizedBy(stopMatsTestWebsocketServer)
 
 apply from: 'javascript.gradle'
+apply from: 'dart.gradle'
