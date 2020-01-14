@@ -163,7 +163,7 @@ public interface AuthenticationPlugin {
     }
 
     /**
-     * You are NOT supposed to extend this interface! Instances of this interface are created by methods on the
+     * You are NOT supposed to implement this interface! Instances of this interface are created by methods on the
      * {@link AuthenticationContext}, which you are supposed to return from the {@link SessionAuthenticator} to inform
      * the {@link MatsSocketServer} about your verdict of the authentication attempt.
      */

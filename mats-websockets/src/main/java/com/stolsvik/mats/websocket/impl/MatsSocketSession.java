@@ -1,7 +1,6 @@
 package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
-import java.io.Reader;
 import java.io.Writer;
 import java.security.Principal;
 import java.util.ArrayList;
@@ -97,12 +96,12 @@ class MatsSocketSession implements Whole<String> {
 
     @Override
     public void onMessage(String message) {
+        long clientMessageReceivedTimestamp = System.currentTimeMillis();
         if (_matsSocketSessionId != null) {
             MDC.put("matssocket.sessionId", _matsSocketSessionId);
             MDC.put("matssocket.principal", _principal.getName());
         }
-        long clientMessageReceivedTimestamp = System.currentTimeMillis();
-        log.info("WebSocket received message ["+message+"] on MatsSocketSessionId [" + _matsSocketSessionId
+        log.info("WebSocket received message [" + message + "] on MatsSocketSessionId [" + _matsSocketSessionId
                 + "], WebSocket SessionId:" + _webSocketSession.getId() + ", this:"
                 + DefaultMatsSocketServer.id(this));
 

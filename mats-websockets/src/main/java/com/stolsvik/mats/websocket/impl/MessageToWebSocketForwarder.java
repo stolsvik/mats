@@ -1,6 +1,7 @@
 package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
+import java.io.Writer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -164,29 +165,38 @@ class MessageToWebSocketForwarder {
                         break;
                     }
 
-                    String nowString = Long.toString(System.currentTimeMillis());
-                    String concatMessages = messagesForSession.stream()
-                            .map(m -> {
-                                // Map top the Json'ed Envelope (raw, not yet replaced magic values)
-                                String json = m.getEnvelopeJson();
-                                // Replace magic values, and return
-                                json = DefaultMatsSocketServer.REPLACE_VALUE_TIMESTAMP_REGEX.matcher(json)
-                                        .replaceFirst(nowString);
-                                return DefaultMatsSocketServer.REPLACE_VALUE_REPLY_NODENAME_REGEX.matcher(json)
-                                        .replaceFirst(_matsSocketServer.getMyNodename());
-                            })
-                            .collect(Collectors.joining(", ", "[", "]"));
-
                     String traceIds = messagesForSession.stream()
                             .map(StoredMessage::getTraceId)
                             .collect(Collectors.joining(", "));
-
                     List<Long> messageIds = messagesForSession.stream().map(StoredMessage::getId)
                             .collect(Collectors.toList());
 
                     // :: Forward message(s) over WebSocket
                     try {
-                        webSocketSession.getBasicRemote().sendText(concatMessages);
+                        String nowString = Long.toString(System.currentTimeMillis());
+                        // :: Feed the JSONs over, manually piecing together a JSON Array.
+                        // Fetch the output sink
+                        Writer writer = webSocketSession.getBasicRemote().getSendWriter();
+                        // Create the JSON Array
+                        writer.append('[');
+                        boolean first = true;
+                        for (StoredMessage storedMessage : messagesForSession) {
+                            if (first) {
+                                first = false;
+                            }
+                            else {
+                                writer.append(',');
+                            }
+                            String json = storedMessage.getEnvelopeJson();
+                            // :: Replace in the sent timestamp and this node's nodename.
+                            json = DefaultMatsSocketServer.REPLACE_VALUE_TIMESTAMP_REGEX.matcher(json)
+                                    .replaceFirst(nowString);
+                            json = DefaultMatsSocketServer.REPLACE_VALUE_REPLY_NODENAME_REGEX.matcher(json)
+                                    .replaceFirst(_matsSocketServer.getMyNodename());
+                            writer.append(json);
+                        }
+                        writer.append(']');
+                        writer.close();
                         log.info("Finished sending '" + messagesForSession.size() + "' message(s) with TraceIds ["
                                 + traceIds + "] to MatsSession [" + matsSocketSession + "] over WebSocket session ["
                                 + webSocketSession + "].");

@@ -51,13 +51,14 @@ task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspat
     }
 
     doLast {
+        int numberOfServers = 3
         String serverClassname = "com.stolsvik.mats.websocket.MatsTestWebsocketServer"
         logger.info("Starting MatsTestWebsocketServer");
         List<String> cmd = [
                 "${System.getenv("JAVA_HOME")}/bin/java",
                 "-classpath", sourceSets.test.runtimeClasspath.asPath,
                 serverClassname,
-                "3"
+                numberOfServers.toString()
         ]
         Process server = cmd.execute()
 
@@ -68,7 +69,7 @@ task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspat
         Reader reader = new InputStreamReader(server.inputStream, StandardCharsets.UTF_8)
         log.withWriterAppend { out ->
             String line;
-            while (wsUrls.size < 3 && (line = reader.readLine()) != null) {
+            while (wsUrls.size < numberOfServers && (line = reader.readLine()) != null) {
                 out.writeLine(line)
                 logger.info("TestServer: $line")
                 if (line.contains('HOOK_FOR_GRADLE_WEBSOCKET_URL')) {
@@ -109,8 +110,8 @@ task stopMatsTestWebsocketServer(dependsOn: startMatsTestWebsocketServer) {
                 .replace("ws://", "http://")
                 .replace("/matssocket", "/shutdown");
         logger.info("Shutting down MatsTestWebsocketServer by invoking '$shutdownUrl")
-        String response = new URL(shutdownUrl).text;
-        logger.info("Response: '${response.trim()}'")
+        String response = new URL(shutdownUrl).text
+        logger.info("Response: [${response.trim()}]")
     }
 }
 

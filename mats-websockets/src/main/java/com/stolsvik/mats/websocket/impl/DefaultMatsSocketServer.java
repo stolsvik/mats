@@ -13,7 +13,6 @@ import java.util.regex.Pattern;
 
 import javax.websocket.CloseReason;
 import javax.websocket.CloseReason.CloseCode;
-import javax.websocket.CloseReason.CloseCodes;
 import javax.websocket.DeploymentException;
 import javax.websocket.Endpoint;
 import javax.websocket.EndpointConfig;
@@ -283,13 +282,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         MatsSocketEndpointRegistration<I, MI, MR, R> matsSocketRegistration = new MatsSocketEndpointRegistration<>(
                 matsSocketEndpointId, msIncomingClass, matsIncomingClass, matsReplyClass, msReplyClass,
                 incomingAuthEval);
-        MatsSocketEndpointRegistration existing = _matsSocketEndpointsByMatsSocketEndpointId.putIfAbsent(
+        MatsSocketEndpointRegistration<?, ?, ?, ?> existing = _matsSocketEndpointsByMatsSocketEndpointId.putIfAbsent(
                 matsSocketEndpointId, matsSocketRegistration);
         // Assert that there was no existing mapping
         if (existing != null) {
             // -> There was existing mapping - shall not happen.
             throw new IllegalStateException("Cannot register a MatsSocket onto an EndpointId which already is"
-                    + " taken, existing: [" + existing._incomingAuthEval + "].");
+                    + " taken, existing: [" + existing + "].");
         }
         return matsSocketRegistration;
     }
@@ -554,7 +553,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
     }
 
-    protected ObjectMapper jacksonMapper() {
+    protected static ObjectMapper jacksonMapper() {
         // NOTE: This is stolen directly from MatsSerializer_DefaultJson.
         ObjectMapper mapper = new ObjectMapper();
 
