@@ -1,6 +1,7 @@
 package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
+import java.io.Reader;
 import java.io.Writer;
 import java.security.Principal;
 import java.util.ArrayList;
@@ -22,18 +23,20 @@ import org.slf4j.MDC;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.type.TypeFactory;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsBackendRuntimeException;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendRuntimeException;
-import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
-import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_Authenticated;
-import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_StillValid;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
+import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
+import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_Authenticated;
+import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_StillValid;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.MatsSocketEndpointRegistration;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleStateDto;
 
@@ -54,6 +57,7 @@ class MatsSocketSession implements Whole<String> {
     // Derived
     private final DefaultMatsSocketServer _matsSocketServer;
     private final AuthenticationContext _authenticationContext;
+    private final ObjectReader _jsonReader;
 
     // Set
     private String _matsSocketSessionId;
@@ -76,6 +80,7 @@ class MatsSocketSession implements Whole<String> {
         // Derived
         _matsSocketServer = matsSocketServer;
         _authenticationContext = new AuthenticationContextImpl(_handshakeRequest, _webSocketSession);
+        _jsonReader = _matsSocketServer.getJackson().readerFor(LIST_OF_MSG_TYPE);
     }
 
     Session getWebSocketSession() {
@@ -97,14 +102,15 @@ class MatsSocketSession implements Whole<String> {
             MDC.put("matssocket.principal", _principal.getName());
         }
         long clientMessageReceivedTimestamp = System.currentTimeMillis();
-        log.info("WebSocket received message:" + message + ", session:" + _webSocketSession.getId() + ", this:"
+        log.info("WebSocket received message ["+message+"] on MatsSocketSessionId [" + _matsSocketSessionId
+                + "], WebSocket SessionId:" + _webSocketSession.getId() + ", this:"
                 + DefaultMatsSocketServer.id(this));
 
         List<MatsSocketEnvelopeDto> envelopes;
         try {
-            envelopes = _matsSocketServer.getJackson().readValue(message, LIST_OF_MSG_TYPE);
+            envelopes = _jsonReader.readValue(message);
         }
-        catch (JsonProcessingException e) {
+        catch (IOException e) {
             // TODO: Handle parse exceptions.
             throw new AssertionError("Parse exception", e);
         }
@@ -281,14 +287,14 @@ class MatsSocketSession implements Whole<String> {
     }
 
     private void closeSession(String reason) {
-        shutdownSessionAndWebSocket(CloseCodes.NORMAL_CLOSURE, reason);
+        shutdownSessionAndWebSocket(MatsSocketCloseCodes.NORMAL_CLOSURE, reason);
     }
 
     private void policyViolation(String reason) {
-        shutdownSessionAndWebSocket(CloseCodes.VIOLATED_POLICY, reason);
+        shutdownSessionAndWebSocket(MatsSocketCloseCodes.VIOLATED_POLICY, reason);
     }
 
-    private void shutdownSessionAndWebSocket(CloseCodes closeCode, String reason) {
+    private void shutdownSessionAndWebSocket(MatsSocketCloseCodes closeCode, String reason) {
         // :: Deregister locally and from CSAF
         if (_matsSocketSessionId != null) {
             // Local deregister
@@ -518,6 +524,8 @@ class MatsSocketSession implements Whole<String> {
         // Increase timeout to "prod timeout", now that client has said HELLO
         // TODO: Increase timeout, e.g. 75 seconds.
         _webSocketSession.setMaxIdleTimeout(30_000);
+        // Set high limit for text, as we, don't want to be held back on the protocol side of things.
+        _webSocketSession.setMaxTextMessageBufferSize(50 * 1024 * 1024);
 
         // :: Create reply WELCOME message
 

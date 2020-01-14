@@ -28,7 +28,7 @@ void main() {
 
   final log = Logger('Test');
   DateTime testStart;
-  var urls = Platform.environment['MATS_SOCKET_URLS']?.split(",") ?? ['ws://localhost:8080/matssocket/json', 'ws://localhost:8081/matssocket/json'];
+  var urls = Platform.environment['MATS_SOCKET_URLS']?.split(",") ?? ['ws://localhost:8080/matssocket', 'ws://localhost:8081/matssocket'];
   var matsSocket = MatsSocket('Test', '1.0', urls, IOSocketFactory());
   setUp(() {
     testStart = DateTime.now();
@@ -96,7 +96,7 @@ void main() {
       var matsSocket = authenticatedMatsSocket();
       matsSocket.send('Test.single', 'SEND_${randomId(6)}', {});
     });
-    
+
     test('Should have a promise that resolves when received', () async {
       var matsSocket = authenticatedMatsSocket();
       var received = await matsSocket.send('Test.single', 'SEND_${randomId(6)}', {});
@@ -135,7 +135,7 @@ void main() {
 }
 
 MatsSocket authenticatedMatsSocket() {
-  var matsSocket = MatsSocket('Test', '1.0', ['ws://localhost:8080/matssocket/json', 'ws://localhost:8081/matssocket/json'], IOSocketFactory());
+  var matsSocket = MatsSocket('Test', '1.0', ['ws://localhost:8080/matssocket', 'ws://localhost:8081/matssocket'], IOSocketFactory());
 
   setAuth(matsSocket);
   return matsSocket;

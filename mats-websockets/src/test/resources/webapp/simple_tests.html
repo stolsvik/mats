@@ -7,7 +7,7 @@
 
 <script>
     var matsSocket = new mats.MatsSocket("TestApp", "1.2.3",
-        ["ws://localhost:8080/matssocket/json", "ws://localhost:8081/matssocket/json"]);
+        ["ws://localhost:8080/matssocket", "ws://localhost:8081/matssocket"]);
     matsSocket.logging = true;
 
     // For testing, we want stable order of which URLs to connect to.

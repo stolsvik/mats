@@ -68,7 +68,7 @@ class MatsSocket {
   Future<Authorization> get authorization async {
     // ?: Are we currently waiting for authorization?
     if (_authorizationCompleter?.isCompleted == false) {
-      // Yes -> Wait for the future frpm the completer
+      // Yes -> Wait for the future from the completer
       _log.info(
           'Authorization completer submitted, but not yet done, returning its future');
       return _authorizationCompleter.future;

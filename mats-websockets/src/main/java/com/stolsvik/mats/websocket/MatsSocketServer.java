@@ -2,6 +2,7 @@ package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
 
+import javax.websocket.CloseReason.CloseCode;
 import javax.websocket.CloseReason.CloseCodes;
 
 import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
@@ -25,12 +26,6 @@ public interface MatsSocketServer {
             Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
             IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval);
 
-    /**
-     * Closes all WebSockets with {@link CloseCodes#SERVICE_RESTART} (assuming that a MatsSocket service will never
-     * truly go down..)
-     */
-    void shutdown();
-
     interface MatsSocketEndpoint<I, MI, MR, R> {
         /**
          * Used to transform the message from the Mats-side to MatsSocket-side - or throw an Exception. <b>This should
@@ -42,6 +37,21 @@ public interface MatsSocketServer {
          */
         void replyAdapter(ReplyAdapter<MR, R> replyAdapter);
     }
+
+    /**
+     * Closes the specified MatsSocket Session - to be used for out-of-band closing of Session if the WebSocket is down.
+     *
+     * @param sessionId
+     *            the id of the Session to close.
+     */
+    void closeSession(String sessionId);
+
+    /**
+     * Closes all WebSockets with {@link CloseCodes#SERVICE_RESTART} (assuming that a MatsSocket service will never
+     * truly go down, thus effectively asking the client to reconnect, hopefully to another instance). Should be invoked
+     * at application shutdown.
+     */
+    void stop(int gracefulShutdownMillis);
 
     @FunctionalInterface
     interface IncomingAuthorizationAndAdapter<I, MI, R> {
@@ -134,4 +144,47 @@ public interface MatsSocketServer {
         void addBinary(String key, byte[] payload);
     }
 
+    /**
+     * WebSocket CloseCodes used in MatsSocket, and for what.
+     */
+    enum MatsSocketCloseCodes implements CloseCode {
+        /**
+         * Standard code 1000 - used when the server closes the socket in response to a CLOSE_SESSION message (i.e.
+         * terminates this session).
+         */
+        NORMAL_CLOSURE(CloseCodes.NORMAL_CLOSURE.getCode()),
+
+        /**
+         * Standard code 1008 - used for when the client does not behave as we expect, most typically wrt.
+         * authentication.
+         */
+        VIOLATED_POLICY(CloseCodes.VIOLATED_POLICY.getCode()),
+
+        /**
+         * Standard code 1012 - used when {@link MatsSocketServer#stop(int)} is invoked.
+         */
+        SERVICE_RESTART(CloseCodes.SERVICE_RESTART.getCode()),
+
+        /**
+         * 4000 - We ask that the client reconnects
+         */
+        RECONNECT(4000),
+
+        /**
+         * {@link MatsSocketServer#closeSession(String)} was invoked, but the WebSocket to that client was still open,
+         * so we close it. The client should reject all outstanding Promises, Futures and Acks.
+         */
+        FORCED_SESSION_CLOSE(4001);
+
+        private final int _closeCode;
+
+        MatsSocketCloseCodes(int closeCode) {
+            _closeCode = closeCode;
+        }
+
+        @Override
+        public int getCode() {
+            return _closeCode;
+        }
+    }
 }

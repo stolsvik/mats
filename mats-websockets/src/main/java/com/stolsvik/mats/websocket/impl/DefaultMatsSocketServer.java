@@ -26,8 +26,6 @@ import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Builder;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
-import com.stolsvik.mats.websocket.AuthenticationPlugin;
-import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,10 +42,13 @@ import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.websocket.MatsSocketServer;
+import com.stolsvik.mats.MatsFactory.FactoryConfig;
+import com.stolsvik.mats.websocket.AuthenticationPlugin;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
+import com.stolsvik.mats.websocket.MatsSocketServer;
 
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -58,7 +59,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     private static final String REPLY_TERMINATOR_ID_PREFIX = "MatsSockets.replyHandler.";
 
     /**
-     * Create a MatsSocketServer, piecing together necessary bits.
+     * Variant of the
+     * {@link #createMatsSocketServer(ServerContainer, MatsFactory, ClusterStoreAndForward, AuthenticationPlugin, String, String)
+     * full method} that uses the {@link FactoryConfig#getAppName() appName} that the MatsFactory is configured with as
+     * the 'serverName' parameter.
      *
      * @param serverContainer
      *            the WebSocket {@link ServerContainer}, typically gotten from the Servlet Container.
@@ -86,11 +90,51 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             ClusterStoreAndForward clusterStoreAndForward,
             AuthenticationPlugin authenticationPlugin,
             String websocketPath) {
+        String serverName = matsFactory.getFactoryConfig().getAppName();
+        return createMatsSocketServer(serverContainer, matsFactory, clusterStoreAndForward, authenticationPlugin,
+                serverName, websocketPath);
+    }
+
+    /**
+     * Create a MatsSocketServer, piecing together necessary bits.
+     *
+     * @param serverContainer
+     *            the WebSocket {@link ServerContainer}, typically gotten from the Servlet Container.
+     * @param matsFactory
+     *            The {@link MatsFactory} which we should hook into for both sending requests and setting up endpoints
+     *            to receive replies.
+     * @param clusterStoreAndForward
+     *            an implementation of {@link ClusterStoreAndForward} which temporarily holds replies while finding the
+     *            right node that holds the WebSocket connection - and hold them till the client reconnects in case he
+     *            has disconnected in the mean time.
+     * @param authenticationPlugin
+     *            the piece of code that turns an Authorization String into a Principal. Must be pretty fast, as it is
+     *            invoked synchronously - keep any IPC fast, otherwise all your threads of the container might be used
+     *            up. If the function throws or returns null, authorization did not go through.
+     * @param serverName
+     *            a unique name of this MatsSocketServer, at least within the MQ system the MatsFactory is connected to,
+     *            as it is used to postfix/uniquify the endpoints that the MatsSocketServer creates on the MatsFactory.
+     *            To illustrate: The variant of this factory method that does not take 'serverName' uses the
+     *            {@link FactoryConfig#getAppName() appName} that the MatsFactory is configured with.
+     * @param websocketPath
+     *            The path onto which the WebSocket Server Endpoint will be mounted. Suggestion: "/matssocket". If you
+     *            need multiple {@link MatsSocketServer}s, e.g. because you need two types of authentication, they need
+     *            to be mounted on different paths.
+     *
+     * @return a MatsSocketServer instance, now hooked into both the WebSocket {@link ServerContainer} and the
+     *         {@link MatsFactory}.
+     */
+    public static MatsSocketServer createMatsSocketServer(ServerContainer serverContainer,
+            MatsFactory matsFactory,
+            ClusterStoreAndForward clusterStoreAndForward,
+            AuthenticationPlugin authenticationPlugin,
+            String serverName,
+            String websocketPath) {
         // Boot ClusterStoreAndForward
         clusterStoreAndForward.boot();
 
         // TODO: "Escape" the AppName.
-        String replyTerminatorId = REPLY_TERMINATOR_ID_PREFIX + matsFactory.getFactoryConfig().getAppName();
+        String replyTerminatorId = REPLY_TERMINATOR_ID_PREFIX + serverName;
         // Create the MatsSocketServer..
         DefaultMatsSocketServer matsSocketServer = new DefaultMatsSocketServer(matsFactory, clusterStoreAndForward,
                 replyTerminatorId, authenticationPlugin);
@@ -197,31 +241,33 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 (processContext, state, matsSocketSessionId) -> mats_localSessionMessageNotify(matsSocketSessionId));
     }
 
+    private volatile boolean _stopped = false;
+
     String getMyNodename() {
         return _matsFactory.getFactoryConfig().getNodename();
     }
 
-    public MatsFactory getMatsFactory() {
+    MatsFactory getMatsFactory() {
         return _matsFactory;
     }
 
-    public ClusterStoreAndForward getClusterStoreAndForward() {
+    ClusterStoreAndForward getClusterStoreAndForward() {
         return _clusterStoreAndForward;
     }
 
-    public ObjectMapper getJackson() {
+    ObjectMapper getJackson() {
         return _jackson;
     }
 
-    public MessageToWebSocketForwarder getMessageToWebSocketForwarder() {
+    MessageToWebSocketForwarder getMessageToWebSocketForwarder() {
         return _messageToWebSocketForwarder;
     }
 
-    public String getReplyTerminatorId() {
+    String getReplyTerminatorId() {
         return _replyTerminatorId;
     }
 
-    public AuthenticationPlugin getAuthenticationPlugin() {
+    AuthenticationPlugin getAuthenticationPlugin() {
         return _authenticationPlugin;
     }
 
@@ -246,6 +292,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     + " taken, existing: [" + existing._incomingAuthEval + "].");
         }
         return matsSocketRegistration;
+    }
+
+    @Override
+    public void closeSession(String sessionId) {
+        // TODO: Implement! https://github.com/stolsvik/mats/issues/113 and
     }
 
     void registerLocalMatsSocketSession(MatsSocketSession matsSocketSession) {
@@ -284,17 +335,19 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     }
 
     @Override
-    public void shutdown() {
+    public void stop(int gracefulShutdownMillis) {
         log.info("Asked to shut down MatsSocketServer [" + id(this)
                 + "], containing [" + getCurrentLocalRegisteredMatsSocketSessions() + "] sessions.");
 
-        // TODO: Hinder further accepts.
+        // Hinder further WebSockets connecting to us.
+        _stopped = true;
 
+        // Shutdown forwarder thread
         _messageToWebSocketForwarder.shutdown();
 
         getCurrentLocalRegisteredMatsSocketSessions().forEach(s -> {
             // Close WebSocket
-            closeWebSocket(s.getWebSocketSession(), CloseCodes.SERVICE_RESTART,
+            closeWebSocket(s.getWebSocketSession(), MatsSocketCloseCodes.SERVICE_RESTART,
                     "From Server: Server instance is going down, please reconnect.");
             // Local deregister
             deregisterLocalMatsSocketSession(s.getId(), s.getConnectionId());
@@ -343,14 +396,22 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         @Override
         public void onOpen(Session session, EndpointConfig config) {
-            log.info("WebSocket opened, session:" + session.getId() + ", endpointConfig:" + config
+            log.info("WebSocket opened, WebSocket SessionId:" + session.getId() + ", endpointConfig:" + config
                     + ", endpointInstance:" + id(this) + ", session:" + id(session));
 
-            // Set high limits, don't want to be held back on the protocol side of things.
-            session.setMaxBinaryMessageBufferSize(50 * 1024 * 1024);
-            session.setMaxTextMessageBufferSize(50 * 1024 * 1024);
-            // Set low time to say HELLO
-            session.setMaxIdleTimeout(5000);
+            // ?: If we are going down, then immediately close it.
+            if (_matsSocketServer._stopped) {
+                DefaultMatsSocketServer.closeWebSocket(session, MatsSocketCloseCodes.SERVICE_RESTART,
+                        "This server is going down, perform a (re)connect to another instance.");
+                return;
+            }
+
+            // We do not (yet) handle binary messages, so limit that pretty hard.
+            session.setMaxBinaryMessageBufferSize(1024);
+            // Set low limits for the HELLO message, 20KiB should be plenty even for quite large Oauth2 bearer tokens.
+            session.setMaxTextMessageBufferSize(20 * 1024);
+            // Set low time to say HELLO after the connect. (The default clients say it immediately on "onopen".)
+            session.setMaxIdleTimeout(2500);
 
             SessionAuthenticator sessionAuthenticator = _matsSocketServer.getAuthenticationPlugin()
                     .newSessionAuthenticator();
@@ -360,7 +421,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             catch (Throwable t) {
                 log.error("Got throwable when SessionAuthenticator.evaluateHandshakeRequest(..). Closing WebSocket.",
                         t);
-                DefaultMatsSocketServer.closeWebSocket(session, CloseCodes.VIOLATED_POLICY,
+                DefaultMatsSocketServer.closeWebSocket(session, MatsSocketCloseCodes.VIOLATED_POLICY,
                         "Authentication failed upon evaluating Handshake");
                 return;
             }
@@ -372,13 +433,18 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         @Override
         public void onError(Session session, Throwable thr) {
-            log.info("WebSocket @OnError, session:" + session.getId() + ", this:" + id(this), thr);
+            log.info("WebSocket @OnError, MatsSocket SessionId: ["
+                    + (_matsSocketSession == null ? "no MatsSocketSession" : _matsSocketSession.getId())
+                    + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this), thr);
         }
 
         @Override
         public void onClose(Session session, CloseReason closeReason) {
-            log.info("WebSocket @OnClose, session:" + session.getId() + ", reason:" + closeReason.getReasonPhrase()
-                    + ", this:" + id(this));
+            log.info("WebSocket @OnClose, MatsSocket SessionId: ["
+                    + (_matsSocketSession == null ? "no MatsSocketSession" : _matsSocketSession.getId())
+                    + "], WebSocket SessionId:" + session.getId()
+                    + ", code: [" + closeReason.getCloseCode()
+                    + "], reason: [" + closeReason.getReasonPhrase() + "], this:" + id(this));
             // ?: Have we gotten MatsSocketSession yet? (In case "onOpen" has not been invoked yet. Can it happen?!).
             if (_matsSocketSession != null) {
                 // -> Yes, so remove us from local and global views
@@ -399,7 +465,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     }
 
     static void closeWebSocket(Session webSocketSession, CloseCode closeCode, String reasonPhrase) {
-        log.info("Closing WebSocket Session [" + webSocketSession + "]: code: [" + closeCode
+        log.info("Closing WebSocket SessionId [" + webSocketSession.getId() + "]: code: [" + closeCode
                 + "], reason:[" + reasonPhrase + "]");
         try {
             webSocketSession.close(new CloseReason(closeCode, reasonPhrase));

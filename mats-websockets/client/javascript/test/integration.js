@@ -10,7 +10,7 @@ describe('MatsSocket', function () {
         matsSocket.setCurrentAuthorization("DummyAuth:" + expiry, expiry, roomForLatencyMillis);
     }
 
-    const urls = process.env.MATS_SOCKET_URLS || "ws://localhost:8080/matssocket/json,ws://localhost:8081/matssocket/json";
+    const urls = process.env.MATS_SOCKET_URLS || "ws://localhost:8080/matssocket,ws://localhost:8081/matssocket";
 
     beforeEach(() => {
         matsSocket = new MatsSocket("TestApp", "1.2.3", urls.split(","));
@@ -23,57 +23,64 @@ describe('MatsSocket', function () {
 
     describe('authorization', function () {
         it('Should invoke authorization callback before making calls', function(done) {
+            this.timeout(10000);
             let authCallbackCalled = false;
 
             matsSocket.setAuthorizationExpiredCallback(function (event) {
                 authCallbackCalled = true;
                 setAuth();
             });
-            matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {}).then(reply => {
-                assert(authCallbackCalled);
-                done();
-            });
+            matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {})
+                .then(reply => {
+                    assert(authCallbackCalled);
+                    done();
+                });
         });
 
         it('Should not invoke authorization callback if authorization present', function(done) {
+            this.timeout(10000);
             let authCallbackCalled = false;
             setAuth();
             matsSocket.setAuthorizationExpiredCallback(function (event) {
                 authCallbackCalled = true;
             });
-            matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {}).then(reply => {
-                assert(!authCallbackCalled);
-                done();
-            });
+            matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {})
+                .then(reply => {
+                    assert(!authCallbackCalled);
+                    done();
+                });
         });
 
         it('Should invoke authorization callback when expired', function(done) {
+            this.timeout(10000);
             let authCallbackCalled = false;
-
             setAuth(-20000);
             matsSocket.setAuthorizationExpiredCallback(function (event) {
                 authCallbackCalled = true;
                 setAuth();
             });
-            matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {}).then(reply => {
-                assert(authCallbackCalled);
-                done();
-            });
+            matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {})
+                .then(reply => {
+                    assert(authCallbackCalled);
+                    done();
+                });
 
         });
 
         it('Should invoke authorization callback when room for latency expired', function(done) {
+            this.timeout(10000);
             let authCallbackCalled = false;
-
+            // Immediately timed out.
             setAuth(1000, 10000);
             matsSocket.setAuthorizationExpiredCallback(function (event) {
                 authCallbackCalled = true;
                 setAuth();
             });
-            matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {}).then(reply => {
-                assert(authCallbackCalled);
-                done();
-            })
+            matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {})
+                .then(reply => {
+                    assert(authCallbackCalled);
+                    done();
+                })
         });
     });
 

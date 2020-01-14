@@ -21,7 +21,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.websocket.server.ServerContainer;
 
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL.Database;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
@@ -41,11 +40,12 @@ import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL.Database;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
 
 import ch.qos.logback.core.CoreConstants;
@@ -58,7 +58,7 @@ public class MatsTestWebsocketServer {
     private static final String CONTEXT_ATTRIBUTE_PORTNUMBER = "ServerPortNumber";
     private static final String CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH = "Path to MatsSocket.js";
 
-    private static final String WEBSOCKET_PATH = "/matssocket/json";
+    private static final String WEBSOCKET_PATH = "/matssocket";
 
     private static final String COMMON_AMQ_NAME = "CommonAMQ";
 
@@ -152,8 +152,8 @@ public class MatsTestWebsocketServer {
         public void contextDestroyed(ServletContextEvent sce) {
             log.info("ServletContextListener.contextDestroyed(..): " + sce);
             log.info("  \\- ServletContext: " + sce.getServletContext());
-            _matsSocketServer.shutdown();
-            _matsFactory.stop(1000);
+            _matsSocketServer.stop(5000);
+            _matsFactory.stop(5000);
         }
     }
 
@@ -197,11 +197,22 @@ public class MatsTestWebsocketServer {
         }
     }
 
-    @WebServlet("/matssocket/json")
+    @WebServlet("/matssocket")
     public static class TestServletSamePath extends HttpServlet {
         @Override
         protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
             resp.getWriter().println("Testing Servlet on same path as WebSocket");
+        }
+    }
+
+    @WebServlet("/matssocket/close_session")
+    public static class OutOfBandCloseSessionServlet extends HttpServlet {
+        @Override
+        protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            String sessonId = req.getParameter("sesson_id");
+            MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext().getAttribute(
+                    MatsSocketServer.class.getName());
+            matsSocketServer.closeSession(sessonId);
         }
     }
 
@@ -277,7 +288,8 @@ public class MatsTestWebsocketServer {
         // .. strip down to the 'mats-websockets' path
         int pos = pathToClasses.indexOf("mats-websockets");
         String pathToMatsSocket = pos == -1
-                ? null : pathToClasses.substring(0, pos) + "mats-websockets/client/javascript/lib";
+                ? null
+                : pathToClasses.substring(0, pos) + "mats-websockets/client/javascript/lib";
         webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH, pathToMatsSocket);
 
         // Create the actual Jetty Server
@@ -297,7 +309,7 @@ public class MatsTestWebsocketServer {
                 MatsSocketServer matsSocketServer = (MatsSocketServer) webAppContext.getServletContext().getAttribute(
                         MatsSocketServer.class.getName());
                 log.info("MatsSocketServer instance:" + matsSocketServer);
-                matsSocketServer.shutdown();
+                matsSocketServer.stop(5000);
             }
         });
 
@@ -335,7 +347,7 @@ public class MatsTestWebsocketServer {
                     @Override
                     public void lifeCycleStarted(LifeCycle event) {
                         log.info("######### Started server " + serverId + " on port " + port);
-                        log.info("WS_URL: ws://localhost:" + port + WEBSOCKET_PATH);
+                        log.info("HOOK_FOR_GRADLE_WEBSOCKET_URL: #[ws://localhost:" + port + WEBSOCKET_PATH + "]#");
                     }
                 });
 
@@ -351,7 +363,8 @@ public class MatsTestWebsocketServer {
                         // Yes -> Log, and try the next port by looping again
                         log.info("######### Failed to start server [" + serverId
                                 + "] on [" + port + "], trying next port.", e);
-                    } else {
+                    }
+                    else {
                         // No -> Some other IOException, re-throw to stop the server from starting.
                         throw e;
                     }

@@ -51,7 +51,7 @@ task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspat
     }
 
     doLast {
-        String serverClassname = "com.stolsvik.mats.websocket.MatsTestWebsocketServer";
+        String serverClassname = "com.stolsvik.mats.websocket.MatsTestWebsocketServer"
         logger.info("Starting MatsTestWebsocketServer");
         List<String> cmd = [
                 "${System.getenv("JAVA_HOME")}/bin/java",
@@ -65,24 +65,27 @@ task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspat
         File log = new File("$buildDir/logs/matsSocketServer-${LocalDateTime.now().withNano(0)}.log")
         log.parentFile.mkdirs();
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(server.inputStream, StandardCharsets.UTF_8));
+        Reader reader = new InputStreamReader(server.inputStream, StandardCharsets.UTF_8)
         log.withWriterAppend { out ->
             String line;
             while (wsUrls.size < 3 && (line = reader.readLine()) != null) {
                 out.writeLine(line)
-                int urlStart = line.indexOf("WS_URL: ")
-                int urlEnd = line.indexOf("json")
-                if (urlStart > -1 && urlEnd > urlStart) {
-                    String url = line.substring(urlStart + 8, urlEnd + 4)
-                    wsUrls.add(url)
-                    logger.info("Registering WS URL: $url");
+                logger.info("TestServer: $line")
+                if (line.contains('HOOK_FOR_GRADLE_WEBSOCKET_URL')) {
+                    int urlStart = line.indexOf("#[")
+                    int urlEnd = line.indexOf("]#")
+                    if (urlStart > -1 && urlEnd > urlStart) {
+                        String url = line.substring(urlStart + 2, urlEnd)
+                        wsUrls.add(url)
+                        logger.info("!! Registering WS URL: $url");
+                    }
                 }
             }
         }
         if (wsUrls.isEmpty()) {
             server.errorStream.eachLine { logger.error(it) }
             logger.error("Failed to execute: [${cmd.join(" ")}]")
-            throw new GradleException("Failed to start $serverClassname, check log above for command.");
+            throw new GradleException("Failed to start $serverClassname, check log above for command.")
         }
         logger.info("$serverClassname started");
 
@@ -104,10 +107,10 @@ task stopMatsTestWebsocketServer(dependsOn: startMatsTestWebsocketServer) {
     doLast {
         String shutdownUrl = startMatsTestWebsocketServer.wsUrls[0]
                 .replace("ws://", "http://")
-                .replace("/matssocket/json", "/shutdown");
+                .replace("/matssocket", "/shutdown");
         logger.info("Shutting down MatsTestWebsocketServer by invoking '$shutdownUrl")
         String response = new URL(shutdownUrl).text;
-        logger.info("Response: '${response}'")
+        logger.info("Response: '${response.trim()}'")
     }
 }
 

@@ -339,7 +339,7 @@ public interface MatsFactory extends StartStoppable {
     interface FactoryConfig extends MatsConfig {
         /**
          * Sets the name of the MatsFactory.
-         * 
+         *
          * @param name
          *            the name that the MatsFactory should have.
          */
@@ -383,7 +383,7 @@ public interface MatsFactory extends StartStoppable {
          * MapMessage, and this is the key). Needless to say, two MatsFactories which are configured differently here
          * will not be able to communicate. <b>Do not change this unless you have a compelling reason to why</b>, as you
          * then stray away from the standard, and it will be harder to later merge two setups.
-         * 
+         *
          * @param key
          *            the key name on which to store the "wire representation" of the Mats message if the underlying
          *            mechanism uses some kind of Map. Default is <code>"mats:trace"</code>.
@@ -460,7 +460,8 @@ public interface MatsFactory extends StartStoppable {
 
     /**
      * A base Wrapper for {@link MatsFactory}, which simply implements MatsFactory, takes a MatsFactory instance and
-     * forwards all calls to that. Meant to be extended to add extra functionality, e.g. Spring integration.
+     * forwards all calls to that. Use this if you need to wrap the MatsFactory, where most of the methods are
+     * pass-through to the target, as any changes to the MatsFactory interface then won't break your wrapper.
      */
     class MatsFactoryWrapper implements MatsFactory {
 
@@ -473,7 +474,7 @@ public interface MatsFactory extends StartStoppable {
 
         /**
          * Standard constructor, taking the wrapped {@link MatsFactory} instance.
-         * 
+         *
          * @param targetMatsFactory
          *            the {@link MatsFactory} instance which {@link #getTargetMatsFactory()} will return (and hence all
          *            forwarded methods will use).
@@ -499,7 +500,7 @@ public interface MatsFactory extends StartStoppable {
          * want to set it after it has been published to other threads, you will have to override both this method and
          * {@link #getTargetMatsFactory()} to provide for needed memory visibility semantics, i.e. establish a
          * happens-before edge between the setting of the instance and any other threads getting it.
-         * 
+         *
          * @param targetMatsFactory
          *            the {@link MatsFactory} which is returned by {@link #getTargetMatsFactory()}, unless that is
          *            overridden.

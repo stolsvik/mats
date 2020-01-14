@@ -38,7 +38,7 @@ stopMatsTestWebsocketServer.mustRunAfter(javascriptTest)
 // :: Helper methods for people too lazy to figure out node and run these from the javascript client folder.
 
 // Run the integration test continuously, retriggering on change in the javascript code. This assumes there is
-// a server listening on ws://localhost:8080/matssocket/json
+// a server listening on ws://localhost:8080/matssocket
 task javascriptTestWatch(type: YarnTask, dependsOn: [yarnInstall]) {
     args = ['testAll', '--watch']
 
@@ -48,6 +48,7 @@ task javascriptTestWatch(type: YarnTask, dependsOn: [yarnInstall]) {
 }
 
 check.dependsOn(javascriptTest)
+test.dependsOn(javascriptTest)
 
 // Start a server to host sample html files along with the MatsSocket.js library
 task serveHtml(type: YarnTask, dependsOn: [yarnInstall]) {
