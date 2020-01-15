@@ -26,7 +26,6 @@ String randomId([int length]) {
   return result;
 }
 
-/// Checks if you are awesome. Spoiler: you are.
 class MatsSocket {
   String appName;
   String appVersion;
@@ -148,7 +147,7 @@ class MatsSocket {
       var url = wsUrls[_nextUrlIndex];
       _log.info(
           'WebSocket not connected, connecting to url ${_nextUrlIndex} -> ${url}');
-      _websocketChannel = await socketFactory.connect(url, 'matssocket');
+      _websocketChannel = await socketFactory.connect(url, 'matssocket', authorization.token);
       _websocketChannelDone = Completer();
       _nextUrlIndex = (_nextUrlIndex + 1) % wsUrls.length;
 
@@ -435,7 +434,7 @@ class MatsSocket {
 /// It should return a new instance of a WebSocketChannel for the current platform.
 abstract class WebSocketChannelFactory {
   /// Connect to a WebSocketChannel
-  Future<WebSocketChannel> connect(String url, String protocol);
+  Future<WebSocketChannel> connect(String url, String protocol, String authorization);
 }
 
 // ======== Exceptions =============================================================================

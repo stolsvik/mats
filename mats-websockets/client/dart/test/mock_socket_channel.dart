@@ -95,7 +95,7 @@ class MockSocketFactory extends WebSocketChannelFactory {
     }
   });
 
-  Future<WebSocketChannel> connect(String url, String protocol) async {
+  Future<WebSocketChannel> connect(String url, String protocol, String authorization) async {
     print('Connecting');
     var channel = MockWebSocketChannel(url, protocol);
     channel.mockWebSocketSink.streamController.stream.expand((payload) {
