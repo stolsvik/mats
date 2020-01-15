@@ -20,10 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectReader;
-import com.fasterxml.jackson.databind.type.TypeFactory;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsBackendRuntimeException;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendRuntimeException;
@@ -42,11 +39,8 @@ import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleState
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
  */
-class MatsSocketSession implements Whole<String> {
+class MatsSocketSession implements Whole<String>, MatsSocketStatics {
     private static final Logger log = LoggerFactory.getLogger(MatsSocketSession.class);
-    private static final JavaType LIST_OF_MSG_TYPE = TypeFactory.defaultInstance().constructType(
-            new TypeReference<List<MatsSocketEnvelopeDto>>() {
-            });
 
     private final Session _webSocketSession;
     private final String _connectionId;
@@ -56,7 +50,7 @@ class MatsSocketSession implements Whole<String> {
     // Derived
     private final DefaultMatsSocketServer _matsSocketServer;
     private final AuthenticationContext _authenticationContext;
-    private final ObjectReader _jsonReader;
+    private final ObjectReader _envelopeListObjectReader;
 
     // Set
     private String _matsSocketSessionId;
@@ -65,12 +59,10 @@ class MatsSocketSession implements Whole<String> {
     private String _userId;
 
     private String _clientLibAndVersion;
-    private String _appName;
-    private String _appVersion;
+    private String _appNameAndVersion;
 
     MatsSocketSession(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
-            HandshakeRequest handshakeRequest,
-            SessionAuthenticator sessionAuthenticator) {
+            HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
         _webSocketSession = webSocketSession;
         _handshakeRequest = handshakeRequest;
         _connectionId = webSocketSession.getId() + "_" + DefaultMatsSocketServer.rnd(10);
@@ -79,7 +71,7 @@ class MatsSocketSession implements Whole<String> {
         // Derived
         _matsSocketServer = matsSocketServer;
         _authenticationContext = new AuthenticationContextImpl(_handshakeRequest, _webSocketSession);
-        _jsonReader = _matsSocketServer.getJackson().readerFor(LIST_OF_MSG_TYPE);
+        _envelopeListObjectReader = _matsSocketServer.getEnvelopeListObjectReader();
     }
 
     Session getWebSocketSession() {
@@ -96,192 +88,201 @@ class MatsSocketSession implements Whole<String> {
 
     @Override
     public void onMessage(String message) {
-        long clientMessageReceivedTimestamp = System.currentTimeMillis();
-        if (_matsSocketSessionId != null) {
-            MDC.put("matssocket.sessionId", _matsSocketSessionId);
-            MDC.put("matssocket.principal", _principal.getName());
-        }
-        log.info("WebSocket received message [" + message + "] on MatsSocketSessionId [" + _matsSocketSessionId
-                + "], WebSocket SessionId:" + _webSocketSession.getId() + ", this:"
-                + DefaultMatsSocketServer.id(this));
+        try { // try-finally: MDC.clear();
+            long clientMessageReceivedTimestamp = System.currentTimeMillis();
+            if (_matsSocketSessionId != null) {
+                MDC.put(MDC_SESSION_ID, _matsSocketSessionId);
+                MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
+                MDC.put(MDC_USER_ID, _userId);
+            }
+            if (_clientLibAndVersion != null) {
+                MDC.put(MDC_CLIENT_LIB_AND_VERSIONS, _clientLibAndVersion);
+                MDC.put(MDC_CLIENT_APP_NAME_AND_VERSION, _appNameAndVersion);
+            }
+            log.info("WebSocket received message [" + message + "] on MatsSocketSessionId [" + _matsSocketSessionId
+                    + "], WebSocket SessionId:" + _webSocketSession.getId() + ", this:"
+                    + DefaultMatsSocketServer.id(this));
 
-        List<MatsSocketEnvelopeDto> envelopes;
-        try {
-            envelopes = _jsonReader.readValue(message);
-        }
-        catch (IOException e) {
-            // TODO: Handle parse exceptions.
-            throw new AssertionError("Parse exception", e);
-        }
+            List<MatsSocketEnvelopeDto> envelopes;
+            try {
+                envelopes = _envelopeListObjectReader.readValue(message);
+            }
+            catch (IOException e) {
+                // TODO: Handle parse exceptions.
+                throw new AssertionError("Parse exception", e);
+            }
 
-        log.info("Messages: " + envelopes);
-        boolean shouldNotifyAboutExistingMessages = false;
-        String allMessagesReceivedFailSubtype = null;
-        String allMessagesReceivedFailDescription = null;
+            log.info("Messages: " + envelopes);
+            boolean shouldNotifyAboutExistingMessages = false;
+            String allMessagesReceivedFailSubtype = null;
+            String allMessagesReceivedFailDescription = null;
 
-        // :: 1. First check whether client want to close.
-        for (MatsSocketEnvelopeDto envelope : envelopes) {
-            if ("CLOSE_SESSION".equals(envelope.t)) {
-                // ?: Assert: CLOSE_SESSION should come alone.
-                if (envelopes.size() > 1) {
-                    // -> Not alone: Break!
-                    policyViolation("CLOSE_SESSION shall not be pipelined.");
+            // :: 1. First check whether client want to close.
+            for (MatsSocketEnvelopeDto envelope : envelopes) {
+                if ("CLOSE_SESSION".equals(envelope.t)) {
+                    // ?: Assert: CLOSE_SESSION should come alone.
+                    if (envelopes.size() > 1) {
+                        // -> Not alone: Break!
+                        policyViolation("CLOSE_SESSION shall not be pipelined.");
+                        return;
+                    }
+                    // Close session
+                    closeSession("From MatsSocketServer: Got CLOSE_SESSION (" +
+                            DefaultMatsSocketServer.escape(envelope.desc) + "): Closed!");
                     return;
                 }
-                // Close session
-                closeSession("From MatsSocketServer: Got CLOSE_SESSION (" +
-                        DefaultMatsSocketServer.escape(envelope.desc) + "): Closed!");
+            }
+
+            // :: 2. Look for Authorization header in any of the messages
+            // NOTE! Authorization header can come with ANY message!
+            for (MatsSocketEnvelopeDto envelope : envelopes) {
+                // ?: Pick out any Authorization header, i.e. the auth-string - it can come in any message.
+                if (envelope.auth != null) {
+                    // -> Yes, there was an authorization header sent along with this message
+                    _authorization = envelope.auth;
+                    log.info("Found authorization header in message of type [" + (envelope.st != null ? envelope.t + ':'
+                            + envelope.st : envelope.t) + "]");
+                    // No 'break', as we want to go through all messages and find the latest.
+                }
+            }
+
+            // AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
+
+            // :: 3. do we have Authorization header? (I.e. it must sent along in the very first pipeline..)
+            if (_authorization == null) {
+                log.error("We have not got Authorization header!");
+                policyViolation("Missing Authorization header");
                 return;
             }
-        }
 
-        // :: 2. Look for Authorization header in any of the messages
-        // NOTE! Authorization header can come with ANY message!
-        for (MatsSocketEnvelopeDto envelope : envelopes) {
-            // ?: Pick out any Authorization header, i.e. the auth-string - it can come in any message.
-            if (envelope.auth != null) {
-                // -> Yes, there was an authorization header sent along with this message
-                _authorization = envelope.auth;
-                // No 'break', as we want to go through all messages and find the latest.
+            // :: 4. Evaluate Authentication by Authorization header
+            boolean authenticationOk = doAuthentication();
+            // ?: Did this go OK?
+            if (!authenticationOk) {
+                // -> No, not OK - doAuthentication() has already closed session and websocket and the lot.
+                return;
             }
-        }
 
-        // AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
-
-        // :: 3. do we have Authorization header? (I.e. it must sent along in the very first pipeline..)
-        if (_authorization == null) {
-            log.error("We have not got Authorization header!");
-            policyViolation("Missing Authorization header");
-            return;
-        }
-
-        // :: 4. Evaluate Authentication by Authorization header
-        boolean authenticationOk = doAuthentication();
-        // ?: Did this go OK?
-        if (!authenticationOk) {
-            // -> No, not OK - doAuthentication() has already closed session and websocket and the lot.
-            return;
-        }
-
-        // :: 5. look for a HELLO message (should be first/alone, but we will reply to it immediately even if part of
-        // pipeline).
-        for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
-            MatsSocketEnvelopeDto envelope = it.next();
-            if ("HELLO".equals(envelope.t)) {
-                try { // try-finally: MDC.remove(..)
-                    MDC.put("matssocket.type", envelope.t);
-                    if (envelope.st != null) {
-                        MDC.put("matssocket.subType", envelope.st);
+            // :: 5. look for a HELLO message (should be first/alone, but we will reply to it immediately even if part
+            // of pipeline).
+            for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketEnvelopeDto envelope = it.next();
+                if ("HELLO".equals(envelope.t)) {
+                    try { // try-finally: MDC.remove(..)
+                        MDC.put(MDC_MESSAGE_TYPE, (envelope.st != null ? envelope.t + ':' + envelope.st : envelope.t));
+                        // Remove this HELLO envelope
+                        it.remove();
+                        // Handle the HELLO
+                        try {
+                            handleHello(clientMessageReceivedTimestamp, envelope);
+                            // Notify client about "new" (as in existing) messages, just in case there are any.
+                            shouldNotifyAboutExistingMessages = true;
+                        }
+                        catch (FailedHelloException e) {
+                            allMessagesReceivedFailSubtype = e.subType;
+                            allMessagesReceivedFailDescription = e.getMessage();
+                        }
                     }
-                    // Remove this HELLO envelope
-                    it.remove();
-                    // Handle the HELLO
-                    try {
-                        handleHello(clientMessageReceivedTimestamp, envelope);
-                        // Notify client about "new" (as in existing) messages, just in case there are any.
-                        shouldNotifyAboutExistingMessages = true;
+                    finally {
+                        MDC.remove(MDC_MESSAGE_TYPE);
                     }
-                    catch (FailedHelloException e) {
-                        allMessagesReceivedFailSubtype = e.subType;
-                        allMessagesReceivedFailDescription = e.getMessage();
+                    break;
+                }
+            }
+
+            // :: 6. Now go through and handle all the messages
+            List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
+            for (MatsSocketEnvelopeDto envelope : envelopes) {
+                try { // try-finally: MDC.remove..
+                    MDC.put(MDC_MESSAGE_TYPE, (envelope.st != null ? envelope.t + ':' + envelope.st : envelope.t));
+                    if (envelope.tid != null) {
+                        MDC.put(MDC_TRACE_ID, envelope.tid);
+                    }
+
+                    // ----- We do NOT KNOW whether we're authenticated!
+
+                    // Assert auth: ?: We do not accept other messages before authentication
+                    if ((_matsSocketSessionId == null) || (_principal == null)) {
+                        allMessagesReceivedFailSubtype = "AUTH_FAIL";
+                        allMessagesReceivedFailDescription = "Missing authentication.";
+                        // NOTE NOTE! Do NOT do 'continue' here, as the currently processing message should be failed!!
+                        // NOT 'continue'!!
+                    }
+
+                    // ?: Should we fail all messages?
+                    if (allMessagesReceivedFailSubtype != null) {
+                        // -> Yes, some other process has decided that the all/the rest of the messages should be
+                        // dropped.
+                        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
+                        replyEnvelope.t = "RECEIVED";
+                        replyEnvelope.st = allMessagesReceivedFailSubtype;
+                        replyEnvelope.desc = allMessagesReceivedFailDescription;
+                        replyEnvelope.cmseq = envelope.cmseq;
+                        replyEnvelope.tid = envelope.tid; // TraceId
+                        replyEnvelope.cid = envelope.cid; // CorrelationId
+                        replyEnvelope.cmcts = envelope.cmcts; // Set by client..
+                        replyEnvelope.cmrts = clientMessageReceivedTimestamp;
+                        replyEnvelope.cmrnn = _matsSocketServer.getMyNodename();
+                        replyEnvelope.mscts = System.currentTimeMillis();
+                        replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
+                        // Add this RECEIVED:<failed> message to return-pipeline.
+                        replyEnvelopes.add(replyEnvelope);
+                        // This is handled, so go to next.. (which also will be handled the same - failed)
+                        continue;
+                    }
+
+                    // ?: Because I am paranoid, we check this once again.
+                    if ((_matsSocketSessionId == null) || (_principal == null)) {
+                        // -> Well, someone must have changed the code to fuck this up.
+                        throw new AssertionError(
+                                "Principal or MatsSessionId was null at a place where it should not be.");
+                    }
+
+                    // ----- We ARE authenticated!
+
+                    if ("PING".equals(envelope.t)) {
+                        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
+                        replyEnvelope.t = "PONG";
+                        replyEnvelope.cmseq = envelope.cmseq;
+                        replyEnvelope.tid = envelope.tid; // TraceId
+                        replyEnvelope.cid = envelope.cid; // CorrelationId
+                        replyEnvelope.cmcts = envelope.cmcts; // Set by client..
+                        replyEnvelope.cmrts = clientMessageReceivedTimestamp;
+                        replyEnvelope.cmrnn = _matsSocketServer.getMyNodename();
+                        replyEnvelope.mscts = System.currentTimeMillis();
+                        replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
+
+                        // Add PONG message to return-pipeline (should be sole message, really - not pipelined)
+                        replyEnvelopes.add(replyEnvelope);
+                        // The pong is handled, so go to next message
+                        continue;
+                    }
+
+                    if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t)) {
+                        handleSendOrRequest(clientMessageReceivedTimestamp, replyEnvelopes, envelope);
+                        // The message is handled, so go to next message.
+                        continue;
                     }
                 }
                 finally {
-                    MDC.remove("matssocket.type");
-                    MDC.remove("matssocket.subType");
-                }
-                break;
-            }
-        }
-
-        // :: 6. Now go through and handle all the messages
-        List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
-        for (MatsSocketEnvelopeDto envelope : envelopes) {
-            try { // try-finally: MDC.clear()
-                MDC.put("matssocket.type", envelope.t);
-                if (envelope.st != null) {
-                    MDC.put("matssocket.subType", envelope.st);
-                }
-
-                // ----- We do NOT KNOW whether we're authenticated!
-
-                // Assert auth: ?: We do not accept other messages before authentication
-                if ((_matsSocketSessionId == null) || (_principal == null)) {
-                    allMessagesReceivedFailSubtype = "AUTH_FAIL";
-                    allMessagesReceivedFailDescription = "Missing authentication.";
-                    // NOTE NOTE! Do NOT do 'continue' here, as the currently processing message should be failed!!
-                    // NOT 'continue'!!
-                }
-
-                // ?: Should we fail all messages?
-                if (allMessagesReceivedFailSubtype != null) {
-                    // -> Yes, some other process has decided that the all/the rest of the messages should be dropped.
-                    MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
-                    replyEnvelope.t = "RECEIVED";
-                    replyEnvelope.st = allMessagesReceivedFailSubtype;
-                    replyEnvelope.desc = allMessagesReceivedFailDescription;
-                    replyEnvelope.cmseq = envelope.cmseq;
-                    replyEnvelope.tid = envelope.tid; // TraceId
-                    replyEnvelope.cid = envelope.cid; // CorrelationId
-                    replyEnvelope.cmcts = envelope.cmcts; // Set by client..
-                    replyEnvelope.cmrts = clientMessageReceivedTimestamp;
-                    replyEnvelope.cmrnn = _matsSocketServer.getMyNodename();
-                    replyEnvelope.mscts = System.currentTimeMillis();
-                    replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
-                    // Add this RECEIVED:<failed> message to return-pipeline.
-                    replyEnvelopes.add(replyEnvelope);
-                    // This is handled, so go to next.. (which also will be handled the same - failed)
-                    continue;
-                }
-
-                // ?: Because I am paranoid, we check this once again.
-                if ((_matsSocketSessionId == null) || (_principal == null)) {
-                    // -> Well, someone must have changed the code to fuck this up.
-                    throw new AssertionError("Principal or MatsSessionId was null at a place where it should not be.");
-                }
-
-                // ----- We ARE authenticated!
-
-                if ("PING".equals(envelope.t)) {
-                    MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
-                    replyEnvelope.t = "PONG";
-                    replyEnvelope.cmseq = envelope.cmseq;
-                    replyEnvelope.tid = envelope.tid; // TraceId
-                    replyEnvelope.cid = envelope.cid; // CorrelationId
-                    replyEnvelope.cmcts = envelope.cmcts; // Set by client..
-                    replyEnvelope.cmrts = clientMessageReceivedTimestamp;
-                    replyEnvelope.cmrnn = _matsSocketServer.getMyNodename();
-                    replyEnvelope.mscts = System.currentTimeMillis();
-                    replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
-
-                    // Add PONG message to return-pipeline (should be sole message, really - not pipelined)
-                    replyEnvelopes.add(replyEnvelope);
-                    // The pong is handled, so go to next message
-                    continue;
-                }
-
-                if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t)) {
-                    handleSendOrRequest(clientMessageReceivedTimestamp, replyEnvelopes, envelope);
-                    // The message is handled, so go to next message.
-                    continue;
+                    MDC.remove(MDC_MESSAGE_TYPE);
                 }
             }
-            finally {
-                MDC.remove("matssocket.type");
-                MDC.remove("matssocket.subType");
+
+            // TODO: Store last messageSequenceId
+
+            // Send all replies
+            if (replyEnvelopes.size() > 0) {
+                sendReplies(replyEnvelopes);
+            }
+            // ?: Notify about existing messages
+            if (shouldNotifyAboutExistingMessages) {
+                // -> Yes, so do it now.
+                _matsSocketServer.getMessageToWebSocketForwarder().notifyMessageFor(this);
             }
         }
-
-        // TODO: Store last messageSequenceId
-
-        // Send all replies
-        if (replyEnvelopes.size() > 0) {
-            sendReplies(replyEnvelopes);
-        }
-        // ?: Notify about existing messages
-        if (shouldNotifyAboutExistingMessages) {
-            // -> Yes, so do it now.
-            _matsSocketServer.getMessageToWebSocketForwarder().notifyMessageFor(this);
+        finally {
+            MDC.clear();
         }
     }
 
@@ -423,14 +424,15 @@ class MatsSocketSession implements Whole<String> {
         if (_clientLibAndVersion == null) {
             throw new FailedHelloException("ERROR", "Missing ClientLibAndVersion (clv) in HELLO envelope.");
         }
-        _appName = envelope.an;
-        if (_appName == null) {
+        String appName = envelope.an;
+        if (appName == null) {
             throw new FailedHelloException("ERROR", "Missing AppName (an) in HELLO envelope.");
         }
-        _appVersion = envelope.av;
-        if (_appVersion == null) {
+        String appVersion = envelope.av;
+        if (appVersion == null) {
             throw new FailedHelloException("ERROR", "Missing AppVersion (av) in HELLO envelope.");
         }
+        _appNameAndVersion = appName + ";" + appVersion;
 
         // ----- We're authenticated.
 
@@ -557,6 +559,9 @@ class MatsSocketSession implements Whole<String> {
         String eid = envelope.eid;
         log.info("  \\- " + envelope.t + " to:[" + eid + "], reply:[" + envelope.reid + "], msg:["
                 + envelope.msg + "].");
+
+        // TODO: Validate incoming message: cmseq, tid, whatever - reject if not OK.
+
         MatsSocketEndpointRegistration<?, ?, ?, ?> registration = _matsSocketServer
                 .getMatsSocketEndpointRegistration(eid);
         IncomingAuthorizationAndAdapter incomingAuthEval = registration.getIncomingAuthEval();

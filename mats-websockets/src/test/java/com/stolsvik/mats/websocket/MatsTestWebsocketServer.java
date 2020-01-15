@@ -209,7 +209,7 @@ public class MatsTestWebsocketServer {
     public static class OutOfBandCloseSessionServlet extends HttpServlet {
         @Override
         protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-            String sessonId = req.getParameter("sesson_id");
+            String sessonId = req.getParameter("session_id");
             MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext().getAttribute(
                     MatsSocketServer.class.getName());
             matsSocketServer.closeSession(sessonId);

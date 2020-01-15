@@ -404,7 +404,7 @@
                     if ((typeof window !== 'undefined') && (typeof window.navigator !== 'undefined')) {
                         // -> Yes, navigator present, so then we can fire off the out-of-band close too
                         // Fire off a "close" over HTTP using navigator.sendBeacon(), so that even if the socket is closed, it is possible to terminate the MatsSocket SessionId.
-                        let closeSesionUrl = currentWsUrl.replace("ws", "http") + "/close_session?sessionId=" + existingSessionId;
+                        let closeSesionUrl = currentWsUrl.replace("ws", "http") + "/close_session?session_id=" + existingSessionId;
                         log("  \\- Send an out-of-band (i.e. HTTP) close_session, using navigator.sendBeacon('" + closeSesionUrl + "').");
                         let success = window.navigator.sendBeacon(closeSesionUrl);
                         log("    \\- Result: " + (success ? "Enqueued POST, but do not know whether anyone received it - check Network tab of Dev Tools." : "Did NOT manage to enqueue a POST."));
