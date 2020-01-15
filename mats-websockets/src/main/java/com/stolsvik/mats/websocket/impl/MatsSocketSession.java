@@ -1,7 +1,6 @@
 package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
-import java.io.Writer;
 import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,6 +11,7 @@ import java.util.Optional;
 import javax.websocket.CloseReason;
 import javax.websocket.CloseReason.CloseCodes;
 import javax.websocket.MessageHandler.Whole;
+import javax.websocket.RemoteEndpoint.Basic;
 import javax.websocket.Session;
 import javax.websocket.server.HandshakeRequest;
 
@@ -21,6 +21,7 @@ import org.slf4j.MDC;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsBackendRuntimeException;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendRuntimeException;
@@ -48,9 +49,11 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
     private final SessionAuthenticator _sessionAuthenticator;
 
     // Derived
+    private final Basic _webSocketBasicRemote;
     private final DefaultMatsSocketServer _matsSocketServer;
     private final AuthenticationContext _authenticationContext;
     private final ObjectReader _envelopeListObjectReader;
+    private final ObjectWriter _envelopeListObjectWriter;
 
     // Set
     private String _matsSocketSessionId;
@@ -69,13 +72,21 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         _sessionAuthenticator = sessionAuthenticator;
 
         // Derived
+        _webSocketBasicRemote = _webSocketSession.getBasicRemote();
         _matsSocketServer = matsSocketServer;
         _authenticationContext = new AuthenticationContextImpl(_handshakeRequest, _webSocketSession);
         _envelopeListObjectReader = _matsSocketServer.getEnvelopeListObjectReader();
+        _envelopeListObjectWriter = _matsSocketServer.getEnvelopeListObjectWriter();
     }
 
     Session getWebSocketSession() {
         return _webSocketSession;
+    }
+
+    void webSocketSendText(String text) throws IOException {
+        synchronized (_webSocketBasicRemote) {
+            _webSocketBasicRemote.sendText(text);
+        }
     }
 
     String getId() {
@@ -273,12 +284,23 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
 
             // Send all replies
             if (replyEnvelopes.size() > 0) {
-                sendReplies(replyEnvelopes);
+                try {
+                    String json = _envelopeListObjectWriter.writeValueAsString(replyEnvelopes);
+                    webSocketSendText(json);
+                }
+                catch (JsonProcessingException e) {
+                    throw new AssertionError("Huh, couldn't serialize message?!", e);
+                }
+                catch (IOException e) {
+                    // TODO: Handle!
+                    // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
+                    throw new AssertionError("Hot damn.", e);
+                }
             }
             // ?: Notify about existing messages
             if (shouldNotifyAboutExistingMessages) {
                 // -> Yes, so do it now.
-                _matsSocketServer.getMessageToWebSocketForwarder().notifyMessageFor(this);
+                _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
             }
         }
         finally {
@@ -384,22 +406,6 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         }
         // This went smooth.
         return true;
-    }
-
-    private void sendReplies(List<MatsSocketEnvelopeDto> replyEnvelopes) {
-        try {
-            Writer sendWriter = _webSocketSession.getBasicRemote().getSendWriter();
-            // Evidently this closes the Writer..
-            _matsSocketServer.getJackson().writeValue(sendWriter, replyEnvelopes);
-        }
-        catch (JsonProcessingException e) {
-            throw new AssertionError("Huh, couldn't serialize message?!", e);
-        }
-        catch (IOException e) {
-            // TODO: Handle!
-            // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
-            throw new AssertionError("Hot damn.", e);
-        }
     }
 
     private static class FailedHelloException extends Exception {
@@ -544,7 +550,18 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
 
         // Pack it over to client
         List<MatsSocketEnvelopeDto> replySingleton = Collections.singletonList(replyEnvelope);
-        sendReplies(replySingleton);
+        try {
+            String json = _envelopeListObjectWriter.writeValueAsString(replySingleton);
+            webSocketSendText(json);
+        }
+        catch (JsonProcessingException e) {
+            throw new AssertionError("Huh, couldn't serialize message?!", e);
+        }
+        catch (IOException e) {
+            // TODO: Handle!
+            // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
+            throw new AssertionError("Hot damn.", e);
+        }
 
         // ?: Did the client expect existing session, but there was none?
         if ("EXPECT_EXISTING".equals(envelope.st) && (!reconnectedOk)) {

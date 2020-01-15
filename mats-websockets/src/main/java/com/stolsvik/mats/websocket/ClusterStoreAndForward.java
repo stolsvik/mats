@@ -102,14 +102,16 @@ public interface ClusterStoreAndForward {
      *            the matsSocketSessionId that the message is meant for.
      * @param traceId
      *            the server-side traceId for this message.
+     * @param clientMessageSequence
+     *            the envelope.cmseq, or -1 if MULTI
      * @param type
-     *            the type of the reply, currently "REPLY" or "ERROR".
+     *            the type of the reply, currently "REPLY", or "MULTI" of a JSON Array of multiple messages.
      * @param message
      *            the JSON-serialized MatsSocket <b>Envelope</b>.
      * @return the current node holding MatsSocket Session, or empty if none.
      */
-    Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
-            String message) throws DataAccessException;
+    Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId, long clientMessageSequence,
+            String type, String message) throws DataAccessException;
 
     /**
      * Fetch a set of messages, up to 'maxNumberOfMessages'.
@@ -185,6 +187,8 @@ public interface ClusterStoreAndForward {
 
         String getTraceId();
 
+        long getMessageSequence();
+
         String getEnvelopeJson();
     }
 
@@ -195,15 +199,17 @@ public interface ClusterStoreAndForward {
 
         private final String _type;
         private final String _traceId;
+        private final long _messageSequence;
         private final String _envelopeJson;
 
         public SimpleStoredMessage(long id, int deliveryAttempt, long storedTimestamp, String type, String traceId,
-                String envelopeJson) {
+                long messageSequence, String envelopeJson) {
             _id = id;
             _deliveryAttempt = deliveryAttempt;
             _storedTimestamp = storedTimestamp;
             _type = type;
             _traceId = traceId;
+            _messageSequence = messageSequence;
             _envelopeJson = envelopeJson;
         }
 
@@ -230,6 +236,11 @@ public interface ClusterStoreAndForward {
         @Override
         public String getTraceId() {
             return _traceId;
+        }
+
+        @Override
+        public long getMessageSequence() {
+            return _messageSequence;
         }
 
         @Override

@@ -14,4 +14,12 @@ public interface MatsSocketStatics {
 
     String MDC_MESSAGE_TYPE = "matssocket.msgType";
     String MDC_TRACE_ID = "traceId";
+
+    default float ms(long nanos) {
+        return (float) (Math.round(nanos / 10_000d) / 1_00d);
+    }
+
+    default float msSince(long nanosStart) {
+        return ms(System.nanoTime() - nanosStart);
+    }
 }

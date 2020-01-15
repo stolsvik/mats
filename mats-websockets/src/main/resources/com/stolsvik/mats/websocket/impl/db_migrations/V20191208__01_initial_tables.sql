@@ -15,15 +15,16 @@ CREATE TABLE mats_socket_session (
     CONSTRAINT PK_mats_socket_session PRIMARY KEY (session_id)
 );
 
-CREATE TABLE mats_socket_message (
-    session_id VARCHAR(255) NOT NULL,
-    message_id BIGINT NOT NULL,
-    trace_id ${texttype} NOT NULL,
+CREATE TABLE mats_socket_outbox (
+    session_id VARCHAR(255) NOT NULL, -- sessionId which this message belongs to
+    message_id BIGINT NOT NULL,  -- random long.
+    mseq INT NOT NULL,  -- envelope.[c|s]mseq, [Client|Server] Message Sequence, or -1 if type==MULTI
+    trace_id ${texttype} NOT NULL, -- what it says on the tin
     stored_timestamp BIGINT NOT NULL,  -- millis since epoch.
     delivery_count INT NOT NULL, -- Starts at zero.
-    type VARCHAR(255) NOT NULL,
-    message_text ${texttype},
+    type VARCHAR(255) NOT NULL, -- envelope.t, i.e. "type" - or MULTI for a JSON array of messages
+    message_text ${texttype}, --
     message_binary ${binarytype},
 
-    CONSTRAINT PK_mats_socket_message PRIMARY KEY (session_id, message_id)
+    CONSTRAINT PK_mats_socket_outbox PRIMARY KEY (session_id, message_id)
 );

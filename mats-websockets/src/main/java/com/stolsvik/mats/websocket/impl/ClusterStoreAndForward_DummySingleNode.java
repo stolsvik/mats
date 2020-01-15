@@ -114,8 +114,8 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
     }
 
     @Override
-    public Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
-            String message) {
+    public Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId,
+            long messageSequence, String type, String message) {
         MsStoreSession msStoreSession = _currentSessions.get(matsSocketSessionId);
         // ?: Did we have such a MatsSocketSession?
         if (msStoreSession == null) {
@@ -129,7 +129,7 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
         long messageId = ThreadLocalRandom.current().nextLong();
         // Store the message
         msStoreSession._messages.add(new SimpleStoredMessage(messageId, 0, System.currentTimeMillis(),
-                type, traceId, message));
+                type, traceId, messageSequence, message));
 
         // Return current node
         return msStoreSession.hasRegistration()
@@ -164,7 +164,7 @@ public class ClusterStoreAndForward_DummySingleNode implements ClusterStoreAndFo
                 // Add it back with deliveryAttempts increased + 1.
                 // NOTE: This is OK since it is CopyOnWriteArrayList
                 storedMessages.add(new SimpleStoredMessage(msg.getId(), msg.getDeliveryAttempt() + 1, msg
-                        .getStoredTimestamp(), msg.getType(), msg.getTraceId(), msg.getEnvelopeJson()));
+                        .getStoredTimestamp(), msg.getType(), msg.getTraceId(), msg.getMessageSequence(), msg.getEnvelopeJson()));
             }
         }
     }

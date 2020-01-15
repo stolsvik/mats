@@ -264,7 +264,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             deleteSession.setString(1, matsSocketSessionId);
             deleteSession.execute();
 
-            PreparedStatement deleteMessages = con.prepareStatement("DELETE FROM mats_socket_message"
+            PreparedStatement deleteMessages = con.prepareStatement("DELETE FROM mats_socket_outbox"
                     + " WHERE session_id = ?");
             deleteMessages.setString(1, matsSocketSessionId);
             deleteMessages.execute();
@@ -272,21 +272,22 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId, String type,
-            String message) throws DataAccessException {
+    public Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId,
+            long messageSequence, String type, String message) throws DataAccessException {
         return withConnectionReturn(con -> {
-            PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_message"
-                    + "(message_id, session_id, trace_id,"
+            PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_outbox"
+                    + "(message_id, session_id, trace_id, mseq,"
                     + " stored_timestamp, delivery_count, type, message_text)"
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?)");
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
             long randomId = ThreadLocalRandom.current().nextLong();
             insert.setLong(1, randomId);
             insert.setString(2, matsSocketSessionId);
             insert.setString(3, traceId);
-            insert.setLong(4, System.currentTimeMillis());
-            insert.setInt(5, 0);
-            insert.setString(6, type);
-            insert.setString(7, message);
+            insert.setLong(4, messageSequence);
+            insert.setLong(5, System.currentTimeMillis());
+            insert.setInt(6, 0);
+            insert.setString(7, type);
+            insert.setString(8, message);
             insert.execute();
 
             return _getSession(matsSocketSessionId, con, true);
@@ -299,17 +300,17 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         return withConnectionReturn(con -> {
             // The old MS JDBC Driver 'jtds' don't handle parameter insertion for TOP.
             PreparedStatement insert = con.prepareStatement("SELECT TOP " + maxNumberOfMessages
-                    + "          message_id, session_id, trace_id,"
+                    + "          message_id, session_id, trace_id, mseq,"
                     + "          stored_timestamp, delivery_count, type, message_text"
-                    + "  FROM mats_socket_message"
+                    + "  FROM mats_socket_outbox"
                     + " WHERE session_id = ?");
             insert.setString(1, matsSocketSessionId);
             ResultSet rs = insert.executeQuery();
             List<StoredMessage> list = new ArrayList<>();
             while (rs.next()) {
-                SimpleStoredMessage sm = new SimpleStoredMessage(rs.getLong(1), rs.getInt(5),
-                        rs.getLong(4), rs.getString(6), rs.getString(3),
-                        rs.getString(7));
+                SimpleStoredMessage sm = new SimpleStoredMessage(rs.getLong(1), rs.getInt(6),
+                        rs.getLong(5), rs.getString(7), rs.getString(3), rs.getLong(4),
+                        rs.getString(8));
                 list.add(sm);
             }
             return list;
@@ -320,7 +321,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public void messagesComplete(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException {
         withConnection(con -> {
             // TODO / OPTIMIZE: Make "in" optimizations.
-            PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM mats_socket_message"
+            PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM mats_socket_outbox"
                     + " WHERE session_id = ?"
                     + "   AND message_id = ?");
             for (Long messageId : messageIds) {
@@ -336,7 +337,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public void messagesFailedDelivery(String matsSocketSessionId, Collection<Long> messageIds)
             throws DataAccessException {
         withConnection(con -> {
-            PreparedStatement update = con.prepareStatement("UPDATE mats_socket_message"
+            PreparedStatement update = con.prepareStatement("UPDATE mats_socket_outbox"
                     + "   SET delivery_count = delivery_count + 1"
                     + " WHERE session_id = ?"
                     + "   AND message_id = ?");

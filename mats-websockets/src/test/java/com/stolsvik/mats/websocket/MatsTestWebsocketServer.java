@@ -87,7 +87,7 @@ public class MatsTestWebsocketServer {
                     matsSerializer);
             // Configure the MatsFactory for testing (remember, we're running two instances in same JVM)
             // .. Concurrency of only 1
-            _matsFactory.getFactoryConfig().setConcurrency(1);
+            _matsFactory.getFactoryConfig().setConcurrency(10);
             // .. Use port number of current server as postfix for name of MatsFactory, and of nodename
             Integer portNumber = (Integer) sce.getServletContext().getAttribute(CONTEXT_ATTRIBUTE_PORTNUMBER);
             _matsFactory.getFactoryConfig().setName("MF_Server_" + portNumber);

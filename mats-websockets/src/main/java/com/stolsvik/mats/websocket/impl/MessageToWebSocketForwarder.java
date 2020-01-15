@@ -1,22 +1,21 @@
 package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
-import java.io.Writer;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import javax.websocket.RemoteEndpoint.Basic;
 import javax.websocket.Session;
 
-import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredMessage;
 
@@ -25,7 +24,7 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredMessage;
  *
  * @author Endre Stølsvik 2019-12 - http://stolsvik.com/, endre@stolsvik.com
  */
-class MessageToWebSocketForwarder {
+class MessageToWebSocketForwarder implements MatsSocketStatics {
     private static final Logger log = LoggerFactory.getLogger(MessageToWebSocketForwarder.class);
 
     private final DefaultMatsSocketServer _matsSocketServer;
@@ -33,7 +32,7 @@ class MessageToWebSocketForwarder {
 
     private final ThreadPoolExecutor _threadPool;
 
-    private final Map<String, Long> _handlersCurrentlyRunningWithNotificationCount = new HashMap<>();
+    private final ConcurrentHashMap<String, Integer> _handlersCurrentlyRunningWithNotificationCount = new ConcurrentHashMap<>();
     private final AtomicInteger _threadNumber = new AtomicInteger();
 
     public MessageToWebSocketForwarder(DefaultMatsSocketServer defaultMatsSocketServer,
@@ -81,37 +80,39 @@ class MessageToWebSocketForwarder {
         _threadPool.shutdownNow();
     }
 
-    void notifyMessageFor(MatsSocketSession matsSocketSession) {
+    void newMessagesInCsafNotify(MatsSocketSession matsSocketSession) {
+        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketSession.getId() + "]");
         // :: Check if there is an existing handler for this MatsSocketSession
-        String matsSocketSessionId = matsSocketSession.getId();
-        synchronized (_handlersCurrentlyRunningWithNotificationCount) {
-            // ?: Check if we already have a message handler running for this sessionId
-            Long count = _handlersCurrentlyRunningWithNotificationCount.get(matsSocketSessionId);
-            // ?: Did we have any count here?
-            if (count != null) {
-                // -> Yes, so just increase this, and the existing handler will take care of it.
-                _handlersCurrentlyRunningWithNotificationCount.put(matsSocketSessionId, count
-                        + 1);
-                // We're done
-                return;
+        String uniqueId = matsSocketSession.getId() + matsSocketSession.getConnectionId();
+        boolean[] fireOffNewHandler = new boolean[1];
+
+        _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
+            // ?: Check whether there is an existing handler in place
+            if (count == null) {
+                // -> No there are not, so we need to fire off one
+                fireOffNewHandler[0] = true;
+                // The new count is 1
+                return 1;
             }
+            // E-> There was existing.
+            // The new count is whatever it was + 1
+            return count + 1;
+        });
 
-            // E-> No, there was not a handler running, so we must make one
-            // We will now fire off a handler, with 1 in count
-            _handlersCurrentlyRunningWithNotificationCount.put(matsSocketSessionId, 1L);
+        // ?: Should we fire off new handler?
+        if (fireOffNewHandler[0]) {
+            // -> Yes, none were running, so fire off new handler.
+            _threadPool.execute(() -> this.handlerRunnable(matsSocketSession, uniqueId));
         }
-
-        // ----- There was no existing handler for this MatsSocketSession
-
-        // Fire off a new handler.
-        _threadPool.execute(() -> this.handlerRunnable(matsSocketSession));
     }
 
-    void handlerRunnable(MatsSocketSession matsSocketSession) {
+    void handlerRunnable(MatsSocketSession matsSocketSession, String uniqueId) {
         String matsSocketSessionId = matsSocketSession.getId();
         Session webSocketSession = matsSocketSession.getWebSocketSession();
 
-        try { // try-finally: Remove ourselves from the "currently running handlers".
+        boolean removeOnExit = true;
+
+        try { // try-catchAll: Log heavily.
 
             RENOTIFY: while (true) { // LOOP: "Re-notifications"
                 // ?: Check if WebSocket Session is still open.
@@ -138,7 +139,6 @@ class MessageToWebSocketForwarder {
                         // this will pretty much guaranteed not work, so just exit out.
                         return;
                     }
-
                     // Forward to new home (Note: It can theoretically be us, due to race wrt. close & reconnect)
                     _matsSocketServer.notifyHomeNodeIfAnyAboutNewMessage(matsSocketSessionId);
                     // We're done, exit.
@@ -146,6 +146,7 @@ class MessageToWebSocketForwarder {
                 }
 
                 while (true) { // LOOP: Clear out currently stored messages from ClusterStoreAndForward store
+                    long nanos_start_GetMessages = System.nanoTime();
                     List<StoredMessage> messagesForSession;
                     try {
                         messagesForSession = _clusterStoreAndForward
@@ -157,6 +158,7 @@ class MessageToWebSocketForwarder {
                                 + "'. Bailing out, hoping for self-healer process to figure it out.", e);
                         return;
                     }
+                    float millisGetMessages = msSince(nanos_start_GetMessages);
 
                     // ?: Check if we're empty of messages
                     // (Notice how this logic always requires a final query which returns zero messages)
@@ -173,19 +175,21 @@ class MessageToWebSocketForwarder {
 
                     // :: Forward message(s) over WebSocket
                     try {
+                        long nanos_start_SendMessage = System.nanoTime();
                         String nowString = Long.toString(System.currentTimeMillis());
                         // :: Feed the JSONs over, manually piecing together a JSON Array.
-                        // Fetch the output sink
-                        Writer writer = webSocketSession.getBasicRemote().getSendWriter();
+                        // NOTE: It was tempting to fetch the Basic.getSendWriter() and feed the pieces in
+                        // there, but that gave for some godforsaken reason an awful performance.
+                        StringBuilder buf = new StringBuilder();
                         // Create the JSON Array
-                        writer.append('[');
+                        buf.append('[');
                         boolean first = true;
                         for (StoredMessage storedMessage : messagesForSession) {
                             if (first) {
                                 first = false;
                             }
                             else {
-                                writer.append(',');
+                                buf.append(',');
                             }
                             String json = storedMessage.getEnvelopeJson();
                             // :: Replace in the sent timestamp and this node's nodename.
@@ -193,13 +197,17 @@ class MessageToWebSocketForwarder {
                                     .replaceFirst(nowString);
                             json = DefaultMatsSocketServer.REPLACE_VALUE_REPLY_NODENAME_REGEX.matcher(json)
                                     .replaceFirst(_matsSocketServer.getMyNodename());
-                            writer.append(json);
+                            buf.append(json);
                         }
-                        writer.append(']');
-                        writer.close();
+                        buf.append(']');
+
+                        // Send it over WebSocket.
+                        matsSocketSession.webSocketSendText(buf.toString());
+                        float millisSendMessages = msSince(nanos_start_SendMessage);
                         log.info("Finished sending '" + messagesForSession.size() + "' message(s) with TraceIds ["
-                                + traceIds + "] to MatsSession [" + matsSocketSession + "] over WebSocket session ["
-                                + webSocketSession + "].");
+                                + traceIds + "] to MatsSession [" + matsSocketSession + "] over WebSocket SessionId ["
+                                + webSocketSession.getId() + "], get took [" + millisGetMessages
+                                + "ms], send took:[" + millisSendMessages + "ms]");
                     }
                     catch (IOException ioe) {
                         // -> Evidently got problems forwarding the message over WebSocket
@@ -269,13 +277,13 @@ class MessageToWebSocketForwarder {
                  * guaranteed be one handler that AFTER the INSERT will evaluate whether it is still on store. Again:
                  * Either it was sweeped up in a previous handler round, or a new handler will be dispatched.
                  */
-                synchronized (_handlersCurrentlyRunningWithNotificationCount) {
-                    Long count = _handlersCurrentlyRunningWithNotificationCount.get(matsSocketSessionId);
+                boolean shouldExit[] = new boolean[1];
+                _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
                     // ?: Is this 1, meaning that we are finishing off our handler rounds?
                     if (count == 1) {
-                        // -> Yes, so this would be a decrease to zero
-                        // Finally handler will remove us from currently running handlers - we're done, exit.
-                        return;
+                        // -> Yes, so this would be a decrease to zero - we're done, exit.
+                        shouldExit[0] = true;
+                        return null;
                     }
                     // E-> It was MORE than 1.
                     /*
@@ -286,16 +294,33 @@ class MessageToWebSocketForwarder {
                      * sure that we will have handled any outstanding messages that we've been notified about /until
                      * now/.
                      */
-                    _handlersCurrentlyRunningWithNotificationCount.put(matsSocketSessionId, 1L);
+                    return 1;
+                });
+
+                // ----- Now, either we loop since there was more to do, or we exit out since we were empty.
+
+                // NOTICE! There is no race here, as if a new notification is just coming in, he will see an empty
+                // slot in the map, and fire off a new handler. Thus, there might be two handlers running at the same
+                // time: This one, which is exiting, and the new one, which is just starting.
+
+                // ?: Should we exit?
+                if (shouldExit[0]) {
+                    // -> Yes, so do.
+                    // We've already remove this entry, so don't bother doing it again
+                    removeOnExit = false;
+                    // Return out.
+                    return;
                 }
             }
         }
+        catch (Throwable t) {
+            log.error("This should never happen.", t);
+        }
         finally {
-            // Before exiting, we must remove us from the "currently running handlers" map.
-            synchronized (_handlersCurrentlyRunningWithNotificationCount) {
-                _handlersCurrentlyRunningWithNotificationCount.remove(matsSocketSessionId);
+            // ?: If we exited out in any other fashion than "end of messages", then we must clean up after ourselves.
+            if (removeOnExit) {
+                _handlersCurrentlyRunningWithNotificationCount.remove(uniqueId);
             }
         }
-
     }
 }

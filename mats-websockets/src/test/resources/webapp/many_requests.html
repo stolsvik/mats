@@ -26,7 +26,7 @@ its own separate callback (i.e. not targeting a common MatsSocket "Endpoint") th
 the specific cell with its timing information.<br>
 <i id="statistics">Here will be statistics...</i>
 
-<script src="MatsSocket.js"></script>
+<script src="mats/MatsSocket.js"></script>
 
 <script>
     function tableCreate(rows, columns) {
@@ -64,7 +64,7 @@ the specific cell with its timing information.<br>
     var startMillis = Date.now();
 
     // Fire off a request for each of the Table's cells.
-    for (var i = 0; i < total; i++) {
+    for (let i = 0; i < total; i++) {
         // Rant: Goddamn scopes of JS. Cool, but a bit too magic. (Problem: the "i" is closed-over in the setTimeout function closure)
         setTimeout((function (innerI) {
             // .. this "return function" here is to get a separately-scoped "i", called "innerI".
@@ -79,9 +79,8 @@ the specific cell with its timing information.<br>
                     {
                         string: "Request String:" + requestId,
                         number: Math.E * innerI
-                    },
-                    // This is the Reply-callback
-                    function (event) {
+                    })
+                    .then(function (event) {
                         // Setting data in Table's cell
                         var timeTakenMs = Date.now() - event.clientMessageCreated;
                         sumTimeMillis += timeTakenMs;
@@ -100,6 +99,9 @@ the specific cell with its timing information.<br>
                                 + " ms, throughput: " + throughputPerSecond + " msg/sec";
                         }
                     });
+                if (i % 400 === 0) {
+                    matsSocket.flush();
+                }
 
             }
         })(i), 0);

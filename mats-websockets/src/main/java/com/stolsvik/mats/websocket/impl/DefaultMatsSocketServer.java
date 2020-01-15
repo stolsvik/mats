@@ -37,6 +37,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.type.TypeFactory;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -225,6 +226,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     private final ClusterStoreAndForward _clusterStoreAndForward;
     private final ObjectMapper _jackson;
     private final ObjectReader _envelopeListObjectReader;
+    private final ObjectWriter _envelopeListObjectWriter;
+    private final ObjectWriter _envelopeObjectWriter;
     private final String _terminatorId_ReplyHandler;
     private final String _terminatorId_NewMessage_NodePrefix;
     private final String _terminatorId_NodeControl_NodePrefix;
@@ -242,6 +245,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         _jackson = jacksonMapper();
         _authenticationPlugin = authenticationPlugin;
         _envelopeListObjectReader = _jackson.readerFor(TYPE_LIST_OF_MSG);
+        _envelopeListObjectWriter = _jackson.writerFor(TYPE_LIST_OF_MSG);
+        _envelopeObjectWriter = _jackson.writerFor(MatsSocketEnvelopeDto.class);
         // TODO: "Escape" the instanceName.
         _terminatorId_ReplyHandler = MATS_PREFIX + '.' + instanceName + '.' + MATS_POSTFIX_REPLY_HANDLER;
         // TODO: "Escape" the instanceName.
@@ -289,6 +294,14 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         return _envelopeListObjectReader;
     }
 
+    ObjectWriter getEnvelopeListObjectWriter() {
+        return _envelopeListObjectWriter;
+    }
+
+    ObjectWriter getEnvelopeObjectWriter() {
+        return _envelopeObjectWriter;
+    }
+
     MessageToWebSocketForwarder getMessageToWebSocketForwarder() {
         return _messageToWebSocketForwarder;
     }
@@ -331,7 +344,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     @Override
     public void closeSession(String matsSocketSessionId) {
-        log.info("Got 'out-of-band' request to Close Session ["+matsSocketSessionId+"].");
+        log.info("Got 'out-of-band' request to Close MatsSocketSessionId: [" + matsSocketSessionId + "].");
         if (matsSocketSessionId == null) {
             throw new NullPointerException("matsSocketSessionId");
         }
@@ -339,12 +352,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         try {
             Optional<CurrentNode> currentRegisteredNodeForSession = _clusterStoreAndForward
                     .getCurrentRegisteredNodeForSession(matsSocketSessionId);
-            // ?: Did we currently have a registered session?!
+            // ?: Did we currently have a registered session?
             if (currentRegisteredNodeForSession.isPresent()) {
-                // -> Yes - Send over to that node to kill it both locally there, and in CSAF.
+                // -> Yes - Send this request over to that node to kill it both locally there, and in CSAF.
                 try {
                     _matsFactory.getDefaultInitiator().initiate(msg -> msg
-                            .from(MATS_PREFIX + ".outOfBandSessionClose")
+                            .traceId("MatsSocket.internal.outOfBandSessionClose[" + matsSocketSessionId + "]" + rnd(5))
+                            .from(MATS_PREFIX + ".internal.outOfBandSessionClose")
                             .to(terminatorId_NodeControl_ForNode(currentRegisteredNodeForSession.get().getNodename()))
                             .send(new Control_CloseSessionDto(matsSocketSessionId), new NodeControlStateDto(
                                     NodeControlStateDto.CLOSE_SESSION)));
@@ -711,13 +725,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     static class ReplyHandleStateDto {
         private final String sid;
         private final String cid;
-        private final String cmseq;
+        private final Long cmseq;
         private final String ms_eid;
         private final String ms_reid;
 
-        private final long cmcts; // Client Message Created TimeStamp (Client timestamp)
-        private final long cmrts; // Client Message Received Timestamp (Server timestamp)
-        private final long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server
+        private final Long cmcts; // Client Message Created TimeStamp (Client timestamp)
+        private final Long cmrts; // Client Message Received Timestamp (Server timestamp)
+        private final Long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server
                                   // timestamp)
 
         private final String recnn; // Received Nodeanme
@@ -729,15 +743,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             cmseq = null;
             ms_eid = null;
             ms_reid = null;
-            cmcts = 0;
-            cmrts = 0;
-            mmsts = 0;
+            cmcts = 0L;
+            cmrts = 0L;
+            mmsts = 0L;
             recnn = null;
         }
 
         ReplyHandleStateDto(String matsSocketSessionId, String matsSocketEndpointId, String replyEndpointId,
-                String correlationId, String messageSequence, long clientMessageCreatedTimestamp,
-                long clientMessageReceivedTimestamp, long matsMessageSentTimestamp,
+                String correlationId, Long messageSequence, Long clientMessageCreatedTimestamp,
+                Long clientMessageReceivedTimestamp, Long matsMessageSentTimestamp,
                 String receivedNodename) {
             sid = matsSocketSessionId;
             cid = correlationId;
@@ -821,7 +835,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         Optional<CurrentNode> nodeNameHoldingWebSocket;
         try {
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageForSession(
-                    state.sid, processContext.getTraceId(), msReplyEnvelope.t, serializedEnvelope);
+                    state.sid, processContext.getTraceId(), msReplyEnvelope.cmseq, msReplyEnvelope.t,
+                    serializedEnvelope);
         }
         catch (DataAccessException e) {
             // TODO: Fix
@@ -832,7 +847,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         Optional<MatsSocketSession> localMatsSocketSession = getRegisteredLocalMatsSocketSession(state.sid);
         if (localMatsSocketSession.isPresent()) {
             // -> Yes, evidently we have it! Do local forward.
-            _messageToWebSocketForwarder.notifyMessageFor(localMatsSocketSession.get());
+            _messageToWebSocketForwarder.newMessagesInCsafNotify(localMatsSocketSession.get());
             return;
         }
 
@@ -858,7 +873,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
         else {
             // ----- We have determined that MatsSocketSession has home here
-            _messageToWebSocketForwarder.notifyMessageFor(localMatsSocketSession.get());
+            _messageToWebSocketForwarder.newMessagesInCsafNotify(localMatsSocketSession.get());
         }
     }
 
