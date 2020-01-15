@@ -289,49 +289,31 @@
 
             _pipeline.push(envelope);
             log("Pushed to pipeline: " + JSON.stringify(envelope));
-            evaluatePipelineSend();
+            evaluatePipelineLater()
         };
 
-        /**
-         * Send multiple messages in one go, e.g. several sends, requests or requestReplyTo's. When the "lambda block"
-         * exits, all the messages will be sent in one WebSocket message. This can reduce latency a tiny bit, and if
-         * compression is enabled, the combined message might become a bit smaller than several individual messages.
-         *
-         * @param {function} lambda will be invoked with this MatsSocket as sole argument.
-         */
-        this.pipeline = function (lambda) {
-            // Stash away the current pipeline, and make an empty one.
-            // (The issue is that the same pipeline is used for pipelining, and to hold messages while getting auth)
-            let existingMessages = _pipeline;
-            _pipeline = [];
-            // Enable pipelining
-            _pipelining = true;
-            try {
-                // Run the lambda, which should add new messages in the pipeline
-                lambda(this);
-            } catch (err) {
-                // The lambda raised some error, thus we log this and clear the pipeline.
-                // TODO: ERROR
-                error("pipelining", "Caught error while executing pipeline()-lambda: Dropping any added messages.");
-                _pipeline = existingMessages;
-                throw err;
-            } finally {
-                // Turn off pipelining
-                _pipelining = false;
-                // Hold the new messages added by the lambda
-                let newMessages = _pipeline;
-                // Concat the existing messages with the new messages
-                _pipeline = [].concat(existingMessages, newMessages);
-                // Evaluate the pipeline.
-                evaluatePipelineSend();
+        let _evaluatePipelineLater_timeout = undefined;
+
+        function evaluatePipelineLater() {
+            if (_evaluatePipelineLater_timeout) {
+                clearTimeout(_evaluatePipelineLater_timeout);
             }
-        };
+            _evaluatePipelineLater_timeout = setTimeout(function () {
+                evaluatePipelineSend();
+                _evaluatePipelineLater_timeout = undefined;
+            }, 2)
+        }
+
 
         /**
          * Flush any pipelined messages.
          */
         this.flush = function () {
-            // TODO: Implement.
+            if (_evaluatePipelineLater_timeout) {
+                clearTimeout(_evaluatePipelineLater_timeout);
+                _evaluatePipelineLater_timeout = undefined;
+            }
+            evaluatePipelineSend();
         };
 
         /**

@@ -34,47 +34,56 @@
     });
 
     matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {string: "The String", number: Math.PI});
-
+    matsSocket.flush();
 
     matsSocket.send("Test.single", "SEND-with-Promise_" + matsSocket.id(6), {string: "The String", number: Math.PI})
         .then(function (event) {
             console.log("SEND-with-Promise resolved! (message received on server) Took " + (Date.now() - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
         });
+    matsSocket.flush();
 
-    matsSocket.request("Test.single", "REQUEST-with-Promise_" + matsSocket.id(6), {string: "Request String", number: Math.E})
+    matsSocket.request("Test.single", "REQUEST-with-Promise_" + matsSocket.id(6), {
+        string: "Request String",
+        number: Math.E
+    })
         .then(function (reply) {
             console.log("REQUEST-with-Promise resolved! (I.e. REPLY from Mats Endpoint) Took " + (Date.now() - reply.clientMessageCreated) + "ms: " + JSON.stringify(reply));
         });
+    matsSocket.flush();
 
-    matsSocket.request("Test.single", "REQUEST-with-Promise-and-receivedCallback_" + matsSocket.id(6), {string: "Request String", number: Math.E},
+    matsSocket.request("Test.single", "REQUEST-with-Promise-and-receivedCallback_" + matsSocket.id(6), {
+            string: "Request String",
+            number: Math.E
+        },
         function (event) {
             console.log("REQUEST receivedCallback: (message received on server). Took " + (Date.now() - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
         })
         .then(function (reply) {
             console.log("REQUEST-with-Promise-and-receivedCallback resolved! (I.e. REPLY from Mats Endpoint) Took " + (Date.now() - reply.clientMessageCreated) + "ms: " + JSON.stringify(reply));
         });
+    matsSocket.flush();
 
-    matsSocket.pipeline(function (ms) {
-        ms.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_Pipeline_1_" + matsSocket.id(6),
+    setTimeout(function () {
+        matsSocket.requestReplyTo("Test.single", "REQUEST-autoPipeline-with-ReplyTo_1_" + matsSocket.id(6),
             {string: "Messge 1", number: 100.001, requestTimestamp: Date.now()},
             "ClientSide.testEndpoint", "pipeline_1_" + matsSocket.id(10));
-        ms.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_Pipeline_2_" + matsSocket.id(6),
+        matsSocket.requestReplyTo("Test.single", "REQUEST-autoPipeline-with-ReplyTo_2_" + matsSocket.id(6),
             {string: "Message 2", number: 200.002, requestTimestamp: Date.now()},
             "ClientSide.testEndpoint", "pipeline_2_" + matsSocket.id(10));
-        ms.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_Pipeline_3_" + matsSocket.id(6),
+        matsSocket.requestReplyTo("Test.single", "REQUEST-autoPipeline-with-ReplyTo_3_" + matsSocket.id(6),
             {string: "Message 3", number: 300.003, requestTimestamp: Date.now()},
             "ClientSide.testEndpoint", "pipeline_3_" + matsSocket.id(10));
-    });
+    }, 300);
 
     var ping = function () {
         setTimeout(function () {
             matsSocket.requestReplyTo("Test.single", "TraceId",
                 {string: "Periodic query", number: 100.001, requestTimestamp: Date.now()},
                 "ClientSide.testEndpoint", "TestTraceId_" + matsSocket.id(6));
-            // ping();
-        }, 500);
+            ping();
+        }, 200);
     };
-    ping();
+    // ping();
 </script>
 
 </body>
