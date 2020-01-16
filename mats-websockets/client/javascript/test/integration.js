@@ -172,17 +172,18 @@ describe('MatsSocket', function () {
                 }
             });
 
-            matsSocket.pipeline(function (ms) {
-                ms.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_Pipeline_1_" + matsSocket.id(6),
-                    {string: "Messge 1", number: 100.001, requestTimestamp: Date.now()},
-                    "ClientSide.testEndpoint", "pipeline_1_" + matsSocket.id(10));
-                ms.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_Pipeline_2_" + matsSocket.id(6),
-                    {string: "Message 2", number: 200.002, requestTimestamp: Date.now()},
-                    "ClientSide.testEndpoint", "pipeline_2_" + matsSocket.id(10));
-                ms.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_Pipeline_3_" + matsSocket.id(6),
-                    {string: "Message 3", number: 300.003, requestTimestamp: Date.now()},
-                    "ClientSide.testEndpoint", "pipeline_3_" + matsSocket.id(10));
-            });
+            // These three will be "autopipelined".
+
+            matsSocket.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_Pipeline_1_" + matsSocket.id(6),
+                {string: "Messge 1", number: 100.001, requestTimestamp: Date.now()},
+                "ClientSide.testEndpoint", "pipeline_1_" + matsSocket.id(10));
+            matsSocket.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_Pipeline_2_" + matsSocket.id(6),
+                {string: "Message 2", number: 200.002, requestTimestamp: Date.now()},
+                "ClientSide.testEndpoint", "pipeline_2_" + matsSocket.id(10));
+            matsSocket.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_Pipeline_3_" + matsSocket.id(6),
+                {string: "Message 3", number: 300.003, requestTimestamp: Date.now()},
+                "ClientSide.testEndpoint", "pipeline_3_" + matsSocket.id(10));
+            matsSocket.flush();
         });
     });
 
