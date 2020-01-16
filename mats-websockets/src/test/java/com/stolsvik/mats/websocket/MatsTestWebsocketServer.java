@@ -87,7 +87,7 @@ public class MatsTestWebsocketServer {
                     matsSerializer);
             // Configure the MatsFactory for testing (remember, we're running two instances in same JVM)
             // .. Concurrency of only 1
-            _matsFactory.getFactoryConfig().setConcurrency(10);
+            _matsFactory.getFactoryConfig().setConcurrency(1);
             // .. Use port number of current server as postfix for name of MatsFactory, and of nodename
             Integer portNumber = (Integer) sce.getServletContext().getAttribute(CONTEXT_ATTRIBUTE_PORTNUMBER);
             _matsFactory.getFactoryConfig().setName("MF_Server_" + portNumber);
@@ -347,7 +347,8 @@ public class MatsTestWebsocketServer {
                     @Override
                     public void lifeCycleStarted(LifeCycle event) {
                         log.info("######### Started server " + serverId + " on port " + port);
-                        log.info("HOOK_FOR_GRADLE_WEBSOCKET_URL: #[ws://localhost:" + port + WEBSOCKET_PATH + "]#");
+                        // Using System.out to ensure that we get this out, even if logger is ERROR or OFF
+                        System.out.println("HOOK_FOR_GRADLE_WEBSOCKET_URL: #[ws://localhost:" + port + WEBSOCKET_PATH + "]#");
                     }
                 });
 

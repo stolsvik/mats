@@ -155,6 +155,15 @@ public interface MatsSocketServer {
         NORMAL_CLOSURE(CloseCodes.NORMAL_CLOSURE.getCode()),
 
         /**
+         * Standard code 1001: Synonym for {@link #CLOSE_SESSION}, as the documentation states <i>"indicates that an
+         * endpoint is "going away", such as a server going down <b>or a browser having navigated away from a
+         * page.</b>"</i>, the latter point being pretty much exactly correct wrt. when to close a session. So, if a
+         * browser decides to use this code when the user navigates away and the library or application does not catch
+         * it, we'd want to catch this as a Close Session.
+         */
+        GOING_AWAY(CloseCodes.GOING_AWAY.getCode()),
+
+        /**
          * Standard code 1008 - used for when the client does not behave as we expect, most typically wrt.
          * authentication.
          */
@@ -166,15 +175,23 @@ public interface MatsSocketServer {
         SERVICE_RESTART(CloseCodes.SERVICE_RESTART.getCode()),
 
         /**
-         * 4000 - We ask that the client reconnects
+         * 4000: Used when the browser closes WebSocket "on purpose", wanting to close the session. The code means
+         * "Going Away", and is documented as <i>"indicates that an endpoint is "going away", such as a server going
+         * down <b>or a browser having navigated away from a page.</b>"</i>, the latter point being pretty much exactly
+         * correct wrt. when to close a session.
          */
-        RECONNECT(4000),
+        CLOSE_SESSION(4000),
 
         /**
-         * {@link MatsSocketServer#closeSession(String)} was invoked, but the WebSocket to that client was still open,
-         * so we close it. The client should reject all outstanding Promises, Futures and Acks.
+         * 4001: {@link MatsSocketServer#closeSession(String)} was invoked, but the WebSocket to that client was still
+         * open, so we close it. The client should reject all outstanding Promises, Futures and Acks.
          */
-        FORCED_SESSION_CLOSE(4001);
+        FORCED_SESSION_CLOSE(4001),
+
+        /**
+         * 4002 - We ask that the client reconnects.
+         */
+        RECONNECT(4002);
 
         private final int _closeCode;
 

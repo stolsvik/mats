@@ -128,23 +128,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
             String allMessagesReceivedFailSubtype = null;
             String allMessagesReceivedFailDescription = null;
 
-            // :: 1. First check whether client want to close.
-            for (MatsSocketEnvelopeDto envelope : envelopes) {
-                if ("CLOSE_SESSION".equals(envelope.t)) {
-                    // ?: Assert: CLOSE_SESSION should come alone.
-                    if (envelopes.size() > 1) {
-                        // -> Not alone: Break!
-                        policyViolation("CLOSE_SESSION shall not be pipelined.");
-                        return;
-                    }
-                    // Close session
-                    closeSession("From MatsSocketServer: Got CLOSE_SESSION (" +
-                            DefaultMatsSocketServer.escape(envelope.desc) + "): Closed!");
-                    return;
-                }
-            }
-
-            // :: 2. Look for Authorization header in any of the messages
+            // :: 1. Look for Authorization header in any of the messages
             // NOTE! Authorization header can come with ANY message!
             for (MatsSocketEnvelopeDto envelope : envelopes) {
                 // ?: Pick out any Authorization header, i.e. the auth-string - it can come in any message.
@@ -159,14 +143,14 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
 
             // AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
 
-            // :: 3. do we have Authorization header? (I.e. it must sent along in the very first pipeline..)
+            // :: 2. do we have Authorization header? (I.e. it must sent along in the very first pipeline..)
             if (_authorization == null) {
                 log.error("We have not got Authorization header!");
                 policyViolation("Missing Authorization header");
                 return;
             }
 
-            // :: 4. Evaluate Authentication by Authorization header
+            // :: 3. Evaluate Authentication by Authorization header
             boolean authenticationOk = doAuthentication();
             // ?: Did this go OK?
             if (!authenticationOk) {
@@ -174,7 +158,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 return;
             }
 
-            // :: 5. look for a HELLO message (should be first/alone, but we will reply to it immediately even if part
+            // :: 4. look for a HELLO message (should be first/alone, but we will reply to it immediately even if part
             // of pipeline).
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeDto envelope = it.next();
@@ -201,7 +185,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 }
             }
 
-            // :: 6. Now go through and handle all the messages
+            // :: 5. Now go through and handle all the messages
             List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
             for (MatsSocketEnvelopeDto envelope : envelopes) {
                 try { // try-finally: MDC.remove..

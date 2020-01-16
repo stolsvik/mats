@@ -10,8 +10,9 @@ DateTime EPOCH = DateTime.fromMicrosecondsSinceEpoch(0);
 const ALPHABET =
     '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const CLIENT_LIB_NAME_AND_VERSION = 'MatsSocket.dart,v0.8.9';
+// TODO: Include Flutter SDK if relevant - use dynamic invocation. -est.
 final VERSION =
-    '${CLIENT_LIB_NAME_AND_VERSION}; User-Agent: Dart ${Platform.version}';
+    '${CLIENT_LIB_NAME_AND_VERSION}; Dart ${Platform.version}';
 
 typedef AuthorizationCallback = Function(AuthorizationRefreshEvent);
 
@@ -255,16 +256,6 @@ class MatsSocket {
       {Function(Envelope) receiveCallback, bool immediate}) async {
     envelope.messageSequenceId = _messageSequenceId++;
 
-    // ?: Is the session being closed?
-    if (envelope.type == EnvelopeType.CLOSE_SESSION) {
-      // Yes -> Send now, we don't expect a reply from the server
-      _prePipeline.add(envelope);
-      _pipeline.clear();
-      sessionId = null;
-      await _pipelineScheduleSend(immediate: true, closeAfterSend: true);
-      return Envelope.empty();
-    }
-
     // If it is a REQUEST /without/ a specific Reply (client) Endpoint defined, then it is a ...
     var requestWithPromiseCompletion = (envelope.type == EnvelopeType.REQUEST &&
         envelope.replyEndpointId == null);
@@ -421,9 +412,8 @@ class MatsSocket {
     return _endpoints[endpointId].stream;
   }
 
-  Future closeSession(String reason) async {
-    await _addToPipeline(Envelope.closeSession(reason));
-    return _websocketChannelDone.future;
+  Future close(String reason) async {
+    return _websocketChannel.sink.close(4000, reason);
   }
 }
 
@@ -584,11 +574,6 @@ class Envelope {
   Envelope.request(this.endpointId, this.traceId, this.data,
       [this.replyEndpointId, this.correlationId]) {
     type = EnvelopeType.REQUEST;
-  }
-
-  Envelope.closeSession(String reason) {
-    type = EnvelopeType.CLOSE_SESSION;
-    traceId = 'MatsSocket_shutdown[$reason]${randomId(6)}';
   }
 
   /// Convert this Envelope to a Json Map representation, this is used by dart:convert

@@ -23,7 +23,6 @@ describe('MatsSocket', function () {
 
     describe('authorization', function () {
         it('Should invoke authorization callback before making calls', function(done) {
-            this.timeout(10000);
             let authCallbackCalled = false;
 
             matsSocket.setAuthorizationExpiredCallback(function (event) {
@@ -38,7 +37,6 @@ describe('MatsSocket', function () {
         });
 
         it('Should not invoke authorization callback if authorization present', function(done) {
-            this.timeout(10000);
             let authCallbackCalled = false;
             setAuth();
             matsSocket.setAuthorizationExpiredCallback(function (event) {
@@ -52,7 +50,6 @@ describe('MatsSocket', function () {
         });
 
         it('Should invoke authorization callback when expired', function(done) {
-            this.timeout(10000);
             let authCallbackCalled = false;
             setAuth(-20000);
             matsSocket.setAuthorizationExpiredCallback(function (event) {
@@ -68,7 +65,6 @@ describe('MatsSocket', function () {
         });
 
         it('Should invoke authorization callback when room for latency expired', function(done) {
-            this.timeout(10000);
             let authCallbackCalled = false;
             // Immediately timed out.
             setAuth(1000, 10000);

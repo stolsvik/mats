@@ -46,7 +46,7 @@ void main() {
     log.info('=== Test [${Invoker.current.liveTest.test.name}] starting');
   });
   tearDown(() async {
-    await matsSocket.closeSession('testDone');
+    await matsSocket.close('testDone');
     log.info(
         '=== Test [${Invoker.current.liveTest.test.name}] done after [${DateTime.now().difference(testStart)}]');
   });

@@ -166,7 +166,7 @@
          * @returns {number} millis-since-epoch of last message enqueued.
          */
         this.getLastMessageEnqueuedTimestamp = function () {
-            return _lastMessageEnqueuedMillisSinceEpoch;
+            return _lastMessageEnqueuedMillis;
         };
 
         /**
@@ -209,46 +209,23 @@
          */
         this.addMessageToPipeline = function (type, envelope, resolve, reject, receiveCallback) {
             let now = Date.now();
-            _lastMessageEnqueuedMillisSinceEpoch = now;
-            // Add common params
+            _lastMessageEnqueuedMillis = now;
+
+            // Add common params to envelope
             envelope.t = type;
             envelope.cmcts = now;
-
-            // ?: Is this a close session message?
-            if (type === "CLOSE_SESSION") {
-                // -> Yes, so drop our session. Server will "reply" by closing WebSocket.
-                // :: Try best-effort to pass this message, but if WebSocket is not open, just forget about it.
-                // Any new message will be under new Session.
-                _sessionId = undefined;
-                // Drop any pipelined messages (why invoke shutdown() if you are pipelining?!).
-                _pipeline.length = 0;
-
-                // TODO: This only works if the socket is open. If it is closed, should use navigator.sendBeacon() instead
-
-                // Keep a temp ref to WebSocket, while we clear it out
-                let tempSocket = _websocket;
-                let tempOpen = _socketOpen;
-                // We do not own this WebSocket object anymore
-                _websocket = undefined;
-                _socketOpen = false;
-                // ?: Was it open?
-                if (tempOpen) {
-                    // -> Yes, so off it goes.
-                    log("Sending CLOSE_SESSION message on open WebSocket: " + JSON.stringify(envelope));
-                    tempSocket.send(JSON.stringify([envelope]))
-                }
-                // We're done. This MatsSocket should be as good as new.
-                return;
-            }
-
-            // E-> Not special messages.
 
             // ?: Send or Request?
             if ((type === "SEND") || (type === "REQUEST")) {
                 // If it is a REQUEST /without/ a specific Reply (client) Endpoint defined, then it is a ...
                 let requestWithPromiseCompletion = (type === "REQUEST") && (envelope.reid === undefined);
                 // Make lambda for what happens when it has been RECEIVED on server.
-                let outstandingSendOrRequest = {};
+                let outstandingSendOrRequest = {
+                    // Store the outgoing message
+                    envelope: envelope,
+                    // Common for RECEIVED->ERROR or ->NACK is that the Promise will be rejected.
+                    reject: reject
+                };
                 // ?: Is it an ordinary REQUEST with Promise-completion?
                 if (requestWithPromiseCompletion) {
                     // -> Yes, ordinary REQUEST with Promise-completion
@@ -259,11 +236,8 @@
                     // Upon RECEIVED->ACK, resolve the Promise with the Received-acknowledgement
                     outstandingSendOrRequest.resolve = resolve;
                 }
-                // Common for RECEIVED->ERROR or ->NACK is that the Promise will be rejected.
-                outstandingSendOrRequest.reject = reject;
 
-                // Store the message itself
-                outstandingSendOrRequest.envelope = envelope;
+                outstandingSendOrRequest.reject = reject;
 
                 // Add the message Sequence Id
                 let thisMessageSequenceId = _messageSequenceId++;
@@ -271,14 +245,8 @@
                 // Store the outstanding Send or Request
                 _outstandingSendsAndRequests[thisMessageSequenceId] = outstandingSendOrRequest;
 
-                // ?: If this is a request, we'll have a future to look forward to.
-                if (type === "REQUEST") {
-                    // // ?: Is this a Request-with-Promise-completion?
-                    // if (envelope.reid === undefined) {
-                    //     // -> Yes, since no Reply (Client) Endpoint Id specified
-                    //     // We set it to the generic Promise completer
-                    //     envelope.reid = "MS.Promise";
-                    // }
+                // ?: If this is a requestWithPromiseCompletion, we'll have a future to look forward to.
+                if (requestWithPromiseCompletion) {
                     _futures[thisMessageSequenceId] = {
                         resolve: resolve,
                         reject: reject,
@@ -288,7 +256,7 @@
             }
 
             _pipeline.push(envelope);
-            log("Pushed to pipeline: " + JSON.stringify(envelope));
+            if (this.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
             evaluatePipelineLater()
         };
 
@@ -306,7 +274,7 @@
 
 
         /**
-         * Flush any pipelined messages.
+         * Flush any pipelined messages, "synchronously" in that it does not wait for next 'tick'.
          */
         this.flush = function () {
             if (_evaluatePipelineLater_timeout) {
@@ -325,19 +293,22 @@
         };
 
         /**
-         * Sends a 'CLOSE_SESSION' message - authorization expiration check is not performed (the server does not evaluate
-         * auth for CLOSE_SESSION). If there currently is a pipeline, this will be dropped (i.e. messages deleted). The effect
-         * is to cleanly shut down the Session and MatsSocket (closing session on server side), which will reply by shutting
-         * down the underlying WebSocket.
+         * Closes any currently open WebSocket with MatsSocket-specific CloseCode CLOSE_SESSION (4000). It <i>also</i>
+         * uses <code>navigator.sendBeacon(..)</code> (if present) to send an out-of-band Close Session HTTP POST,
+         * or, if {@link #outofbandclose} is a function, it is invoked instead. The SessionId is made undefined. If
+         * there currently is a pipeline, this will be dropped (i.e. messages deleted), any outstanding acknowledge
+         * callbacks are dropped, acknowledge Promises are rejected, and outstanding Reply Promises (from Requests)
+         * are rejected. The effect is to cleanly shut down the Session and MatsSocket (closing session on server side).
          * <p />
-         * // TODO: Is this true? Notice: Afterwards, the MatsSocket is as clean as if it was newly instantiated and all initializations was run
-         * (i.e. auth callback set, endpoints defined etc), and can be started up again by sending a message. The SessionId on
-         * this client MatsSocket is cleared, and the previous Session on the server is gone anyway, so this will give a new
-         * server side Session. If you want a totally clean MatsSocket, then just ditch this instance and make a new one.
+         * Afterwards, the MatsSocket can be started up again by sending a message. As The SessionId on this client
+         * MatsSocket was cleared (and the previous Session on the server is gone anyway), this will give a new server
+         * side Session. If you want a totally clean MatsSocket, then just ditch this instance and make a new one.
          *
-         * <b>Note: An 'onBeforeUnload' event handler is registered on 'window', which invokes this method.</b>
+         * <b>Note: An 'onBeforeUnload' event handler is registered on 'window' (if present), which invokes this
+         * method.</b>
          *
-         * @param {string} reason short descriptive string. Will be returned as part of reason string, must be quite short.
+         * @param {string} reason short descriptive string. Will be returned as part of reason string, must be quite
+         * short.
          */
         this.close = function (reason) {
             let existingSessionId = _sessionId;
@@ -346,18 +317,14 @@
             // :: In-band session close
             // ?: Do we have socket open?
             if (_websocket && _socketOpen) {
-                // -> Yes, so send the CLOSE_SESSION message
-                let closeMessage = {
-                    t: "CLOSE_SESSION",
-                    desc: reason,
-                    tid: "MatsSocket_close[" + reason + "]" + this.id(6),
-                    cmcts: Date.now()
-                };
-                log(" \\-> WebSocket open, so we send a CLOSE_SESSION message over it: " + JSON.stringify(closeMessage));
-                _websocket.send(JSON.stringify([closeMessage]));
-                _websocket.close();
+                // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
+                log(" \\-> WebSocket is open, so we close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).");
+                // We don't want the onclose callback invoked from this event that we initiated ourselves.
+                _websocket.onclose = undefined;
+                // Perform the close
+                _websocket.close(4000, reason);
             } else {
-                log(" \\-> WebSocket NOT open, so CANNOT send a CLOSE_SESSION message over it.");
+                log(" \\-> WebSocket NOT open, so CANNOT close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).");
             }
 
             // Get the current websocket URL before clearing state
@@ -371,7 +338,7 @@
             clearPipelineAndFuturesAndOutstandingMessages("session close");
 
             // :: Out-of-band session close
-            // ?: Do we have a sessionId - and a navigator?
+            // ?: Do we have a sessionId?
             if (existingSessionId) {
                 // ?: Is the out-of-band close function defined?
                 if (this.outofbandclose !== undefined) {
@@ -464,7 +431,7 @@
         let _expirationTimeMillisSinceEpoch = undefined;
         let _roomForLatencyMillis = undefined;
         let _authorizationExpiredCallback = undefined;
-        let _lastMessageEnqueuedMillisSinceEpoch = Date.now(); // Start by assuming that it was just used.
+        let _lastMessageEnqueuedMillis = Date.now(); // Start by assuming that it was just used.
 
         let _messageSequenceId = 0; // Increases for each SEND or REQUEST
 
@@ -518,7 +485,7 @@
                 let future = _futures[cmseq];
                 delete _futures[cmseq];
 
-                log("Clearing REQUEST future [" + future.envelope.t + "] to [" + future.envelope.eid + "].");
+                log("Clearing REQUEST future [" + future.envelope.t + "] to [" + future.envelope.eid + "] with traceId [" + future.envelope.tid + "].");
                 if (future.reject) {
                     try {
                         // TODO: Make better reply object

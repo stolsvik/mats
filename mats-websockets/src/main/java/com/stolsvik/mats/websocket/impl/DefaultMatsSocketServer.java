@@ -536,14 +536,24 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     + "], reason: [" + closeReason.getReasonPhrase() + "], this:" + id(this));
             // ?: Have we gotten MatsSocketSession yet? (In case "onOpen" has not been invoked yet. Can it happen?!).
             if (_matsSocketSession != null) {
-                // -> Yes, so remove us from local and global views
-                // Deregister session locally
+                // -> Yes, so either close session, or just deregister us from local and global views
+                // Either way (deregister, or close session): Deregister session locally
                 _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketSession.getId(),
                         _matsSocketSession.getConnectionId());
-                // Deregister session from the ClusterStoreAndForward
                 try {
-                    _matsSocketServer._clusterStoreAndForward.deregisterSessionFromThisNode(
-                            _matsSocketSession.getId(), _matsSocketSession.getConnectionId());
+                    // ?: Did the client want to actually Close Session?
+                    if ((MatsSocketCloseCodes.GOING_AWAY == closeReason.getCloseCode())
+                            || (MatsSocketCloseCodes.CLOSE_SESSION == closeReason.getCloseCode())) {
+                        // -> Yes, this was a "GOING AWAY", which we use for Close Session
+                        // Close session i CSAF
+                        _matsSocketServer._clusterStoreAndForward.closeSession(_matsSocketSession.getId());
+                    }
+                    else {
+                        // -> No, this was a broken connection, or anything else e.g. a explicit disconnect
+                        // Deregister session from the ClusterStoreAndForward
+                        _matsSocketServer._clusterStoreAndForward.deregisterSessionFromThisNode(
+                                _matsSocketSession.getId(), _matsSocketSession.getConnectionId());
+                    }
                 }
                 catch (DataAccessException e) {
                     // TODO: Fix
