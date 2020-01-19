@@ -9,9 +9,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-import javax.websocket.RemoteEndpoint.Basic;
-import javax.websocket.Session;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -108,7 +105,6 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
     void handlerRunnable(MatsSocketSession matsSocketSession, String uniqueId) {
         String matsSocketSessionId = matsSocketSession.getId();
-        Session webSocketSession = matsSocketSession.getWebSocketSession();
 
         boolean removeOnExit = true;
 
@@ -116,27 +112,25 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
             RENOTIFY: while (true) { // LOOP: "Re-notifications"
                 // ?: Check if WebSocket Session is still open.
-                if (!webSocketSession.isOpen()) {
+                if (!matsSocketSession.getWebSocketSession().isOpen()) {
                     log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
-                            + " Session was closed. Notifying '"
-                            + _clusterStoreAndForward.getClass().getSimpleName()
-                            + "' that this MatsSocketSession does not reside here ["
-                            + _matsSocketServer.getMyNodename() + "] anymore, forwarding notification to new"
+                            + " Session was closed. Notifying CSAF that this MatsSocketSession does not reside here on"
+                            + " [" + _matsSocketServer.getMyNodename() + "] anymore, forwarding notification to new"
                             + " MatsSocketSession home (if any), and exiting handler.");
 
-                    // :: Deregister from this node.
+                    // :: Deregister this specific MatsSocket Session (this connection) from this node.
                     try {
                         _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId,
                                 matsSocketSession.getConnectionId());
                     }
                     catch (DataAccessException e) {
-                        log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to notify "
-                                + "[" + _clusterStoreAndForward.getClass().getSimpleName()
-                                + "] about WebSocket Session being closed and thus MatsSocketSession not residing"
-                                + " here [" + _matsSocketServer.getMyNodename() + "] anymore. Ignoring,"
-                                + " exiting.", e);
-                        // Since the first thing the notifyHomeNodeAboutNewMessage() needs to do is query store,
-                        // this will pretty much guaranteed not work, so just exit out.
+                        log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to notify CSAF about"
+                                + " WebSocket Session being closed and thus MatsSocketSession not residing"
+                                + " here on [" + _matsSocketServer.getMyNodename() + "] anymore. Bailing out, hoping"
+                                + " for self-healer process to figure it out.", e);
+                        // NOTE: Since the first thing the notifyHomeNodeIfAnyAboutNewMessage() needs to do is query
+                        // CSAF, this will pretty much guaranteed not work, so just forget it and exit out.
+                        // Bail out.
                         return;
                     }
                     // Forward to new home (Note: It can theoretically be us, due to race wrt. close & reconnect)
@@ -145,7 +139,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     return;
                 }
 
-                while (true) { // LOOP: Clear out currently stored messages from ClusterStoreAndForward store
+                while (true) { // LOOP: Clear out currently stored messages from ClusterStoreAndForward
                     long nanos_start_GetMessages = System.nanoTime();
                     List<StoredMessage> messagesForSession;
                     try {
@@ -156,6 +150,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to load messages from"
                                 + " '" + _clusterStoreAndForward.getClass().getSimpleName()
                                 + "'. Bailing out, hoping for self-healer process to figure it out.", e);
+                        // Bail out.
                         return;
                     }
                     float millisGetMessages = msSince(nanos_start_GetMessages);
@@ -164,6 +159,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     // (Notice how this logic always requires a final query which returns zero messages)
                     if (messagesForSession.isEmpty()) {
                         // -> Yes, it was empty. Break out of "Clear out stored messages.." loop.
+                        // ----- Good path!
                         break;
                     }
 
@@ -201,20 +197,20 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         }
                         buf.append(']');
 
-                        // Send it over WebSocket.
+                        // Send message(s) over WebSocket.
                         matsSocketSession.webSocketSendText(buf.toString());
                         float millisSendMessages = msSince(nanos_start_SendMessage);
                         log.info("Finished sending '" + messagesForSession.size() + "' message(s) with TraceIds ["
-                                + traceIds + "] to MatsSession [" + matsSocketSession + "] over WebSocket SessionId ["
-                                + webSocketSession.getId() + "], get took [" + millisGetMessages
-                                + "ms], send took:[" + millisSendMessages + "ms]");
+                                + traceIds + "] to [" + matsSocketSession + "], get-from-csaf took ["
+                                + millisGetMessages + "ms], send over websocket took:[" + millisSendMessages + "ms]");
+                        // ----- Good path!
+                        // Loop to check if empty of messages.
                     }
                     catch (IOException ioe) {
                         // -> Evidently got problems forwarding the message over WebSocket
                         log.warn("Got [" + ioe.getClass().getSimpleName()
                                 + "] while trying to send '" + messagesForSession.size()
-                                + "' messages with TraceId [" + traceIds + "] to MatsSession [" + matsSocketSession
-                                + "] over WebSocket session [" + webSocketSession
+                                + "' messages with TraceId [" + traceIds + "] to [" + matsSocketSession
                                 + "]. Increasing 'delivery_count' for message, will try again.", ioe);
 
                         // :: Increase delivery count
@@ -227,6 +223,19 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                     _clusterStoreAndForward.getClass().getSimpleName() + "' for '"
                                     + messagesForSession.size() + "' messages with TraceIds [" + traceIds
                                     + "]. Bailing out, hoping for self-healer process to figure it out.", e);
+                            // Bail out
+                            return;
+                        }
+                        // Chill-wait a bit to avoid total tight-loop if weird problem with socket saying it is open
+                        // but cannot send messages over it.
+                        try {
+                            Thread.sleep(1000);
+                        }
+                        catch (InterruptedException e) {
+                            log.info("Got interrupted while chill-waiting after trying to send a message over socket."
+                                    + " Assuming that someone wants us to shut down, bailing out.");
+                            // Bail out
+                            return;
                         }
                         // Run new "re-notification" loop, to check if socket still open, then try again.
                         continue RENOTIFY;
@@ -242,7 +251,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                 _clusterStoreAndForward.getClass().getSimpleName() + "' for '"
                                 + messagesForSession.size() + "' messages with TraceIds [" + traceIds
                                 + "]. Bailing out, hoping for self-healer process to figure it out.", e);
-                        // Bailing out
+                        // Bail out
                         return;
                     }
                 }
@@ -281,8 +290,9 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                 _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
                     // ?: Is this 1, meaning that we are finishing off our handler rounds?
                     if (count == 1) {
-                        // -> Yes, so this would be a decrease to zero - we're done, exit.
+                        // -> Yes, so this would be a decrease to zero - we're done, remove ourselves, exit.
                         shouldExit[0] = true;
+                        // Returning null removes this handler from the Map.
                         return null;
                     }
                     // E-> It was MORE than 1.
@@ -306,7 +316,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                 // ?: Should we exit?
                 if (shouldExit[0]) {
                     // -> Yes, so do.
-                    // We've already remove this entry, so don't bother doing it again
+                    // We've already removed this handler (in above 'compute'), so don't bother doing it again
                     removeOnExit = false;
                     // Return out.
                     return;

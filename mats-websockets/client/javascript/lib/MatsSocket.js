@@ -648,133 +648,146 @@
         }
 
         function ensureWebSocket() {
-            // ?: Do we have the WebSocket object in place?
-            if (_websocket !== undefined) {
-                // -> Yes, WebSocket is in place, so either open or opening.
+            // ?: Do we have the WebSocket object in place - or are we trying to connect?
+            if ((_websocket !== undefined) || _tryingToConnect) {
+                // -> Yes, WebSocket is in place, so either open or opening - or trying to connect.
                 return;
             }
 
             // E-> No, WebSocket ain't open, so fire it up
+
             // We've thus not sent HELLO message as the first message ever.
             _helloSent = false;
-            // The WebSocket is definitely not open yet, since we've not created it yet.
+            // We are trying to connect
+            _tryingToConnect = true;
+            // The WebSocket is definitely not open yet, since we've not created it yet, much less connected.
             _socketOpen = false;
+
+
             _websocket = socketFactory(currentWebSocketUrl(), "matssocket");
-            _websocket.onopen = function (event) {
-                log("onopen", event);
-                // Socket is now ready for business
-
-                // TODO: Clear all reconnection settings
-                // TODO:
-                _urlIndexCurrentlyConnecting = 0;
-
-                _socketOpen = true;
-                // Fire off any waiting messages
-                evaluatePipelineSend();
-            };
-            _websocket.onmessage = function (webSocketEvent) {
-                // ?: Is this message received on the current '_websocket' instance (i.e. different (reconnect), or cleared/closed)?
-                if (this !== _websocket) {
-                    // -> NO! This received-message is not on the current _websocket instance.
-                    // We just drop the messages on the floor, as nobody is waiting for them anymore:
-                    // If we closed with outstanding messages or futures, they were rejected.
-                    // NOTE: This happens all the time on the node.js integration tests, triggering the if-missing-
-                    // outstandingSendOrRequest error-output below.
-                    return;
-                }
-                let receivedTimestamp = Date.now();
-                let data = webSocketEvent.data;
-                let envelopes = JSON.parse(data);
-
-                let numEnvelopes = envelopes.length;
-                if (that.logging) log("onmessage: Got " + numEnvelopes + " messages.");
-
-                for (let i = 0; i < numEnvelopes; i++) {
-                    let envelope = envelopes[i];
-                    try {
-                        if (that.logging) log(" \\- onmessage: handling message " + i + ": " + envelope.t + ", envelope:" + JSON.stringify(envelope));
-
-                        if (envelope.t === "WELCOME") {
-                            // TODO: Handle WELCOME message better. At least notify if sessionLost..
-                            _sessionId = envelope.sid;
-                            if (that.logging) log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
-                        } else if (envelope.t === "RECEIVED") {
-                            // -> RECEIVED ack/server_error/nack
-                            let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmseq];
-                            delete _outstandingSendsAndRequests[envelope.cmseq];
-                            // ?: Check that we found it.
-                            if (outstandingSendOrRequest === undefined) {
-                                // -> No, the OutstandingSendOrRequest was not present.
-                                // TODO: This might imply double delivery..
-                                error("received", "Missing OutstandingSendOrRequest for envelope.cmseq [" + envelope.cmseq + "]: " + JSON.stringify(envelope));
-                                continue;
-                            }
-                            // E-> Yes, we had OutstandingSendOrRequest
-                            // ?: Check if this by any chance already has been resolved by the REPLY
-                            if (outstandingSendOrRequest.handled) {
-                                // -> Yes, already Resolved by a Reply
-                                if (that.logging) log("OutstandingSendOrRequest already handled (by REPLY) for envelope.cmseq [" + envelope.cmseq + "]: " + JSON.stringify(envelope));
-                                // ?: Assert that this is a ACK (it cannot be ERROR or NACK, as it should then never have gotten a Reply)
-                                if (envelope.st !== "ACK") {
-                                    error("assertion failed", "When getting a RECEIVED, it was already resolved by an earlier REPLY. However, the SubType of RECEIVED was not ACK, but [" + envelope.st + "]: ", envelope);
-                                }
-                                // Do not resolve the OutstandingSendOrRequest by this RECEIVED, as it has already been done.
-                                continue;
-                            }
-                            // ?: Was it a "good" RECEIVED?
-                            if (envelope.st === "ACK") {
-                                // -> Yes, it was "ACK" - so Server was happy.
-                                if (outstandingSendOrRequest.resolve)
-                                    outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
-                            } else {
-                                // -> No, it was "ERROR" or "NACK", so message has not been forwarded to Mats
-                                if (outstandingSendOrRequest.reject)
-                                    outstandingSendOrRequest.reject(eventFromEnvelope(envelope, receivedTimestamp));
-                                // ?: Check if it was a REQUEST
-                                if (outstandingSendOrRequest.envelope.t === "REQUEST") {
-                                    // -> Yes, this was a REQUEST
-                                    // Then we have to reject the REQUEST too - it was never sent to Mats, and will thus never get a Reply
-                                    // (Note: This is either a reject for a Promise, or errorCallback on Endpoint).
-                                    let requestEnvelope = outstandingSendOrRequest.envelope;
-                                    completeFuture(requestEnvelope.reid, "REJECT", envelope, receivedTimestamp);
-                                }
-                            }
-                        } else if (envelope.t === "REPLY") {
-                            // -> Reply to REQUEST
-                            // It is physically possible that the REPLY comes before the RECEIVED (I've observed it!)
-                            // That could potentially be annoying for the using application (Reply before Received)..
-                            // Handle this by checking whether the outstandingSendOrRequest is still in place, and resolve it if so.
-                            let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmseq];
-                            // ?: Was the outstandingSendOrRequest still present?
-                            if (outstandingSendOrRequest) {
-                                // -> Yes, still present - so we resolve it
-                                if (outstandingSendOrRequest.resolve)
-                                    outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
-                                // .. and then mark it as resolved, so that when the received comes, it won't be resolved again
-                                outstandingSendOrRequest.handled = true;
-                            }
-                            // Complete the Promise on a REQUEST-with-Promise, or messageCallback/errorCallback on Endpoint for REQUEST-with-ReplyTo
-                            completeFuture(envelope.eid, envelope.st, envelope, receivedTimestamp);
-                        }
-                    } catch (err) {
-                        error("message", "Got error while handling incoming envelope.cmseq [" + envelope.cmseq + "], type '" + envelope.t + (envelope.st ? ":" + envelope.st : "") + ": " + JSON.stringify(envelope), err);
-                    }
-                }
-            };
-            _websocket.onclose = function (event) {
-                log("onclose", event);
-                // Ditch this WebSocket
-                _websocket = undefined;
-                // .. and thus it is most definitely not open anymore.
-                _socketOpen = false;
-                _helloSent = false;
-            };
-            _websocket.onerror = function (event) {
-                error("websocket.onerror", "Got 'onerror' error", event);
-            };
+            _websocket.onopen = _onopen;
+            _websocket.onerror = _onerror;
+            _websocket.onclose = _onclose;
+            _websocket.onmessage = _onmessage;
         }
 
-        function completeFuture(endpointId, resolveOrReject, envelope, receivedTimestamp) {
+        function _onopen(event) {
+            log("onopen", event);
+            // Socket is now ready for business
+
+            // TODO: Clear all reconnection settings
+            // TODO:
+            _urlIndexCurrentlyConnecting = 0;
+
+            _socketOpen = true;
+            // Fire off any waiting messages
+            evaluatePipelineSend();
+        }
+
+        function _onerror(event) {
+            error("websocket.onerror", "Got 'onerror' error", event);
+        }
+
+        function _onclose(event) {
+            log("onclose", event);
+            // Ditch this WebSocket
+            _websocket = undefined;
+            // .. and thus it is most definitely not open anymore.
+            _socketOpen = false;
+            _helloSent = false;
+        }
+
+        function _onmessage(webSocketEvent) {
+            // ?: Is this message received on the current '_websocket' instance (i.e. different (reconnect), or cleared/closed)?
+            if (this !== _websocket) {
+                // -> NO! This received-message is not on the current _websocket instance.
+                // We just drop the messages on the floor, as nobody is waiting for them anymore:
+                // If we closed with outstanding messages or futures, they were rejected.
+                // NOTE: This happens all the time on the node.js integration tests, triggering the if-missing-
+                // outstandingSendOrRequest error-output below.
+                return;
+            }
+            let receivedTimestamp = Date.now();
+            let data = webSocketEvent.data;
+            let envelopes = JSON.parse(data);
+
+            let numEnvelopes = envelopes.length;
+            if (that.logging) log("onmessage: Got " + numEnvelopes + " messages.");
+
+            for (let i = 0; i < numEnvelopes; i++) {
+                let envelope = envelopes[i];
+                try {
+                    if (that.logging) log(" \\- onmessage: handling message " + i + ": " + envelope.t + ", envelope:" + JSON.stringify(envelope));
+
+                    if (envelope.t === "WELCOME") {
+                        // TODO: Handle WELCOME message better. At least notify if sessionLost..
+                        _sessionId = envelope.sid;
+                        if (that.logging) log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
+                    } else if (envelope.t === "RECEIVED") {
+                        // -> RECEIVED ack/server_error/nack
+                        let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmseq];
+                        delete _outstandingSendsAndRequests[envelope.cmseq];
+                        // ?: Check that we found it.
+                        if (outstandingSendOrRequest === undefined) {
+                            // -> No, the OutstandingSendOrRequest was not present.
+                            // TODO: This might imply double delivery..
+                            error("received", "Missing OutstandingSendOrRequest for envelope.cmseq [" + envelope.cmseq + "]: " + JSON.stringify(envelope));
+                            continue;
+                        }
+                        // E-> Yes, we had OutstandingSendOrRequest
+                        // ?: Check if this by any chance already has been resolved by the REPLY
+                        if (outstandingSendOrRequest.handled) {
+                            // -> Yes, already Resolved by a Reply
+                            if (that.logging) log("OutstandingSendOrRequest already handled (by REPLY) for envelope.cmseq [" + envelope.cmseq + "]: " + JSON.stringify(envelope));
+                            // ?: Assert that this is a ACK (it cannot be ERROR or NACK, as it should then never have gotten a Reply)
+                            if (envelope.st !== "ACK") {
+                                error("assertion failed", "When getting a RECEIVED, it was already resolved by an earlier REPLY. However, the SubType of RECEIVED was not ACK, but [" + envelope.st + "]: ", envelope);
+                            }
+                            // Do not resolve the OutstandingSendOrRequest by this RECEIVED, as it has already been done.
+                            continue;
+                        }
+                        // ?: Was it a "good" RECEIVED?
+                        if (envelope.st === "ACK") {
+                            // -> Yes, it was "ACK" - so Server was happy.
+                            if (outstandingSendOrRequest.resolve)
+                                outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
+                        } else {
+                            // -> No, it was "ERROR" or "NACK", so message has not been forwarded to Mats
+                            if (outstandingSendOrRequest.reject)
+                                outstandingSendOrRequest.reject(eventFromEnvelope(envelope, receivedTimestamp));
+                            // ?: Check if it was a REQUEST
+                            if (outstandingSendOrRequest.envelope.t === "REQUEST") {
+                                // -> Yes, this was a REQUEST
+                                // Then we have to reject the REQUEST too - it was never sent to Mats, and will thus never get a Reply
+                                // (Note: This is either a reject for a Promise, or errorCallback on Endpoint).
+                                let requestEnvelope = outstandingSendOrRequest.envelope;
+                                _completeFuture(requestEnvelope.reid, "REJECT", envelope, receivedTimestamp);
+                            }
+                        }
+                    } else if (envelope.t === "REPLY") {
+                        // -> Reply to REQUEST
+                        // It is physically possible that the REPLY comes before the RECEIVED (I've observed it!)
+                        // That could potentially be annoying for the using application (Reply before Received)..
+                        // Handle this by checking whether the outstandingSendOrRequest is still in place, and resolve it if so.
+                        let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmseq];
+                        // ?: Was the outstandingSendOrRequest still present?
+                        if (outstandingSendOrRequest) {
+                            // -> Yes, still present - so we resolve it
+                            if (outstandingSendOrRequest.resolve)
+                                outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
+                            // .. and then mark it as resolved, so that when the received comes, it won't be resolved again
+                            outstandingSendOrRequest.handled = true;
+                        }
+                        // Complete the Promise on a REQUEST-with-Promise, or messageCallback/errorCallback on Endpoint for REQUEST-with-ReplyTo
+                        _completeFuture(envelope.eid, envelope.st, envelope, receivedTimestamp);
+                    }
+                } catch (err) {
+                    error("message", "Got error while handling incoming envelope.cmseq [" + envelope.cmseq + "], type '" + envelope.t + (envelope.st ? ":" + envelope.st : "") + ": " + JSON.stringify(envelope), err);
+                }
+            }
+        }
+
+        function _completeFuture(endpointId, resolveOrReject, envelope, receivedTimestamp) {
             // ?: Is this a REQUEST-with-Promise?
             if (endpointId === undefined) {
                 // -> Yes, REQUEST-with-Promise (missing (client) EndpointId)
