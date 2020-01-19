@@ -34,6 +34,10 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     private static final Logger log = LoggerFactory.getLogger(ClusterStoreAndForward_SQL.class);
 
+    private static final String OUTBOX_TABLE_PREFIX = "mats_socket_outbox_";
+
+    private static final int NUMBER_OF_OUTBOX_TABLES = 7;
+
     private final DataSource _dataSource;
     private final String _nodename;
 
@@ -264,8 +268,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             deleteSession.setString(1, matsSocketSessionId);
             deleteSession.execute();
 
-            PreparedStatement deleteMessages = con.prepareStatement("DELETE FROM mats_socket_outbox"
-                    + " WHERE session_id = ?");
+            PreparedStatement deleteMessages = con.prepareStatement("DELETE FROM "
+                    + outboxTableName(matsSocketSessionId) + " WHERE session_id = ?");
             deleteMessages.setString(1, matsSocketSessionId);
             deleteMessages.execute();
         });
@@ -275,7 +279,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId,
             long messageSequence, String type, String message) throws DataAccessException {
         return withConnectionReturn(con -> {
-            PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_outbox"
+            PreparedStatement insert = con.prepareStatement("INSERT INTO " + outboxTableName(matsSocketSessionId)
                     + "(message_id, session_id, trace_id, mseq,"
                     + " stored_timestamp, delivery_count, type, message_text)"
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
@@ -302,7 +306,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             PreparedStatement insert = con.prepareStatement("SELECT TOP " + maxNumberOfMessages
                     + "          message_id, session_id, trace_id, mseq,"
                     + "          stored_timestamp, delivery_count, type, message_text"
-                    + "  FROM mats_socket_outbox"
+                    + "  FROM " + outboxTableName(matsSocketSessionId)
                     + " WHERE session_id = ?");
             insert.setString(1, matsSocketSessionId);
             ResultSet rs = insert.executeQuery();
@@ -321,7 +325,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public void messagesComplete(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException {
         withConnection(con -> {
             // TODO / OPTIMIZE: Make "in" optimizations.
-            PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM mats_socket_outbox"
+            PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM " + outboxTableName(matsSocketSessionId)
                     + " WHERE session_id = ?"
                     + "   AND message_id = ?");
             for (Long messageId : messageIds) {
@@ -337,7 +341,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public void messagesFailedDelivery(String matsSocketSessionId, Collection<Long> messageIds)
             throws DataAccessException {
         withConnection(con -> {
-            PreparedStatement update = con.prepareStatement("UPDATE mats_socket_outbox"
+            PreparedStatement update = con.prepareStatement("UPDATE " + outboxTableName(matsSocketSessionId)
                     + "   SET delivery_count = delivery_count + 1"
                     + " WHERE session_id = ?"
                     + "   AND message_id = ?");
@@ -348,6 +352,13 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             }
             update.executeBatch();
         });
+    }
+
+    private static String outboxTableName(String sessionIdForHash) {
+        int tableNum = Math.floorMod(sessionIdForHash.hashCode(), NUMBER_OF_OUTBOX_TABLES);
+        // Handle up to 100 tables ("00" - "99")
+        String num = tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum);
+        return OUTBOX_TABLE_PREFIX + num;
     }
 
     // ==============================================================================

@@ -544,13 +544,14 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     // ?: Did the client want to actually Close Session?
                     if ((MatsSocketCloseCodes.GOING_AWAY == closeReason.getCloseCode())
                             || (MatsSocketCloseCodes.CLOSE_SESSION == closeReason.getCloseCode())) {
-                        // -> Yes, this was a "GOING AWAY", which we use for Close Session
-                        // Close session i CSAF
+                        // -> Yes, this was a "CLOSE_SESSION" (or alternatively "GOING AWAY"), which means that client
+                        // wants the session to actually be gone.
+                        // Close session in CSAF
                         _matsSocketServer._clusterStoreAndForward.closeSession(_matsSocketSession.getId());
                     }
                     else {
-                        // -> No, this was a broken connection, or anything else e.g. a explicit disconnect
-                        // Deregister session from the ClusterStoreAndForward
+                        // -> No, this was a broken connection, or something else like an explicit disconnect w/o close
+                        // Deregister session from CSAF
                         _matsSocketServer._clusterStoreAndForward.deregisterSessionFromThisNode(
                                 _matsSocketSession.getId(), _matsSocketSession.getConnectionId());
                     }

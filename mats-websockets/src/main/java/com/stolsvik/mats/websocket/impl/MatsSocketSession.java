@@ -89,10 +89,21 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         }
     }
 
+    /**
+     * NOTE: There can <i>potentially</i> be multiple instances of {@link MatsSocketSession} with the same Id if we're
+     * caught be bad asyncness (they would then have different {@link #getWebSocketSession() WebSocketSessions}, i.e.
+     * differing actual connections - only one of the WebSocket Sessions should then be open. <b>This Id together with
+     * {@link #getConnectionId()} is unique</b>.
+     *
+     * @return the MatsSocketSessionId that this {@link MatsSocketSession} instance refers to.
+     */
     String getId() {
         return _matsSocketSessionId;
     }
 
+    /**
+     * NOTE: Read JavaDoc of {@link #getId} to understand why this Id is of interest.
+     */
     String getConnectionId() {
         return _connectionId;
     }
@@ -608,6 +619,11 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
             // TODO: Handle parse exceptions.
             throw new AssertionError("Damn", e);
         }
+    }
+
+    @Override
+    public String toString() {
+        return "MatsSocketSession{id='" + getId() + ",connId:'" + getConnectionId() + "'}";
     }
 
     private static class MatsSocketEndpointRequestContextImpl<MI, R> implements
