@@ -8,7 +8,7 @@ wrapper {
 // Version of Mats
 allprojects {
     group = 'com.stolsvik.mats'
-    version = '0.8.3'  // NOTE! Also set in MatsSocket.js
+    version = '0.9.0'  // NOTE! Also set in MatsSocket.js
 }
 
 // Spring, ActiveMQ and Jackson JSON versions: Used in several sub projects
