@@ -175,7 +175,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         String nowString = Long.toString(System.currentTimeMillis());
                         // :: Feed the JSONs over, manually piecing together a JSON Array.
                         // NOTE: It was tempting to fetch the Basic.getSendWriter() and feed the pieces in
-                        // there, but that gave for some godforsaken reason an awful performance.
+                        // there, but that produced (for some godforsaken reason) an awful performance.
                         StringBuilder buf = new StringBuilder();
                         // Create the JSON Array
                         buf.append('[');

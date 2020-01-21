@@ -91,9 +91,10 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
 
     /**
      * NOTE: There can <i>potentially</i> be multiple instances of {@link MatsSocketSession} with the same Id if we're
-     * caught be bad asyncness (they would then have different {@link #getWebSocketSession() WebSocketSessions}, i.e.
-     * differing actual connections - only one of the WebSocket Sessions should then be open. <b>This Id together with
-     * {@link #getConnectionId()} is unique</b>.
+     * caught by bad asyncness wrt. one connection dropping and the client immediately reconnecting. The two
+     * {@link MatsSocketSession}s would then hey would then have different {@link #getWebSocketSession()
+     * WebSocketSessions}, i.e. differing actual connections. One of them would soon realize that is was closed. <b>This
+     * Id together with {@link #getConnectionId()} is unique</b>.
      *
      * @return the MatsSocketSessionId that this {@link MatsSocketSession} instance refers to.
      */
@@ -196,6 +197,12 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 }
             }
 
+            // :: 5. Assert auth: ?: We do not accept other messages before authentication
+            if ((_matsSocketSessionId == null) || (_principal == null)) {
+                allMessagesReceivedFailSubtype = "AUTH_FAIL";
+                allMessagesReceivedFailDescription = "Missing authentication.";
+            }
+
             // :: 5. Now go through and handle all the messages
             List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
             for (MatsSocketEnvelopeDto envelope : envelopes) {
@@ -207,14 +214,6 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
 
                     // ----- We do NOT KNOW whether we're authenticated!
 
-                    // Assert auth: ?: We do not accept other messages before authentication
-                    if ((_matsSocketSessionId == null) || (_principal == null)) {
-                        allMessagesReceivedFailSubtype = "AUTH_FAIL";
-                        allMessagesReceivedFailDescription = "Missing authentication.";
-                        // NOTE NOTE! Do NOT do 'continue' here, as the currently processing message should be failed!!
-                        // NOT 'continue'!!
-                    }
-
                     // ?: Should we fail all messages?
                     if (allMessagesReceivedFailSubtype != null) {
                         // -> Yes, some other process has decided that the all/the rest of the messages should be
@@ -223,14 +222,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                         replyEnvelope.t = "RECEIVED";
                         replyEnvelope.st = allMessagesReceivedFailSubtype;
                         replyEnvelope.desc = allMessagesReceivedFailDescription;
-                        replyEnvelope.cmseq = envelope.cmseq;
-                        replyEnvelope.tid = envelope.tid; // TraceId
-                        replyEnvelope.cid = envelope.cid; // CorrelationId
-                        replyEnvelope.cmcts = envelope.cmcts; // Set by client..
-                        replyEnvelope.cmrts = clientMessageReceivedTimestamp;
-                        replyEnvelope.cmrnn = _matsSocketServer.getMyNodename();
-                        replyEnvelope.mscts = System.currentTimeMillis();
-                        replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
+                        commonPropsOnReceived(envelope, replyEnvelope, clientMessageReceivedTimestamp);
                         // Add this RECEIVED:<failed> message to return-pipeline.
                         replyEnvelopes.add(replyEnvelope);
                         // This is handled, so go to next.. (which also will be handled the same - failed)
@@ -238,8 +230,9 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                     }
 
                     // ?: Because I am paranoid, we check this once again.
+                    // NOTE: This should be redundant, as we've already checked before the pipeline loop.
                     if ((_matsSocketSessionId == null) || (_principal == null)) {
-                        // -> Well, someone must have changed the code to fuck this up.
+                        // -> Well, someone must have changed the code to not be correct anymore..!
                         throw new AssertionError(
                                 "Principal or MatsSessionId was null at a place where it should not be.");
                     }
@@ -249,14 +242,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                     if ("PING".equals(envelope.t)) {
                         MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
                         replyEnvelope.t = "PONG";
-                        replyEnvelope.cmseq = envelope.cmseq;
-                        replyEnvelope.tid = envelope.tid; // TraceId
-                        replyEnvelope.cid = envelope.cid; // CorrelationId
-                        replyEnvelope.cmcts = envelope.cmcts; // Set by client..
-                        replyEnvelope.cmrts = clientMessageReceivedTimestamp;
-                        replyEnvelope.cmrnn = _matsSocketServer.getMyNodename();
-                        replyEnvelope.mscts = System.currentTimeMillis();
-                        replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
+                        commonPropsOnReceived(envelope, replyEnvelope, clientMessageReceivedTimestamp);
 
                         // Add PONG message to return-pipeline (should be sole message, really - not pipelined)
                         replyEnvelopes.add(replyEnvelope);
@@ -264,9 +250,24 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                         continue;
                     }
 
-                    if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t)) {
+                    else if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t)) {
                         handleSendOrRequest(clientMessageReceivedTimestamp, replyEnvelopes, envelope);
                         // The message is handled, so go to next message.
+                        continue;
+                    }
+
+                    else {
+                        // -> Not expected message
+                        log.error("Got an unknown message type [" + envelope.t + (envelope.st != null ? ":"
+                                + envelope.st : "") + "] from client. Answering RECEIVED:ERROR.");
+                        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
+                        replyEnvelope.t = "RECEIVED";
+                        replyEnvelope.st = "ERROR";
+                        commonPropsOnReceived(envelope, replyEnvelope, clientMessageReceivedTimestamp);
+
+                        // Add PONG message to return-pipeline (should be sole message, really - not pipelined)
+                        replyEnvelopes.add(replyEnvelope);
+                        // The pong is handled, so go to next message
                         continue;
                     }
                 }
@@ -303,8 +304,16 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         }
     }
 
-    private void closeSession(String reason) {
-        shutdownSessionAndWebSocket(MatsSocketCloseCodes.NORMAL_CLOSURE, reason);
+    private void commonPropsOnReceived(MatsSocketEnvelopeDto envelope, MatsSocketEnvelopeDto replyEnvelope,
+            long clientMessageReceivedTimestamp) {
+        replyEnvelope.cmseq = envelope.cmseq;
+        replyEnvelope.tid = envelope.tid; // TraceId
+        replyEnvelope.cid = envelope.cid; // CorrelationId
+        replyEnvelope.cmcts = envelope.cmcts; // Set by client..
+        replyEnvelope.cmrts = clientMessageReceivedTimestamp;
+        replyEnvelope.cmrnn = _matsSocketServer.getMyNodename();
+        replyEnvelope.mscts = System.currentTimeMillis();
+        replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
     }
 
     private void policyViolation(String reason) {
@@ -357,6 +366,8 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 AuthenticationResult_Authenticated result = (AuthenticationResult_Authenticated) authenticationResult;
                 _principal = result._principal;
                 _userId = result._userId;
+                // GOOD! Got new Principal and UserId.
+                return true;
             }
             else {
                 // -> Null, or any other result.
@@ -386,10 +397,14 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 AuthenticationResult_Authenticated result = (AuthenticationResult_Authenticated) authenticationResult;
                 _principal = result._principal;
                 _userId = result._userId;
+                // GOOD! Got (potentially) new Principal and UserId.
+                return true;
             }
             else if (authenticationResult instanceof AuthenticationResult_StillValid) {
                 // -> The existing authentication is still valid
                 log.debug("Still authenticated with UserId: [" + _userId + "] and Principal [" + _principal + "]");
+                // GOOD! Existing auth still good.
+                return true;
             }
             else {
                 // -> Null, or any other result.
@@ -399,8 +414,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 return false;
             }
         }
-        // This went smooth.
-        return true;
+        // NOTE! There should NOT be a default return here!
     }
 
     private static class FailedHelloException extends Exception {
@@ -584,28 +598,28 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 _matsSocketServer, registration, _matsSocketSessionId, envelope,
                 clientMessageReceivedTimestamp, _authorization, _principal, msg);
 
-        try {
-            incomingAuthEval.handleIncoming(matsSocketContext, _principal, msg);
-        }
-        catch (MatsBackendRuntimeException | MatsMessageSendRuntimeException e) {
-            // Evidently got problems talking to MQ. This is a ERROR
-            // TODO: If this throws, send error back.
-        }
-        long nowMillis = System.currentTimeMillis();
-
-        // :: Pipeline RECEIVED message
         MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
         replyEnvelope.t = "RECEIVED";
-        replyEnvelope.st = "ACK"; // TODO: Handle failures.
-        replyEnvelope.cmseq = envelope.cmseq; //
-        replyEnvelope.tid = envelope.tid; // TraceId
-        replyEnvelope.cid = envelope.cid; // CorrelationId
-        replyEnvelope.cmcts = envelope.cmcts; // Set by client..
-        replyEnvelope.cmrts = clientMessageReceivedTimestamp;
-        replyEnvelope.cmrnn = _matsSocketServer.getMyNodename();
-        replyEnvelope.mmsts = nowMillis;
-        replyEnvelope.mscts = nowMillis;
-        replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
+        try {
+            incomingAuthEval.handleIncoming(matsSocketContext, _principal, msg);
+            replyEnvelope.st = "ACK";
+            replyEnvelope.mmsts = System.currentTimeMillis();
+        }
+        catch (MatsBackendRuntimeException | MatsMessageSendRuntimeException e) {
+            // Evidently got problems talking to MQ. This is a RETRY
+            // TODO: Should have an 'attempt' prop, mirroring from client - implicitly 1 if not set. Client increments.
+            replyEnvelope.st = "RETRY";
+            replyEnvelope.desc = e.getMessage();
+        }
+        catch (Throwable t) {
+            // Evidently the handleIncoming didn't handle this message. This is a NACK.
+            // TODO: If handleIncoming invokes "reject", then this should also be a NACK
+            replyEnvelope.st = "NACK";
+            replyEnvelope.desc = t.getMessage();
+        }
+
+        // .. add common props on the reply
+        commonPropsOnReceived(envelope, replyEnvelope, clientMessageReceivedTimestamp);
 
         // Add RECEIVED message to "queue"
         replyEnvelopes.add(replyEnvelope);

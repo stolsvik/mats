@@ -156,13 +156,14 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             try { // turn back autocommit, just to be sure we've not changed state of connection.
 
                 // ?: If transactional-mode was not on, turn it on now (i.e. autoCommot->false)
+                // NOTE: Otherwise, we assume an outside transaction demarcation is in effect.
                 if (autoCommitPre) {
                     // Start transaction
                     con.setAutoCommit(false);
                 }
 
-                // :: Generic "UPSERT" implementation: DELETE, INSERT (no need for SELECT/UPDATE/INSERT here)
-                // Unconditionally delete session (we'll add the new values).
+                // :: Generic "UPSERT" implementation: DELETE-then-INSERT (no need for SELECT/UPDATE-or-INSERT here)
+                // Unconditionally delete session (the INSERT puts in the new values).
                 PreparedStatement delete = con.prepareStatement("DELETE FROM mats_socket_session"
                         + " WHERE session_id = ?");
                 delete.setString(1, matsSocketSessionId);
