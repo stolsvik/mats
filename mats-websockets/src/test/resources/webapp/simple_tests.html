@@ -7,11 +7,13 @@
 
 <script>
     var matsSocket = new mats.MatsSocket("TestApp", "1.2.3",
-        ["ws://localhost:8080/matssocket", "ws://localhost:8081/matssocket"]);
+        ['ws://localhost:5000/matssocket', 'ws://localhost:5001/matssocket',  // <- These two are bogus
+            'ws://localhost:8080/matssocket', 'ws://localhost:8081/matssocket']); // <- These two should work
+    // ['ws://localhost:5000/matssocket', 'ws://localhost:5001/matssocket', 'ws://localhost:5001/matssocket']); // <- All bogus
     matsSocket.logging = true;
 
     // For testing, we want stable order of which URLs to connect to.
-    // matsSocket.disableUrlRandomization();
+    matsSocket.disableUrlRandomization();
 
     matsSocket.setAuthorizationExpiredCallback(function (event) {
         console.log("Got AuthorizationExpiredCallback from MatsSocket, regenerating Authorization header.");

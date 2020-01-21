@@ -315,12 +315,16 @@
             log("close(): Closing MatsSocketSession, id:[" + existingSessionId + "] due to [" + reason + "], currently connected: [" + (_websocket ? _websocket.url : "not connected") + "]");
 
             // :: In-band session close
-            // ?: Do we have socket open?
-            if (_websocket && _socketOpen) {
+            // ?: Do we have WebSocket?
+            if (_websocket) {
                 // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
                 log(" \\-> WebSocket is open, so we close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).");
                 // We don't want the onclose callback invoked from this event that we initiated ourselves.
                 _websocket.onclose = undefined;
+                // We don't want any messages either, as we'll now be clearing out futures and outstanding messages ("acks")
+                _websocket.onmessage = undefined;
+                // Also drop onerror for good measure.
+                _websocket.onerror = undefined;
                 // Perform the close
                 _websocket.close(4000, reason);
             } else {
@@ -332,7 +336,6 @@
 
             // :: Clear out the state of this MatsSocket.
             _websocket = undefined;
-            _socketOpen = false;
             _sessionId = undefined;
             _urlIndexCurrentlyConnecting = 0;
             clearPipelineAndFuturesAndOutstandingMessages("session close");
@@ -397,6 +400,10 @@
             }
         }
 
+        function invokeLater(that) {
+            setTimeout(that, 0);
+        }
+
         // https://stackoverflow.com/a/12646864/39334
         function shuffleArray(array) {
             for (let i = array.length - 1; i > 0; i--) {
@@ -420,11 +427,7 @@
         let _pipeline = [];
         let _endpoints = {};
 
-        let _websocket = undefined;
         let _helloSent = false;
-
-        let _pipelining = false;
-        let _socketOpen = false;
 
         let _authorization = undefined;
         let _sendAuthorizationToServer = false;
@@ -501,11 +504,6 @@
          * Sends pipelined messages if pipelining is not engaged.
          */
         function evaluatePipelineSend() {
-            // ?: Are we currently pipelining?
-            if (_pipelining) {
-                // -> Yes, so nothing to do.
-                return;
-            }
             // ?: Is the pipeline empty?
             if (_pipeline.length === 0) {
                 // -> Yes, so nothing to do.
@@ -556,62 +554,72 @@
 
             // ----- Not pipelining, and auth is present.
 
-            // :: Get WebSocket open. NOTE: Opening WebSocket is async...
-            ensureWebSocket();
-            // ...so WebSocket might not be open right afterwards.
+            // ?: Are we trying to open websocket?
+            if (_webSocketConnecting) {
+                // -> Yes, so then the socket is not open yet, but we are in the process.
+                // Return now, as opening is async. When the socket opens, it will re-run 'evaluatePipelineSend()'.
+                return;
+            }
 
-            // ?: Is the WebSocket open? (Otherwise, the opening of the WebSocket will re-invoke this function)
-            if (_socketOpen) {
-                let prePipeline = [];
+            // ?: Is the WebSocket present?
+            if (_websocket === undefined) {
+                // -> No, so go get it.
+                initiateWebSocketCreation();
+                // Returning now, as opening is async. When the socket opens, it will re-run 'evaluatePipelineSend()'.
+                return;
+            }
 
-                // -> Yes, WebSocket is open, so send any outstanding messages
-                // ?: Have we sent HELLO?
-                if (!_helloSent) {
-                    log("HELLO not sent, adding it to the pre-pipeline now.");
-                    // -> No, HELLO not sent, so we create it now (auth is present, check above)
-                    let helloMessage = {
-                        t: "HELLO",
-                        clv: clientLibNameAndVersion + "; User-Agent: " + userAgent,
-                        ts: Date.now(),
-                        an: that.appName,
-                        av: that.appVersion,
-                        auth: _authorization,
-                        cid: that.id(10),
-                        tid: "MatsSocket_start_" + that.id(6)
-                    };
-                    // ?: Have we requested a reconnect?
-                    if (_sessionId !== undefined) {
-                        log("We expect session to be there [" + _sessionId + "]");
-                        // -> Evidently yes, so add the requested reconnect-to-sessionId.
-                        helloMessage.sid = _sessionId;
-                        // This implementation of MatsSocket client lib expects existing session
-                        // when reconnecting, thus wants pipelined messages to be ditched if
-                        // the assumption about existing session fails.
-                        helloMessage.st = "EXPECT_EXISTING";
-                    } else {
-                        // -> We want a new session (which is default anyway)
-                        helloMessage.st = "NEW";
-                    }
-                    // Add the HELLO to the prePipeline
-                    prePipeline.unshift(helloMessage);
-                    // We will now have sent the HELLO.
-                    _helloSent = true;
-                }
+            // ----- We have an open WebSocket!
 
-                // :: Send pre-pipeline messages, if there are any
-                // (Before the HELLO is sent and sessionId is established, the max size of message is low on the server)
-                if (prePipeline.length > 0) {
-                    if (that.logging) log("Flushing prePipeline of [" + prePipeline.length + "] messages.");
-                    _websocket.send(JSON.stringify(prePipeline));
-                    prePipeline.length = 0;
+            let prePipeline = [];
+
+            // -> Yes, WebSocket is open, so send any outstanding messages
+            // ?: Have we sent HELLO?
+            if (!_helloSent) {
+                log("HELLO not sent, adding it to the pre-pipeline now.");
+                // -> No, HELLO not sent, so we create it now (auth is present, check above)
+                let helloMessage = {
+                    t: "HELLO",
+                    clv: clientLibNameAndVersion + "; User-Agent: " + userAgent,
+                    ts: Date.now(),
+                    an: that.appName,
+                    av: that.appVersion,
+                    auth: _authorization,
+                    cid: that.id(10),
+                    tid: "MatsSocket_start_" + that.id(6)
+                };
+                // ?: Have we requested a reconnect?
+                if (_sessionId !== undefined) {
+                    log("We expect session to be there [" + _sessionId + "]");
+                    // -> Evidently yes, so add the requested reconnect-to-sessionId.
+                    helloMessage.sid = _sessionId;
+                    // This implementation of MatsSocket client lib expects existing session
+                    // when reconnecting, thus wants pipelined messages to be ditched if
+                    // the assumption about existing session fails.
+                    helloMessage.st = "EXPECT_EXISTING";
+                } else {
+                    // -> We want a new session (which is default anyway)
+                    helloMessage.st = "NEW";
                 }
-                // :: Send any pipelined messages.
-                if (_pipeline.length > 0) {
-                    if (that.logging) log("Flushing pipeline of [" + _pipeline.length + "] messages.");
-                    _websocket.send(JSON.stringify(_pipeline));
-                    // Clear pipeline
-                    _pipeline.length = 0;
-                }
+                // Add the HELLO to the prePipeline
+                prePipeline.unshift(helloMessage);
+                // We will now have sent the HELLO.
+                _helloSent = true;
+            }
+
+            // :: Send pre-pipeline messages, if there are any
+            // (Before the HELLO is sent and sessionId is established, the max size of message is low on the server)
+            if (prePipeline.length > 0) {
+                if (that.logging) log("Flushing prePipeline of [" + prePipeline.length + "] messages.");
+                _websocket.send(JSON.stringify(prePipeline));
+                prePipeline.length = 0;
+            }
+            // :: Send any pipelined messages.
+            if (_pipeline.length > 0) {
+                if (that.logging) log("Flushing pipeline of [" + _pipeline.length + "] messages.");
+                _websocket.send(JSON.stringify(_pipeline));
+                // Clear pipeline
+                _pipeline.length = 0;
             }
         }
 
@@ -637,51 +645,116 @@
             };
         }
 
-        let _tryingToConnect = false;
+        // Two variables for state of socket opening, used by 'evaluatePipelineSend()'
+        // If true, we're currently already trying to get a WebSocket
+        let _webSocketConnecting = false;
+        // If not undefined, we have an open WebSocket available.
+        let _websocket = undefined;
+
         let _urlIndexCurrentlyConnecting = 0; // Cycles through the URLs
-        let _connectionFallbackLevel = 0; // When cycled one time through, increases.
-        let _connectionTimeout = 250; // Milliseconds for this fallback level. Doubles, up to 10 seconds where stays.
+        let _connectionAttemptRound = 0; // When cycled one time through URLs, increases.
+        let _connectionTimeoutBase = 500; // Milliseconds for this fallback level. Doubles, up to max defined below.
+        let _connectionTimeoutMax = 10000; // Milliseconds max between connection attempts.
 
         function currentWebSocketUrl() {
-            log("## Using urlIndexCurrentlyConnecting [" + _urlIndexCurrentlyConnecting + "]: " + _useUrls[_urlIndexCurrentlyConnecting]);
+            log("## Using urlIndexCurrentlyConnecting [" + _urlIndexCurrentlyConnecting + "]: " + _useUrls[_urlIndexCurrentlyConnecting] + ", round:" + _connectionAttemptRound);
             return _useUrls[_urlIndexCurrentlyConnecting];
         }
 
-        function ensureWebSocket() {
-            // ?: Do we have the WebSocket object in place - or are we trying to connect?
-            if ((_websocket !== undefined) || _tryingToConnect) {
-                // -> Yes, WebSocket is in place, so either open or opening - or trying to connect.
-                return;
+        function initiateWebSocketCreation() {
+            // ?: Assert that we do not have the WebSocket already
+            if (_websocket !== undefined) {
+                // -> Damn, we did have a WebSocket. Why are we here?!
+                throw (new Error("Should not be here, as WebSocket is already in place, or we're trying to connect"));
             }
 
             // E-> No, WebSocket ain't open, so fire it up
 
-            // We've thus not sent HELLO message as the first message ever.
-            _helloSent = false;
             // We are trying to connect
-            _tryingToConnect = true;
-            // The WebSocket is definitely not open yet, since we've not created it yet, much less connected.
-            _socketOpen = false;
+            _webSocketConnecting = true;
 
+            let increaseStateVars = function () {
+                _urlIndexCurrentlyConnecting++;
+                if (_urlIndexCurrentlyConnecting >= _useUrls.length) {
+                    _urlIndexCurrentlyConnecting = 0;
+                    _connectionAttemptRound++;
+                }
+            };
 
-            _websocket = socketFactory(currentWebSocketUrl(), "matssocket");
-            _websocket.onopen = _onopen;
-            _websocket.onerror = _onerror;
-            _websocket.onclose = _onclose;
-            _websocket.onmessage = _onmessage;
-        }
+            // Based on whether there is multiple URLs, or just a single one, we choose the short "timeout base", or a longer one (max/2), as minimum.
+            let minTimeout = _useUrls.length > 1 ? _connectionTimeoutBase : _connectionTimeoutMax / 2;
+            // Timeout: LESSER of "max" and "timeoutBase * (2^round)", which should lead to timeoutBase x1, x2, x4, x8 - but capped at max.
+            // .. but at least 'minTimeout'
+            let timeout = Math.max(minTimeout,
+                Math.min(_connectionTimeoutMax, _connectionTimeoutBase * Math.pow(2, _connectionAttemptRound)));
 
-        function _onopen(event) {
-            log("onopen", event);
-            // Socket is now ready for business
+            // Create the WebSocket
+            let websocket = socketFactory(currentWebSocketUrl(), "matssocket");
 
-            // TODO: Clear all reconnection settings
-            // TODO:
-            _urlIndexCurrentlyConnecting = 0;
+            // Make a "connection timeout" thingy, which bumps the state vars, and then re-runs this method.
+            let timeoutId = setTimeout(function (event) {
+                log("Create WebSocket: Timeout exceeded [" + timeout + "], this WebSocket is bad so ditch it.");
+                // :: Bad attempt, clear this WebSocket out
+                // Clear out the handlers
+                websocket.onopen = undefined;
+                websocket.onerror = undefined;
+                websocket.onclose = undefined;
+                // Close it
+                websocket.close(4999, "timeout hit");
+                // Invoke on next tick: Bump state vars, re-run initiateWebSocketCreation
+                invokeLater(function () {
+                    increaseStateVars();
+                    initiateWebSocketCreation()
+                });
+            }, timeout);
 
-            _socketOpen = true;
-            // Fire off any waiting messages
-            evaluatePipelineSend();
+            // :: Add the handlers for this "trying to acquire" procedure.
+
+            // Error: Just log for debugging. NOTICE: Upon Error, Close is also always invoked.
+            websocket.onerror = function (event) {
+                log("Create WebSocket: error.", event);
+            };
+
+            // Close: Log + IF this is the first "round" AND there is multiple URLs, then immediately try the next URL. (Close may happen way before the Connection Timeout)
+            websocket.onclose = function (closeEvent) {
+                log("Create WebSocket: close. Code:" + closeEvent.code + ", Reason:" + closeEvent.reason, closeEvent);
+                // ?: If we are on the FIRST (0th) round of trying out the different URLs, then immediately try the next
+                // But only if there are more than one
+                if ((_connectionAttemptRound === 0) && (_useUrls.length > 1)) {
+                    // Drop the "connection timeout" thingy
+                    clearTimeout(timeoutId);
+                    // Invoke on next tick: Bump state vars, re-run initiateWebSocketCreation
+                    invokeLater(function () {
+                        increaseStateVars();
+                        initiateWebSocketCreation()
+                    });
+                }
+            };
+
+            // Open: Success! Cancel timeout, and set WebSocket in MatsSocket, clear flags, set proper handlers
+            websocket.onopen = function (event) {
+                log("Create WebSocket: opened!", event);
+                // Drop the "connection timeout" thingy
+                clearTimeout(timeoutId);
+
+                // Store our brand new, open-for-business WebSocket.
+                _websocket = websocket;
+                // We're not /trying/ to connect anymore..
+                _webSocketConnecting = false;
+                // Since we've just established this WebSocket, we have obviously not sent HELLO yet.
+                _helloSent = false;
+
+                // Set our proper handlers
+                websocket.onopen = undefined; // No need for 'onopen', it is already open. Also, node.js evidently immediately fires it again, even though it was already fired.
+                websocket.onerror = _onerror;
+                websocket.onclose = _onclose;
+                websocket.onmessage = _onmessage;
+
+                // Fire off any waiting messages, next tick
+                invokeLater(function () {
+                    evaluatePipelineSend();
+                });
+            };
         }
 
         function _onerror(event) {
@@ -689,24 +762,25 @@
         }
 
         function _onclose(event) {
-            log("onclose", event);
+            log("websocket.onclose", event);
             // Ditch this WebSocket
             _websocket = undefined;
-            // .. and thus it is most definitely not open anymore.
-            _socketOpen = false;
-            _helloSent = false;
+
+            // TODO: Handle the different close codes from MatsSocketServer.
+
+            // TODO: If "spurious close", AND we have outstanding futures or whatevers, then reconnect. Otherwise optional.
         }
 
         function _onmessage(webSocketEvent) {
-            // ?: Is this message received on the current '_websocket' instance (i.e. different (reconnect), or cleared/closed)?
-            if (this !== _websocket) {
-                // -> NO! This received-message is not on the current _websocket instance.
-                // We just drop the messages on the floor, as nobody is waiting for them anymore:
-                // If we closed with outstanding messages or futures, they were rejected.
-                // NOTE: This happens all the time on the node.js integration tests, triggering the if-missing-
-                // outstandingSendOrRequest error-output below.
-                return;
-            }
+            // // ?: Is this message received on the current '_websocket' instance (i.e. different (reconnect), or cleared/closed)?
+            // if (this !== _websocket) {
+            //     // -> NO! This received-message is not on the current _websocket instance.
+            //     // We just drop the messages on the floor, as nobody is waiting for them anymore:
+            //     // If we closed with outstanding messages or futures, they were rejected.
+            //     // NOTE: This happens all the time on the node.js integration tests, triggering the if-missing-
+            //     // outstandingSendOrRequest error-output below.
+            //     return;
+            // }
             let receivedTimestamp = Date.now();
             let data = webSocketEvent.data;
             let envelopes = JSON.parse(data);

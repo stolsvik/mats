@@ -24,25 +24,31 @@ describe('MatsSocket', function () {
     });
 
     describe('authorization', function () {
-        const webSocket = {
-            send(payload) {
-                JSON.parse(payload).forEach(({t, cmseq}, idx) => {
-                    if (t === 'HELLO') {
-                        setTimeout(() => {
-                            webSocket.onmessage({data: JSON.stringify([{t: "WELCOME"}])});
-                        }, idx);
-                    }
-                    if (cmseq !== undefined) {
-                        setTimeout(() => {
-                            webSocket.onmessage({data: JSON.stringify([{t: "RECEIVED", cmseq: cmseq, st: "ACK"}])});
-                        }, idx);
-                    }
-                });
-            }
+        // :: Make mock WebSocket
+        const webSocket = {};
+        // Make send function:
+        webSocket.send = function (payload) {
+            JSON.parse(payload).forEach(({t, cmseq}, idx) => {
+                if (t === 'HELLO') {
+                    setTimeout(() => {
+                        webSocket.onmessage({data: JSON.stringify([{t: "WELCOME"}])});
+                    }, idx);
+                }
+                if (cmseq !== undefined) {
+                    setTimeout(() => {
+                        webSocket.onmessage({data: JSON.stringify([{t: "RECEIVED", cmseq: cmseq, st: "ACK"}])});
+                    }, idx);
+                }
+            });
         };
+
+        // Make 'ononpen' property, which is set twice by MatsSocket: Once when it waits for it to open, and when this happens, it is "unset" (set to undefined)
         Object.defineProperty(webSocket, "onopen", {
             set(callback) {
-                setTimeout(() => callback({}), 0);
+                // When callback is set, immediately invoke it on next tick (fast opening times on this mock WebSockets..!)
+                if (callback !== undefined) {
+                    setTimeout(() => callback({}), 0);
+                }
             }
         });
 
