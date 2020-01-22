@@ -57,6 +57,7 @@ public class MatsTestWebsocketServer {
 
     private static final String CONTEXT_ATTRIBUTE_PORTNUMBER = "ServerPortNumber";
     private static final String CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH = "Path to MatsSocket.js";
+    private static final String CONTEXT_ATTRIBUTE_MATSSOCKETTEST_PATH = "Path to test folder";
 
     private static final String WEBSOCKET_PATH = "/matssocket";
 
@@ -253,6 +254,43 @@ public class MatsTestWebsocketServer {
         }
     }
 
+    /**
+     * Servlet to supply the test files - this only works in development (i.e. running from e.g. IntelliJ).
+     */
+    @WebServlet("/tests/*")
+    public static class MatsUnitTestsServlet extends HttpServlet {
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            String dirForTests = (String) req.getServletContext().getAttribute(
+                    CONTEXT_ATTRIBUTE_MATSSOCKETTEST_PATH);
+            if (dirForTests == null) {
+                resp.sendError(501,
+                        "Cannot find the tests directory (path not existing) - this only works when in development.");
+                return;
+            }
+
+            Path pathWithFile = Paths.get(dirForTests, req.getPathInfo());
+            if (!Files.exists(pathWithFile)) {
+                resp.sendError(404,
+                        "Cannot find the test file [" + req.getPathInfo() + "].");
+                return;
+            }
+            log.info(req.getPathInfo() + " path: " + pathWithFile);
+
+            resp.setContentType("application/javascript");
+            resp.setCharacterEncoding("UTF-8");
+            resp.setContentLengthLong(Files.size(pathWithFile));
+            // Copy over the File to the HTTP Response's OutputStream
+            InputStream inputStream = Files.newInputStream(pathWithFile);
+            ServletOutputStream outputStream = resp.getOutputStream();
+            int n;
+            byte[] buffer = new byte[16384];
+            while ((n = inputStream.read(buffer)) > -1) {
+                outputStream.write(buffer, 0, n);
+            }
+        }
+    }
+
     public static String id(Object x) {
         return x.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(x));
     }
@@ -289,8 +327,9 @@ public class MatsTestWebsocketServer {
         int pos = pathToClasses.indexOf("mats-websockets");
         String pathToMatsSocket = pos == -1
                 ? null
-                : pathToClasses.substring(0, pos) + "mats-websockets/client/javascript/lib";
-        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH, pathToMatsSocket);
+                : pathToClasses.substring(0, pos) + "mats-websockets/client/javascript";
+        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH, pathToMatsSocket + "/lib");
+        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETTEST_PATH, pathToMatsSocket + "/test");
 
         // Create the actual Jetty Server
         Server server = new Server(port);

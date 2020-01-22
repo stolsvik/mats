@@ -13,6 +13,7 @@
     "testAll": "mocha test/integration.js test/unit.js"
   },
   "devDependencies": {
+    "chai": "^4.2.0",
     "mocha": "^7.0.0",
     "opn": "^6.0.0",
     "sinon": "^8.0.4"
