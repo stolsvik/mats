@@ -83,5 +83,21 @@ void main() {
 
       expect(authCallbackCalled, true);
     });
+
+    test('Should clear authorization when urls are changed', () async {
+      var matsSocket = MatsSocket('Test', '1.0', ['ws://localhost:8080/'], socketFactory);
+
+      var authCallbackCalled = false;
+
+      matsSocket.setCurrentAuthorization('Test', DateTime.now().add(Duration(minutes: 1)));
+
+      await matsSocket.send('Test.authCallback', 'SEND_' + randomId(6), '');
+
+      expect(matsSocket.sessionId, isNotNull);
+
+      matsSocket.wsUrls = ['ws://localhost:8081/'];
+
+      expect(matsSocket.sessionId, isNull);
+    });
   });
 }

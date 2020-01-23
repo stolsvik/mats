@@ -28,16 +28,14 @@ String randomId([int length]) {
 }
 
 class MatsSocket {
-  String appName;
-  String appVersion;
-  List<String> wsUrls;
-  WebSocketChannelFactory socketFactory;
+  final String appName;
+  final String appVersion;
+  final List<String> _wsUrls = [];
+  final WebSocketChannelFactory socketFactory;
 
   // :: Authorization and session variables
   String sessionId;
-  AuthorizationCallback _authorizationCallback;
-  Completer<Authorization> _authorizationCompleter;
-  Authorization _authorization;
+  final Authorization _authorization = Authorization();
 
   // :: Message pipeline variables
   int pipelineMaxSize = 25;
@@ -59,76 +57,77 @@ class MatsSocket {
 
   final Logger _log = Logger('MatsSocket');
 
-  MatsSocket(this.appName, this.appVersion, this.wsUrls, this.socketFactory) {
-    assert(wsUrls.isNotEmpty);
+  MatsSocket(this.appName, this.appVersion, List<String> urls, this.socketFactory) {
+    wsUrls = urls;
   }
 
-  // ===== Authorization handling ==================================================================
+  // ===== API methods  ============================================================================
 
-  Future<Authorization> get authorization async {
-    // ?: Are we currently waiting for authorization?
-    if (_authorizationCompleter?.isCompleted == false) {
-      // Yes -> Wait for the future from the completer
-      _log.info(
-          'Authorization completer submitted, but not yet done, returning its future');
-      return _authorizationCompleter.future;
-    }
-    // E -> We are not waiting for an authorization
-
-    // ?: Is there no authorization present?
-    if (_authorization == null) {
-      // Yes -> First authentication, create a completer to listen for the authorization, and
-      //        return its future
-      _log.info(
-          'No authorization present, informing callback and waiting for a new authorization');
-      _authorizationCompleter = Completer<Authorization>();
-      _authorizationCallback(AuthorizationRefreshNewEvent());
-
-      // When the authorization is set, the future will resolve from the completer
-      await _authorizationCompleter.future;
-    }
-    // E -> We do have an authorization already
-
-    // Keep looping until we have an authorization that has not expired. If the callback sets an
-    // authorization that has expired, this will just loop and wait again for a non-expired
-    // authorization.
-    while (_authorization.expired) {
-      // Yes -> We need to refresh the authorization
-      _log.info('Current authorization has expired, requesting a refresh');
-      _authorizationCompleter = Completer<Authorization>();
-      _authorizationCallback(
-          AuthorizationRefreshRefreshEvent(_authorization.expire));
-
-      await _authorizationCompleter.future;
-    }
-    // --- At this point, we have a non-expired authorization
-    _log.fine('Current authorization still valid.');
-    return _authorization;
+  Future<Envelope> send(String endpointId, String traceId, dynamic message) {
+    return _addToPipeline(Envelope.send(endpointId, traceId, message));
   }
 
-  void setAuthorizationExpiredCallback(
-      AuthorizationCallback authorizationCallback) {
-    _authorizationCallback = authorizationCallback;
+  Future<Envelope> request(String endpointId, String traceId, dynamic message,
+      [Function(Envelope) receiveCallback]) {
+    return _addToPipeline(Envelope.request(endpointId, traceId, message),
+        receiveCallback: receiveCallback);
+  }
+
+  Future<Envelope> requestReplyTo(String endpointId, String traceId,
+      dynamic message, String replyToEndpointId,
+      [String correlationId]) {
+    return _addToPipeline(Envelope.request(
+        endpointId, traceId, message, replyToEndpointId, correlationId));
+  }
+
+  Stream<Envelope> endpoint(String endpointId) {
+    // :: Assert for double-registrations
+    if (_endpoints[endpointId] != null) {
+      throw DuplicateEndpointRegistration(
+          'Cannot register more than one endpoint to same '
+              'endpointId [$endpointId], current: [${_endpoints[endpointId]}');
+    }
+    _endpoints[endpointId] = StreamController<Envelope>();
+    return _endpoints[endpointId].stream;
+  }
+
+  Future close(String reason) async {
+    return _websocketChannel?.sink?.close(4000, reason);
+  }
+
+  void setAuthorizationExpiredCallback(AuthorizationCallback authorizationCallback) {
+    _authorization.authorizationCallback = authorizationCallback;
   }
 
   void setCurrentAuthorization(String authorization, DateTime expire,
       {Duration roomForLatency = const Duration(seconds: 10)}) {
-    _authorization =
-        Authorization(authorization, expire, roomForLatency: roomForLatency);
-    _log.info(
-        'Current authorization set to ${_authorization.token}, will expire in ${expire.difference(DateTime.now())}');
-    // ?: Do we have an incomplete _authorizationCompleter?
-    if (_authorizationCompleter?.isCompleted == false) {
-      // Yes -> Set the value, so all futures listening will be notified.
-      _log.info(
-          'Authorization completer was waiting for an authorization, setting it to complete');
-      _authorizationCompleter.complete(_authorization);
-    }
+    _authorization.setCurrentAuthorization(authorization, expire, roomForLatency: roomForLatency);
+  }
+
+  /// Update the list of wsUrls for the MatsSocket to connect to.
+  ///
+  /// This effectively resets the state of the MatsSocket to the initial state, so that future
+  /// messages sent would be identical to opening a new MatsSocket.
+  set wsUrls(List<String> wsUrls) {
+    assert(wsUrls.isNotEmpty);
+    _wsUrls.clear();
+    _wsUrls.addAll(wsUrls);
+    _nextUrlIndex = 0;
+
+    sessionId = null;
+    // Clear authorization, we need to re-authorize with the new backend.
+    _authorization.clear();
+    // Clear the pipelines, so that we start fresh on the new url connection
+    _prePipeline.clear();
+    _pipeline.clear();
+    // Start from message 0 again.
+    _messageSequenceId = 0;
+    close('Urls updated');
   }
 
   // ===== WebSocketChannel handling ===============================================================
 
-  Future<WebSocketChannel> get websocketChannel async {
+  Future<WebSocketChannel> get _channel async {
     // ?: Is the current channel null, or has a close code set, indicating that it's closed?
     if (_websocketChannel == null || _websocketChannel.closeCode != null) {
       // Yes -> Need to create a new _websocketChannel
@@ -142,15 +141,15 @@ class MatsSocket {
       // Wait for the authorization to be present before we connect to the websocket.
       // This to avoid timeouts on the websocket connection, as we have a small window to send
       // HELLO after establishing the connection before we get a timeout.
-      var authorization = await this.authorization;
+      var authorizationToken = await _authorization.token;
 
       // Connect to the next url, and increment the counter for next attempt
-      var url = wsUrls[_nextUrlIndex];
+      var url = _wsUrls[_nextUrlIndex];
       _log.info(
           'WebSocket not connected, connecting to url ${_nextUrlIndex} -> ${url}');
-      _websocketChannel = await socketFactory.connect(url, 'matssocket', authorization.token);
+      _websocketChannel = await socketFactory.connect(url, 'matssocket', authorizationToken);
       _websocketChannelDone = Completer();
-      _nextUrlIndex = (_nextUrlIndex + 1) % wsUrls.length;
+      _nextUrlIndex = (_nextUrlIndex + 1) % _wsUrls.length;
 
       // Read the websocket stream. We expect to get json arrays of messages, so we take each
       // payload, decode the json, and process each envelope in isolation.
@@ -166,9 +165,9 @@ class MatsSocket {
 
       // Put the hello envelope into the pre-pipeline
       _log.fine(
-          'Adding hello to pre-pipeline, authorization: ${authorization.token}');
+          'Adding hello to pre-pipeline, authorization: ${authorizationToken}');
       _prePipeline.add(
-          Envelope.hello(appName, appVersion, sessionId, authorization.token));
+          Envelope.hello(appName, appVersion, sessionId, authorizationToken));
       _pipelineSend(_websocketChannel, false);
       return _websocketChannel;
     } else {
@@ -315,7 +314,7 @@ class MatsSocket {
     if (immediate == true) {
       // Yes -> send immediately
       _log.fine('Immediate send requested, sending now');
-      await _pipelineSend(await websocketChannel, closeAfterSend == true);
+      await _pipelineSend(await _channel, closeAfterSend == true);
       return;
     }
 
@@ -323,7 +322,7 @@ class MatsSocket {
     if (_prePipeline.isNotEmpty) {
       // Yes -> send immediately
       _log.fine('Pre-pipeline has ${_prePipeline.length}, sending now');
-      await _pipelineSend(await websocketChannel, closeAfterSend == true);
+      await _pipelineSend(await _channel, closeAfterSend == true);
       return;
     }
 
@@ -331,7 +330,7 @@ class MatsSocket {
     if (_pipeline.length >= pipelineMaxSize) {
       // Yes -> send immediately
       _log.fine('Pipeline has ${_pipeline.length} messages, sending now');
-      await _pipelineSend(await websocketChannel, closeAfterSend == true);
+      await _pipelineSend(await _channel, closeAfterSend == true);
       return;
     }
 
@@ -347,13 +346,13 @@ class MatsSocket {
       // Yes -> We should not wait any longer to send
       _log.fine(
           'Oldest envelope has been in pipeline for [${oldestEnvelopeAge}], sending now');
-      await _pipelineSend(await websocketChannel, closeAfterSend == true);
+      await _pipelineSend(await _channel, closeAfterSend == true);
       return;
     }
 
     _log.fine('Scheduling pipeline send in [${pipelineDebounceTime}]');
     _pipelineDebounce = Timer(pipelineDebounceTime, () async {
-      await _pipelineSend(await websocketChannel, closeAfterSend == true);
+      await _pipelineSend(await _channel, closeAfterSend == true);
     });
   }
 
@@ -382,39 +381,6 @@ class MatsSocket {
     }
   }
 
-  // ===== API methods  ============================================================================
-
-  Future<Envelope> send(String endpointId, String traceId, dynamic message) {
-    return _addToPipeline(Envelope.send(endpointId, traceId, message));
-  }
-
-  Future<Envelope> request(String endpointId, String traceId, dynamic message,
-      [Function(Envelope) receiveCallback]) {
-    return _addToPipeline(Envelope.request(endpointId, traceId, message),
-        receiveCallback: receiveCallback);
-  }
-
-  Future<Envelope> requestReplyTo(String endpointId, String traceId,
-      dynamic message, String replyToEndpointId,
-      [String correlationId]) {
-    return _addToPipeline(Envelope.request(
-        endpointId, traceId, message, replyToEndpointId, correlationId));
-  }
-
-  Stream<Envelope> endpoint(String endpointId) {
-    // :: Assert for double-registrations
-    if (_endpoints[endpointId] != null) {
-      throw DuplicateEndpointRegistration(
-          'Cannot register more than one endpoint to same '
-          'endpointId [$endpointId], current: [${_endpoints[endpointId]}');
-    }
-    _endpoints[endpointId] = StreamController<Envelope>();
-    return _endpoints[endpointId].stream;
-  }
-
-  Future close(String reason) async {
-    return _websocketChannel.sink.close(4000, reason);
-  }
 }
 
 // ======== API contracts ==========================================================================
@@ -439,6 +405,16 @@ class DuplicateEndpointRegistration implements Exception {
   String toString() => '$runtimeType: $message';
 }
 
+/// Exception for when there is no AuthorizationCallback set.
+class AuthorizationCallbackMissing implements Exception {
+  final String message;
+
+  const AuthorizationCallbackMissing(this.message);
+
+  @override
+  String toString() => '$runtimeType: $message';
+}
+
 // ======== Authorization internal classes =========================================================
 
 abstract class AuthorizationRefreshEvent {}
@@ -452,15 +428,87 @@ class AuthorizationRefreshRefreshEvent extends AuthorizationRefreshEvent {
 }
 
 class Authorization {
-  String token;
-  DateTime expire;
-  Duration roomForLatency;
+  String _token;
+  DateTime _expire = DateTime.fromMillisecondsSinceEpoch(0);
+  Duration _roomForLatency = const Duration(seconds: 10);
+  Completer<String> _tokenCompleter;
+  AuthorizationCallback authorizationCallback = (event) {
+    throw const AuthorizationCallbackMissing('authorizationCallback and authorization required, please '
+        'configure MatsSocket to have a callback, so that Mats can signal when a new authorization '
+        'token is required.');
+  };
 
-  Authorization(this.token, this.expire,
-      {this.roomForLatency = const Duration(seconds: 10)});
+  final Logger _log = Logger('MatsSocket');
+
+  Authorization();
 
   bool get expired {
-    return DateTime.now().add(roomForLatency).isAfter(expire);
+    return DateTime.now().add(_roomForLatency).isAfter(_expire);
+  }
+
+  void setCurrentAuthorization(String token, DateTime expire,
+      {Duration roomForLatency = const Duration(seconds: 10)}) {
+    _token = token ?? _token;
+    _expire = expire;
+    _roomForLatency = roomForLatency ?? _roomForLatency;
+    _log.info(
+        'Current authorization set to ${_token}, will expire in ${expire.difference(DateTime.now())}');
+    // ?: Do we have an incomplete _authorizationCompleter?
+    if (_tokenCompleter?.isCompleted == false) {
+      // Yes -> Set the value, so all futures listening will be notified.
+      _log.info(
+          'token completer was waiting for an authorization, setting its value');
+      _tokenCompleter.complete(token);
+    }
+  }
+
+  /// Clear the state of the Authorization, so that next call to token will require re-authentication.
+  ///
+  void clear() {
+    _token = null;
+    _expire = DateTime.fromMillisecondsSinceEpoch(0);
+    _roomForLatency = const Duration(seconds: 10);
+    _tokenCompleter = null;
+  }
+
+  Future<String> get token async {
+    // ?: Are we currently waiting for authorization?
+    if (_tokenCompleter?.isCompleted == false) {
+      // Yes -> Wait for the future from the completer
+      _log.info(
+          'Authorization completer submitted, but not yet done, returning its future');
+      return _tokenCompleter.future;
+    }
+    // E -> We are not waiting for an authorization
+
+    // ?: Is there no authorization present?
+    if (_token == null) {
+      // Yes -> First authentication, create a completer to listen for the authorization, and
+      //        return its future
+      _log.info(
+          'No authorization present, informing callback and waiting for a new authorization');
+      _tokenCompleter = Completer<String>();
+      authorizationCallback(AuthorizationRefreshNewEvent());
+
+      // When the authorization is set, the future will resolve from the completer
+      await _tokenCompleter.future;
+    }
+    // E -> We do have an authorization already
+
+    // Keep looping until we have an authorization that has not expired. If the callback sets an
+    // authorization that has expired, this will just loop and wait again for a non-expired
+    // authorization.
+    while (expired) {
+      // Yes -> We need to refresh the authorization
+      _log.info('Current authorization has expired, requesting a refresh');
+      _tokenCompleter = Completer<String>();
+      authorizationCallback(AuthorizationRefreshRefreshEvent(_expire));
+
+      await _tokenCompleter.future;
+    }
+    // --- At this point, we have a non-expired authorization
+    _log.fine('Current authorization still valid.');
+    return _token;
   }
 }
 
