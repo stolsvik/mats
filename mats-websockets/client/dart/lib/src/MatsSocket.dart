@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:io';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:mats_socket/mats_socket.dart';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:logging/logging.dart';
@@ -14,7 +16,19 @@ const CLIENT_LIB_NAME_AND_VERSION = 'MatsSocket.dart,v0.8.9';
 final VERSION =
     '${CLIENT_LIB_NAME_AND_VERSION}; Dart ${Platform.version}';
 
+final Logger _log = Logger('MatsSocket');
+
 typedef AuthorizationCallback = Function(AuthorizationRefreshEvent);
+/// Callback to handle close session out of band, will receive the websocket url, and the sessionId
+typedef OutOfBandClose = Function(String, String);
+
+void defaultOutOfBandClose(String url, String sessionId) {
+  // Fire off a "close" over HTTP, so that we avoid dangling sessions
+  var closeSesionUrl = url.replaceAll('ws', 'http') + '/close_session?session_id=' + sessionId;
+  _log.info("  \\- Send an out-of-band (i.e. HTTP) close_session to '$closeSesionUrl'.");
+  // Fire and forget, we do not need to get a reply from the server
+  http.post(closeSesionUrl);
+}
 
 /// Generate a random id of the given length
 ///
@@ -27,24 +41,39 @@ String randomId([int length]) {
   return result;
 }
 
+// https://stackoverflow.com/a/12646864/39334
+void shuffleList(List items) {
+  var rnd = Random();
+  for (var i = items.length - 1; i > 0; i--) {
+    var j = rnd.nextInt(i + 1);
+    var temp = items[i];
+    items[i] = items[j];
+    items[j] = temp;
+  }
+}
+
 class MatsSocket {
-  String appName;
-  String appVersion;
-  List<String> wsUrls;
-  WebSocketChannelFactory socketFactory;
+  final String appName;
+  final String appVersion;
+  final WebSocketChannelFactory socketFactory;
+
+  // :: Callbacks
+  AuthorizationCallback authorizationCallback = (event) {
+    throw AuthorizationCallbackMissingException('Missing AuthorizationCallback to handle $event');
+  };
+  OutOfBandClose outOfBandClose = defaultOutOfBandClose;
 
   // :: Authorization and session variables
   String sessionId;
-  AuthorizationCallback _authorizationCallback;
-  Completer<Authorization> _authorizationCompleter;
+  Completer<String> _authorizationCompleter;
   Authorization _authorization;
 
-  // :: Message pipeline variables
+  // :: Message pipeline configuration
   int pipelineMaxSize = 25;
-  Duration maxEnvelopeAge = Duration(milliseconds: 50);
-  Duration pipelineDebounceTime = Duration(milliseconds: 10);
+  Duration maxEnvelopeAge = Duration(milliseconds: 20);
+  Duration pipelineDebounceTime = Duration(milliseconds: 2);
 
-  final List<Envelope> _prePipeline = [];
+  // :: Message pipeline state
   final List<Envelope> _pipeline = [];
   int _messageSequenceId = 0;
   final Map<int, OutstandingSendOrRequest> _outstandingSendsAndRequests = {};
@@ -52,20 +81,125 @@ class MatsSocket {
   final Map<String, StreamController<Envelope>> _endpoints = {};
 
   // :: WebSocket variables
-  int _nextUrlIndex = 0;
+  final List<String> _wsUrls = [];
+  int _urlIndex = 0;
   WebSocketChannel _websocketChannel;
   StreamSubscription<Envelope> _socketSubscription;
+  Completer _welcomeReceived;
   Completer _websocketChannelDone;
 
-  final Logger _log = Logger('MatsSocket');
 
-  MatsSocket(this.appName, this.appVersion, this.wsUrls, this.socketFactory) {
+  MatsSocket(this.appName, this.appVersion, List<String> wsUrls, this.socketFactory) {
     assert(wsUrls.isNotEmpty);
+    _wsUrls.addAll(wsUrls);
+    shuffleList(_wsUrls);
+  }
+
+  // ===== API methods  ============================================================================
+
+  /// Change the wsUrls that the MatsSocket connects to.
+  ///
+  /// This will force the current connection, if open, to close, putting it in a fresh state. This
+  /// is because we will need to create a new session against the new urls, as well as start with
+  /// our internal state fresh.
+  void setWsUrls(List<String> wsUrls) async {
+    assert(wsUrls.isNotEmpty);
+    // Close the existing connection, if open
+    await close('Changing wsUrls');
+    // Update the list of urls to use
+    _wsUrls.clear();
+    _wsUrls.addAll(wsUrls);
+    shuffleList(_wsUrls);
+  }
+
+  void setCurrentAuthorization(String authorization, DateTime expire,
+      {Duration roomForLatency = const Duration(seconds: 10)}) {
+    _authorization =
+        Authorization(authorization, expire, roomForLatency: roomForLatency);
+
+    _log.info(
+        'Current authorization set to ${_authorization.token}, will expire in ${expire.difference(DateTime.now())}');
+    // ?: Do we have an incomplete _authorizationCompleter?
+    if (_authorizationCompleter?.isCompleted == false) {
+      // Yes -> Set the value, so all futures listening will be notified.
+      _log.info(
+          'Authorization completer was waiting for an authorization, setting it to complete');
+      _authorizationCompleter.complete(authorization);
+    }
+  }
+
+  Future<Envelope> send(String endpointId, String traceId, dynamic message) {
+    return _addToPipeline(Envelope.send(endpointId, traceId, message));
+  }
+
+  Future<Envelope> request(String endpointId, String traceId, dynamic message,
+      [Function(Envelope) receiveCallback]) {
+    return _addToPipeline(Envelope.request(endpointId, traceId, message),
+        receiveCallback: receiveCallback);
+  }
+
+  Future<Envelope> requestReplyTo(String endpointId, String traceId,
+      dynamic message, String replyToEndpointId,
+      [String correlationId]) {
+    return _addToPipeline(Envelope.request(
+        endpointId, traceId, message, replyToEndpointId, correlationId));
+  }
+
+  Stream<Envelope> endpoint(String endpointId) {
+    // :: Assert for double-registrations
+    if (_endpoints[endpointId] != null) {
+      throw DuplicateEndpointRegistration(
+          'Cannot register more than one endpoint to same '
+              'endpointId [$endpointId], current: [${_endpoints[endpointId]}');
+    }
+    _endpoints[endpointId] = StreamController<Envelope>();
+    return _endpoints[endpointId].stream;
+  }
+
+  Future close(String reason) async {
+    var existingSessionId = sessionId;
+    var isOpen = _websocketChannel != null && _websocketChannel.closeCode == null;
+    var currentWsUrl = _wsUrls[_urlIndex];
+    _log.info('close(): Closing MatsSocketSession, id:[$existingSessionId] due to [$reason], '
+        'currently connected: [${(isOpen ? currentWsUrl : "not connected")}]');
+
+    // :: In-band session close
+    // ?: Do we have WebSocket?
+    if (isOpen) {
+      // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
+      _log.info(' \\-> WebSocket is open, so we close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).');
+
+      // We don't want the onDone callback invoked from this event that we initiated ourselves.
+      _socketSubscription.onDone(null);
+      // We don't want any messages either, as we'll now be clearing out futures and outstanding messages ("acks")
+      _socketSubscription.onData(null);
+      // Also drop onError for good measure.
+      _socketSubscription.onError(null);
+      // Cancel the subscription fully before we close the channel
+      await _socketSubscription.cancel();
+      // Perform the close
+      await _websocketChannel.sink.close(4000, reason);
+    } else {
+      _log.info(' \\-> WebSocket NOT open, so CANNOT close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).');
+    }
+
+    // :: Clear out the state of this MatsSocket.
+    _websocketChannel = null;
+    sessionId = null;
+    _urlIndex = 0;
+    _clearPipelineAndOutstandingMessages('session close');
+
+    // :: Out-of-band session close
+    // ?: Do we have a sessionId?
+    if (existingSessionId != null) {
+      // Yes -> Invoke the OutOfBandClose callback
+      outOfBandClose(currentWsUrl, existingSessionId);
+    }
   }
 
   // ===== Authorization handling ==================================================================
 
-  Future<Authorization> get authorization async {
+  Future<String> get _authorizationToken async {
     // ?: Are we currently waiting for authorization?
     if (_authorizationCompleter?.isCompleted == false) {
       // Yes -> Wait for the future from the completer
@@ -81,8 +215,8 @@ class MatsSocket {
       //        return its future
       _log.info(
           'No authorization present, informing callback and waiting for a new authorization');
-      _authorizationCompleter = Completer<Authorization>();
-      _authorizationCallback(AuthorizationRefreshNewEvent());
+      _authorizationCompleter = Completer<String>();
+      authorizationCallback(AuthorizationRefreshNewEvent());
 
       // When the authorization is set, the future will resolve from the completer
       await _authorizationCompleter.future;
@@ -92,43 +226,23 @@ class MatsSocket {
     // Keep looping until we have an authorization that has not expired. If the callback sets an
     // authorization that has expired, this will just loop and wait again for a non-expired
     // authorization.
-    while (_authorization.expired) {
+    if (_authorization.expired) {
       // Yes -> We need to refresh the authorization
       _log.info('Current authorization has expired, requesting a refresh');
-      _authorizationCompleter = Completer<Authorization>();
-      _authorizationCallback(
+      _authorizationCompleter = Completer<String>();
+      authorizationCallback(
           AuthorizationRefreshRefreshEvent(_authorization.expire));
 
       await _authorizationCompleter.future;
     }
     // --- At this point, we have a non-expired authorization
     _log.fine('Current authorization still valid.');
-    return _authorization;
-  }
-
-  void setAuthorizationExpiredCallback(
-      AuthorizationCallback authorizationCallback) {
-    _authorizationCallback = authorizationCallback;
-  }
-
-  void setCurrentAuthorization(String authorization, DateTime expire,
-      {Duration roomForLatency = const Duration(seconds: 10)}) {
-    _authorization =
-        Authorization(authorization, expire, roomForLatency: roomForLatency);
-    _log.info(
-        'Current authorization set to ${_authorization.token}, will expire in ${expire.difference(DateTime.now())}');
-    // ?: Do we have an incomplete _authorizationCompleter?
-    if (_authorizationCompleter?.isCompleted == false) {
-      // Yes -> Set the value, so all futures listening will be notified.
-      _log.info(
-          'Authorization completer was waiting for an authorization, setting it to complete');
-      _authorizationCompleter.complete(_authorization);
-    }
+    return _authorization.token;
   }
 
   // ===== WebSocketChannel handling ===============================================================
 
-  Future<WebSocketChannel> get websocketChannel async {
+  Future<WebSocketChannel> get _channel async {
     // ?: Is the current channel null, or has a close code set, indicating that it's closed?
     if (_websocketChannel == null || _websocketChannel.closeCode != null) {
       // Yes -> Need to create a new _websocketChannel
@@ -138,39 +252,89 @@ class MatsSocket {
         // Yes -> canel it before we start a new one
         await _socketSubscription.cancel();
       }
+      var attemptRound = 0; // When cycled one time through URLs, increases.
+      var timeoutBase = 500; // Milliseconds for this fallback level. Doubles, up to max defined below.
+      var timeoutMax = 10000; // Milliseconds max between connection attempts.
 
-      // Wait for the authorization to be present before we connect to the websocket.
-      // This to avoid timeouts on the websocket connection, as we have a small window to send
-      // HELLO after establishing the connection before we get a timeout.
-      var authorization = await this.authorization;
+      var urlIndexTryingToConnect = 0;
 
-      // Connect to the next url, and increment the counter for next attempt
-      var url = wsUrls[_nextUrlIndex];
-      _log.info(
-          'WebSocket not connected, connecting to url ${_nextUrlIndex} -> ${url}');
-      _websocketChannel = await socketFactory.connect(url, 'matssocket', authorization.token);
-      _websocketChannelDone = Completer();
-      _nextUrlIndex = (_nextUrlIndex + 1) % wsUrls.length;
+      _log.info('Attempting to connect, candidate urls: [$_wsUrls]');
+      // Infinite loop until we connect
+      while (true) {
+        // Wait for the authorization to be present before we connect to the websocket.
+        // This to avoid timeouts on the websocket connection, as we have a small window to send
+        // HELLO after establishing the connection before we get a timeout.
+        // Also, if the connection times out as we do an incremental backoff, we might end up in a
+        // situation where the token has expired, so we need to ensure a fresh token for each attempt
 
-      // Read the websocket stream. We expect to get json arrays of messages, so we take each
-      // payload, decode the json, and process each envelope in isolation.
-      var envelopeStream = _websocketChannel.stream.expand((payload) {
-        var envelopes = jsonDecode(payload) as List<dynamic>;
-        _log.info(
-            'Received ${envelopes.length} envelope(s) from payload $payload');
-        return envelopes.map((envelope) => Envelope.fromEncoded(envelope));
-      });
+        // Based on whether there is multiple URLs, or just a single one, we choose the short "timeout base", or a longer one (max/2), as minimum.
+        var minTimeout = _wsUrls.length > 1 ? timeoutBase : timeoutMax / 2;
+        // Timeout: LESSER of "max" and "timeoutBase * (2^round)", which should lead to timeoutBase x1, x2, x4, x8 - but capped at max.
+        // .. but at least 'minTimeout'
+        var attemptTimeout = min(timeoutMax, timeoutBase * pow(2, attemptRound));
+        var timeout = Duration(milliseconds: max(minTimeout, attemptTimeout).toInt());
 
-      _socketSubscription = envelopeStream.listen(_onMessage,
-          onError: _onWebSocketError, onDone: _onWebSocketDone);
+        var authorizationToken = await _authorizationToken;
+        var url = _wsUrls[urlIndexTryingToConnect];
+        _log.info(' \\- Create WebSocket: attempt [$attemptRound], trying to connect to [$url] within [$timeout]');
+        try {
+          var socketFuture = socketFactory.connect(url, 'matssocket', authorizationToken);
+          _websocketChannel = await socketFuture.then((channel) async {
+            _welcomeReceived = Completer();
+            _websocketChannelDone = Completer();
 
-      // Put the hello envelope into the pre-pipeline
-      _log.fine(
-          'Adding hello to pre-pipeline, authorization: ${authorization.token}');
-      _prePipeline.add(
-          Envelope.hello(appName, appVersion, sessionId, authorization.token));
-      _pipelineSend(_websocketChannel, false);
-      return _websocketChannel;
+            // Read the websocket stream. We expect to get json arrays of messages, so we take each
+            // payload, decode the json, and process each envelope in isolation.
+            var envelopeStream = channel.stream.expand((payload) {
+              var envelopes = jsonDecode(payload) as List<dynamic>;
+              _log.info(
+                  'Received ${envelopes.length} envelope(s) from payload $payload');
+              return envelopes.map((envelope) => Envelope.fromEncoded(envelope));
+            });
+
+            // Set the handler for the subscription
+            _socketSubscription = envelopeStream.listen(_onMessage);
+            // If the subscription results in an error, for example that we are not able to connect,
+            // or we can't upgrade to a WebSocket channel, the error should be forwarded to the
+            // welcome received completer, so that this loop fails exceptionally, and retries.
+            _socketSubscription.onError(_welcomeReceived.completeError);
+            // If we are disconnected before we receive welcome, we also need to abort
+            _socketSubscription.onDone(() { _welcomeReceived.completeError(Envelope.error()); });
+
+            // Put the hello envelope into the pre-pipeline
+            _log.fine('Adding hello to pre-pipeline, authorization: $authorizationToken');
+            var prePipeline = [Envelope.hello(appName, appVersion, sessionId, authorizationToken)];
+            await _pipelineSend(channel, prePipeline);
+
+            // Wait for us to receive the welcome message successfully. If this fails, it means
+            // that we where not able to connect, and need to retry. This is handled in the catch
+            // case that waits for the websocket channel.
+            await _welcomeReceived.future;
+
+            // We are welcome, change the error handlers to the default, as well as set up the
+            // done handler.
+            _socketSubscription.onError(_onWebSocketError);
+            _socketSubscription.onDone(_onWebSocketDone);
+            return channel;
+          }).timeout(timeout);
+
+          _urlIndex = urlIndexTryingToConnect;
+          _log.info(' \\- Create WebSocket: success in connecting to $url');
+          return _websocketChannel;
+        } on TimeoutException {
+          // :: Timeout handling, retry
+          _log.info(' \\- Create WebSocket: Timeout exceeded [$timeout], this WebSocket is bad so ditch it.');
+          attemptRound += 1;
+          urlIndexTryingToConnect = (urlIndexTryingToConnect + 1) % _wsUrls.length;
+          await _socketSubscription?.cancel();
+        } catch(e) {
+          // :: Any connection failure handling
+          _log.info(' \\- Create WebSocket: Failed to connect to [$url].', e);
+          attemptRound += 1;
+          urlIndexTryingToConnect = (urlIndexTryingToConnect + 1) % _wsUrls.length;
+          await _socketSubscription?.cancel();
+        }
+      } // -- Connection while loop
     } else {
       // current channel is valid
       return _websocketChannel;
@@ -185,6 +349,7 @@ class MatsSocket {
           'after [${envelope.clientMessageCreated.difference(DateTime.now())}], '
           'with sessionId: [${envelope.sessionId}]');
       sessionId = envelope.sessionId;
+      _welcomeReceived.complete();
       return;
     }
     var outstandingSendsAndRequest =
@@ -195,9 +360,13 @@ class MatsSocket {
     if (outstandingSendsAndRequest?.receive != null &&
         envelope.type == EnvelopeType.RECEIVED) {
       // Yes -> resolve the receive envelope
-      _log.info(
-          'Message received for sequenceId: [${envelope.messageSequenceId}]');
-      outstandingSendsAndRequest._receive.complete(envelope);
+      if (envelope.subType == EnvelopeSubType.ACK) {
+        _log.info(
+            'Message ACK received for sequenceId: [${envelope.messageSequenceId}]');
+        outstandingSendsAndRequest._receive.complete(envelope);
+      } else {
+        outstandingSendsAndRequest._receive.completeError(envelope);
+      }
       handled = true;
     }
 
@@ -205,10 +374,15 @@ class MatsSocket {
     if (outstandingSendsAndRequest?.reply != null &&
         envelope.type == EnvelopeType.REPLY) {
       // Yes -> resolve the reply envelope
-      _log.info(
-          'Message reply for sequenceId: [${envelope.messageSequenceId}], '
-          'receive accepted: [${outstandingSendsAndRequest._receive.isCompleted}]');
-      outstandingSendsAndRequest._reply.complete(envelope);
+      _log.info('Recived [${enumName(envelope.subType)}] '
+          'for sequenceId: [${envelope.messageSequenceId}]');
+
+      // ?: Is this a resolve type, or an error
+      if (envelope.subType == EnvelopeSubType.RESOLVE) {
+        outstandingSendsAndRequest._reply.complete(envelope);
+      } else {
+        outstandingSendsAndRequest._reply.completeError(envelope);
+      }
       handled = true;
     }
 
@@ -224,13 +398,20 @@ class MatsSocket {
     if (envelope.type == EnvelopeType.REPLY &&
         _endpoints.containsKey(envelope.endpointId)) {
       // Yes -> add the message to the endpoint stream.
-      _log.info('Recived message for ${envelope.endpointId}');
-      _endpoints[envelope.endpointId].add(envelope);
+      _log.info('Recived [${enumName(envelope.subType)}] message for ${envelope.endpointId}');
+
+      // ?: Is this a resolve type, or an error
+      if (envelope.subType == EnvelopeSubType.RESOLVE) {
+        _endpoints[envelope.endpointId].add(envelope);
+      } else {
+        _endpoints[envelope.endpointId].addError(envelope);
+      }
       handled = true;
     }
     // :: Assert that the envelope was handled
     if (!handled) {
-      _log.severe('Could not find a handler for message ${envelope.type}');
+      _log.severe('Could not find a handler for message '
+          '[${enumName(envelope.type)}/${enumName(envelope.subType)}]');
     }
   }
 
@@ -296,9 +477,9 @@ class MatsSocket {
   }
 
   Future<void> _pipelineScheduleSend(
-      {bool immediate, bool closeAfterSend}) async {
+      {bool immediate}) async {
     // ?: Are both pipelines empty?
-    if (_prePipeline.isEmpty && _pipeline.isEmpty) {
+    if (_pipeline.isEmpty) {
       // Yes -> Do nothing, nothing to send
       _log.fine('Pipeline is empty, not scheduling send');
       return;
@@ -315,15 +496,7 @@ class MatsSocket {
     if (immediate == true) {
       // Yes -> send immediately
       _log.fine('Immediate send requested, sending now');
-      await _pipelineSend(await websocketChannel, closeAfterSend == true);
-      return;
-    }
-
-    // ?: Is there messages in the pre pipeline?
-    if (_prePipeline.isNotEmpty) {
-      // Yes -> send immediately
-      _log.fine('Pre-pipeline has ${_prePipeline.length}, sending now');
-      await _pipelineSend(await websocketChannel, closeAfterSend == true);
+      await _pipelineSend(await _channel);
       return;
     }
 
@@ -331,7 +504,7 @@ class MatsSocket {
     if (_pipeline.length >= pipelineMaxSize) {
       // Yes -> send immediately
       _log.fine('Pipeline has ${_pipeline.length} messages, sending now');
-      await _pipelineSend(await websocketChannel, closeAfterSend == true);
+      await _pipelineSend(await _channel);
       return;
     }
 
@@ -347,74 +520,58 @@ class MatsSocket {
       // Yes -> We should not wait any longer to send
       _log.fine(
           'Oldest envelope has been in pipeline for [${oldestEnvelopeAge}], sending now');
-      await _pipelineSend(await websocketChannel, closeAfterSend == true);
+      await _pipelineSend(await _channel);
       return;
     }
 
     _log.fine('Scheduling pipeline send in [${pipelineDebounceTime}]');
     _pipelineDebounce = Timer(pipelineDebounceTime, () async {
-      await _pipelineSend(await websocketChannel, closeAfterSend == true);
+      await _pipelineSend(await _channel);
     });
   }
 
-  void _pipelineSend(WebSocketChannel channel, bool closeAfterSend) async {
-    if (_prePipeline.isNotEmpty) {
-      var message = json.encode(_prePipeline);
+  void _pipelineSend(WebSocketChannel channel, [List<Envelope> prePipeline]) async {
+    if (prePipeline != null && prePipeline.isNotEmpty) {
+      var message = json.encode(prePipeline);
       _log.info(
-          'Flushing [${_prePipeline.length}] messages from pre-pipeline: ${message}');
-      _prePipeline.clear();
+          'Flushing [${prePipeline.length}] messages from pre-pipeline: ${message}');
+      prePipeline.clear();
       channel.sink.add(message);
     }
     if (_pipeline.isNotEmpty) {
+      // Wait until we are welcome until we send further messages, this is to avoid clearing
+      // the pipeline until we have a valid connection.
+      await _welcomeReceived.future;
+
       var message = json.encode(_pipeline);
       _log.info(
           'Flushing [${_pipeline.length}] messages from pipeline: ${message}');
       _pipeline.clear();
       channel.sink.add(message);
     }
-    if (closeAfterSend) {
-      _log.info('Requested to close after send, closing websocket channel');
-      var close = await Future.any([
-        channel.sink.close(1, 'Close requested'),
-        _websocketChannelDone.future
-      ]);
-      _log.info('Closed websocket channel ${close}');
-    }
   }
 
-  // ===== API methods  ============================================================================
+  void _clearPipelineAndOutstandingMessages(reason) {
+    // :: Clear pipeline
+    _pipeline.length = 0;
 
-  Future<Envelope> send(String endpointId, String traceId, dynamic message) {
-    return _addToPipeline(Envelope.send(endpointId, traceId, message));
+    // :: Reject all outstanding receives and replies
+    _outstandingSendsAndRequests.forEach((cmseq, outstanding) {
+      if (!outstanding._receive.isCompleted) {
+        _log.info('Clearing outstanding receive on [$cmseq] to '
+            '[${outstanding.envelope.endpointId}].');
+        outstanding._receive.completeError(
+            MatsSocketCloseException(reason), StackTrace.current);
+      }
+      if (outstanding?._reply?.isCompleted == false) {
+        _log.info('Clearing outstanding reply on [$cmseq] to '
+            '[${outstanding.envelope.endpointId}].');
+        outstanding._reply.completeError(
+            MatsSocketCloseException(reason), StackTrace.current);
+      }
+    });
   }
 
-  Future<Envelope> request(String endpointId, String traceId, dynamic message,
-      [Function(Envelope) receiveCallback]) {
-    return _addToPipeline(Envelope.request(endpointId, traceId, message),
-        receiveCallback: receiveCallback);
-  }
-
-  Future<Envelope> requestReplyTo(String endpointId, String traceId,
-      dynamic message, String replyToEndpointId,
-      [String correlationId]) {
-    return _addToPipeline(Envelope.request(
-        endpointId, traceId, message, replyToEndpointId, correlationId));
-  }
-
-  Stream<Envelope> endpoint(String endpointId) {
-    // :: Assert for double-registrations
-    if (_endpoints[endpointId] != null) {
-      throw DuplicateEndpointRegistration(
-          'Cannot register more than one endpoint to same '
-          'endpointId [$endpointId], current: [${_endpoints[endpointId]}');
-    }
-    _endpoints[endpointId] = StreamController<Envelope>();
-    return _endpoints[endpointId].stream;
-  }
-
-  Future close(String reason) async {
-    return _websocketChannel.sink.close(4000, reason);
-  }
 }
 
 // ======== API contracts ==========================================================================
@@ -439,6 +596,23 @@ class DuplicateEndpointRegistration implements Exception {
   String toString() => '$runtimeType: $message';
 }
 
+class MatsSocketCloseException implements Exception {
+  final String message;
+
+  const MatsSocketCloseException(this.message);
+
+  @override
+  String toString() => '$runtimeType: $message';
+}
+
+class AuthorizationCallbackMissingException implements Exception {
+  final String message;
+
+  const AuthorizationCallbackMissingException(this.message);
+
+  @override
+  String toString() => '$runtimeType: $message';
+}
 // ======== Authorization internal classes =========================================================
 
 abstract class AuthorizationRefreshEvent {}
@@ -473,19 +647,41 @@ enum EnvelopeType {
   REQUEST,
   RECEIVED,
   REPLY,
-  CLOSE_SESSION
+  CLOSE_SESSION,
+  ERROR
 }
 
-extension EnvelopeTypeExtension on EnvelopeType {
-  String get name {
-    var EnvelopeTypeNameLength = runtimeType.toString().length;
-    return toString().substring(EnvelopeTypeNameLength + 1);
+enum EnvelopeSubType {
+  NEW, EXPECT_EXISTING, ACK, NACK, ERROR, RESOLVE, REJECT
+}
+
+String enumName(dynamic value) {
+  if (value == null) {
+    return null;
   }
+  var typeNameLength = value.runtimeType.toString().length;
+  return value.toString().substring(typeNameLength + 1);
+}
+
+EnvelopeType envelopeType(String value) {
+  if (value == null) {
+    return null;
+  }
+  var filter = (e) => enumName(e) == value;
+  return EnvelopeType.values.firstWhere(filter, orElse: () => throw Exception('No EnvelopeType for $value'));
+}
+
+EnvelopeSubType envelopeSubType(String value) {
+  if (value == null) {
+    return null;
+  }
+  var filter = (e) => enumName(e) == value;
+  return EnvelopeSubType.values.firstWhere(filter, orElse: () => throw Exception('No EnvelopeSubType for $value'));
 }
 
 class Envelope {
   EnvelopeType type;
-  String subType;
+  EnvelopeSubType subType;
   dynamic data;
 
   String appName;
@@ -535,9 +731,9 @@ class Envelope {
   Envelope.empty();
 
   Envelope.fromEncoded(Map<String, dynamic> envelope) {
-    type = EnvelopeType.values.firstWhere((t) => t.name == envelope['t']);
+    type = envelopeType(envelope['t']);
     data = envelope['msg'];
-    subType = envelope['st'];
+    subType = envelopeSubType(envelope['st']);
     appName = envelope['an'];
     appVersion = envelope['av'];
     traceId = envelope['tid'];
@@ -564,7 +760,7 @@ class Envelope {
   Envelope.hello(
       this.appName, this.appVersion, this.sessionId, this.authorization) {
     type = EnvelopeType.HELLO;
-    subType = (sessionId == null) ? 'NEW' : 'EXPECT_EXISTING';
+    subType = (sessionId == null) ? EnvelopeSubType.NEW : EnvelopeSubType.EXPECT_EXISTING;
   }
 
   Envelope.send(this.endpointId, this.traceId, this.data) {
@@ -576,12 +772,17 @@ class Envelope {
     type = EnvelopeType.REQUEST;
   }
 
+  Envelope.error() {
+    type = EnvelopeType.ERROR;
+    subType = EnvelopeSubType.ERROR;
+  }
+
   /// Convert this Envelope to a Json Map representation, this is used by dart:convert
   /// to encode this object for JSON.
   Map<String, dynamic> toJson() {
     var json = {
-      't': type.name,
-      'st': subType,
+      't': enumName(type),
+      'st': enumName(subType),
       'tid': traceId,
       'clv': VERSION,
       'ts': DateTime.now().millisecondsSinceEpoch,
@@ -624,6 +825,7 @@ class Envelope {
       return DateTime.fromMillisecondsSinceEpoch(millisecondsSinceEpoch as int);
     }
   }
+
 }
 
 // ======== Internal state =========================================================================
@@ -639,12 +841,27 @@ class OutstandingSendOrRequest {
     _reply = Completer();
   }
 
-  // If reply is null (because this is not a request), then isComplete will be
-  // null, which is not equal to false. So we resolve to only checking receive
-  // if reply is null.
-  bool get done => _receive.isCompleted && _reply?.isCompleted != false;
+  bool get done {
+    // ?: Do we have a reply?
+    if (_reply != null) {
+      // Yes -> We are done when we have the reply envelope
+      return _reply.isCompleted;
+    } else {
+      // No -> We are done when we have the receive envelope
+      return _receive.isCompleted;
+    }
+  }
 
-  Future<Envelope> get receive => _receive.future;
+  Future<Envelope> get receive {
+    // ?: Do we have a reply?
+    if (_reply != null) {
+      // Yes -> Wait for either receive or reply
+      return Future.any([_receive.future, _reply.future]);
+    } else {
+      // Yes -> Wait for receive
+      return _receive.future;
+    }
+  }
 
   Future<Envelope> get reply => _reply?.future;
 }

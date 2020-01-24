@@ -29,10 +29,10 @@ void main() {
     test('Should invoke authorization callback before making calls', () async {
       var matsSocket = MatsSocket('Test', '1.0', ['ws://localhost:8080/'], socketFactory);
       var authCallbackCalled = false;      
-      matsSocket.setAuthorizationExpiredCallback((event) {
+      matsSocket.authorizationCallback = (event) {
         authCallbackCalled = true;
         matsSocket.setCurrentAuthorization('Test', DateTime.now().add(Duration(minutes: 1)));
-      });
+      };
 
       await matsSocket.send('Test.authCallback', 'SEND_${randomId(6)}', '');
 
@@ -43,9 +43,9 @@ void main() {
       var matsSocket = MatsSocket('Test', '1.0', ['ws://localhost:8080/'], socketFactory);
       var authCallbackCalled = false;      
       matsSocket.setCurrentAuthorization('Test', DateTime.now().add(Duration(minutes: 1)));
-      matsSocket.setAuthorizationExpiredCallback((event) {
+      matsSocket.authorizationCallback = (event) {
         authCallbackCalled = true;  
-      });
+      };
 
       await matsSocket.send('Test.authCallback', 'SEND_${randomId(6)}', '');
 
@@ -58,10 +58,10 @@ void main() {
       var authCallbackCalled = false;
 
       matsSocket.setCurrentAuthorization('Test', DateTime.now().subtract(Duration(minutes: 1)));
-      matsSocket.setAuthorizationExpiredCallback((event) {
+      matsSocket.authorizationCallback = (event) {
         authCallbackCalled = true;
         matsSocket.setCurrentAuthorization('Test', DateTime.now().add(Duration(minutes: 1)));
-      });
+      };
 
       await matsSocket.send('Test.authCallback', 'SEND_${randomId(6)}', '');
 
@@ -74,10 +74,10 @@ void main() {
       var authCallbackCalled = false;
 
       matsSocket.setCurrentAuthorization('Test', DateTime.now().subtract(Duration(minutes: 1)), roomForLatency: Duration(minutes: 10));
-      matsSocket.setAuthorizationExpiredCallback((event) {
+      matsSocket.authorizationCallback = (event) {
         authCallbackCalled = true;
         matsSocket.setCurrentAuthorization('Test', DateTime.now().add(Duration(minutes: 1)));
-      });
+      };
 
       await matsSocket.send('Test.authCallback', 'SEND_' + randomId(6), '');
 
