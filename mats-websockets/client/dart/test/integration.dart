@@ -37,8 +37,8 @@ void main() {
   DateTime testStart;
   var urls = Platform.environment['MATS_SOCKET_URLS']?.split(",") ??
       [
-        'ws://localhost:8080/matssocket/json',
-        'ws://localhost:8081/matssocket/json'
+        'ws://localhost:8080/matssocket',
+        'ws://localhost:8081/matssocket'
       ];
   var matsSocket = MatsSocket('Test', '1.0', urls, IOSocketFactory());
   setUp(() {
@@ -54,10 +54,10 @@ void main() {
   group('Authorization', () {
     test('Should invoke authorization callback before making calls', () async {
       var authCallbackCalled = false;
-      matsSocket.setAuthorizationExpiredCallback((event) {
+      matsSocket.authorizationCallback = (event) {
         authCallbackCalled = true;
         setAuth(matsSocket);
-      });
+      };
 
       await matsSocket.send('Test.single', 'SEND_' + randomId(6), {});
       expect(authCallbackCalled, true);
@@ -67,9 +67,9 @@ void main() {
         () async {
       var authCallbackCalled = false;
       setAuth(matsSocket);
-      matsSocket.setAuthorizationExpiredCallback((event) {
+      matsSocket.authorizationCallback = (event) {
         authCallbackCalled = true;
-      });
+      };
 
       await matsSocket.send('Test.single', 'SEND_' + randomId(6), {});
       expect(authCallbackCalled, false);
@@ -79,10 +79,10 @@ void main() {
       var authCallbackCalled = false;
 
       setAuth(matsSocket, duration: Duration(minutes: -10));
-      matsSocket.setAuthorizationExpiredCallback((event) {
+      matsSocket.authorizationCallback = (event) {
         authCallbackCalled = true;
         setAuth(matsSocket);
-      });
+      };
 
       await matsSocket.send('Test.single', 'SEND_' + randomId(6), {});
       expect(authCallbackCalled, true);
@@ -93,10 +93,10 @@ void main() {
       var authCallbackCalled = false;
 
       setAuth(matsSocket, roomForLatencyMillis: Duration(minutes: 10));
-      matsSocket.setAuthorizationExpiredCallback((event) {
+      matsSocket.authorizationCallback = (event) {
         authCallbackCalled = true;
         setAuth(matsSocket);
-      });
+      };
 
       await matsSocket.send('Test.single', 'SEND_' + randomId(6), {});
       expect(authCallbackCalled, true);
@@ -159,8 +159,8 @@ void main() {
 MatsSocket authenticatedMatsSocket() {
   var urls = Platform.environment['MATS_SOCKET_URLS']?.split(",") ??
       [
-        'ws://localhost:8080/matssocket/json',
-        'ws://localhost:8081/matssocket/json'
+        'ws://localhost:8080/matssocket',
+        'ws://localhost:8081/matssocket'
       ];
   var matsSocket = MatsSocket('Test', '1.0', urls, IOSocketFactory());
 
