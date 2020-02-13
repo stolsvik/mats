@@ -505,7 +505,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             SessionAuthenticator sessionAuthenticator = _matsSocketServer.getAuthenticationPlugin()
                     .newSessionAuthenticator();
             try {
-                sessionAuthenticator.evaluateHandshakeRequest(_handshakeRequestResponse._handshakeRequest, session);
+                sessionAuthenticator.checkHandshakeRequest(_handshakeRequestResponse._handshakeRequest, session);
             }
             catch (Throwable t) {
                 log.error("Got throwable when SessionAuthenticator.evaluateHandshakeRequest(..). Closing WebSocket.",
@@ -628,7 +628,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
     }
 
-    private static class MatsSocketEndpointReplyContextImpl implements MatsSocketEndpointReplyContext {
+    private static class MatsSocketEndpointReplyContextImpl<MR, R> implements MatsSocketEndpointReplyContext<MR, R> {
         private final String _matsSocketEndpointId;
         private final DetachedProcessContext _detachedProcessContext;
 
@@ -637,6 +637,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             _matsSocketEndpointId = matsSocketEndpointId;
             _detachedProcessContext = detachedProcessContext;
         }
+
+        private R _matsSocketReplyMessage;
+        private boolean _settled;
+        private boolean _resolved = true; // If neither resolve() nor reject() is invoked, it is a resolve.
 
         @Override
         public String getMatsSocketEndpointId() {
@@ -649,8 +653,23 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
 
         @Override
-        public void addBinary(String key, byte[] payload) {
-            throw new IllegalStateException("Not implemented. Yet.");
+        public void resolve(R matsSocketResolveMessage) {
+            if (_settled) {
+                throw new IllegalStateException("Already settled.");
+            }
+            _matsSocketReplyMessage = matsSocketResolveMessage;
+            _settled = true;
+            _resolved = true;
+        }
+
+        @Override
+        public void reject(R matsSocketRejectMessage) {
+            if (_settled) {
+                throw new IllegalStateException("Already settled.");
+            }
+            _matsSocketReplyMessage = matsSocketRejectMessage;
+            _settled = true;
+            _resolved = false;
         }
     }
 
@@ -783,7 +802,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
      * swapped out. If this happens, sorry - but you should <i>definitely</i> also sell your house and put all proceeds
      * into all of your country's Lotto systems.
      */
-    private static final long REPLACE_VALUE_TIMESTAMP = 3_945_608_518_157_027_723L;
+    static final long REPLACE_VALUE_TIMESTAMP = 3_945_608_518_157_027_723L;
     static final Pattern REPLACE_VALUE_TIMESTAMP_REGEX = Pattern.compile(
             Long.toString(REPLACE_VALUE_TIMESTAMP), Pattern.LITERAL);
 
@@ -792,7 +811,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
      * string. This will be string-replaced by the sending hostname on the WebSocket-forward side. Must not include
      * characters that will be JSON-encoded, as the replace will be literal.
      */
-    private static final String REPLACE_VALUE_REPLY_NODENAME = "X&~est,O}@w.h£X";
+    static final String REPLACE_VALUE_REPLY_NODENAME = "X&~est,O}@w.h£X";
     static final Pattern REPLACE_VALUE_REPLY_NODENAME_REGEX = Pattern.compile(
             REPLACE_VALUE_REPLY_NODENAME, Pattern.LITERAL);
 
@@ -805,16 +824,30 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         Object matsReply = incomingMsg.toClass(registration._matsReplyClass);
 
+        MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
+        msReplyEnvelope.t = "REPLY";
         Object msReply;
-        // TODO: If replyAdapter throws, it is a REJECT
         if (registration._replyAdapter != null) {
             MatsSocketEndpointReplyContextImpl replyContext = new MatsSocketEndpointReplyContextImpl(
                     registration._matsSocketEndpointId, processContext);
-            msReply = registration._replyAdapter.adaptReply(replyContext, matsReply);
+            try {
+                registration._replyAdapter.adaptReply(replyContext, matsReply);
+                msReply = replyContext._matsSocketReplyMessage;
+                msReplyEnvelope.st = replyContext._resolved ? "RESOLVE" : "REJECT";
+                log.info("ReplyAdapter resolved with ["+msReplyEnvelope.st+"]");
+            }
+            catch (RuntimeException rte) {
+                log.warn("ReplyAdapter raised ["+rte.getClass().getSimpleName()+"], settling with REJECT", rte);
+                msReply = null;
+                // TODO: If debug enabled for authenticated user, set description to full stacktrace.
+                msReplyEnvelope.st = "REJECT";
+            }
         }
         else if (registration._matsReplyClass == registration._msReplyClass) {
             // -> Return same class
             msReply = matsReply;
+            log.info("No ReplyAdapter, so settling with RESOLVE.");
+            msReplyEnvelope.st = "RESOLVE";
         }
         else {
             throw new AssertionError("No adapter present, but the class from Mats ["
@@ -823,10 +856,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
 
         // Create Envelope
-        MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
-        msReplyEnvelope.t = "REPLY";
-        // TODO: If replyAdapter throws, it is a REJECT
-        msReplyEnvelope.st = "RESOLVE";
         msReplyEnvelope.eid = state.ms_reid;
         msReplyEnvelope.cid = state.cid;
         msReplyEnvelope.cmseq = state.cmseq;
@@ -863,14 +892,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
 
         // ?: If we do have a nodename, ping it about new message
-        if (nodeNameHoldingWebSocket.isPresent()) {
-            // -> Yes we got a nodename, ping it.
-            processContext.initiate(init -> {
-                init.traceId("PingWebSocketHolder")
-                        .to(terminatorId_NotifyNewMessage_ForNode(nodeNameHoldingWebSocket.get().getNodename()))
-                        .publish(state.sid);
-            });
-        }
+        nodeNameHoldingWebSocket.ifPresent(
+                // -> Yes we got a nodename, ping it.
+                currentNode -> processContext.initiate(
+                        init -> init
+                                .traceId("PingWebSocketHolder")
+                                .to(terminatorId_NotifyNewMessage_ForNode(currentNode.getNodename()))
+                                .publish(state.sid)));
     }
 
     private void mats_notifyNewMessage(ProcessContext<Void> processContext,
@@ -939,7 +967,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         });
     }
 
-    private String serializeEnvelope(MatsSocketEnvelopeDto msReplyEnvelope) {
+    String serializeEnvelope(MatsSocketEnvelopeDto msReplyEnvelope) {
         if (msReplyEnvelope.t == null) {
             throw new IllegalStateException("Type ('t') cannot be null.");
         }

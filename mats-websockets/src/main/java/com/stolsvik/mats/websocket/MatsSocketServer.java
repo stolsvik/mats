@@ -60,7 +60,7 @@ public interface MatsSocketServer {
 
     @FunctionalInterface
     interface ReplyAdapter<MR, R> {
-        R adaptReply(MatsSocketEndpointReplyContext<MR, R> ctx, MR matsReply);
+        void adaptReply(MatsSocketEndpointReplyContext<MR, R> ctx, MR matsReply);
     }
 
     interface MatsSocketEndpointContext {
@@ -74,13 +74,18 @@ public interface MatsSocketServer {
         /**
          * @return current "Authorization header" in effect for the MatsSocket that delivered the message.
          */
-        String getAuthorization();
+        String getAuthorizationHeader();
 
         /**
-         * @return the resolved Principal for the {@link #getAuthorization() Authorization header}. It is assumed that
-         *         you must cast this a more specific class which the authentication plugin provides.
+         * @return the resolved Principal for the {@link #getAuthorizationHeader() Authorization header}. It is assumed
+         *         that you must cast this a more specific class which the authentication plugin provides.
          */
         Principal getPrincipal();
+
+        /**
+         * @return the resolved UserId for the {@link #getAuthorizationHeader() Authorization header}.
+         */
+        String getUserId();
 
         /**
          * @return the incoming MatsSocket Message.
@@ -88,11 +93,18 @@ public interface MatsSocketServer {
         MI getMatsSocketIncomingMessage();
 
         /**
+         * @return whether this is a "REQUEST" (true) or "SEND" (false).
+         */
+        boolean isRequest();
+
+        /**
          * <b>FOR PURE "GET-style" REQUESTS!</b>: Both the "nonPersistent" flag <i>(messages in flow are not stored and
          * only lives "in-memory", can thus be lost, i.e. is unreliable, but is very fast)</i> and "interactive" flag
          * <i>(prioritized since a human is waiting)</i> will be set. Forwards the MatsSocket message to the Mats
          * endpoint of the same endpointId as the MatsSocketEndpointId. If it was a MatsSocket "REQUEST" from the
          * client, it will be a Mats request(..) message, while if it was a "SEND", it will be a Mats send(..) message.
+         *
+         * TODO: What about timeout? Must be implemented client side.
          */
         void forwardInteractiveUnreliable(MI matsMessage);
 
@@ -122,17 +134,23 @@ public interface MatsSocketServer {
         void forwardCustom(MI matsMessage, InitiateLambda customInit);
 
         /**
-         * @return whether this is a "REQUEST" (true) or "SEND" (false).
+         * Send "Resolve" reply (resolves the client side Promise) to the MatsSocket directly, i.e. without forward to
+         * Mats - can be used if you can answer the MatsSocket request directly without going onto the Mats MQ fabric.
+         *
+         * @param matsSocketResolveMessage
+         *            the resolve message (the actual reply), or {@code null} if you just want to resolve it without
+         *            adding any information.
          */
-        boolean isRequest();
+        void resolve(R matsSocketResolveMessage);
 
         /**
-         * Send reply to the MatsSocket directly, i.e. without forward - can be used if you can answer the MatsSocket
-         * request directly without going onto the Mats MQ fabric.
+         * Send "Reject" reply (rejects the client side Promise) to the MatsSocket directly, i.e. without forward to
+         * Mats - can be used if you can answer the MatsSocket request directly without going onto the Mats MQ fabric.
          *
-         * @param matsSocketReplyMessage
+         * @param matsSocketRejectMessage
+         *            the reject message, or {@code null} if you just want to reject it without adding any information.
          */
-        void reply(R matsSocketReplyMessage);
+        void reject(R matsSocketRejectMessage);
     }
 
     interface MatsSocketEndpointReplyContext<MR, R> extends MatsSocketEndpointContext {
@@ -141,7 +159,24 @@ public interface MatsSocketServer {
          */
         DetachedProcessContext getMatsContext();
 
-        void addBinary(String key, byte[] payload);
+        /**
+         * Send "Resolve" reply (resolves the client side Promise) to the MatsSocket directly, i.e. without forward to
+         * Mats - can be used if you can answer the MatsSocket request directly without going onto the Mats MQ fabric.
+         *
+         * @param matsSocketResolveMessage
+         *            the resolve message (the actual reply), or {@code null} if you just want to resolve it without
+         *            adding any information.
+         */
+        void resolve(R matsSocketResolveMessage);
+
+        /**
+         * Send "Reject" reply (rejects the client side Promise) to the MatsSocket directly, i.e. without forward to
+         * Mats - can be used if you can answer the MatsSocket request directly without going onto the Mats MQ fabric.
+         *
+         * @param matsSocketRejectMessage
+         *            the reject message, or {@code null} if you just want to reject it without adding any information.
+         */
+        void reject(R matsSocketRejectMessage);
     }
 
     /**
@@ -155,17 +190,17 @@ public interface MatsSocketServer {
         NORMAL_CLOSURE(CloseCodes.NORMAL_CLOSURE.getCode()),
 
         /**
-         * Standard code 1001: Synonym for {@link #CLOSE_SESSION}, as the documentation states <i>"indicates that an
-         * endpoint is "going away", such as a server going down <b>or a browser having navigated away from a
-         * page.</b>"</i>, the latter point being pretty much exactly correct wrt. when to close a session. So, if a
-         * browser decides to use this code when the user navigates away and the library or application does not catch
-         * it, we'd want to catch this as a Close Session.
+         * From Client/Browser side: Standard code 1001: Synonym for {@link #CLOSE_SESSION}, as the documentation states
+         * <i>"indicates that an endpoint is "going away", such as a server going down <b>or a browser having navigated
+         * away from a page.</b>"</i>, the latter point being pretty much exactly correct wrt. when to close a session.
+         * So, if a browser decides to use this code when the user navigates away and the library or application does
+         * not catch it, we'd want to catch this as a Close Session.
          */
         GOING_AWAY(CloseCodes.GOING_AWAY.getCode()),
 
         /**
-         * Standard code 1008 - used for when the client does not behave as we expect, most typically wrt.
-         * authentication.
+         * From Server side: Standard code 1008 - used for when the client does not behave as we expect, most typically
+         * wrt. authentication.
          */
         VIOLATED_POLICY(CloseCodes.VIOLATED_POLICY.getCode()),
 
@@ -175,21 +210,19 @@ public interface MatsSocketServer {
         SERVICE_RESTART(CloseCodes.SERVICE_RESTART.getCode()),
 
         /**
-         * 4000: Used when the browser closes WebSocket "on purpose", wanting to close the session. The code means
-         * "Going Away", and is documented as <i>"indicates that an endpoint is "going away", such as a server going
-         * down <b>or a browser having navigated away from a page.</b>"</i>, the latter point being pretty much exactly
-         * correct wrt. when to close a session.
+         * 4000: From Client/Browser side: Used when the browser closes WebSocket "on purpose", wanting to close the
+         * session.
          */
         CLOSE_SESSION(4000),
 
         /**
-         * 4001: {@link MatsSocketServer#closeSession(String)} was invoked, but the WebSocket to that client was still
-         * open, so we close it. The client should reject all outstanding Promises, Futures and Acks.
+         * 4001: From Server side: {@link MatsSocketServer#closeSession(String)} was invoked, and the WebSocket to that
+         * client was still open, so we close it. The client should reject all outstanding Promises, Futures and Acks.
          */
         FORCED_SESSION_CLOSE(4001),
 
         /**
-         * 4002 - We ask that the client reconnects.
+         * 4002: From Server side: We ask that the client reconnects.
          */
         RECONNECT(4002);
 

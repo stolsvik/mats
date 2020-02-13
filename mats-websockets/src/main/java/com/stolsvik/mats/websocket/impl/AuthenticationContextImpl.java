@@ -1,12 +1,14 @@
 package com.stolsvik.mats.websocket.impl;
 
 import java.security.Principal;
+import java.util.EnumSet;
 
 import javax.websocket.Session;
 import javax.websocket.server.HandshakeRequest;
 
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOptions;
 
 /**
  * @author Endre Stølsvik 2020-01-10 10:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -42,6 +44,12 @@ class AuthenticationContextImpl implements AuthenticationContext {
     }
 
     @Override
+    public AuthenticationResult authenticated(Principal principal, String userId,
+            EnumSet<DebugOptions> allowedDebugOptions) {
+        return new AuthenticationResult_Authenticated(principal, userId, allowedDebugOptions);
+    }
+
+    @Override
     public AuthenticationResult stillValid() {
         return new AuthenticationResult_StillValid();
     }
@@ -49,10 +57,19 @@ class AuthenticationContextImpl implements AuthenticationContext {
     static class AuthenticationResult_Authenticated implements AuthenticationResult {
         final Principal _principal;
         final String _userId;
+        final EnumSet<DebugOptions> _debugOptions;
 
         public AuthenticationResult_Authenticated(Principal principal, String userId) {
             _principal = principal;
             _userId = userId;
+            _debugOptions = EnumSet.noneOf(DebugOptions.class);
+        }
+
+        public AuthenticationResult_Authenticated(Principal principal, String userId,
+                EnumSet<DebugOptions> debugOptions) {
+            _principal = principal;
+            _userId = userId;
+            _debugOptions = debugOptions;
         }
     }
 

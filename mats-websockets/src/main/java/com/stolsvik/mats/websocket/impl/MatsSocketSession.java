@@ -158,7 +158,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
             // :: 2. do we have Authorization header? (I.e. it must sent along in the very first pipeline..)
             if (_authorization == null) {
                 log.error("We have not got Authorization header!");
-                policyViolation("Missing Authorization header");
+                closeWithPolicyViolation("Missing Authorization header");
                 return;
             }
 
@@ -316,11 +316,11 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
     }
 
-    private void policyViolation(String reason) {
-        shutdownSessionAndWebSocket(MatsSocketCloseCodes.VIOLATED_POLICY, reason);
+    private void closeWithPolicyViolation(String reason) {
+        closeSessionAndWebSocket(MatsSocketCloseCodes.VIOLATED_POLICY, reason);
     }
 
-    private void shutdownSessionAndWebSocket(MatsSocketCloseCodes closeCode, String reason) {
+    private void closeSessionAndWebSocket(MatsSocketCloseCodes closeCode, String reason) {
         // :: Deregister locally and from CSAF
         if (_matsSocketSessionId != null) {
             // Local deregister
@@ -358,7 +358,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
             catch (RuntimeException re) {
                 log.error("Got Exception when invoking SessionAuthenticator.initialAuthentication(..),"
                         + " Authorization header: " + _authorization, re);
-                policyViolation("Authentication plugin could not initial-evaluate Authorization string");
+                closeWithPolicyViolation("Authentication plugin could not initial-evaluate Authorization string");
                 return false;
             }
             if (authenticationResult instanceof AuthenticationResult_Authenticated) {
@@ -373,7 +373,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 // -> Null, or any other result.
                 log.error("We have not been authenticated! " + authenticationResult + ", Authorization header: "
                         + _authorization);
-                policyViolation("Authorization header not accepted on initial evaluation");
+                closeWithPolicyViolation("Authorization header not accepted on initial evaluation");
                 return false;
             }
         }
@@ -389,7 +389,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
             catch (RuntimeException re) {
                 log.error("Got Exception when invoking SessionAuthenticator.reevaluateAuthentication(..),"
                         + " Authorization header: " + _authorization, re);
-                policyViolation("Authentication plugin could not re-evaluate Authorization string");
+                closeWithPolicyViolation("Authentication plugin could not re-evaluate Authorization string");
                 return false;
             }
             if (authenticationResult instanceof AuthenticationResult_Authenticated) {
@@ -410,7 +410,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 // -> Null, or any other result.
                 log.error("We have not been authenticated! " + authenticationResult + ", Authorization header: "
                         + _authorization);
-                policyViolation("Authorization header not accepted on re-evaluation");
+                closeWithPolicyViolation("Authorization header not accepted on re-evaluation");
                 return false;
             }
         }
@@ -431,6 +431,8 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         log.info("MatsSocket HELLO!");
         // ?: Auth is required - should already have been processed
         if ((_principal == null) || (_authorization == null)) {
+            // NOTE: This shall really never happen, as the implicit state machine should not have put us in this
+            // situation. But just as an additional check.
             throw new FailedHelloException("AUTH_FAIL",
                     "While processing HELLO, we had not gotten Authorization header.");
         }
@@ -594,35 +596,53 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         log.info("MatsSocketEndpointHandler for [" + eid + "]: " + incomingAuthEval);
 
         Object msg = deserialize((String) envelope.msg, registration.getMsIncomingClass());
-        MatsSocketEndpointRequestContextImpl<?, ?> matsSocketContext = new MatsSocketEndpointRequestContextImpl(
+        MatsSocketEndpointRequestContextImpl<?, ?> requestContext = new MatsSocketEndpointRequestContextImpl(
                 _matsSocketServer, registration, _matsSocketSessionId, envelope,
-                clientMessageReceivedTimestamp, _authorization, _principal, msg);
+                clientMessageReceivedTimestamp, _authorization, _principal, _userId, msg);
 
-        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
-        replyEnvelope.t = "RECEIVED";
+        MatsSocketEnvelopeDto handledEnvelope = new MatsSocketEnvelopeDto();
         try {
-            incomingAuthEval.handleIncoming(matsSocketContext, _principal, msg);
-            replyEnvelope.st = "ACK";
-            replyEnvelope.mmsts = System.currentTimeMillis();
+            incomingAuthEval.handleIncoming(requestContext, _principal, msg);
+            // ?: If we insta-settled the request, then do a REPLY
+            if (requestContext._settled) {
+                // -> Yes, the handleIncoming settled the incoming message, so we insta-reply
+                // NOTICE: We thus elide the "RECEIVED", as the client will handle the missing RECEIVED
+                handledEnvelope.t = "REPLY";
+                handledEnvelope.st = requestContext._resolved ? "RESOLVE" : "REJECT";
+                log.info("handleIncoming(..) insta-settled the incoming message with"
+                        + " [REPLY:" + handledEnvelope.st + "]");
+            }
+            else {
+                // -> No, no insta-settling, so it was probably sent off to Mats
+                handledEnvelope.t = "RECEIVED";
+                handledEnvelope.st = "ACK";
+                handledEnvelope.mmsts = System.currentTimeMillis();
+            }
         }
         catch (MatsBackendRuntimeException | MatsMessageSendRuntimeException e) {
-            // Evidently got problems talking to MQ. This is a RETRY
+            // Evidently got problems talking to MQ or DB. This is a RETRY
+            log.warn("Got problems running handleIncoming(..) due to MQ or DB - replying RECEIVED:RETRY to client.", e);
             // TODO: Should have an 'attempt' prop, mirroring from client - implicitly 1 if not set. Client increments.
-            replyEnvelope.st = "RETRY";
-            replyEnvelope.desc = e.getMessage();
+            handledEnvelope = new MatsSocketEnvelopeDto();
+            handledEnvelope.t = "RECEIVED";
+            handledEnvelope.st = "RETRY";
+            handledEnvelope.desc = e.getMessage();
         }
         catch (Throwable t) {
             // Evidently the handleIncoming didn't handle this message. This is a NACK.
-            // TODO: If handleIncoming invokes "reject", then this should also be a NACK
-            replyEnvelope.st = "NACK";
-            replyEnvelope.desc = t.getMessage();
+            log.warn("handleIncoming(..) raised exception, assuming that it didn't like the incoming message"
+                    + " - replying RECEIVED:NACK to client.", t);
+            handledEnvelope = new MatsSocketEnvelopeDto();
+            handledEnvelope.t = "RECEIVED";
+            handledEnvelope.st = "NACK";
+            handledEnvelope.desc = t.getMessage();
         }
 
-        // .. add common props on the reply
-        commonPropsOnReceived(envelope, replyEnvelope, clientMessageReceivedTimestamp);
+        // .. add common props on the received message
+        commonPropsOnReceived(envelope, handledEnvelope, clientMessageReceivedTimestamp);
 
         // Add RECEIVED message to "queue"
-        replyEnvelopes.add(replyEnvelope);
+        replyEnvelopes.add(handledEnvelope);
     }
 
     private <T> T deserialize(String serialized, Class<T> clazz) {
@@ -652,12 +672,13 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
 
         private final String _authorization;
         private final Principal _principal;
+        private final String _userId;
         private final MI _incomingMessage;
 
         public MatsSocketEndpointRequestContextImpl(DefaultMatsSocketServer matsSocketServer,
                 MatsSocketEndpointRegistration matsSocketEndpointRegistration, String matsSocketSessionId,
                 MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp, String authorization,
-                Principal principal, MI incomingMessage) {
+                Principal principal, String userId, MI incomingMessage) {
             _matsSocketServer = matsSocketServer;
             _matsSocketEndpointRegistration = matsSocketEndpointRegistration;
             _matsSocketSessionId = matsSocketSessionId;
@@ -665,8 +686,14 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
             _clientMessageReceivedTimestamp = clientMessageReceivedTimestamp;
             _authorization = authorization;
             _principal = principal;
+            _userId = userId;
             _incomingMessage = incomingMessage;
         }
+
+        private R _matsSocketReplyMessage;
+        private boolean _handled; // If either forwarded, or settled
+        private boolean _settled; // If settled
+        private boolean _resolved = true; // If neither resolve() nor reject() is invoked, it is a resolve.
 
         @Override
         public String getMatsSocketEndpointId() {
@@ -674,7 +701,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         }
 
         @Override
-        public String getAuthorization() {
+        public String getAuthorizationHeader() {
             return _authorization;
         }
 
@@ -684,8 +711,18 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         }
 
         @Override
+        public String getUserId() {
+            return _userId;
+        }
+
+        @Override
         public MI getMatsSocketIncomingMessage() {
             return _incomingMessage;
+        }
+
+        @Override
+        public boolean isRequest() {
+            return _envelope.t.equals("REQUEST");
         }
 
         @Override
@@ -707,6 +744,9 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
 
         @Override
         public void forwardCustom(MI matsMessage, InitiateLambda customInit) {
+            if (_handled) {
+                throw new IllegalStateException("Already handled.");
+            }
             _matsSocketServer.getMatsFactory().getDefaultInitiator().initiateUnchecked(init -> {
                 init.from("MatsSocketEndpoint." + _envelope.eid)
                         .traceId(_envelope.tid);
@@ -732,14 +772,25 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         }
 
         @Override
-        public boolean isRequest() {
-            return _envelope.t.equals("REQUEST");
+        public void resolve(R matsSocketResolveMessage) {
+            if (_handled) {
+                throw new IllegalStateException("Already handled.");
+            }
+            _matsSocketReplyMessage = matsSocketResolveMessage;
+            _handled = true;
+            _settled = true;
+            _resolved = true;
         }
 
         @Override
-        public void reply(R matsSocketReplyMessage) {
-            // TODO: Implement
-            throw new IllegalStateException("Not yet implemented.");
+        public void reject(R matsSocketRejectMessage) {
+            if (_handled) {
+                throw new IllegalStateException("Already handled.");
+            }
+            _matsSocketReplyMessage = matsSocketRejectMessage;
+            _handled = true;
+            _settled = true;
+            _resolved = false;
         }
     }
 }

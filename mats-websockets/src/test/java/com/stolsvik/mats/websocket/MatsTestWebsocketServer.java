@@ -130,7 +130,7 @@ public class MatsTestWebsocketServer {
                             (ctx, principal, msIncoming) -> {
                                 log.info("Got MatsSocket request on MatsSocket EndpointId: "
                                         + ctx.getMatsSocketEndpointId());
-                                log.info(" \\- Authorization: " + ctx.getAuthorization());
+                                log.info(" \\- Authorization: " + ctx.getAuthorizationHeader());
                                 log.info(" \\- Principal:     " + ctx.getPrincipal());
                                 log.info(" \\- Message:       " + msIncoming);
                                 ctx.forwardCustom(new MatsDataTO(msIncoming.number, msIncoming.string),
@@ -144,8 +144,9 @@ public class MatsTestWebsocketServer {
             // .. add the optional ReplyAdapter, needed here due to differing ReplyDTO between Mats and MatsSocket
             matsSocketEndpoint.replyAdapter((ctx, matsReply) -> {
                 log.info("Adapting message: " + matsReply);
-                return new MatsSocketReplyDto(matsReply.string.length(), matsReply.number,
+                MatsSocketReplyDto reply = new MatsSocketReplyDto(matsReply.string.length(), matsReply.number,
                         ctx.getMatsContext().getTraceProperty("requestTimestamp", Long.class));
+                ctx.resolve(reply);
             });
         }
 
@@ -198,7 +199,7 @@ public class MatsTestWebsocketServer {
         }
     }
 
-    @WebServlet("/matssocket")
+    @WebServlet(WEBSOCKET_PATH)
     public static class TestServletSamePath extends HttpServlet {
         @Override
         protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -264,15 +265,14 @@ public class MatsTestWebsocketServer {
             String dirForTests = (String) req.getServletContext().getAttribute(
                     CONTEXT_ATTRIBUTE_MATSSOCKETTEST_PATH);
             if (dirForTests == null) {
-                resp.sendError(501,
-                        "Cannot find the tests directory (path not existing) - this only works when in development.");
+                resp.sendError(501, "Cannot find the tests directory (path not existing) -"
+                        + " this only works when in development.");
                 return;
             }
 
             Path pathWithFile = Paths.get(dirForTests, req.getPathInfo());
             if (!Files.exists(pathWithFile)) {
-                resp.sendError(404,
-                        "Cannot find the test file [" + req.getPathInfo() + "].");
+                resp.sendError(404, "Cannot find the test file [" + req.getPathInfo() + "].");
                 return;
             }
             log.info(req.getPathInfo() + " path: " + pathWithFile);
@@ -329,7 +329,8 @@ public class MatsTestWebsocketServer {
                 ? null
                 : pathToClasses.substring(0, pos) + "mats-websockets/client/javascript";
         webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH, pathToMatsSocket + "/lib");
-        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETTEST_PATH, pathToMatsSocket + "/test");
+        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETTEST_PATH, pathToMatsSocket
+                + "/test");
 
         // Create the actual Jetty Server
         Server server = new Server(port);
@@ -387,7 +388,8 @@ public class MatsTestWebsocketServer {
                     public void lifeCycleStarted(LifeCycle event) {
                         log.info("######### Started server " + serverId + " on port " + port);
                         // Using System.out to ensure that we get this out, even if logger is ERROR or OFF
-                        System.out.println("HOOK_FOR_GRADLE_WEBSOCKET_URL: #[ws://localhost:" + port + WEBSOCKET_PATH + "]#");
+                        System.out.println("HOOK_FOR_GRADLE_WEBSOCKET_URL: #[ws://localhost:" + port + WEBSOCKET_PATH
+                                + "]#");
                     }
                 });
 
