@@ -40,8 +40,23 @@ public interface AuthenticationPlugin {
          * {@link Session#close()} - the implementation of this method may also itself do such a close. If you do
          * anything crazy with the Session object which will interfere with the MatsSocket messages, that's on you. One
          * thing that could be of interest, is to {@link Session#setMaxIdleTimeout(long) increase the max idle timeout}
-         * - which will have effect wrt. to the initial authentication message that is expected, as the timeout is set
-         * to a quite small value (after auth, the timeout is increased).
+         * - which will have effect wrt. to the initial authentication message that is expected, as the timeout setting
+         * before authenticated session is set to a quite small value by default: 2.5 seconds (after auth, the timeout
+         * is increased). This short timeout is meant to make it slightly more difficult to perform DoS attacks by
+         * opening many connections and then not send the initial auth-containing message. The same goes for
+         * {@link Session#setMaxTextMessageBufferSize(int) max text message buffer size}, as that is also set low
+         * until authenticated: 20KiB.
+         * <p />
+         * <b>NOTE!</b> We would ideally want to evaluate upon the initial HTTP WebSocket handshake request whether we
+         * want to talk with this client. The best solution would be an
+         * <a href="https://tools.ietf.org/html/rfc6750#section-2.1">Authorization header</a> on this initial HTTP
+         * request. However, since it is not possible to add headers via the WebSocket API in web browsers, this does
+         * not work. We could have used cookies to achieve somewhat of the same effect (setting it via
+         * <code>document.cookie</code> before running <code>new WebSocket(..)</code>), but since it is possible that
+         * you'd want to connect to a different domain for the WebSocket than the web page was served from, this is is
+         * not ideal as a general solution. Also, it makes for problems with "localhost" when developing. Lastly, we
+         * could have added it as a URI parameter, but this is
+         * <a href="https://tools.ietf.org/html/rfc6750#section-2.3">strongly discouraged</a>.
          *
          * @param handshakeRequest
          */
@@ -53,16 +68,8 @@ public interface AuthenticationPlugin {
          * Invoked when the MatsSocket connects over WebSocket, and is first authenticated by the Authorization string
          * typically supplied via the initial "HELLO" message from the client.
          * <p />
-         * We would ideally want to evaluate upon the initial HTTP WebSocket handshake request whether we want to talk
-         * with this client. The best solution would be an
-         * <a href="https://tools.ietf.org/html/rfc6750#section-2.1">Authorization header</a> on this initial HTTP
-         * request. However, since it is not possible to add headers via the WebSocket API in web browsers, this does
-         * not work. We could have used cookies to achieve somewhat of the same effect (setting it via
-         * <code>document.cookie</code> before running <code>new WebSocket(..)</code>), but since it is possible that
-         * you'd want to connect to a different domain for the WebSocket than the web page was served from, this is is
-         * not ideal as a general solution. Also, it makes for problems with "localhost" when developing. Lastly, we
-         * could have added it as a URI parameter, but this is
-         * <a href="https://tools.ietf.org/html/rfc6750#section-2.3">strongly discouraged</a>.
+         * <b>NOTE!</b> Read the JavaDoc for {@link #evaluateHandshakeRequest(HandshakeRequest, Session)} wrt.
+         * evaluating the actual HTTP Handshake Request, as you might want to do auth already there.
          *
          * @param context
          *            were you may get additional information (the {@link HandshakeRequest} and the WebSocket
@@ -83,7 +90,11 @@ public interface AuthenticationPlugin {
          * {@link AuthenticationContext#authenticated(Principal, String)}), then you can invoke
          * {@link AuthenticationContext#stillValid()}.
          * <p />
-         * <b>NOTE!</b> You might want to hold on to the 'authorizationHeader' between the invocations.
+         * <b>NOTE!</b> You might want to hold on to the 'authorizationHeader' between the invocations to quickly
+         * evaluate whether it has changed: In e.g. an OAuth setting, where the authorizationHeader is a bearer access
+         * token, you could shortcut evaluation: If it has not changed, then you might be able to just evaluate whether
+         * it has expired by comparing a timestamp that you stored when first evaluating it, towards the current time.
+         * If the authorizationHeader (token) has changed, you would do full evaluation of it.
          *
          * @param context
          *            were you may get additional information (the {@link HandshakeRequest} and the WebSocket
@@ -92,6 +103,9 @@ public interface AuthenticationPlugin {
          *            the string value to evaluate for being a valid authorization, in any way you fanzy - it is
          *            supplied by the client, where you also will have to supply a authentication plugin that creates
          *            the strings that you here will evaluate.
+         * @param existingPrincipal
+         *            The {@link Principal} that was returned with the last authentication (either initial or
+         *            reevaluate).
          * @return an {@link AuthenticationResult}, which you get from any of the method on the
          *         {@link AuthenticationContext}.
          */

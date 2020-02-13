@@ -192,7 +192,7 @@
                 let replyCount = 0;
                 matsSocket.endpoint("ClientSide.testEndpoint", function (e) {
                     replyCount += 1;
-                    if (replyCount == 3) {
+                    if (replyCount === 3) {
                         done();
                     }
                 });
