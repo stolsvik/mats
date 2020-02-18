@@ -40,8 +40,8 @@ import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleState
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
  */
-class MatsSocketSession implements Whole<String>, MatsSocketStatics {
-    private static final Logger log = LoggerFactory.getLogger(MatsSocketSession.class);
+class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
+    private static final Logger log = LoggerFactory.getLogger(MatsSocketOnMessageHandler.class);
 
     private final Session _webSocketSession;
     private final String _connectionId;
@@ -64,7 +64,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
     private String _clientLibAndVersion;
     private String _appNameAndVersion;
 
-    MatsSocketSession(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
+    MatsSocketOnMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
             HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
         _webSocketSession = webSocketSession;
         _handshakeRequest = handshakeRequest;
@@ -90,13 +90,13 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
     }
 
     /**
-     * NOTE: There can <i>potentially</i> be multiple instances of {@link MatsSocketSession} with the same Id if we're
-     * caught by bad asyncness wrt. one connection dropping and the client immediately reconnecting. The two
-     * {@link MatsSocketSession}s would then hey would then have different {@link #getWebSocketSession()
+     * NOTE: There can <i>potentially</i> be multiple instances of {@link MatsSocketOnMessageHandler} with the same Id
+     * if we're caught by bad asyncness wrt. one connection dropping and the client immediately reconnecting. The two
+     * {@link MatsSocketOnMessageHandler}s would then hey would then have different {@link #getWebSocketSession()
      * WebSocketSessions}, i.e. differing actual connections. One of them would soon realize that is was closed. <b>This
      * Id together with {@link #getConnectionId()} is unique</b>.
      *
-     * @return the MatsSocketSessionId that this {@link MatsSocketSession} instance refers to.
+     * @return the MatsSocketSessionId that this {@link MatsSocketOnMessageHandler} instance refers to.
      */
     String getId() {
         return _matsSocketSessionId;
@@ -137,8 +137,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
 
             log.info("Messages: " + envelopes);
             boolean shouldNotifyAboutExistingMessages = false;
-            String allMessagesReceivedFailSubtype = null;
-            String allMessagesReceivedFailDescription = null;
+            boolean sessionLost = false;
 
             // :: 1. Look for Authorization header in any of the messages
             // NOTE! Authorization header can come with ANY message!
@@ -170,25 +169,31 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 return;
             }
 
-            // :: 4. look for a HELLO message (should be first/alone, but we will reply to it immediately even if part
-            // of pipeline).
+            // :: 4. look for a HELLO message
+            // (should be first/alone, but we will reply to it immediately even if part of pipeline).
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeDto envelope = it.next();
                 if ("HELLO".equals(envelope.t)) {
                     try { // try-finally: MDC.remove(..)
                         MDC.put(MDC_MESSAGE_TYPE, (envelope.st != null ? envelope.t + ':' + envelope.st : envelope.t));
-                        // Remove this HELLO envelope
+                        // Remove this HELLO envelope from pipeline
                         it.remove();
                         // Handle the HELLO
-                        try {
-                            handleHello(clientMessageReceivedTimestamp, envelope);
-                            // Notify client about "new" (as in existing) messages, just in case there are any.
-                            shouldNotifyAboutExistingMessages = true;
+                        boolean handleHelloOk = handleHello(clientMessageReceivedTimestamp, envelope);
+                        // ?: Did the HELLO go OK?
+                        if (!handleHelloOk) {
+                            // -> No, not OK - handleHello(..) has already closed session and websocket and the lot.
+                            return;
                         }
-                        catch (FailedHelloException e) {
-                            allMessagesReceivedFailSubtype = e.subType;
-                            allMessagesReceivedFailDescription = e.getMessage();
+                        // ?: Did the client expect existing session with existing sessionId, but got different?
+                        if ("EXPECT_EXISTING".equals(envelope.st) && (!_matsSocketSessionId.equals(envelope.sid))) {
+                            // -> Yes, session lost, so then we drop any pipelined REQUEST/SEND with SESSION_LOST
+                            // (done in the loop below)
+                            sessionLost = true;
                         }
+
+                        // Notify client about "new" (as in existing) messages, just in case there are any.
+                        shouldNotifyAboutExistingMessages = true;
                     }
                     finally {
                         MDC.remove(MDC_MESSAGE_TYPE);
@@ -197,13 +202,13 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 }
             }
 
-            // :: 5. Assert auth: ?: We do not accept other messages before authentication
-            if ((_matsSocketSessionId == null) || (_principal == null)) {
-                allMessagesReceivedFailSubtype = "AUTH_FAIL";
-                allMessagesReceivedFailDescription = "Missing authentication.";
+            // :: 5. Assert state: All present: SessionId, Principal and userId.
+            if ((_matsSocketSessionId == null) || (_principal == null) || (_userId == null)) {
+                closeWithPolicyViolation("Illegal state at checkpoint.");
+                return;
             }
 
-            // :: 5. Now go through and handle all the messages
+            // :: 6. Now go through and handle all the rest of the messages
             List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
             for (MatsSocketEnvelopeDto envelope : envelopes) {
                 try { // try-finally: MDC.remove..
@@ -212,32 +217,15 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                         MDC.put(MDC_TRACE_ID, envelope.tid);
                     }
 
-                    // ----- We do NOT KNOW whether we're authenticated!
-
-                    // ?: Should we fail all messages?
-                    if (allMessagesReceivedFailSubtype != null) {
-                        // -> Yes, some other process has decided that the all/the rest of the messages should be
-                        // dropped.
-                        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
-                        replyEnvelope.t = "RECEIVED";
-                        replyEnvelope.st = allMessagesReceivedFailSubtype;
-                        replyEnvelope.desc = allMessagesReceivedFailDescription;
-                        commonPropsOnReceived(envelope, replyEnvelope, clientMessageReceivedTimestamp);
-                        // Add this RECEIVED:<failed> message to return-pipeline.
-                        replyEnvelopes.add(replyEnvelope);
-                        // This is handled, so go to next.. (which also will be handled the same - failed)
-                        continue;
-                    }
-
-                    // ?: Because I am paranoid, we check this once again.
+                    // ?: Because I am paranoid, we assert state before processing each message
                     // NOTE: This should be redundant, as we've already checked before the pipeline loop.
-                    if ((_matsSocketSessionId == null) || (_principal == null)) {
+                    if ((_matsSocketSessionId == null) || (_principal == null) || (_userId == null)) {
                         // -> Well, someone must have changed the code to not be correct anymore..!
-                        throw new AssertionError(
-                                "Principal or MatsSessionId was null at a place where it should not be.");
+                        closeWithPolicyViolation("Illegal state at checkpoint.");
+                        return;
                     }
 
-                    // ----- We ARE authenticated!
+                    // ----- We ARE authenticated, fer sure!
 
                     if ("PING".equals(envelope.t)) {
                         MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
@@ -250,12 +238,28 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                         continue;
                     }
 
+                    // ?: Did we have a sessionLost situation?
+                    else if (sessionLost) {
+                        // -> Yes, some other process has decided that the all/the rest of the messages should be
+                        // dropped.
+                        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
+                        replyEnvelope.t = "RECEIVED";
+                        replyEnvelope.st = "SESSION_LOST";
+                        commonPropsOnReceived(envelope, replyEnvelope, clientMessageReceivedTimestamp);
+                        // Add this RECEIVED:<failed> message to return-pipeline.
+                        replyEnvelopes.add(replyEnvelope);
+                        // This is handled, so go to next.. (which also will be handled the same - failed)
+                        continue;
+                    }
+
+                    // ?: Is this a SEND or REQUEST?
                     else if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t)) {
                         handleSendOrRequest(clientMessageReceivedTimestamp, replyEnvelopes, envelope);
                         // The message is handled, so go to next message.
                         continue;
                     }
 
+                    // Not known message..
                     else {
                         // -> Not expected message
                         log.error("Got an unknown message type [" + envelope.t + (envelope.st != null ? ":"
@@ -265,9 +269,9 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                         replyEnvelope.st = "ERROR";
                         commonPropsOnReceived(envelope, replyEnvelope, clientMessageReceivedTimestamp);
 
-                        // Add PONG message to return-pipeline (should be sole message, really - not pipelined)
+                        // Add error message to return-pipeline
                         replyEnvelopes.add(replyEnvelope);
-                        // The pong is handled, so go to next message
+                        // The message is handled, so go to next message.
                         continue;
                     }
                 }
@@ -358,12 +362,13 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
             catch (RuntimeException re) {
                 log.error("Got Exception when invoking SessionAuthenticator.initialAuthentication(..),"
                         + " Authorization header: " + _authorization, re);
-                closeWithPolicyViolation("Authentication plugin could not initial-evaluate Authorization string");
+                closeWithPolicyViolation("Authorization header not accepted on initial evaluation");
                 return false;
             }
             if (authenticationResult instanceof AuthenticationResult_Authenticated) {
                 // -> Authenticated
                 AuthenticationResult_Authenticated result = (AuthenticationResult_Authenticated) authenticationResult;
+                log.info("Authenticated with UserId: [" + _userId + "] and Principal [" + _principal + "]");
                 _principal = result._principal;
                 _userId = result._userId;
                 // GOOD! Got new Principal and UserId.
@@ -389,7 +394,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
             catch (RuntimeException re) {
                 log.error("Got Exception when invoking SessionAuthenticator.reevaluateAuthentication(..),"
                         + " Authorization header: " + _authorization, re);
-                closeWithPolicyViolation("Authentication plugin could not re-evaluate Authorization string");
+                closeWithPolicyViolation("Authorization header not accepted on re-evaluation");
                 return false;
             }
             if (authenticationResult instanceof AuthenticationResult_Authenticated) {
@@ -417,43 +422,35 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
         // NOTE! There should NOT be a default return here!
     }
 
-    private static class FailedHelloException extends Exception {
-        private final String subType;
-
-        public FailedHelloException(String subType, String message) {
-            super(message);
-            this.subType = subType;
-        }
-    }
-
-    private void handleHello(long clientMessageReceivedTimestamp, MatsSocketEnvelopeDto envelope)
-            throws FailedHelloException {
+    private boolean handleHello(long clientMessageReceivedTimestamp, MatsSocketEnvelopeDto envelope) {
         log.info("MatsSocket HELLO!");
         // ?: Auth is required - should already have been processed
         if ((_principal == null) || (_authorization == null)) {
             // NOTE: This shall really never happen, as the implicit state machine should not have put us in this
             // situation. But just as an additional check.
-            throw new FailedHelloException("AUTH_FAIL",
-                    "While processing HELLO, we had not gotten Authorization header.");
+            closeWithPolicyViolation("Missing authentication when evaluating HELLO message");
+            return false;
         }
 
         _clientLibAndVersion = envelope.clv;
         if (_clientLibAndVersion == null) {
-            throw new FailedHelloException("ERROR", "Missing ClientLibAndVersion (clv) in HELLO envelope.");
+            closeWithPolicyViolation("Missing ClientLibAndVersion (clv) in HELLO envelope.");
+            return false;
         }
         String appName = envelope.an;
         if (appName == null) {
-            throw new FailedHelloException("ERROR", "Missing AppName (an) in HELLO envelope.");
+            closeWithPolicyViolation("Missing AppName (an) in HELLO envelope.");
+            return false;
         }
         String appVersion = envelope.av;
         if (appVersion == null) {
-            throw new FailedHelloException("ERROR", "Missing AppVersion (av) in HELLO envelope.");
+            closeWithPolicyViolation("Missing AppVersion (av) in HELLO envelope.");
+            return false;
         }
         _appNameAndVersion = appName + ";" + appVersion;
 
         // ----- We're authenticated.
 
-        boolean reconnectedOk = false;
         // ?: Do the client assume that there is an already existing session?
         if (envelope.sid != null) {
             log.info("MatsSocketSession Reconnect requested to MatsSocketSessionId [" + envelope.sid + "]");
@@ -462,7 +459,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
             // TODO: Implement remote invalidation
 
             // :: Local invalidation of existing session.
-            Optional<MatsSocketSession> existingSession = _matsSocketServer
+            Optional<MatsSocketOnMessageHandler> existingSession = _matsSocketServer
                     .getRegisteredLocalMatsSocketSession(envelope.sid);
             // ?: Is there an existing local Session?
             if (existingSession.isPresent()) {
@@ -492,7 +489,6 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 }
                 // You're allowed to use this, since the sessionId was already existing.
                 _matsSocketSessionId = envelope.sid;
-                reconnectedOk = true;
             }
             else {
                 log.info(" \\- No existing local Session found, check CSAF..");
@@ -505,7 +501,6 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                         log.info(" \\- Existing CSAF Session found!");
                         // -> Yes, there is a CSAF Session - so client can use this session
                         _matsSocketSessionId = envelope.sid;
-                        reconnectedOk = true;
                     }
                     else {
                         log.info(" \\- No existing Session found..");
@@ -573,13 +568,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
             // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
             throw new AssertionError("Hot damn.", e);
         }
-
-        // ?: Did the client expect existing session, but there was none?
-        if ("EXPECT_EXISTING".equals(envelope.st) && (!reconnectedOk)) {
-            // -> Yes, so then we drop any pipelined messages with LOST_SESSION
-            throw new FailedHelloException("LOST_SESSION",
-                    "After an HELLO:EXPECT_EXISTING, we could not find existing session.");
-        }
+        return true;
     }
 
     private void handleSendOrRequest(long clientMessageReceivedTimestamp, List<MatsSocketEnvelopeDto> replyEnvelopes,
@@ -609,6 +598,7 @@ class MatsSocketSession implements Whole<String>, MatsSocketStatics {
                 // NOTICE: We thus elide the "RECEIVED", as the client will handle the missing RECEIVED
                 handledEnvelope.t = "REPLY";
                 handledEnvelope.st = requestContext._resolved ? "RESOLVE" : "REJECT";
+                handledEnvelope.msg = requestContext._matsSocketReplyMessage;
                 log.info("handleIncoming(..) insta-settled the incoming message with"
                         + " [REPLY:" + handledEnvelope.st + "]");
             }

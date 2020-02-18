@@ -77,10 +77,10 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         _threadPool.shutdownNow();
     }
 
-    void newMessagesInCsafNotify(MatsSocketSession matsSocketSession) {
-        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketSession.getId() + "]");
+    void newMessagesInCsafNotify(MatsSocketOnMessageHandler matsSocketOnMessageHandler) {
+        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketOnMessageHandler.getId() + "]");
         // :: Check if there is an existing handler for this MatsSocketSession
-        String uniqueId = matsSocketSession.getId() + matsSocketSession.getConnectionId();
+        String uniqueId = matsSocketOnMessageHandler.getId() + matsSocketOnMessageHandler.getConnectionId();
         boolean[] fireOffNewHandler = new boolean[1];
 
         _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
@@ -99,12 +99,12 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         // ?: Should we fire off new handler?
         if (fireOffNewHandler[0]) {
             // -> Yes, none were running, so fire off new handler.
-            _threadPool.execute(() -> this.handlerRunnable(matsSocketSession, uniqueId));
+            _threadPool.execute(() -> this.handlerRunnable(matsSocketOnMessageHandler, uniqueId));
         }
     }
 
-    void handlerRunnable(MatsSocketSession matsSocketSession, String uniqueId) {
-        String matsSocketSessionId = matsSocketSession.getId();
+    void handlerRunnable(MatsSocketOnMessageHandler matsSocketOnMessageHandler, String uniqueId) {
+        String matsSocketSessionId = matsSocketOnMessageHandler.getId();
 
         boolean removeOnExit = true;
 
@@ -112,7 +112,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
             RENOTIFY: while (true) { // LOOP: "Re-notifications"
                 // ?: Check if WebSocket Session is still open.
-                if (!matsSocketSession.getWebSocketSession().isOpen()) {
+                if (!matsSocketOnMessageHandler.getWebSocketSession().isOpen()) {
                     log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
                             + " Session was closed. Notifying CSAF that this MatsSocketSession does not reside here on"
                             + " [" + _matsSocketServer.getMyNodename() + "] anymore, forwarding notification to new"
@@ -121,7 +121,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     // :: Deregister this specific MatsSocket Session (this connection) from this node.
                     try {
                         _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId,
-                                matsSocketSession.getConnectionId());
+                                matsSocketOnMessageHandler.getConnectionId());
                     }
                     catch (DataAccessException e) {
                         log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to notify CSAF about"
@@ -198,10 +198,10 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         buf.append(']');
 
                         // Send message(s) over WebSocket.
-                        matsSocketSession.webSocketSendText(buf.toString());
+                        matsSocketOnMessageHandler.webSocketSendText(buf.toString());
                         float millisSendMessages = msSince(nanos_start_SendMessage);
                         log.info("Finished sending '" + messagesForSession.size() + "' message(s) with TraceIds ["
-                                + traceIds + "] to [" + matsSocketSession + "], get-from-csaf took ["
+                                + traceIds + "] to [" + matsSocketOnMessageHandler + "], get-from-csaf took ["
                                 + millisGetMessages + "ms], send over websocket took:[" + millisSendMessages + "ms]");
                         // ----- Good path!
                         // Loop to check if empty of messages.
@@ -210,7 +210,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // -> Evidently got problems forwarding the message over WebSocket
                         log.warn("Got [" + ioe.getClass().getSimpleName()
                                 + "] while trying to send '" + messagesForSession.size()
-                                + "' messages with TraceId [" + traceIds + "] to [" + matsSocketSession
+                                + "' messages with TraceId [" + traceIds + "] to [" + matsSocketOnMessageHandler
                                 + "]. Increasing 'delivery_count' for message, will try again.", ioe);
 
                         // :: Increase delivery count
