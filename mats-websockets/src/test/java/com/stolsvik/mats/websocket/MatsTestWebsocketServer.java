@@ -123,31 +123,8 @@ public class MatsTestWebsocketServer {
             // Set back the MatsSocketServer into ServletContext, to be able to shut it down properly.
             sce.getServletContext().setAttribute(MatsSocketServer.class.getName(), _matsSocketServer);
 
-            // :: Make MatsSocket Endpoint
-            MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = _matsSocketServer
-                    .matsSocketEndpoint("Test.single",
-                            MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                            (ctx, principal, msIncoming) -> {
-                                log.info("Got MatsSocket request on MatsSocket EndpointId: "
-                                        + ctx.getMatsSocketEndpointId());
-                                log.info(" \\- Authorization: " + ctx.getAuthorizationHeader());
-                                log.info(" \\- Principal:     " + ctx.getPrincipal());
-                                log.info(" \\- Message:       " + msIncoming);
-                                ctx.forwardCustom(new MatsDataTO(msIncoming.number, msIncoming.string),
-                                        msg -> {
-                                            msg.to(ctx.getMatsSocketEndpointId())
-                                                    .interactive()
-                                                    .nonPersistent()
-                                                    .setTraceProperty("requestTimestamp", msIncoming.requestTimestamp);
-                                        });
-                            });
-            // .. add the optional ReplyAdapter, needed here due to differing ReplyDTO between Mats and MatsSocket
-            matsSocketEndpoint.replyAdapter((ctx, matsReply) -> {
-                log.info("Adapting message: " + matsReply);
-                MatsSocketReplyDto reply = new MatsSocketReplyDto(matsReply.string.length(), matsReply.number,
-                        ctx.getMatsContext().getTraceProperty("requestTimestamp", Long.class));
-                ctx.resolve(reply);
-            });
+            // Set up all the MatsSocket Test Endpoints (used for integration tests, and the HTML test pages)
+            TestMatsSocketEndpoints.setupMatsSocketEndpoints(_matsSocketServer);
         }
 
         @Override
@@ -188,6 +165,9 @@ public class MatsTestWebsocketServer {
         }
     }
 
+    /**
+     * Servlet to shut down this entire Test Server. Employed from the Gradle integration tests.
+     */
     @WebServlet("/shutdown")
     public static class ShutdownServlet extends HttpServlet {
         @Override
@@ -199,6 +179,9 @@ public class MatsTestWebsocketServer {
         }
     }
 
+    /**
+     * Servlet mounted on the same path as the WebSocket - this actually works.
+     */
     @WebServlet(WEBSOCKET_PATH)
     public static class TestServletSamePath extends HttpServlet {
         @Override
@@ -207,6 +190,10 @@ public class MatsTestWebsocketServer {
         }
     }
 
+    /**
+     * Servlet that handles out-of-band close_session, which is invoked upon window.onunload by sendBeacon. The idea
+     * is to get the MatsSocket Session closed even if the WebSocket channel is closed at the time.
+     */
     @WebServlet("/matssocket/close_session")
     public static class OutOfBandCloseSessionServlet extends HttpServlet {
         @Override
