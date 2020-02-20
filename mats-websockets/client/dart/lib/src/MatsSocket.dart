@@ -362,10 +362,14 @@ class MatsSocket {
       // Yes -> resolve the receive envelope
       if (envelope.subType == EnvelopeSubType.ACK) {
         _log.info(
-            'Message ACK received for sequenceId: [${envelope.messageSequenceId}]');
+            'Message received for sequenceId: [${envelope.messageSequenceId}]');
         outstandingSendsAndRequest._receive.complete(envelope);
-      } else {
-        outstandingSendsAndRequest._receive.completeError(envelope);
+      }
+      else {
+        _log.warning(
+            'Error [${envelope.subType}] received for sequenceId: [${envelope.messageSequenceId}]');
+        // Mark the receive as in error
+        outstandingSendsAndRequest._receive.completeError(EnvelopeException(envelope));
       }
       handled = true;
     }
@@ -377,11 +381,26 @@ class MatsSocket {
       _log.info('Recived [${enumName(envelope.subType)}] '
           'for sequenceId: [${envelope.messageSequenceId}]');
 
-      // ?: Is this a resolve type, or an error
-      if (envelope.subType == EnvelopeSubType.RESOLVE) {
+      // ?: Is the receive incomplete?
+      if (!outstandingSendsAndRequest._receive.isCompleted) {
+        // Yes -> Since we are getting a reply, we have implicitly received a received.
+        outstandingSendsAndRequest._receive.complete(envelope);
+      }
+
+    // ?: Is this a resolve type, or an error
+    if (envelope.subType == EnvelopeSubType.RESOLVE) {
+        // Yes -> resolve the reply as a success.
+        _log.info(
+            'Message reply for sequenceId: [${envelope.messageSequenceId}], '
+                'receive accepted: [${outstandingSendsAndRequest._receive.isCompleted}]');
         outstandingSendsAndRequest._reply.complete(envelope);
-      } else {
-        outstandingSendsAndRequest._reply.completeError(envelope);
+      }
+      else {
+        // No -> Resolve the reply as an error
+        _log.warning(
+            'Error reply [${envelope.subType}] for sequenceId: [${envelope.messageSequenceId}], '
+                'receive accepted: [${outstandingSendsAndRequest._receive.isCompleted}]');
+        outstandingSendsAndRequest._reply.completeError(EnvelopeException(envelope));
       }
       handled = true;
     }
@@ -460,11 +479,14 @@ class MatsSocket {
     if (outstandingSendOrRequest.reply != null) {
       // Yes -> We need to return the reply future from the outstandingSendOrRequest
 
+      // Wait for receive ok first
+      var receive = await outstandingSendOrRequest.receive;
+
       // ?: Do we have a callback for the receive message?
       if (receiveCallback != null) {
         // Yes -> handle the callback first, logging if it fails
         try {
-          receiveCallback(await outstandingSendOrRequest.receive);
+          receiveCallback(receive);
         } on Error catch (e) {
           _log.severe('Error on invoking receive callback [${receiveCallback}]',
               e, e.stackTrace);
@@ -613,6 +635,15 @@ class AuthorizationCallbackMissingException implements Exception {
   @override
   String toString() => '$runtimeType: $message';
 }
+
+class EnvelopeException implements Exception {
+  final Envelope envelope;
+  const EnvelopeException(this.envelope);
+
+  @override
+  String toString() => '$runtimeType: ${jsonEncode(envelope)}';
+}
+
 // ======== Authorization internal classes =========================================================
 
 abstract class AuthorizationRefreshEvent {}
@@ -652,7 +683,7 @@ enum EnvelopeType {
 }
 
 enum EnvelopeSubType {
-  NEW, EXPECT_EXISTING, ACK, NACK, ERROR, RESOLVE, REJECT
+  NEW, EXPECT_EXISTING, ACK, NACK, ERROR, RESOLVE, REJECT, AUTH_FAIL
 }
 
 String enumName(dynamic value) {

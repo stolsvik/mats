@@ -8,7 +8,6 @@ import 'package:mockito/mockito.dart';
 typedef MessageHandler = Function(Envelope, Function(Iterable<Envelope>));
 
 class MockWebSocketSink implements WebSocketSink {
-
   final streamController = StreamController();
   int closeCode;
   String closeReason;
@@ -35,7 +34,6 @@ class MockWebSocketSink implements WebSocketSink {
 }
 
 class MockWebSocketChannel extends Mock implements WebSocketChannel {
-
   String url;
   String _protocol;
   String _closeReason;
@@ -60,44 +58,42 @@ class MockWebSocketChannel extends Mock implements WebSocketChannel {
   String get closeReason => _closeReason;
 
   MockWebSocketChannel(this.url, this._protocol);
-
 }
 
 class MockSocketFactory extends WebSocketChannelFactory {
-
   final MessageHandler _messageHandler;
 
   MockSocketFactory(this._messageHandler);
 
-  MockSocketFactory.noop() : this((envelope, sink) {
-    switch (envelope.type) {
-      case EnvelopeType.HELLO : {
-        sink([Envelope(
-          type: EnvelopeType.WELCOME,
-          subType: EnvelopeSubType.NEW,
-          sessionId: '123'
-        )]);
-      }
-      break;
-      case EnvelopeType.SEND: {
-        sink([Envelope(
-          type: EnvelopeType.RECEIVED,
-          subType: EnvelopeSubType.ACK,
-          messageSequenceId: envelope.messageSequenceId
-        )]);
-      }
-      break;
-      case EnvelopeType.REQUEST: {}
-      break;
-      case EnvelopeType.CLOSE_SESSION: {}
-      break;
-      default: {}
-        break;
-    }
-  });
+  MockSocketFactory.noop()
+      : this.withHello((envelope, sink) {
+          if (envelope.type == EnvelopeType.SEND) {
+            sink([
+              Envelope(
+                  type: EnvelopeType.RECEIVED,
+                  subType: EnvelopeSubType.ACK,
+                  messageSequenceId: envelope.messageSequenceId)
+            ]);
+          }
+          else {
+            throw Exception('No handler for ${jsonEncode(envelope)}');
+          }
+        });
 
-  Future<WebSocketChannel> connect(String url, String protocol, String authorization) async {
-    print('Connecting');
+  MockSocketFactory.withHello(MessageHandler delegate)
+      : this((envelope, sink) {
+          if (envelope.type == EnvelopeType.HELLO) {
+            sink([
+              Envelope(
+                  type: EnvelopeType.WELCOME, subType: EnvelopeSubType.NEW, sessionId: '123')
+            ]);
+          } else {
+            delegate(envelope, sink);
+          }
+        });
+
+  Future<WebSocketChannel> connect(
+      String url, String protocol, String authorization) async {
     var channel = MockWebSocketChannel(url, protocol);
     channel.mockWebSocketSink.streamController.stream.expand((payload) {
       var envelopes = jsonDecode(payload) as List<dynamic>;
@@ -110,4 +106,3 @@ class MockSocketFactory extends WebSocketChannelFactory {
     return channel;
   }
 }
-
