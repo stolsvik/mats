@@ -388,7 +388,7 @@ public class MatsTestWebsocketServer {
                     break;
                 }
                 catch (IOException e) {
-                    // ?: Is this IOException indicating that we failed to bind to the port
+                    // ?: Check IOException's message whether we failed to bind to the port
                     if (e.getMessage().contains("Failed to bind")) {
                         // Yes -> Log, and try the next port by looping again
                         log.info("######### Failed to start server [" + serverId
@@ -410,6 +410,5 @@ public class MatsTestWebsocketServer {
                 }
             }
         }
-
     }
 }
