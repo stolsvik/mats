@@ -14,6 +14,13 @@ public class TestMatsSocketEndpoints {
     private static final Logger log = LoggerFactory.getLogger(TestMatsSocketEndpoints.class);
 
     static void setupMatsSocketEndpoints(MatsSocketServer matsSocketServer) {
+        setupStandardTestSingle(matsSocketServer);
+        setupResolveInIncoming(matsSocketServer);
+        setupRejectInIncoming(matsSocketServer);
+        setupThrowsInIncoming(matsSocketServer);
+    }
+
+    private static void setupStandardTestSingle(MatsSocketServer matsSocketServer) {
         // :: Make default MatsSocket Endpoint
         MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
                 .matsSocketEndpoint("Test.single",
@@ -41,6 +48,31 @@ public class TestMatsSocketEndpoints {
                     ctx.getMatsContext().getTraceProperty("requestTimestamp", Long.class));
             ctx.resolve(reply);
         });
+    }
+
+    private static void setupResolveInIncoming(MatsSocketServer matsSocketServer) {
+        MatsSocketEndpoint<MatsSocketRequestDto, Void, Void, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
+                .matsSocketEndpoint("Test.resolveInIncomingHandler",
+                        MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
+                        (ctx, principal, msIncoming) -> ctx.resolve(
+                                new MatsSocketReplyDto(1, 2, msIncoming.requestTimestamp)));
+    }
+
+    private static void setupRejectInIncoming(MatsSocketServer matsSocketServer) {
+        MatsSocketEndpoint<MatsSocketRequestDto, Void, Void, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
+                .matsSocketEndpoint("Test.rejectInIncomingHandler",
+                        MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
+                        (ctx, principal, msIncoming) -> ctx.reject(
+                                new MatsSocketReplyDto(3, 4, msIncoming.requestTimestamp)));
+    }
+
+    private static void setupThrowsInIncoming(MatsSocketServer matsSocketServer) {
+        MatsSocketEndpoint<MatsSocketRequestDto, Void, Void, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
+                .matsSocketEndpoint("Test.throwsInIncomingHandler",
+                        MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
+                        (ctx, principal, msIncoming) -> {
+                            throw new IllegalStateException("Should reject.");
+                        });
     }
 
 }

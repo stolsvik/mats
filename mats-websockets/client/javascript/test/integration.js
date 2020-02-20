@@ -221,10 +221,10 @@
                     string: "The String",
                     number: Math.PI
                 });
-                matsSocket.close("testing close rejects");
                 promise.catch(function (event) {
                     done();
                 });
+                matsSocket.close("testing close rejects");
             });
 
             it("request: Promise should reject if closed before ack", function (done) {
@@ -232,8 +232,40 @@
                     string: "The String",
                     number: Math.PI
                 });
-                matsSocket.close("testing close rejects");
                 promise.catch(function (event) {
+                    done();
+                });
+                matsSocket.close("testing close rejects");
+            });
+        });
+
+        describe("settle in IncomingAuthorizationAndAdapter", function () {
+            // Set a valid authorization before each request
+            beforeEach(() => setAuth());
+
+            it("context.resolve(..)", function () {
+                return matsSocket.request("Test.resolveInIncomingHandler", "REQUEST_resolved_in_incomingHandler" + matsSocket.id(6), {
+                    string: "The String",
+                    number: Math.PI
+                });
+            });
+
+            it("context.reject(..)", function (done) {
+                let promise = matsSocket.request("Test.rejectInIncomingHandler", "REQUEST_rejected_in_incomingHandler" + matsSocket.id(6), {
+                    string: "The String",
+                    number: Math.PI
+                });
+                promise.catch(function() {
+                    done();
+                });
+            });
+
+            it("throws in incomingAdapter should reject", function (done) {
+                let promise = matsSocket.request("Test.throwsInIncomingHandler", "REQUEST_throws_in_incomingHandler" + matsSocket.id(6), {
+                    string: "The String",
+                    number: Math.PI
+                });
+                promise.catch(function() {
                     done();
                 });
             });

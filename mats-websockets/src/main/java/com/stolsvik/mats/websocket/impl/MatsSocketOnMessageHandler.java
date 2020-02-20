@@ -763,6 +763,10 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
 
         @Override
         public void resolve(R matsSocketResolveMessage) {
+            if (!isRequest()) {
+                throw new IllegalStateException("This is not a request, thus you cannot resolve nor reject it."
+                        + " For a SEND, your options is to forward to Mats, or not forward (and just return).");
+            }
             if (_handled) {
                 throw new IllegalStateException("Already handled.");
             }
@@ -774,6 +778,10 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
 
         @Override
         public void reject(R matsSocketRejectMessage) {
+            if (!isRequest()) {
+                throw new IllegalStateException("This is not a request, thus you cannot resolve nor reject it."
+                        + " For a SEND, your options is to forward to Mats, or not forward (and just return).");
+            }
             if (_handled) {
                 throw new IllegalStateException("Already handled.");
             }

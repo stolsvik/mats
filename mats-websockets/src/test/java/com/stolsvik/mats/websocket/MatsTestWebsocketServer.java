@@ -286,8 +286,9 @@ public class MatsTestWebsocketServer {
         WebAppContext webAppContext = new WebAppContext();
         webAppContext.setContextPath("/");
         webAppContext.setBaseResource(Resource.newClassPathResource("webapp"));
+        // If any problems starting context, then let exception through so that we can exit.
         webAppContext.setThrowUnavailableOnStartupException(true);
-
+        // Store the port number this server shall run under in the ServletContext.
         webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_PORTNUMBER, port);
 
         // Override the default configurations, stripping down and adding AnnotationConfiguration.
@@ -397,6 +398,11 @@ public class MatsTestWebsocketServer {
                         // No -> Some other IOException, re-throw to stop the server from starting.
                         throw e;
                     }
+                }
+                catch (Exception e) {
+                    log.error("Jetty failed to start. Need to forcefully System.exit(..) due to Jetty not"
+                            + " cleanly taking down its threads.", e);
+                    System.exit(2);
                 }
                 finally {
                     // Always increment the port number

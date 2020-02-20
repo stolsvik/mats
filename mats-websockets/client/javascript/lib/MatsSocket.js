@@ -800,26 +800,15 @@
                     } else if (envelope.t === "RECEIVED") {
                         // -> RECEIVED ack/server_error/nack
                         let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmseq];
-                        delete _outstandingSendsAndRequests[envelope.cmseq];
                         // ?: Check that we found it.
                         if (outstandingSendOrRequest === undefined) {
                             // -> No, the OutstandingSendOrRequest was not present.
-                            // TODO: This might imply double delivery..
-                            error("received", "Missing OutstandingSendOrRequest for envelope.cmseq [" + envelope.cmseq + "]: " + JSON.stringify(envelope));
+                            // (Either already handled by fast REPLY, or was an insta-settling in IncomingAuthorizationAndAdapter, which won't send RECEIVED)
                             continue;
                         }
                         // E-> Yes, we had OutstandingSendOrRequest
-                        // ?: Check if this by any chance already has been resolved by the REPLY
-                        if (outstandingSendOrRequest.handled) {
-                            // -> Yes, already Resolved by a Reply
-                            if (that.logging) log("OutstandingSendOrRequest already handled (by REPLY) for envelope.cmseq [" + envelope.cmseq + "]: " + JSON.stringify(envelope));
-                            // ?: Assert that this is a ACK (it cannot be ERROR or NACK, as it should then never have gotten a Reply)
-                            if (envelope.st !== "ACK") {
-                                error("assertion failed", "When getting a RECEIVED, it was already resolved by an earlier REPLY. However, the SubType of RECEIVED was not ACK, but [" + envelope.st + "]: ", envelope);
-                            }
-                            // Do not resolve the OutstandingSendOrRequest by this RECEIVED, as it has already been done.
-                            continue;
-                        }
+                        // Delete it, as we're handling it now
+                        delete _outstandingSendsAndRequests[envelope.cmseq];
                         // ?: Was it a "good" RECEIVED?
                         if (envelope.st === "ACK") {
                             // -> Yes, it was "ACK" - so Server was happy.
@@ -846,7 +835,8 @@
                         let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmseq];
                         // ?: Was the outstandingSendOrRequest still present?
                         if (outstandingSendOrRequest) {
-                            // -> Yes, still present - so we resolve it
+                            // -> Yes, still present - so we delete and resolve it
+                            delete _outstandingSendsAndRequests[envelope.cmseq];
                             if (outstandingSendOrRequest.resolve)
                                 outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
                             // .. and then mark it as resolved, so that when the received comes, it won't be resolved again
@@ -867,8 +857,6 @@
                 // -> Yes, REQUEST-with-Promise (missing (client) EndpointId)
                 // Get the outstanding future
                 let future = _futures[envelope.cmseq];
-                // Delete the outstanding future (we will complete it now)
-                delete _futures[envelope.cmseq];
                 // ?: Did we have a future?
                 if (future === undefined) {
                     // -> No, missing future, no Promise. Pretty strange, really (error in this code..)
@@ -876,6 +864,9 @@
                     return;
                 }
                 // E-> We found the future
+                // Delete the outstanding future, as we will complete it now.
+                delete _futures[envelope.cmseq];
+                // Was it RESOLVE or REJECT?
                 if (resolveOrReject === "RESOLVE") {
                     future.resolve(eventFromEnvelope(envelope, receivedTimestamp));
                 } else {
@@ -888,6 +879,7 @@
                 // ?: Do we not have it?
                 if (endpoint === undefined) {
                     // -> No, we do not have this. Programming error from app.
+                    // TODO: Should catch this upon the requestReplyTo(...) invocation.
                     error("missing client endpoint", "The Client Endpoint [" + envelope.eid + "] is not present!", envelope);
                     return;
                 }
