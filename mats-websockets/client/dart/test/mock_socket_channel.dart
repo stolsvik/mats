@@ -74,7 +74,7 @@ class MockSocketFactory extends WebSocketChannelFactory {
       case EnvelopeType.HELLO : {
         sink([Envelope(
           type: EnvelopeType.WELCOME,
-          subType: 'NEW',
+          subType: EnvelopeSubType.NEW,
           sessionId: '123'
         )]);
       }
@@ -82,6 +82,7 @@ class MockSocketFactory extends WebSocketChannelFactory {
       case EnvelopeType.SEND: {
         sink([Envelope(
           type: EnvelopeType.RECEIVED,
+          subType: EnvelopeSubType.ACK,
           messageSequenceId: envelope.messageSequenceId
         )]);
       }
