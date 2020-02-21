@@ -24,6 +24,18 @@ task downloadAmqWebConsoleWar {
 }
 compileJava.dependsOn downloadAmqWebConsoleWar
 
+
+// Crap from Spring Boot with Gradle 6.2
+//  https://docs.gradle.org/6.2/userguide/upgrading_version_6.html#publishing_spring_boot_applications
+jar {
+    enabled = true
+}
+
+bootJar {
+    classifier = 'application'
+}
+
+
 dependencies {
     compile('org.springframework.boot:spring-boot-starter-actuator')
     compile('org.springframework.boot:spring-boot-starter-web')
