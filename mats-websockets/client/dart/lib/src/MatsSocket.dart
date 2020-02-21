@@ -11,7 +11,7 @@ import 'package:logging/logging.dart';
 DateTime EPOCH = DateTime.fromMicrosecondsSinceEpoch(0);
 const ALPHABET =
     '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-const CLIENT_LIB_NAME_AND_VERSION = 'MatsSocket.dart,v0.8.9';
+const CLIENT_LIB_NAME_AND_VERSION = 'MatsSocket.dart,v0.10.0';
 // TODO: Include Flutter SDK if relevant - use dynamic invocation. -est.
 final VERSION =
     '${CLIENT_LIB_NAME_AND_VERSION}; Dart ${Platform.version}';

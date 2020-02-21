@@ -445,8 +445,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 _clusterStoreAndForward.deregisterSessionFromThisNode(s.getId(), s.getConnectionId());
             }
             catch (DataAccessException e) {
-                log.warn("Could not deregister MatsSocketSession [" + s.getId() + "] from CSAF, ignoring.",
-                        e);
+                log.warn("Could not deregister MatsSocketSession [" + s.getId() + "] from CSAF, ignoring.", e);
             }
         });
     }
