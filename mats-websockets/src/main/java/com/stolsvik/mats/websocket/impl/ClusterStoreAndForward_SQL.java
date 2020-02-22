@@ -150,7 +150,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void registerSessionAtThisNode(String matsSocketSessionId, String connectionId) throws DataAccessException {
+    public void registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId)
+            throws DataAccessException, WrongUserException {
         withConnection(con -> {
             boolean autoCommitPre = con.getAutoCommit();
             try { // turn back autocommit, just to be sure we've not changed state of connection.
@@ -162,6 +163,31 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                     con.setAutoCommit(false);
                 }
 
+                // :: Check if the Session already exists.
+                PreparedStatement select = con.prepareStatement("SELECT user_id, created_timestamp"
+                        + " FROM mats_socket_session WHERE session_id = ?");
+                select.setString(1, matsSocketSessionId);
+                ResultSet rs = select.executeQuery();
+                long createdTimestamp;
+                long now;
+                // ?: Did we get a row on the SessionId?
+                if (rs.next()) {
+                    // -> Yes, we did - so get the original userId, and the original createdTimestamp
+                    String originalUserId = rs.getString(1);
+                    createdTimestamp = rs.getLong(2);
+                    // ?: Has the userId changed from the original userId?
+                    if (!userId.equals(originalUserId)) {
+                        // -> Yes, changed: This is bad stuff - drop out right now.
+                        throw new WrongUserException("The original userId of MatsSocketSessionId ["
+                                + matsSocketSessionId + "] was [" + originalUserId
+                                + "], while the new one that attempts to reconnect to session is [" + userId + "].");
+                    }
+                    now = System.currentTimeMillis();
+                }
+                else {
+                    createdTimestamp = now = System.currentTimeMillis();
+                }
+
                 // :: Generic "UPSERT" implementation: DELETE-then-INSERT (no need for SELECT/UPDATE-or-INSERT here)
                 // Unconditionally delete session (the INSERT puts in the new values).
                 PreparedStatement delete = con.prepareStatement("DELETE FROM mats_socket_session"
@@ -170,12 +196,14 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
                 // Insert the new current row
                 PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_session"
-                        + "(session_id, connection_id, nodename, liveliness_timestamp)"
-                        + "VALUES (?, ?, ?, ?)");
+                        + "(session_id, user_id, connection_id, nodename, created_timestamp, liveliness_timestamp)"
+                        + "VALUES (?, ?, ?, ?, ?, ?)");
                 insert.setString(1, matsSocketSessionId);
-                insert.setString(2, connectionId);
-                insert.setString(3, _nodename);
-                insert.setLong(4, System.currentTimeMillis());
+                insert.setString(2, userId);
+                insert.setString(3, connectionId);
+                insert.setString(4, _nodename);
+                insert.setLong(5, createdTimestamp);
+                insert.setLong(6, now);
 
                 // Execute them both
                 delete.execute();
@@ -235,7 +263,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             return Optional.empty();
         }
         String connectionId = resultSet.getString(2);
-        return Optional.of(new CurrentNode(nodename, connectionId));
+        return Optional.of(new SimpleCurrentNode(nodename, connectionId));
     }
 
     @Override
@@ -303,7 +331,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages)
             throws DataAccessException {
         return withConnectionReturn(con -> {
-            // The old MS JDBC Driver 'jtds' don't handle parameter insertion for TOP.
+            // The old MS JDBC Driver 'jtds' don't handle parameter insertion for 'TOP' statement.
             PreparedStatement insert = con.prepareStatement("SELECT TOP " + maxNumberOfMessages
                     + "          message_id, session_id, trace_id, mseq,"
                     + "          stored_timestamp, delivery_count, type, message_text"
@@ -379,7 +407,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @FunctionalInterface
     private interface Lambda<T> {
-        T transact(Connection con) throws SQLException;
+        T transact(Connection con) throws SQLException, WrongUserException;
     }
 
     private void withConnection(LambdaVoid lambda) throws DataAccessException {
@@ -392,6 +420,6 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @FunctionalInterface
     private interface LambdaVoid {
-        void transact(Connection con) throws SQLException;
+        void transact(Connection con) throws SQLException, WrongUserException;
     }
 }

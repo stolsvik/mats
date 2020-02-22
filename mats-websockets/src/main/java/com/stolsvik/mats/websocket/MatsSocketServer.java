@@ -180,38 +180,41 @@ public interface MatsSocketServer {
     }
 
     /**
-     * WebSocket CloseCodes used in MatsSocket, and for what.
+     * WebSocket CloseCodes used in MatsSocket, and for what. Using both standard codes, and app-specific/defined codes.
      */
     enum MatsSocketCloseCodes implements CloseCode {
         /**
-         * Standard code 1000 - used when the server closes the socket in response to a CLOSE_SESSION message (i.e.
-         * terminates this session).
-         */
-        NORMAL_CLOSURE(CloseCodes.NORMAL_CLOSURE.getCode()),
-
-        /**
-         * From Client/Browser side: Standard code 1001: Synonym for {@link #CLOSE_SESSION}, as the documentation states
-         * <i>"indicates that an endpoint is "going away", such as a server going down <b>or a browser having navigated
-         * away from a page.</b>"</i>, the latter point being pretty much exactly correct wrt. when to close a session.
-         * So, if a browser decides to use this code when the user navigates away and the library or application does
-         * not catch it, we'd want to catch this as a Close Session.
-         */
-        GOING_AWAY(CloseCodes.GOING_AWAY.getCode()),
-
-        /**
-         * From Server side: Standard code 1008 - used for when the client does not behave as we expect, most typically
-         * wrt. authentication.
+         * Standard code 1008 - From Server side: used for when the client does not behave as we expect, most typically
+         * wrt. authentication or otherwise does not observe the protocol.
          */
         VIOLATED_POLICY(CloseCodes.VIOLATED_POLICY.getCode()),
 
         /**
-         * Standard code 1012 - used when {@link MatsSocketServer#stop(int)} is invoked.
+         * Standard code 1011 - From Server side: used when the server cannot talk to the underlying systems (DB or MQ).
+         * This should be a temporary situation, so doing periodic re-connects would be correct.
+         */
+        UNEXPECTED_CONDITION(CloseCodes.UNEXPECTED_CONDITION.getCode()),
+
+        /**
+         * Standard code 1012 - From Server side: used when {@link MatsSocketServer#stop(int)} is invoked. Please
+         * reconnect.
          */
         SERVICE_RESTART(CloseCodes.SERVICE_RESTART.getCode()),
 
         /**
+         * Standard code 1001 - From Client/Browser side: Synonym for {@link #CLOSE_SESSION}, as the WebSocket
+         * documentation states <i>"indicates that an endpoint is "going away", such as a server going down <b>or a
+         * browser having navigated away from a page.</b>"</i>, the latter point being pretty much exactly correct wrt.
+         * when to close a session. So, if a browser decides to use this code when the user navigates away and the
+         * library or application does not catch it, we'd want to catch this as a Close Session.
+         */
+        GOING_AWAY(CloseCodes.GOING_AWAY.getCode()),
+
+        /**
          * 4000: From Client/Browser side: Used when the browser closes WebSocket "on purpose", wanting to close the
-         * session.
+         * session - typically when the user explicitly logs out, or navigates away from web page. All traces of the
+         * MatsSocketSession are effectively deleted from the server, including any undelivered replies and messages
+         * ("push") from server.
          */
         CLOSE_SESSION(4000),
 
@@ -222,7 +225,9 @@ public interface MatsSocketServer {
         FORCED_SESSION_CLOSE(4001),
 
         /**
-         * 4002: From Server side: We ask that the client reconnects.
+         * 4002: From Server side: We ask that the client reconnects. This gets us a clean state and in particular new
+         * authentication (In case of using OAuth/OIDC tokens, the client is expected to fetch a fresh token from token
+         * server).
          */
         RECONNECT(4002);
 

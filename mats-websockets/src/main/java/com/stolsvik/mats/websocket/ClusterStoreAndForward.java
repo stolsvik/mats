@@ -43,15 +43,27 @@ public interface ClusterStoreAndForward {
     void boot();
 
     /**
-     * Registers a Session home to this node - only one node can ever be home, so any old is deleted.
+     * Registers a Session home to this node - only one node can ever be home, so any old is deleted. When
+     * "re-registering" a session, it is asserted that the provided 'userId' is the same UserId as originally registered
+     * - an {@link WrongUserException} is thrown if this does not match (Note that this is an extension of
+     * {@link DataAccessException}, just out of implementation convenience).
      *
      * @param matsSocketSessionId
+     *            the SessionId for this connection.
+     * @param userId
+     *            the UserId, as provided by {@link AuthenticationPlugin}, that own this MatsSocketSessionId
      * @param connectionId
      *            an id that is unique for this specific WebSocket Session (i.e. TCP Connection), so that if it closes,
      *            a new registration will not be deregistered by the old MatsSocketSession realizing that it is closed
      *            and then invoking {@link #deregisterSessionFromThisNode(String, String)}
+     * @throws DataAccessException
+     *             if problems with underlying data store
+     * @throws WrongUserException
+     *             if the userId provided does not match the original userId that created the session. Note that this is
+     *             an extension of {@link DataAccessException}, just out of implementation convenience.
      */
-    void registerSessionAtThisNode(String matsSocketSessionId, String connectionId) throws DataAccessException;
+    void registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId)
+            throws DataAccessException, WrongUserException;
 
     /**
      * @param matsSocketSessionId
@@ -145,24 +157,6 @@ public interface ClusterStoreAndForward {
      */
     void messagesFailedDelivery(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException;
 
-    class CurrentNode {
-        private final String nodename;
-        private final String connectionId;
-
-        public CurrentNode(String nodename, String connectionId) {
-            this.nodename = nodename;
-            this.connectionId = connectionId;
-        }
-
-        public String getNodename() {
-            return nodename;
-        }
-
-        public String getConnectionId() {
-            return connectionId;
-        }
-    }
-
     /**
      * If having problems accessing the underlying common data store.
      */
@@ -173,6 +167,107 @@ public interface ClusterStoreAndForward {
 
         public DataAccessException(String message, Throwable cause) {
             super(message, cause);
+        }
+    }
+
+    /**
+     * Thrown from {@link #registerSessionAtThisNode(String, String, String)} if the userId does not match the original
+     * userId that created this session.
+     */
+    class WrongUserException extends DataAccessException {
+        public WrongUserException(String message) {
+            super(message);
+        }
+    }
+
+    interface CurrentNode {
+        public String getNodename();
+
+        public String getConnectionId();
+    }
+
+    class SimpleCurrentNode implements CurrentNode {
+        private final String nodename;
+        private final String connectionId;
+
+        public SimpleCurrentNode(String nodename, String connectionId) {
+            this.nodename = nodename;
+            this.connectionId = connectionId;
+        }
+
+        @Override
+        public String getNodename() {
+            return nodename;
+        }
+
+        @Override
+        public String getConnectionId() {
+            return connectionId;
+        }
+    }
+
+    interface CsafSession {
+        public String getSessionId();
+
+        public String getUserId();
+
+        public String getNodename();
+
+        public String getConnectionId();
+
+        public long getCreatedTimestamp();
+
+        public long getLivelinessTimestamp();
+
+    }
+
+    class SimpleCsafSession implements CsafSession {
+        private final String sessionId;
+        private final String userId;
+        private final String nodename;
+        private final String connectionId;
+        private final long createdTimestamp;
+        private final long livelinessTimestamp;
+
+        public SimpleCsafSession(String sessionId, String userId, String nodename, String connectionId,
+                long createdTimestamp,
+                long livelinessTimestamp) {
+            this.sessionId = sessionId;
+            this.userId = userId;
+            this.nodename = nodename;
+            this.connectionId = connectionId;
+            this.createdTimestamp = createdTimestamp;
+            this.livelinessTimestamp = livelinessTimestamp;
+        }
+
+        @Override
+        public String getSessionId() {
+            return sessionId;
+        }
+
+        @Override
+        public String getUserId() {
+            return userId;
+        }
+
+        @Override
+        public String getNodename() {
+            return nodename;
+        }
+
+        @Override
+        public String getConnectionId() {
+            return connectionId;
+        }
+
+        @Override
+        public long getCreatedTimestamp() {
+            return createdTimestamp;
+        }
+
+        @Override
+        public long getLivelinessTimestamp() {
+            return livelinessTimestamp;
         }
     }
 

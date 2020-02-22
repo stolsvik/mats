@@ -570,7 +570,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             webSocketSession.close(new CloseReason(closeCode, reasonPhrase));
         }
         catch (IOException e) {
-            log.warn("Got Exception when trying to close WebSocket Session [" + webSocketSession
+            log.warn("Got Exception when trying to close WebSocket SessionId [" + webSocketSession.getId()
                     + "], ignoring.", e);
         }
     }

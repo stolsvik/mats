@@ -29,6 +29,7 @@ import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.WrongUserException;
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
@@ -43,13 +44,12 @@ import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleState
 class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
     private static final Logger log = LoggerFactory.getLogger(MatsSocketOnMessageHandler.class);
 
-    private final Session _webSocketSession;
-    private final String _connectionId;
-    private final HandshakeRequest _handshakeRequest;
+    private Session _webSocketSession; // Non-final to be able to null out upon close.
+    private String _connectionId;  // Non-final to be able to null out upon close.
     private final SessionAuthenticator _sessionAuthenticator;
 
     // Derived
-    private final Basic _webSocketBasicRemote;
+    private Basic _webSocketBasicRemote; // Non-final to be able to null out upon close.
     private final DefaultMatsSocketServer _matsSocketServer;
     private final AuthenticationContext _authenticationContext;
     private final ObjectReader _envelopeListObjectReader;
@@ -67,14 +67,13 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
     MatsSocketOnMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
             HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
         _webSocketSession = webSocketSession;
-        _handshakeRequest = handshakeRequest;
         _connectionId = webSocketSession.getId() + "_" + DefaultMatsSocketServer.rnd(10);
         _sessionAuthenticator = sessionAuthenticator;
 
         // Derived
         _webSocketBasicRemote = _webSocketSession.getBasicRemote();
         _matsSocketServer = matsSocketServer;
-        _authenticationContext = new AuthenticationContextImpl(_handshakeRequest, _webSocketSession);
+        _authenticationContext = new AuthenticationContextImpl(handshakeRequest, _webSocketSession);
         _envelopeListObjectReader = _matsSocketServer.getEnvelopeListObjectReader();
         _envelopeListObjectWriter = _matsSocketServer.getEnvelopeListObjectWriter();
     }
@@ -204,7 +203,7 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
 
             // :: 5. Assert state: All present: SessionId, Principal and userId.
             if ((_matsSocketSessionId == null) || (_principal == null) || (_userId == null)) {
-                closeWithPolicyViolation("Illegal state at checkpoint.");
+                closeWithPolicyViolation("Illegal state at checkpoint A.");
                 return;
             }
 
@@ -221,7 +220,7 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
                     // NOTE: This should be redundant, as we've already checked before the pipeline loop.
                     if ((_matsSocketSessionId == null) || (_principal == null) || (_userId == null)) {
                         // -> Well, someone must have changed the code to not be correct anymore..!
-                        closeWithPolicyViolation("Illegal state at checkpoint.");
+                        closeWithPolicyViolation("Illegal state at checkpoint B.");
                         return;
                     }
 
@@ -325,28 +324,40 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
     }
 
     private void closeSessionAndWebSocket(MatsSocketCloseCodes closeCode, String reason) {
-        // :: Deregister locally and from CSAF
-        if (_matsSocketSessionId != null) {
-            // Local deregister
-            _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketSessionId, _connectionId);
-            try {
-                // CSAF terminate
-                _matsSocketServer.getClusterStoreAndForward().closeSession(_matsSocketSessionId);
-            }
-            catch (DataAccessException e) {
-                // TODO: Fix
-                throw new AssertionError("Damn", e);
-            }
-        }
+        // :: Get copy of the WebSocket Session, before nulling it out
+        Session webSocketSession = _webSocketSession;
 
-        // :: Drop all references to session, just in case of later fuck-ups.
-        _matsSocketSessionId = null;
+        // :: Eagerly drop all authorization for session, so that this session object is ensured to be utterly useless.
         _authorization = null;
         _principal = null;
         _userId = null;
+        // :: Also nulling out our references to the WebSocket, to ensure that it is impossible to send anything more
+        _webSocketSession = null;
+        _webSocketBasicRemote = null;
 
-        // :: Close WebSocket
-        DefaultMatsSocketServer.closeWebSocket(_webSocketSession, closeCode, reason);
+        // :: Deregister locally and Close MatsSocket Session in CSAF
+        if (_matsSocketSessionId != null) {
+            // Local deregister of live connection
+            _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketSessionId, _connectionId);
+
+            try {
+                // CSAF close session
+                _matsSocketServer.getClusterStoreAndForward().closeSession(_matsSocketSessionId);
+            }
+            catch (DataAccessException e) {
+                log.warn("Could not close session in CSAF. This is unfortunate, as it then is technically possible to"
+                        + " still reconnect to the session while this evidently was not the intention"
+                        + " (only the same user can reconnect, though). However, the session scavenger"
+                        + " will clean this lingering session out after some hours.", e);
+            }
+        }
+
+        // :: Close the actual WebSocket
+        DefaultMatsSocketServer.closeWebSocket(webSocketSession, closeCode, reason);
+
+        // :: Finally, also clean sessionId and connectionId
+        _matsSocketSessionId = null;
+        _connectionId = null;
     }
 
     private boolean doAuthentication() {
@@ -523,13 +534,22 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
         _matsSocketServer.registerLocalMatsSocketSession(this);
         // Register Session in CSAF
         try {
-            _matsSocketServer.getClusterStoreAndForward().registerSessionAtThisNode(_matsSocketSessionId,
+            _matsSocketServer.getClusterStoreAndForward().registerSessionAtThisNode(_matsSocketSessionId, _userId,
                     _connectionId);
         }
+        catch (WrongUserException e) {
+            // -> This should never occur with the normal MatsSocket clients, so this is probably hackery going on.
+            log.error("We got WrongUserException when (evidently) trying to reconnect to existing SessionId."
+                    + " This sniffs of hacking.", e);
+            closeWithPolicyViolation("UserId of existing SessionId does not match currently logged in user.");
+            return false;
+        }
         catch (DataAccessException e) {
-            // TODO: Fix
-            // TODO: Deny HELLO (i.e. "NOT WELCOME"),
-            throw new AssertionError("Damn", e);
+            // -> We could not talk to data store, so we cannot accept sessions at this point. Sorry.
+            log.warn("Could not establish session in CSAF.", e);
+            closeSessionAndWebSocket(MatsSocketCloseCodes.UNEXPECTED_CONDITION,
+                    "Could not establish Session information in permanent storage, sorry.");
+            return false;
         }
 
         // ----- We're now a live MatsSocketSession
