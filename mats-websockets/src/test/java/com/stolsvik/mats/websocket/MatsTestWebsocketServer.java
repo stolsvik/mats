@@ -56,8 +56,7 @@ import ch.qos.logback.core.CoreConstants;
 public class MatsTestWebsocketServer {
 
     private static final String CONTEXT_ATTRIBUTE_PORTNUMBER = "ServerPortNumber";
-    private static final String CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH = "Path to MatsSocket.js";
-    private static final String CONTEXT_ATTRIBUTE_MATSSOCKETTEST_PATH = "Path to test folder";
+    private static final String CONTEXT_ATTRIBUTE_JAVASCRIPT_PATH = "Path to JavaScript files";
 
     private static final String WEBSOCKET_PATH = "/matssocket";
 
@@ -95,9 +94,11 @@ public class MatsTestWebsocketServer {
             _matsFactory.getFactoryConfig().setNodename("EndreBox_" + portNumber);
 
             // :: Make simple single Mats Endpoint
-            _matsFactory.single("Test.single", TestMatsSocketEndpoints.MatsDataTO.class, TestMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> {
-                return new TestMatsSocketEndpoints.MatsDataTO(incomingDto.number, incomingDto.string + ":FromSimple", incomingDto.multiplier);
-            });
+            _matsFactory.single("Test.single", TestMatsSocketEndpoints.MatsDataTO.class,
+                    TestMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> {
+                        return new TestMatsSocketEndpoints.MatsDataTO(incomingDto.number, incomingDto.string
+                                + ":FromSimple", incomingDto.multiplier);
+                    });
 
             // ## Create MatsSocketServer
             // Create DataSource using H2
@@ -208,63 +209,29 @@ public class MatsTestWebsocketServer {
     }
 
     /**
-     * Servlet to supply the MatsSocket.js file - this only works in development (i.e. running from e.g. IntelliJ).
+     * Servlet to supply the MatsSocket.js and test files - this only works in development (i.e. running from e.g.
+     * IntelliJ).
      */
-    @WebServlet("/mats/MatsSocket.js")
+    @WebServlet("/mats/*")
     public static class MatsSocketLibServlet extends HttpServlet {
         @Override
         protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-            String dirForMatsSocket = (String) req.getServletContext().getAttribute(
-                    CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH);
-            if (dirForMatsSocket == null) {
-                resp.sendError(501,
-                        "Cannot find the MatsSocket.js file (path not existing) - this only works when in development.");
+            String dir = (String) req.getServletContext().getAttribute(
+                    CONTEXT_ATTRIBUTE_JAVASCRIPT_PATH);
+
+            if (dir == null) {
+                resp.sendError(501, "Cannot find the path for JavaScript (path not existing)"
+                        + " - this only works when in development.");
                 return;
             }
 
-            Path pathWithFile = Paths.get(dirForMatsSocket, "MatsSocket.js");
+            Path pathWithFile = Paths.get(dir, req.getPathInfo());
             if (!Files.exists(pathWithFile)) {
-                resp.sendError(501,
-                        "Cannot find the MatsSocket.js file (file not found) - this only works when in development.");
+                resp.sendError(501, "Cannot find the '" + req.getPathInfo()
+                        + "' file (file not found) - this only works when in development.");
                 return;
             }
-            log.info("MatsSocket.js path: " + pathWithFile);
-
-            resp.setContentType("application/javascript");
-            resp.setCharacterEncoding("UTF-8");
-            resp.setContentLengthLong(Files.size(pathWithFile));
-            // Copy over the File to the HTTP Response's OutputStream
-            InputStream inputStream = Files.newInputStream(pathWithFile);
-            ServletOutputStream outputStream = resp.getOutputStream();
-            int n;
-            byte[] buffer = new byte[16384];
-            while ((n = inputStream.read(buffer)) > -1) {
-                outputStream.write(buffer, 0, n);
-            }
-        }
-    }
-
-    /**
-     * Servlet to supply the test files - this only works in development (i.e. running from e.g. IntelliJ).
-     */
-    @WebServlet("/tests/*")
-    public static class MatsUnitTestsServlet extends HttpServlet {
-        @Override
-        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-            String dirForTests = (String) req.getServletContext().getAttribute(
-                    CONTEXT_ATTRIBUTE_MATSSOCKETTEST_PATH);
-            if (dirForTests == null) {
-                resp.sendError(501, "Cannot find the tests directory (path not existing) -"
-                        + " this only works when in development.");
-                return;
-            }
-
-            Path pathWithFile = Paths.get(dirForTests, req.getPathInfo());
-            if (!Files.exists(pathWithFile)) {
-                resp.sendError(404, "Cannot find the test file [" + req.getPathInfo() + "].");
-                return;
-            }
-            log.info(req.getPathInfo() + " path: " + pathWithFile);
+            log.info("Path for [" + req.getPathInfo() + "]: " + pathWithFile);
 
             resp.setContentType("application/javascript");
             resp.setCharacterEncoding("UTF-8");
@@ -318,9 +285,7 @@ public class MatsTestWebsocketServer {
         String pathToMatsSocket = pos == -1
                 ? null
                 : pathToClasses.substring(0, pos) + "mats-websockets/client/javascript";
-        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETJS_PATH, pathToMatsSocket + "/lib");
-        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_MATSSOCKETTEST_PATH, pathToMatsSocket
-                + "/test");
+        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_JAVASCRIPT_PATH, pathToMatsSocket);
 
         // Create the actual Jetty Server
         Server server = new Server(port);
