@@ -24,7 +24,7 @@
         function setAuth(duration = 20000, roomForLatencyMillis = 10000) {
             const now = Date.now();
             const expiry = now + duration;
-            matsSocket.setCurrentAuthorization("DummyAuth:" + expiry, expiry, roomForLatencyMillis);
+            matsSocket.setCurrentAuthorization("DummyAuth:standard:" + expiry, expiry, roomForLatencyMillis);
         }
 
         const urls = env.MATS_SOCKET_URLS || "ws://localhost:8080/matssocket,ws://localhost:8081/matssocket";

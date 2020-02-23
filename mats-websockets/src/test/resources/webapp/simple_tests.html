@@ -25,7 +25,7 @@ NOTE! You must open the browser's DevTool Console to get any effect of this!
         setTimeout(function () {
             var now = Date.now();
             var expiry = now + 20000;
-            matsSocket.setCurrentAuthorization("DummyAuth:" + expiry, expiry, 10000);
+            matsSocket.setCurrentAuthorization("DummyAuth:standard:" + expiry, expiry, 10000);
         }, 100 + (100 * Math.random()));
     });
 

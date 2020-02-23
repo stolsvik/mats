@@ -5,9 +5,11 @@ import java.util.EnumSet;
 
 import javax.websocket.Endpoint;
 import javax.websocket.EndpointConfig;
+import javax.websocket.HandshakeResponse;
 import javax.websocket.Session;
 import javax.websocket.server.HandshakeRequest;
 import javax.websocket.server.ServerContainer;
+import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
@@ -40,9 +42,9 @@ public interface AuthenticationPlugin {
          * {@link Configurator#checkOrigin(String)}. Note that you do not have anything else to go by here, it is a
          * static check. If you want to evaluate other headers (or probably more relevant for web clients, parameters),
          * to decide upon allowed Origins, you can get the Origin header from the {@link HandshakeRequest} within the
-         * {@link #checkHandshakeRequest(HandshakeRequest, Session) checkHandshakeRequest(..)} - that is however one
-         * step later in the establishing of the socket (response is already sent, so if you decide against the session
-         * there, the socket will be opened, then immediately closed).
+         * {@link #checkHandshake(ServerEndpointConfig, HandshakeRequest, HandshakeResponse)} checkHandshake(..)} - that
+         * is however one step later in the establishing of the socket (response is already sent, so if you decide
+         * against the session there, the socket will be opened, then immediately closed).
          * <p/>
          * The default implementation returns <code>true</code>, i.e. letting all connections through this step.
          *
@@ -55,44 +57,74 @@ public interface AuthenticationPlugin {
         }
 
         /**
-         * Invoked straight after the HTTP WebSocket handshake request/response is performed, in the
-         * {@link Endpoint#onOpen(Session, EndpointConfig)} invocation from the WebSocket {@link ServerContainer}. If
-         * this method throws anything, the WebSocket request will immediately be terminated by invocation of
-         * {@link Session#close()} - the implementation of this method may also itself do such a close. If you do
-         * anything crazy with the Session object which will interfere with the MatsSocket messages, that's on you. One
-         * thing that could be of interest, is to {@link Session#setMaxIdleTimeout(long) increase the max idle timeout}
-         * - which will have effect wrt. to the initial authentication message that is expected, as the timeout setting
-         * before authenticated session is set to a quite small value by default: 2.5 seconds (after auth, the timeout
-         * is increased). This short timeout is meant to make it slightly more difficult to perform DoS attacks by
-         * opening many connections and then not send the initial auth-containing message. The same goes for
-         * {@link Session#setMaxTextMessageBufferSize(int) max text message buffer size}, as that is also set low until
-         * authenticated: 20KiB.
+         * Implement this if you want to do a check on any other header values, e.g. Authorization or Cookies, while the
+         * initial WebSocket Upgrade/Handshake request is still being processed - before the response is sent. This
+         * invocation is directly forwarded from
+         * {@link Configurator#modifyHandshake(ServerEndpointConfig, HandshakeRequest, HandshakeResponse)}. You may add
+         * headers to the response object. If this method returns <code>false</code> or throws anything, the WebSocket
+         * request will immediately be terminated.
          * <p />
          * <b>NOTE!</b> We would ideally want to evaluate upon the initial HTTP WebSocket handshake request whether we
          * want to talk with this client. The best solution would be an
          * <a href="https://tools.ietf.org/html/rfc6750#section-2.1">Authorization header</a> on this initial HTTP
          * request. However, since it is not possible to add headers via the WebSocket API in web browsers, this does
-         * not work. We could have used cookies to achieve somewhat of the same effect (setting it via
-         * <code>document.cookie</code> before running <code>new WebSocket(..)</code>), but since it is possible that
-         * you'd want to connect to a different domain for the WebSocket than the web page was served from, this is is
-         * not ideal as a general solution. Also, it makes for problems with "localhost" when developing. Lastly, we
-         * could have added it as a URI parameter, but this is
-         * <a href="https://tools.ietf.org/html/rfc6750#section-2.3">strongly discouraged</a>.
+         * not work. Secondly, we could have added it as a URI parameter, but this is
+         * <a href="https://tools.ietf.org/html/rfc6750#section-2.3">strongly discouraged</a>. We can use cookies to
+         * achieve somewhat of the same effect (setting it via <code>document.cookie</code> before running
+         * <code>new WebSocket(..)</code>), but since it is possible that you'd want to connect to a different domain
+         * for the WebSocket than the web page was served from, this is is not ideal as a general solution. A trick is
+         * implemented in MatsSocket, whereby it can do a XmlHttpRequest to a HTTP service that is running on the same
+         * domain as the WebSocket, which can move the Authorization header to a Cookie, which will be sent along with
+         * the WebSocket Handshake request - and can thus be checked here.
          * <p />
-         * The default implementation does nothing, i.e. letting all connections through this step.
+         * The default implementation return <code>true</code>, i.e. letting all connections through this step.
          *
-         * @param handshakeRequest
+         * @param config
+         *            the {@link ServerEndpointConfig} instance.
+         * @param request
+         *            the HTTP Handshake Request
+         * @param response
+         *            the HTTP Handshake Response, upon which it is possible to set headers.
+         * @return <code>true</code> if the connection should be let through, <code>false</code> if not.
          */
-        default void checkHandshakeRequest(HandshakeRequest handshakeRequest, Session session) {
-            /* no-op */
+        default boolean checkHandshake(ServerEndpointConfig config, HandshakeRequest request,
+                HandshakeResponse response) {
+            return true;
+        }
+
+        /**
+         * Invoked straight after the HTTP WebSocket handshake request/response is performed, in the
+         * {@link Endpoint#onOpen(Session, EndpointConfig)} invocation from the WebSocket {@link ServerContainer}. If
+         * this method returns <code>false</code> or throws anything, the WebSocket request will immediately be
+         * terminated by invocation of {@link Session#close()} - the implementation of this method may also itself do
+         * such a close. If you do anything crazy with the Session object which will interfere with the MatsSocket
+         * messages, that's on you. One thing that could be of interest, is to {@link Session#setMaxIdleTimeout(long)
+         * increase the max idle timeout} - which will have effect wrt. to the initial authentication message that is
+         * expected, as the timeout setting before authenticated session is set to a quite small value by default: 2.5
+         * seconds (after auth, the timeout is increased). This short timeout is meant to make it slightly more
+         * difficult to perform DoS attacks by opening many connections and then not send the initial auth-containing
+         * message. The same goes for {@link Session#setMaxTextMessageBufferSize(int) max text message buffer size}, as
+         * that is also set low until authenticated: 20KiB.
+         * <p />
+         * The default implementation return <code>true</code>, i.e. letting all connections through this step.
+         *
+         * @param webSocketSession
+         *            the WebSocket API {@link Session} instance.
+         * @param config
+         *            the {@link ServerEndpointConfig} instance.
+         * @return <code>true</code> if the connection should be let through, <code>false</code> if not.
+         */
+        default boolean onOpen(Session webSocketSession, ServerEndpointConfig config) {
+            return true;
         }
 
         /**
          * Invoked when the MatsSocket connects over WebSocket, and is first authenticated by the Authorization string
          * typically supplied via the initial "HELLO" message from the client.
          * <p />
-         * <b>NOTE!</b> Read the JavaDoc for {@link #checkHandshakeRequest(HandshakeRequest, Session)} wrt. evaluating
-         * the actual HTTP Handshake Request, as you might want to do auth already there.
+         * <b>NOTE!</b> Read the JavaDoc for
+         * {@link #checkHandshake(ServerEndpointConfig, HandshakeRequest, HandshakeResponse) checkHandshake(..)} wrt.
+         * evaluating the actual HTTP Handshake Request, as you might want to do auth already there.
          *
          * @param context
          *            were you may get additional information (the {@link HandshakeRequest} and the WebSocket

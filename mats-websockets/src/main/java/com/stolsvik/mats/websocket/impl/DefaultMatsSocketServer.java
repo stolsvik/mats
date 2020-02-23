@@ -156,12 +156,25 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         log.info("Registering MatsSockets' sole WebSocket endpoint.");
         Configurator configurator = new Configurator() {
 
-            ThreadLocal<HandshakeRequestResponse> _threadLocal = new ThreadLocal<>();
+            ThreadLocal<HandshakeRequestResponse> _threadLocal_HandShake = new ThreadLocal<>();
+            ThreadLocal<SessionAuthenticator> _threadLocal_SessionAuthenticator = new ThreadLocal<>();
+
+            private SessionAuthenticator getSessionAuthenticator() {
+                SessionAuthenticator sessionAuthenticator = _threadLocal_SessionAuthenticator.get();
+                if (sessionAuthenticator == null) {
+                    sessionAuthenticator = matsSocketServer.getAuthenticationPlugin().newSessionAuthenticator();
+                    _threadLocal_SessionAuthenticator.set(sessionAuthenticator);
+                }
+                return sessionAuthenticator;
+            }
 
             @Override
             public boolean checkOrigin(String originHeaderValue) {
-                log.info("WebSocket requested, checkOrigin: originHeaderValue: " + originHeaderValue);
-                return super.checkOrigin(originHeaderValue);
+                log.info("WebSocket connection!");
+                boolean ok = getSessionAuthenticator().checkOrigin(originHeaderValue);
+                log.info(" \\- checkOrigin(" + originHeaderValue + "). Asked SessionAuthenticator, returned: "
+                        + (ok ? "OK" : "NOT OK!"));
+                return ok;
             }
 
             @Override
@@ -181,8 +194,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             @Override
             public void modifyHandshake(ServerEndpointConfig sec, HandshakeRequest request,
                     HandshakeResponse response) {
-                log.info(" \\- modifyHandshake, keeping the HandshakeRequest and HandshakeResponse for auth.");
-                _threadLocal.set(new HandshakeRequestResponse(request, response));
+                _threadLocal_HandShake.set(new HandshakeRequestResponse(request, response));
+                boolean ok = getSessionAuthenticator().checkHandshake(sec, request, response);
+                log.info(" \\- modifyHandshake(config, request, response). Asked SessionAuthenticator, returned: "
+                        + (ok ? "OK" : "NOT OK!"));
+                if (!ok) {
+                    throw new IllegalStateException("SessionAuthenticator did nok like the Handshake.");
+                }
                 super.modifyHandshake(sec, request, response);
             }
 
@@ -193,10 +211,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     throw new AssertionError("Cannot create Endpoints of type [" + endpointClass.getName()
                             + "]");
                 }
-                log.info(" \\- Instantiating a MatsSocketEndpoint!");
-                HandshakeRequestResponse handshakeRequestResponse = _threadLocal.get();
-                _threadLocal.remove();
-                return (T) new MatsWebSocketInstance(matsSocketServer, handshakeRequestResponse);
+                log.info(" \\- Instantiating a " + MatsWebSocketInstance.class.getSimpleName() + "!");
+                HandshakeRequestResponse handshakeRequestResponse = _threadLocal_HandShake.get();
+                _threadLocal_HandShake.remove();
+                return (T) new MatsWebSocketInstance(matsSocketServer, getSessionAuthenticator(),
+                        handshakeRequestResponse);
             }
         };
         try {
@@ -414,7 +433,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     void deregisterLocalMatsSocketSession(String matsSocketSessionId, String connectionId) {
         synchronized (_activeSessionsByMatsSocketSessionId_x) {
-            MatsSocketOnMessageHandler matsSocketOnMessageHandler = _activeSessionsByMatsSocketSessionId_x.get(matsSocketSessionId);
+            MatsSocketOnMessageHandler matsSocketOnMessageHandler = _activeSessionsByMatsSocketSessionId_x.get(
+                    matsSocketSessionId);
             if (matsSocketOnMessageHandler != null) {
                 if (matsSocketOnMessageHandler.getConnectionId().equals(connectionId)) {
                     _activeSessionsByMatsSocketSessionId_x.remove(matsSocketSessionId);
@@ -466,15 +486,18 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
      */
     static class MatsWebSocketInstance extends Endpoint {
         private final DefaultMatsSocketServer _matsSocketServer;
+        private final SessionAuthenticator _sessionAuthenticator;
         private final HandshakeRequestResponse _handshakeRequestResponse;
 
         // Will be set when onOpen is invoked
         private MatsSocketOnMessageHandler _matsSocketOnMessageHandler;
 
         public MatsWebSocketInstance(DefaultMatsSocketServer matsSocketServer,
+                SessionAuthenticator sessionAuthenticator,
                 HandshakeRequestResponse handshakeRequestResponse) {
             log.info("Created MatsWebSocketEndpointInstance: " + id(this));
             _matsSocketServer = matsSocketServer;
+            _sessionAuthenticator = sessionAuthenticator;
             _handshakeRequestResponse = handshakeRequestResponse;
         }
 
@@ -484,8 +507,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         @Override
         public void onOpen(Session session, EndpointConfig config) {
-            log.info("WebSocket opened, WebSocket SessionId:" + session.getId() + ", endpointConfig:" + config
-                    + ", endpointInstance:" + id(this) + ", session:" + id(session));
+            log.info("WebSocket @OnOpen, WebSocket SessionId:" + session.getId()
+                    + ", WebSocket Session:" + id(session) + ", this:" + id(this));
 
             // ?: If we are going down, then immediately close it.
             if (_matsSocketServer._stopped) {
@@ -501,10 +524,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             // Set low time to say HELLO after the connect. (The default clients say it immediately on "onopen".)
             session.setMaxIdleTimeout(2500);
 
-            SessionAuthenticator sessionAuthenticator = _matsSocketServer.getAuthenticationPlugin()
-                    .newSessionAuthenticator();
             try {
-                sessionAuthenticator.checkHandshakeRequest(_handshakeRequestResponse._handshakeRequest, session);
+                log.info("Invoking SessionAuthenticator.onOpen(..) ["
+                        + _sessionAuthenticator.getClass().getSimpleName() + "]");
+                _sessionAuthenticator.onOpen(session, (ServerEndpointConfig) config);
             }
             catch (Throwable t) {
                 log.error("Got throwable when SessionAuthenticator.evaluateHandshakeRequest(..). Closing WebSocket.",
@@ -515,21 +538,25 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             }
 
             _matsSocketOnMessageHandler = new MatsSocketOnMessageHandler(_matsSocketServer, session,
-                    _handshakeRequestResponse._handshakeRequest, sessionAuthenticator);
+                    _handshakeRequestResponse._handshakeRequest, _sessionAuthenticator);
             session.addMessageHandler(_matsSocketOnMessageHandler);
         }
 
         @Override
         public void onError(Session session, Throwable thr) {
             log.info("WebSocket @OnError, MatsSocket SessionId: ["
-                    + (_matsSocketOnMessageHandler == null ? "no MatsSocketSession" : _matsSocketOnMessageHandler.getId())
-                    + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this), thr);
+                    + (_matsSocketOnMessageHandler == null
+                            ? "no MatsSocketSession"
+                            : _matsSocketOnMessageHandler.getId())
+                    + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this),
+                    new Exception("onError-handler", thr));
         }
 
         @Override
         public void onClose(Session session, CloseReason closeReason) {
             log.info("WebSocket @OnClose, MatsSocket SessionId: ["
-                    + (_matsSocketOnMessageHandler == null ? "no MatsSocketSession" : _matsSocketOnMessageHandler.getId())
+                    + (_matsSocketOnMessageHandler == null ? "no MatsSocketSession"
+                            : _matsSocketOnMessageHandler.getId())
                     + "], WebSocket SessionId:" + session.getId()
                     + ", code: [" + closeReason.getCloseCode()
                     + "], reason: [" + closeReason.getReasonPhrase() + "], this:" + id(this));
@@ -565,7 +592,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     static void closeWebSocket(Session webSocketSession, CloseCode closeCode, String reasonPhrase) {
         log.info("Closing WebSocket SessionId [" + webSocketSession.getId() + "]: code: [" + closeCode
-                + "], reason:[" + reasonPhrase + "]");
+                + "(" + closeCode.getCode() + ")], reason:[" + reasonPhrase + "]");
         try {
             webSocketSession.close(new CloseReason(closeCode, reasonPhrase));
         }
@@ -732,7 +759,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     private void node_closeSession(String matsSocketSessionId) {
         // Find local session
-        Optional<MatsSocketOnMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(matsSocketSessionId);
+        Optional<MatsSocketOnMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(
+                matsSocketSessionId);
         // ?: Do we have this session?
         if (localMatsSocketSession.isPresent()) {
             // -> Yes, so close it.
@@ -833,10 +861,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 registration._replyAdapter.adaptReply(replyContext, matsReply);
                 msReply = replyContext._matsSocketReplyMessage;
                 msReplyEnvelope.st = replyContext._resolved ? "RESOLVE" : "REJECT";
-                log.info("ReplyAdapter resolved with ["+msReplyEnvelope.st+"]");
+                log.info("ReplyAdapter resolved with [" + msReplyEnvelope.st + "]");
             }
             catch (RuntimeException rte) {
-                log.warn("ReplyAdapter raised ["+rte.getClass().getSimpleName()+"], settling with REJECT", rte);
+                log.warn("ReplyAdapter raised [" + rte.getClass().getSimpleName() + "], settling with REJECT", rte);
                 msReply = null;
                 // TODO: If debug enabled for authenticated user, set description to full stacktrace.
                 msReplyEnvelope.st = "REJECT";
@@ -902,7 +930,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     private void mats_notifyNewMessage(ProcessContext<Void> processContext,
             Void state, String matsSocketSessionId) {
-        Optional<MatsSocketOnMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(matsSocketSessionId);
+        Optional<MatsSocketOnMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(
+                matsSocketSessionId);
         // ?: If this Session does not exist at this node, we cannot deliver.
         if (!localMatsSocketSession.isPresent()) {
             // -> Someone must have found that we had it, but this must have asynchronously have been deregistered.
@@ -933,7 +962,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             if (currentNode.get().getNodename().equalsIgnoreCase(getMyNodename())) {
                 // -> Oops, yes.
                 // Find the local session.
-                Optional<MatsSocketOnMessageHandler> localSession = getRegisteredLocalMatsSocketSession(matsSocketSessionId);
+                Optional<MatsSocketOnMessageHandler> localSession = getRegisteredLocalMatsSocketSession(
+                        matsSocketSessionId);
                 // ?: Do we have this session locally?!
                 if (!localSession.isPresent()) {
                     // -> No, we do NOT have this session locally!

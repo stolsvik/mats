@@ -6,7 +6,6 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.Principal;
 import java.util.Collections;
 import java.util.concurrent.ForkJoinPool;
 
@@ -40,9 +39,6 @@ import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
-import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
-import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
-import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL_DbMigrations;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL_DbMigrations.Database;
@@ -115,7 +111,7 @@ public class MatsTestWebsocketServer {
             // Make a Dummy Authentication plugin
             AuthenticationPlugin authenticationPlugin = DummySessionAuthenticator::new;
 
-            // Fetch the WebSocket ServerContainer
+            // Fetch the WebSocket ServerContainer from the ServletContainer (JSR 356 specific tie-in to Servlets)
             ServerContainer wsServerContainer = (ServerContainer) sce.getServletContext()
                     .getAttribute(ServerContainer.class.getName());
 
@@ -124,6 +120,7 @@ public class MatsTestWebsocketServer {
                     wsServerContainer, _matsFactory, clusterStoreAndForward, authenticationPlugin, WEBSOCKET_PATH);
 
             // Set back the MatsSocketServer into ServletContext, to be able to shut it down properly.
+            // (Hack for Jetty's specific shutdown procedure)
             sce.getServletContext().setAttribute(MatsSocketServer.class.getName(), _matsSocketServer);
 
             // Set up all the MatsSocket Test Endpoints (used for integration tests, and the HTML test pages)
@@ -136,49 +133,6 @@ public class MatsTestWebsocketServer {
             log.info("  \\- ServletContext: " + sce.getServletContext());
             _matsSocketServer.stop(5000);
             _matsFactory.stop(5000);
-        }
-    }
-
-    private static class DummySessionAuthenticator implements SessionAuthenticator {
-        @Override
-        public AuthenticationResult initialAuthentication(AuthenticationContext context, String authorizationHeader) {
-            log.info("Resolving Authorization header to principal for header [" + authorizationHeader + "].");
-            long expires = Long.parseLong(authorizationHeader.substring(authorizationHeader.indexOf(':') + 1));
-            if (expires < System.currentTimeMillis()) {
-                throw new IllegalStateException("This DummyAuth is too old.");
-            }
-            Principal princial = new Principal() {
-                @Override
-                public String getName() {
-                    return "Mr. Dummy Auth";
-                }
-
-                @Override
-                public String toString() {
-                    return "DummyPrincipal:" + authorizationHeader;
-                }
-            };
-            return context.authenticated(princial, "endre");
-        }
-
-        @Override
-        public AuthenticationResult reevaluateAuthentication(AuthenticationContext context, String authorizationHeader,
-                Principal existingPrincipal) {
-            return context.stillValid();
-        }
-    }
-
-    /**
-     * Servlet to shut down this entire Test Server. Employed from the Gradle integration tests.
-     */
-    @WebServlet("/shutdown")
-    public static class ShutdownServlet extends HttpServlet {
-        @Override
-        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-            resp.getWriter().println("Shutting down");
-
-            // Shut down the process
-            ForkJoinPool.commonPool().submit(() -> System.exit(0));
         }
     }
 
@@ -247,8 +201,18 @@ public class MatsTestWebsocketServer {
         }
     }
 
-    public static String id(Object x) {
-        return x.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(x));
+    /**
+     * Servlet to shut down this JVM (<code>System.exit(0)</code>). Employed from the Gradle integration tests.
+     */
+    @WebServlet("/shutdown")
+    public static class ShutdownServlet extends HttpServlet {
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            resp.getWriter().println("Shutting down");
+
+            // Shut down the process
+            ForkJoinPool.commonPool().submit(() -> System.exit(0));
+        }
     }
 
     public static Server createServer(int port) {
@@ -278,14 +242,14 @@ public class MatsTestWebsocketServer {
         webAppContext.getMetaData().setWebInfClassesDirs(Collections.singletonList(Resource.newResource(
                 classesLocation)));
 
-        // :: Find the path to the MatsSocket.js file
+        // :: Find the path to the JavaScript files (JS tests and MatsSocket.js), to provide them via Servlet.
         String pathToClasses = classesLocation.getPath();
-        // .. strip down to the 'mats-websockets' path
+        // .. strip down to the 'mats-websockets' path (i.e. this subproject).
         int pos = pathToClasses.indexOf("mats-websockets");
-        String pathToMatsSocket = pos == -1
+        String pathToJavaScripts = pos == -1
                 ? null
                 : pathToClasses.substring(0, pos) + "mats-websockets/client/javascript";
-        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_JAVASCRIPT_PATH, pathToMatsSocket);
+        webAppContext.getServletContext().setAttribute(CONTEXT_ATTRIBUTE_JAVASCRIPT_PATH, pathToJavaScripts);
 
         // Create the actual Jetty Server
         Server server = new Server(port);

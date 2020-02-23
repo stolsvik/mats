@@ -35,7 +35,7 @@ class AuthenticationContextImpl implements AuthenticationContext {
 
     @Override
     public AuthenticationResult notAuthenticated(String reason) {
-        return new AuthenticationResult_NotAuthenticated();
+        return new AuthenticationResult_NotAuthenticated(reason);
     }
 
     @Override
@@ -76,7 +76,21 @@ class AuthenticationContextImpl implements AuthenticationContext {
     static class AuthenticationResult_StillValid implements AuthenticationResult {
 
     }
-    static class AuthenticationResult_NotAuthenticated implements AuthenticationResult {
 
+    static class AuthenticationResult_NotAuthenticated implements AuthenticationResult {
+        private final String _reason;
+
+        public AuthenticationResult_NotAuthenticated(String reason) {
+            _reason = reason;
+        }
+
+        public String getReason() {
+            return _reason;
+        }
+
+        @Override
+        public String toString() {
+            return "AuthenticationResult_NotAuthenticated[" + _reason + ']';
+        }
     }
 }

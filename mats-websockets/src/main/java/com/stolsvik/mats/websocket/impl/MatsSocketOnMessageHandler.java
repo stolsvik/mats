@@ -34,6 +34,7 @@ import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdap
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_Authenticated;
+import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_NotAuthenticated;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_StillValid;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.MatsSocketEndpointRegistration;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleStateDto;
@@ -45,7 +46,7 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
     private static final Logger log = LoggerFactory.getLogger(MatsSocketOnMessageHandler.class);
 
     private Session _webSocketSession; // Non-final to be able to null out upon close.
-    private String _connectionId;  // Non-final to be able to null out upon close.
+    private String _connectionId; // Non-final to be able to null out upon close.
     private final SessionAuthenticator _sessionAuthenticator;
 
     // Derived
@@ -57,12 +58,15 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
 
     // Set
     private String _matsSocketSessionId;
-    private String _authorization;
-    private Principal _principal;
-    private String _userId;
+    private String _authorization; // nulled upon close
+    private Principal _principal; // nulled upon close
+    private String _userId; // nulled upon close
 
     private String _clientLibAndVersion;
     private String _appNameAndVersion;
+
+    private boolean _closed; // set true upon close. When closed, won't process any more messages.
+    private boolean _helloReceived; // set true when HELLO processed. HELLO only accepted once.
 
     MatsSocketOnMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
             HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
@@ -117,12 +121,23 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
                 MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
                 MDC.put(MDC_USER_ID, _userId);
             }
-            if (_clientLibAndVersion != null) {
-                MDC.put(MDC_CLIENT_LIB_AND_VERSIONS, _clientLibAndVersion);
+            if (_appNameAndVersion != null) {
                 MDC.put(MDC_CLIENT_APP_NAME_AND_VERSION, _appNameAndVersion);
             }
-            log.info("WebSocket received message [" + message + "] on MatsSocketSessionId [" + _matsSocketSessionId
-                    + "], WebSocket SessionId:" + _webSocketSession.getId() + ", this:"
+
+            // ?: Are we closed?
+            if (_closed) {
+                // -> Yes, so ignore message.
+                log.info("WebSocket received message on CLOSED MatsSocketSessionId [" + _matsSocketSessionId
+                        + "], connectionId:[" + _connectionId + "], this:"
+                        + DefaultMatsSocketServer.id(this) + "], ignoring, msg: " + message);
+                return;
+            }
+
+            // E-> Not closed, process message (with envelope(s)).
+
+            log.info("WebSocket received message on MatsSocketSessionId [" + _matsSocketSessionId
+                    + "], connectionId:[" + _connectionId + "], this:"
                     + DefaultMatsSocketServer.id(this));
 
             List<MatsSocketEnvelopeDto> envelopes;
@@ -130,11 +145,12 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
                 envelopes = _envelopeListObjectReader.readValue(message);
             }
             catch (IOException e) {
-                // TODO: Handle parse exceptions.
-                throw new AssertionError("Parse exception", e);
+                log.error("Could not parse WebSocket message into MatsSocket envelope(s).", e);
+                closeWithPolicyViolation("Could not parse message into MatsSocket envelope(s)");
+                return;
             }
 
-            log.info("Messages: " + envelopes);
+            if (log.isDebugEnabled()) log.debug("Messages: " + envelopes);
             boolean shouldNotifyAboutExistingMessages = false;
             boolean sessionLost = false;
 
@@ -147,7 +163,7 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
                     _authorization = envelope.auth;
                     log.info("Found authorization header in message of type [" + (envelope.st != null ? envelope.t + ':'
                             + envelope.st : envelope.t) + "]");
-                    // No 'break', as we want to go through all messages and find the latest.
+                    // No 'break', as we want to go through all messages and find the latest auth header.
                 }
             }
 
@@ -177,7 +193,14 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
                         MDC.put(MDC_MESSAGE_TYPE, (envelope.st != null ? envelope.t + ':' + envelope.st : envelope.t));
                         // Remove this HELLO envelope from pipeline
                         it.remove();
-                        // Handle the HELLO
+                        // ?: Have we processed HELLO before?
+                        if (_helloReceived) {
+                            // -> Yes, and this is not according to protocol.
+                            closeWithPolicyViolation("Shall only receive HELLO once for an entire MatsSocket Session.");
+                            return;
+                        }
+                        // E-> First time we see HELLO
+                        // :: Handle the HELLO
                         boolean handleHelloOk = handleHello(clientMessageReceivedTimestamp, envelope);
                         // ?: Did the HELLO go OK?
                         if (!handleHelloOk) {
@@ -324,6 +347,9 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
     }
 
     private void closeSessionAndWebSocket(MatsSocketCloseCodes closeCode, String reason) {
+        // We're closed
+        _closed = true;
+
         // :: Get copy of the WebSocket Session, before nulling it out
         Session webSocketSession = _webSocketSession;
 
@@ -354,16 +380,12 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
 
         // :: Close the actual WebSocket
         DefaultMatsSocketServer.closeWebSocket(webSocketSession, closeCode, reason);
-
-        // :: Finally, also clean sessionId and connectionId
-        _matsSocketSessionId = null;
-        _connectionId = null;
     }
 
     private boolean doAuthentication() {
         // ?: Do we have principal already?
         if (_principal == null) {
-            // -> NO, we do not have principal
+            // -> NO, we do not have Principal
             // Ask SessionAuthenticator if it likes this Authorization header
             AuthenticationResult authenticationResult;
             try {
@@ -373,28 +395,38 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
             catch (RuntimeException re) {
                 log.error("Got Exception when invoking SessionAuthenticator.initialAuthentication(..),"
                         + " Authorization header: " + _authorization, re);
-                closeWithPolicyViolation("Authorization header not accepted on initial evaluation");
+                closeWithPolicyViolation("Initial Auth-eval: Got Exception");
                 return false;
             }
             if (authenticationResult instanceof AuthenticationResult_Authenticated) {
                 // -> Authenticated
                 AuthenticationResult_Authenticated result = (AuthenticationResult_Authenticated) authenticationResult;
-                log.info("Authenticated with UserId: [" + _userId + "] and Principal [" + _principal + "]");
                 _principal = result._principal;
                 _userId = result._userId;
+                MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
+                MDC.put(MDC_USER_ID, _userId);
+                log.info("Authenticated with UserId: [" + _userId + "] and Principal [" + _principal + "]");
                 // GOOD! Got new Principal and UserId.
                 return true;
             }
             else {
-                // -> Null, or any other result.
-                log.error("We have not been authenticated! " + authenticationResult + ", Authorization header: "
-                        + _authorization);
-                closeWithPolicyViolation("Authorization header not accepted on initial evaluation");
+                // -> NotAuthenticated, null, or any other result.
+                log.error("SessionAuthenticator replied " + authenticationResult + ", Authorization header: " + _authorization);
+                // ?: Is it NotAuthenticated?
+                if (authenticationResult instanceof AuthenticationResult_NotAuthenticated) {
+                    // -> Yes, explicit NotAuthenticated
+                    AuthenticationResult_NotAuthenticated notAuthenticated = (AuthenticationResult_NotAuthenticated) authenticationResult;
+                    closeWithPolicyViolation("Initial Auth-eval: " + notAuthenticated.getReason());
+                }
+                else {
+                    // -> Some unexpected value - no good.
+                    closeWithPolicyViolation("Initial Auth-eval: Failed");
+                }
                 return false;
             }
         }
         else {
-            // -> Yes, we already have principal
+            // -> Yes, we already have Principal
             // Ask SessionAuthenticator whether he still is happy with this Principal being authenticated, or supplies
             // a new Principal
             AuthenticationResult authenticationResult;
@@ -405,7 +437,7 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
             catch (RuntimeException re) {
                 log.error("Got Exception when invoking SessionAuthenticator.reevaluateAuthentication(..),"
                         + " Authorization header: " + _authorization, re);
-                closeWithPolicyViolation("Authorization header not accepted on re-evaluation");
+                closeWithPolicyViolation("Auth re-eval: Got Exception.");
                 return false;
             }
             if (authenticationResult instanceof AuthenticationResult_Authenticated) {
@@ -413,6 +445,9 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
                 AuthenticationResult_Authenticated result = (AuthenticationResult_Authenticated) authenticationResult;
                 _principal = result._principal;
                 _userId = result._userId;
+                MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
+                MDC.put(MDC_USER_ID, _userId);
+                log.info("Authenticated with UserId: [" + _userId + "] and Principal [" + _principal + "]");
                 // GOOD! Got (potentially) new Principal and UserId.
                 return true;
             }
@@ -423,10 +458,18 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
                 return true;
             }
             else {
-                // -> Null, or any other result.
-                log.error("We have not been authenticated! " + authenticationResult + ", Authorization header: "
-                        + _authorization);
-                closeWithPolicyViolation("Authorization header not accepted on re-evaluation");
+                // -> NotAuthenticated, null, or any other result.
+                log.error("SessionAuthenticator replied " + authenticationResult + ", Authorization header: " + _authorization);
+                // ?: Is it NotAuthenticated?
+                if (authenticationResult instanceof AuthenticationResult_NotAuthenticated) {
+                    // -> Yes, explicit NotAuthenticated
+                    AuthenticationResult_NotAuthenticated notAuthenticated = (AuthenticationResult_NotAuthenticated) authenticationResult;
+                    closeWithPolicyViolation("Auth re-eval: " + notAuthenticated.getReason());
+                }
+                else {
+                    // -> Some unexpected value - no good.
+                    closeWithPolicyViolation("Auth re-eval: Failed");
+                }
                 return false;
             }
         }
@@ -434,7 +477,9 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
     }
 
     private boolean handleHello(long clientMessageReceivedTimestamp, MatsSocketEnvelopeDto envelope) {
-        log.info("MatsSocket HELLO!");
+        log.info("MatsSocket [HELLO:" + envelope.st + "]!");
+        // We've received hello.
+        _helloReceived = true;
         // ?: Auth is required - should already have been processed
         if ((_principal == null) || (_authorization == null)) {
             // NOTE: This shall really never happen, as the implicit state machine should not have put us in this
@@ -448,6 +493,7 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
             closeWithPolicyViolation("Missing ClientLibAndVersion (clv) in HELLO envelope.");
             return false;
         }
+        MDC.put(MDC_CLIENT_LIB_AND_VERSIONS, _clientLibAndVersion);
         String appName = envelope.an;
         if (appName == null) {
             closeWithPolicyViolation("Missing AppName (an) in HELLO envelope.");
@@ -460,7 +506,7 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
         }
         _appNameAndVersion = appName + ";" + appVersion;
 
-        // ----- We're authenticated.
+        // ----- HELLO was good (and authentication is already performed, earlier in process)
 
         // ?: Do the client assume that there is an already existing session?
         if (envelope.sid != null) {
@@ -530,6 +576,8 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
             _matsSocketSessionId = DefaultMatsSocketServer.rnd(16);
         }
 
+        MDC.put(MDC_SESSION_ID, _matsSocketSessionId);
+
         // Register Session locally
         _matsSocketServer.registerLocalMatsSocketSession(this);
         // Register Session in CSAF
@@ -573,6 +621,8 @@ class MatsSocketOnMessageHandler implements Whole<String>, MatsSocketStatics {
         replyEnvelope.cmrts = clientMessageReceivedTimestamp;
         replyEnvelope.mscts = System.currentTimeMillis();
         replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
+
+        log.info("Sending WELCOME!");
 
         // Pack it over to client
         List<MatsSocketEnvelopeDto> replySingleton = Collections.singletonList(replyEnvelope);

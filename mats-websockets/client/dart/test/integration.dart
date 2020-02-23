@@ -24,7 +24,7 @@ void setAuth(MatsSocket matsSocket,
   var now = DateTime.now();
   var expiry = now.add(duration);
   matsSocket.setCurrentAuthorization(
-      'DummyAuth:${expiry.millisecondsSinceEpoch}', expiry,
+      'DummyAuth:standard:${expiry.millisecondsSinceEpoch}', expiry,
       roomForLatency: roomForLatencyMillis);
 }
 

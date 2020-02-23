@@ -319,12 +319,6 @@
             if (_websocket) {
                 // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
                 log(" \\-> WebSocket is open, so we close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).");
-                // We don't want the onclose callback invoked from this event that we initiated ourselves.
-                _websocket.onclose = undefined;
-                // We don't want any messages either, as we'll now be clearing out futures and outstanding messages ("acks")
-                _websocket.onmessage = undefined;
-                // Also drop onerror for good measure.
-                _websocket.onerror = undefined;
                 // Perform the close
                 _websocket.close(4000, reason);
             } else {
@@ -334,11 +328,8 @@
             // Get the current websocket URL before clearing state
             let currentWsUrl = currentWebSocketUrl();
 
-            // :: Clear out the state of this MatsSocket.
-            _websocket = undefined;
-            _sessionId = undefined;
-            _urlIndexCurrentlyConnecting = 0;
-            clearPipelineAndFuturesAndOutstandingMessages("session close");
+            // :: Clear all state of this MatsSocket.
+            clearStateAndPipelineAndFuturesAndOutstandingMessages("client close session");
 
             // :: Out-of-band session close
             // ?: Do we have a sessionId?
@@ -459,7 +450,19 @@
         }
         const userAgent = (typeof (self) === 'object' && typeof (self.navigator) === 'object') ? self.navigator.userAgent : "Unknown";
 
-        function clearPipelineAndFuturesAndOutstandingMessages(reason) {
+        function clearStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
+            if (_websocket) {
+                // We don't want the onclose callback invoked from this event that we initiated ourselves.
+                _websocket.onclose = undefined;
+                // We don't want any messages either, as we'll now be clearing out futures and outstanding messages ("acks")
+                _websocket.onmessage = undefined;
+                // Also drop onerror for good measure.
+                _websocket.onerror = undefined;
+            }
+            _websocket = undefined;
+            _sessionId = undefined;
+            _urlIndexCurrentlyConnecting = 0;
+
             // :: Clear pipeline
             _pipeline.length = 0;
 
@@ -470,7 +473,7 @@
                 let outstandingMessage = _outstandingSendsAndRequests[cmseq];
                 delete _outstandingSendsAndRequests[cmseq];
 
-                log("Clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "].");
+                log("Clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "] with traceId ["+outstandingMessage.envelope.tid+"].");
                 if (outstandingMessage.reject) {
                     try {
                         // TODO: Make better event object
@@ -491,7 +494,7 @@
                 log("Clearing REQUEST future [" + future.envelope.t + "] to [" + future.envelope.eid + "] with traceId [" + future.envelope.tid + "].");
                 if (future.reject) {
                     try {
-                        // TODO: Make better reply object
+                        // TODO: Make better event object
                         future.reject({type: "CLEARED", description: reason});
                     } catch (err) {
                         error("Got error while clearing REQUEST future to [" + future.envelope.eid + "].", err);
@@ -766,9 +769,20 @@
             // Ditch this WebSocket
             _websocket = undefined;
 
-            // TODO: Handle the different close codes from MatsSocketServer.
+            // ?: Special codes: UNEXPECTED_CONDITION || SERVICE_RESTART || RECONNECT
+            if ((event.code === 1011)
+                || (event.code === 1012)
+                || (event.code === 4002)) {
+                // -> One of the special "reissue" close codes -> Reissue all outstanding..
+                log("Special 'reissue' close code, reissue and reconnect.")
+                // TODO: Implement reissue.
+                // TODO: Implement reconnect.
 
-            // TODO: If "spurious close", AND we have outstanding futures or whatevers, then reconnect. Otherwise optional.
+            } else {
+                // -> NOT one of the special "reissue" close codes -> Reject all outstanding
+                log("We were closed with close code:[" + event.code + "] and reason:[" + event.reason + "] - closing.");
+                clearStateAndPipelineAndFuturesAndOutstandingMessages("server closed session");
+            }
         }
 
         function _onmessage(webSocketEvent) {

@@ -54,7 +54,7 @@ Tools.<br>
 
     var matsSocket = new mats.MatsSocket("TestApp", "1.2.3",
         ["ws://localhost:8080/matssocket", "ws://localhost:8081/matssocket"]);
-    matsSocket.setCurrentAuthorization("DummyAuth:" + (Date.now() + 100000), -1);
+    matsSocket.setCurrentAuthorization("DummyAuth:standard:-1", -1);
 
     var sumTimeMillis = 0; // Sum of millis per message, to get average.
 
