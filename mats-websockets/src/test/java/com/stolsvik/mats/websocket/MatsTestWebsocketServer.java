@@ -95,8 +95,8 @@ public class MatsTestWebsocketServer {
             _matsFactory.getFactoryConfig().setNodename("EndreBox_" + portNumber);
 
             // :: Make simple single Mats Endpoint
-            _matsFactory.single("Test.single", MatsDataTO.class, MatsDataTO.class, (processContext, incomingDto) -> {
-                return new MatsDataTO(incomingDto.number, incomingDto.string + ":FromSimple", incomingDto.multiplier);
+            _matsFactory.single("Test.single", TestMatsSocketEndpoints.MatsDataTO.class, TestMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> {
+                return new TestMatsSocketEndpoints.MatsDataTO(incomingDto.number, incomingDto.string + ":FromSimple", incomingDto.multiplier);
             });
 
             // ## Create MatsSocketServer
