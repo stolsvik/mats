@@ -8,39 +8,43 @@ plugins {
 
 dependencies {
     // Uses the mats-lib project
-    compile project(":mats-lib")
+    api project(":mats-lib")
+
+    // Jackson JSON library, which is the serialization mechanism in use for MatsSockets comms
+    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+    implementation "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${jacksonVersion}"
+    implementation "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:${jacksonVersion}"
 
     // Relies on the WebSocket API
     compileOnly 'javax.websocket:javax.websocket-api:1.0'
 
-    // Jackson JSON library, which is the serialization mechanism in use for MatsSockets comms
-    compile "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
-    compile "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${jacksonVersion}"
-    compile "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:${jacksonVersion}"
-
-    // Flyway, for DB preparation and migration for 'ClusterStoreAndForward_SQL'.
-    compile 'org.flywaydb:flyway-core:6.1.0'
+    // Flyway, for DB preparation and migration for 'ClusterStoreAndForward_SQL'. This is decidedly optional, and
+    // users of the API should add this themselves if they want it.
+    compileOnly 'org.flywaydb:flyway-core:6.1.+'
 
     // :: TEST
 
     // Testing tools for Mats
-    testCompile project(":mats-test")
+    testImplementation project(":mats-test")
 
     // Base Jetty Server
-    testCompile 'org.eclipse.jetty:jetty-server:9.+'
+    testImplementation 'org.eclipse.jetty:jetty-server:9.+'
     // .. Jetty Servlets
-    testCompile 'org.eclipse.jetty:jetty-webapp:9.+'
+    testImplementation 'org.eclipse.jetty:jetty-webapp:9.+'
     // .. Jetty: To get the @WebListener etc. annotation scanning.
-    testCompile 'org.eclipse.jetty:jetty-annotations:9.+'
+    testImplementation 'org.eclipse.jetty:jetty-annotations:9.+'
     // .. Jetty: JSR-356 javax.websocket implementation for Jetty
-    testCompile 'org.eclipse.jetty.websocket:javax-websocket-server-impl:9.+'
+    testImplementation 'org.eclipse.jetty.websocket:javax-websocket-server-impl:9.+'
 
     // H2 Database
-    testCompile 'com.h2database:h2:1.4.200'
+    testImplementation 'com.h2database:h2:1.4.200'
+
+    // Add flyway, since it is not transitive from the lib.
+    testImplementation 'org.flywaydb:flyway-core:6.1.+'
 
     // Logging
-    testCompile "org.slf4j:log4j-over-slf4j:1.7.+"
-    testCompile "ch.qos.logback:logback-classic:1.2.+"
+    testImplementation "org.slf4j:log4j-over-slf4j:1.7.+"
+    testImplementation "ch.qos.logback:logback-classic:1.2.+"
 }
 
 // Task to start a MatsTestWebsocketServer for integration tests. We will monitor the log until we get the expected number

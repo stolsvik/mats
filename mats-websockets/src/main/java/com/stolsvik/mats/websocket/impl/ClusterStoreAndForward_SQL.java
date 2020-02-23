@@ -7,20 +7,23 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 
 import javax.sql.DataSource;
 
-import org.flywaydb.core.Flyway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 
 /**
+ * An implementation of CSAF relying on a shared SQL database to store the necessary information in a cluster setting.
+ * <p/>
+ * <b>NOTE: This CSAF implementation expects that the database tables are in place.</b> A tool is provided for this,
+ * using Flyway: {@link ClusterStoreAndForward_SQL_DbMigrations}.
+ * <p/>
  * <b>NOTE: If in a Spring JDBC environment, where the MatsFactory is created using the
  * <code>JmsMatsTransactionManager_JmsAndSpringDstm</code> Mats transaction manager, it would be good if the supplied
  * {@link DataSource} was wrapped in a Spring <code>TransactionAwareDataSourceProxy</code>.</b> This since several of
@@ -40,113 +43,26 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     private final DataSource _dataSource;
     private final String _nodename;
+    private final Clock _clock;
 
-    /**
-     * Defines the String and Binary datatypes for some databases.
-     */
-    public enum Database {
-        /**
-         * <b>Default:</b> MS SQL: NVARCHAR(MAX), VARBINARY(MAX) (NOTE: H2 also handles these).
-         */
-        MS_SQL("NVARCHAR(MAX)", "VARBINARY(MAX)"),
-
-        /**
-         * MS SQL 2019 and above: <b>(assumes UTF-8 collation type)</b> VARCHAR(MAX), VARBINARY(MAX) (NOTE: H2 also
-         * handles these).
-         */
-        MS_SQL_2019_UTF8("VARCHAR(MAX)", "VARBINARY(MAX)"),
-
-        /**
-         * H2: VARCHAR, VARBINARY (NOTE: H2 also handles {@link #MS_SQL} and {@link #MS_SQL_2019_UTF8}).
-         */
-        H2("VARCHAR", "VARBINARY"),
-
-        /**
-         * PostgreSQL: TEXT, BYTEA
-         */
-        POSTGRESQL("TEXT", "BYTEA"),
-
-        /**
-         * Oracle: NCLOB, BLOB
-         */
-        ORACLE("NCLOB", "BLOB"),
-
-        /**
-         * MySQL / MariaDB: LONGTEXT, LONGBLOB (both 32 bits)
-         */
-        MYSQL("LONGTEXT", "LONGBLOB");
-
-        private final String _textType;
-        private final String _binaryType;
-
-        Database(String textType, String binaryType) {
-            _textType = textType;
-            _binaryType = binaryType;
-        }
-
-        public String getTextType() {
-            return _textType;
-        }
-
-        public String getBinaryType() {
-            return _binaryType;
-        }
-    }
-
-    public static ClusterStoreAndForward_SQL create(DataSource dataSource, String nodename, Database database) {
+    public static ClusterStoreAndForward_SQL create(DataSource dataSource, String nodename) {
         ClusterStoreAndForward_SQL csaf = new ClusterStoreAndForward_SQL(dataSource, nodename);
-        csaf.setTextAndBinaryTypes(database);
-        return csaf;
-    }
-
-    public static ClusterStoreAndForward_SQL create(DataSource dataSource, String nodename, String textType,
-            String binaryType) {
-        ClusterStoreAndForward_SQL csaf = new ClusterStoreAndForward_SQL(dataSource, nodename);
-        csaf.setTextAndBinaryTypes(textType, binaryType);
         return csaf;
     }
 
     protected ClusterStoreAndForward_SQL(DataSource dataSource, String nodename, Clock clock) {
         _dataSource = dataSource;
         _nodename = nodename;
+        _clock = clock;
     }
 
     private ClusterStoreAndForward_SQL(DataSource dataSource, String nodename) {
         this(dataSource, nodename, Clock.systemDefaultZone());
     }
 
-    // MS SQL and H2 handles this
-    protected String _textType = Database.MS_SQL.getTextType();
-    protected String _binaryType = Database.MS_SQL.getBinaryType();
-
-    public void setTextAndBinaryTypes(Database database) {
-        setTextAndBinaryTypes(database.getTextType(), database.getBinaryType());
-    }
-
-    public void setTextAndBinaryTypes(String textType, String binaryType) {
-        _textType = textType;
-        _binaryType = binaryType;
-    }
-
     @Override
     public void boot() {
-        HashMap<String, String> placeHolders = new HashMap<>();
-        placeHolders.put("texttype", _textType);
-        placeHolders.put("binarytype", _binaryType);
-
-        String dbMigrationsLocation = ClusterStoreAndForward.class.getPackage().getName()
-                .replace('.', '/')
-                + '.' + "db_migrations";
-
-        String dbMig = "/com/stolsvik/mats/websocket/impl/db_migrations";
-
-        log.info("'db_migrations' location: " + dbMigrationsLocation);
-
-        Flyway.configure().dataSource(_dataSource)
-                .placeholders(placeHolders)
-                .locations(dbMig)
-                .load()
-                .migrate();
+        // TODO: Implement rudimentary assertions here: Register a session, add some messages, fetch them, etc..
     }
 
     @Override
@@ -182,10 +98,10 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                                 + matsSocketSessionId + "] was [" + originalUserId
                                 + "], while the new one that attempts to reconnect to session is [" + userId + "].");
                     }
-                    now = System.currentTimeMillis();
+                    now = _clock.millis();
                 }
                 else {
-                    createdTimestamp = now = System.currentTimeMillis();
+                    createdTimestamp = now = _clock.millis();
                 }
 
                 // :: Generic "UPSERT" implementation: DELETE-then-INSERT (no need for SELECT/UPDATE-or-INSERT here)
@@ -269,7 +185,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     @Override
     public void notifySessionLiveliness(Collection<String> matsSocketSessionIds) throws DataAccessException {
         withConnection(con -> {
-            long now = System.currentTimeMillis();
+            long now = _clock.millis();
             // TODO / OPTIMIZE: Make "in" optimizations.
             PreparedStatement update = con.prepareStatement("UPDATE mats_socket_session"
                     + "   SET liveliness_timestamp = ?"
@@ -317,7 +233,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             insert.setString(2, matsSocketSessionId);
             insert.setString(3, traceId);
             insert.setLong(4, messageSequence);
-            insert.setLong(5, System.currentTimeMillis());
+            insert.setLong(5, _clock.millis());
             insert.setInt(6, 0);
             insert.setString(7, type);
             insert.setString(8, message);

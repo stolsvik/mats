@@ -43,9 +43,9 @@ import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
-import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL.Database;
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL_DbMigrations;
+import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL_DbMigrations.Database;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
 
 import ch.qos.logback.core.CoreConstants;
@@ -107,7 +107,9 @@ public class MatsTestWebsocketServer {
 
             // Create SQL-based ClusterStoreAndForward
             ClusterStoreAndForward_SQL clusterStoreAndForward = ClusterStoreAndForward_SQL.create(dataSource,
-                    _matsFactory.getFactoryConfig().getNodename(), Database.MS_SQL);
+                    _matsFactory.getFactoryConfig().getNodename());
+            // .. Perform DB migrations for the CSAF.
+            ClusterStoreAndForward_SQL_DbMigrations.create(Database.MS_SQL).migrateUsingFlyway(dataSource);
 
             // Make a Dummy Authentication plugin
             AuthenticationPlugin authenticationPlugin = DummySessionAuthenticator::new;
@@ -191,8 +193,8 @@ public class MatsTestWebsocketServer {
     }
 
     /**
-     * Servlet that handles out-of-band close_session, which is invoked upon window.onunload by sendBeacon. The idea
-     * is to get the MatsSocket Session closed even if the WebSocket channel is closed at the time.
+     * Servlet that handles out-of-band close_session, which is invoked upon window.onunload by sendBeacon. The idea is
+     * to get the MatsSocket Session closed even if the WebSocket channel is closed at the time.
      */
     @WebServlet("/matssocket/close_session")
     public static class OutOfBandCloseSessionServlet extends HttpServlet {
