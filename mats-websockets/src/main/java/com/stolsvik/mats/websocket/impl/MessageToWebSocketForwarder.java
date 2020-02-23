@@ -1,6 +1,7 @@
 package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedTransferQueue;
@@ -141,15 +142,14 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                 while (true) { // LOOP: Clear out currently stored messages from ClusterStoreAndForward
                     long nanos_start_GetMessages = System.nanoTime();
-                    List<StoredMessage> messagesForSession;
+                    List<StoredMessage> messagesToDeliver;
                     try {
-                        messagesForSession = _clusterStoreAndForward
+                        messagesToDeliver = _clusterStoreAndForward
                                 .getMessagesForSession(matsSocketSessionId, 20);
                     }
                     catch (DataAccessException e) {
-                        log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to load messages from"
-                                + " '" + _clusterStoreAndForward.getClass().getSimpleName()
-                                + "'. Bailing out, hoping for self-healer process to figure it out.", e);
+                        log.warn("Got problems when trying to load messages from CSAF."
+                                + " Bailing out, hoping for self-healer process to figure it out.", e);
                         // Bail out.
                         return;
                     }
@@ -157,30 +157,46 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                     // ?: Check if we're empty of messages
                     // (Notice how this logic always requires a final query which returns zero messages)
-                    if (messagesForSession.isEmpty()) {
+                    if (messagesToDeliver.isEmpty()) {
                         // -> Yes, it was empty. Break out of "Clear out stored messages.." loop.
                         // ----- Good path!
                         break;
                     }
 
-                    String traceIds = messagesForSession.stream()
+                    // :: If there are any messages with deliveryCount > 0, then try to send these alone.
+                    List<StoredMessage> redeliveryMessages = messagesToDeliver.stream()
+                            .filter(m -> m.getDeliveryCount() > 0)
+                            .collect(Collectors.toList());
+                    // ?: Did we have any with deliveryCount > 0?
+                    if (!redeliveryMessages.isEmpty()) {
+                        // -> Yes, there are redeliveries here. Pick the first of them and try to deliver alone.
+                        log.info("Of the [" + messagesToDeliver.size() + "] messages for MatsSocketSessionId ["
+                                + matsSocketSessionId + "], [" + redeliveryMessages.size() + "] had deliveryCount > 0."
+                                + " Trying to deliver these one by one, by picking first.");
+                        // Set the 'messagesToDeliver' to first of the ones with delivery count > 0.
+                        messagesToDeliver = Collections.singletonList(redeliveryMessages.get(0));
+                    }
+
+                    // :: Get the MessageIds to deliver (as List, for CSAF) and TraceIds (as String, for logging)
+                    List<Long> messageIds = messagesToDeliver.stream()
+                            .map(StoredMessage::getId)
+                            .collect(Collectors.toList());
+                    String traceIds = messagesToDeliver.stream()
                             .map(StoredMessage::getTraceId)
                             .collect(Collectors.joining(", "));
-                    List<Long> messageIds = messagesForSession.stream().map(StoredMessage::getId)
-                            .collect(Collectors.toList());
 
                     // :: Forward message(s) over WebSocket
                     try {
                         long nanos_start_SendMessage = System.nanoTime();
                         String nowString = Long.toString(System.currentTimeMillis());
                         // :: Feed the JSONs over, manually piecing together a JSON Array.
-                        // NOTE: It was tempting to fetch the Basic.getSendWriter() and feed the pieces in
-                        // there, but that produced (for some godforsaken reason) an awful performance.
+                        // NOTE: It was tempting to fetch the Basic.getSendWriter() and feed the pieces in there, but
+                        // that produced (for some godforsaken reason) an awful performance, at least on Jetty 9.
                         StringBuilder buf = new StringBuilder();
                         // Create the JSON Array
                         buf.append('[');
                         boolean first = true;
-                        for (StoredMessage storedMessage : messagesForSession) {
+                        for (StoredMessage storedMessage : messagesToDeliver) {
                             if (first) {
                                 first = false;
                             }
@@ -197,35 +213,74 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         }
                         buf.append(']');
 
-                        // Send message(s) over WebSocket.
+                        // :: Actually send message(s) over WebSocket.
                         matsSocketOnMessageHandler.webSocketSendText(buf.toString());
                         float millisSendMessages = msSince(nanos_start_SendMessage);
-                        log.info("Finished sending '" + messagesForSession.size() + "' message(s) with TraceIds ["
-                                + traceIds + "] to [" + matsSocketOnMessageHandler + "], get-from-csaf took ["
-                                + millisGetMessages + "ms], send over websocket took:[" + millisSendMessages + "ms]");
-                        // ----- Good path!
-                        // Loop to check if empty of messages.
-                    }
-                    catch (IOException ioe) {
-                        // -> Evidently got problems forwarding the message over WebSocket
-                        log.warn("Got [" + ioe.getClass().getSimpleName()
-                                + "] while trying to send '" + messagesForSession.size()
-                                + "' messages with TraceId [" + traceIds + "] to [" + matsSocketOnMessageHandler
-                                + "]. Increasing 'delivery_count' for message, will try again.", ioe);
 
-                        // :: Increase delivery count
+                        // :: Mark as complete (i.e. delete them).
+                        long nanos_start_MarkComplete = System.nanoTime();
                         try {
-                            _clusterStoreAndForward.messagesFailedDelivery(matsSocketSessionId, messageIds);
+                            _clusterStoreAndForward.messagesComplete(matsSocketSessionId, messageIds);
                         }
                         catch (DataAccessException e) {
-                            log.warn("Got '" + e.getClass().getSimpleName()
-                                    + "' when trying to invoke 'messagesFailedDelivery' on '" +
-                                    _clusterStoreAndForward.getClass().getSimpleName() + "' for '"
-                                    + messagesForSession.size() + "' messages with TraceIds [" + traceIds
+                            log.warn("Got problems when trying to invoke 'messagesComplete' on CSAF for "
+                                    + messagesToDeliver.size() + " message(s) with TraceIds [" + traceIds
                                     + "]. Bailing out, hoping for self-healer process to figure it out.", e);
                             // Bail out
                             return;
                         }
+                        float millisMarkComplete = msSince(nanos_start_MarkComplete);
+
+                        // ----- Good path!
+
+                        log.info("Finished sending " + messagesToDeliver.size() + " message(s) with TraceIds ["
+                                + traceIds + "] to [" + matsSocketOnMessageHandler + "], get-from-CSAF took ["
+                                + millisGetMessages + "ms], send over websocket took:[" + millisSendMessages + "ms],"
+                                + " mark-complete-in-CSAF took [" + millisMarkComplete + "].");
+
+                        // Loop to check if empty of messages.
+                        continue;
+                    }
+                    catch (IOException ioe) {
+                        // -> Evidently got problems forwarding the message over WebSocket
+                        log.warn("Got [" + ioe.getClass().getSimpleName()
+                                + "] while trying to send " + messagesToDeliver.size()
+                                + " message(s) with TraceIds [" + traceIds + "]."
+                                + " Increasing 'delivery_count' for message, will try again.", ioe);
+
+                        // :: Increase delivery count
+                        try {
+                            _clusterStoreAndForward.messagesIncreaseDeliveryCount(matsSocketSessionId, messageIds);
+                        }
+                        catch (DataAccessException e) {
+                            log.warn("Got problems when trying to invoke 'messagesIncreaseDeliveryCount' on CSAF for "
+                                    + messagesToDeliver.size() + " message(s) with TraceIds [" + traceIds
+                                    + "]. Bailing out, hoping for self-healer process to figure it out.", e);
+                            // Bail out
+                            return;
+                        }
+
+                        // ?: Find messages with too many redelivery attempts (hardcoded 5 now)
+                        // (Note: For current code, this should always only be max one..)
+                        // (Note: We're using the "old" delivery_count number (before above increase) -> no problem)
+                        List<StoredMessage> dlqMessages = messagesToDeliver.stream()
+                                .filter(m -> m.getDeliveryCount() > 5)
+                                .collect(Collectors.toList());
+                        // ?: Did we have messages above threshold?
+                        if (!dlqMessages.isEmpty()) {
+                            // :: DLQ messages
+                            try {
+                                _clusterStoreAndForward.messagesDeadLetterQueue(matsSocketSessionId, messageIds);
+                            }
+                            catch (DataAccessException e) {
+                                log.warn("Got problems when trying to invoke 'messagesDeadLetterQueue' on CSAF for "
+                                        + messagesToDeliver.size() + " message(s) with TraceIds [" + traceIds
+                                        + "]. Bailing out, hoping for self-healer process to figure it out.", e);
+                                // Bail out
+                                return;
+                            }
+                        }
+
                         // Chill-wait a bit to avoid total tight-loop if weird problem with socket saying it is open
                         // but cannot send messages over it.
                         try {
@@ -239,20 +294,6 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         }
                         // Run new "re-notification" loop, to check if socket still open, then try again.
                         continue RENOTIFY;
-                    }
-
-                    // :: Mark as complete (i.e. delete them).
-                    try {
-                        _clusterStoreAndForward.messagesComplete(matsSocketSessionId, messageIds);
-                    }
-                    catch (DataAccessException e) {
-                        log.warn("Got '" + e.getClass().getSimpleName()
-                                + "' when trying to invoke 'messagesComplete' on '" +
-                                _clusterStoreAndForward.getClass().getSimpleName() + "' for '"
-                                + messagesForSession.size() + "' messages with TraceIds [" + traceIds
-                                + "]. Bailing out, hoping for self-healer process to figure it out.", e);
-                        // Bail out
-                        return;
                     }
                 }
 

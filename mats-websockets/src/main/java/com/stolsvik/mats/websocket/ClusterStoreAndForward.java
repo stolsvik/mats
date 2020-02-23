@@ -56,14 +56,14 @@ public interface ClusterStoreAndForward {
      *            an id that is unique for this specific WebSocket Session (i.e. TCP Connection), so that if it closes,
      *            a new registration will not be deregistered by the old MatsSocketSession realizing that it is closed
      *            and then invoking {@link #deregisterSessionFromThisNode(String, String)}
-     * @throws DataAccessException
-     *             if problems with underlying data store
      * @throws WrongUserException
      *             if the userId provided does not match the original userId that created the session. Note that this is
      *             an extension of {@link DataAccessException}, just out of implementation convenience.
+     * @throws DataAccessException
+     *             if problems with underlying data store.
      */
     void registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId)
-            throws DataAccessException, WrongUserException;
+            throws WrongUserException, DataAccessException;
 
     /**
      * @param matsSocketSessionId
@@ -138,7 +138,7 @@ public interface ClusterStoreAndForward {
             throws DataAccessException;
 
     /**
-     * States that the messages are delivered, or overran their delivery attempts. Will typically delete the message.
+     * States that the messages are delivered. Will typically delete the message.
      *
      * @param matsSocketSessionId
      *            the matsSocketSessionId that the messageIds refers to.
@@ -148,14 +148,25 @@ public interface ClusterStoreAndForward {
     void messagesComplete(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException;
 
     /**
-     * Notches the 'deliveryAttempt' one up for the specified messages.
+     * Notches the 'delivery_count' one up for the specified messages.
      *
      * @param matsSocketSessionId
      *            the matsSocketSessionId that the messageIds refers to.
      * @param messageIds
      *            which messages failed delivery.
      */
-    void messagesFailedDelivery(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException;
+    void messagesIncreaseDeliveryCount(String matsSocketSessionId, Collection<Long> messageIds)
+            throws DataAccessException;
+
+    /**
+     * States that the messages overran the accepted number of delivery attempts.
+     *
+     * @param matsSocketSessionId
+     *            the matsSocketSessionId that the messageIds refers to.
+     * @param messageIds
+     *            which messages should be DLQed.
+     */
+    void messagesDeadLetterQueue(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException;
 
     /**
      * If having problems accessing the underlying common data store.
@@ -181,9 +192,9 @@ public interface ClusterStoreAndForward {
     }
 
     interface CurrentNode {
-        public String getNodename();
+        String getNodename();
 
-        public String getConnectionId();
+        String getConnectionId();
     }
 
     class SimpleCurrentNode implements CurrentNode {
@@ -207,17 +218,17 @@ public interface ClusterStoreAndForward {
     }
 
     interface CsafSession {
-        public String getSessionId();
+        String getSessionId();
 
-        public String getUserId();
+        String getUserId();
 
-        public String getNodename();
+        String getNodename();
 
-        public String getConnectionId();
+        String getConnectionId();
 
-        public long getCreatedTimestamp();
+        long getCreatedTimestamp();
 
-        public long getLivelinessTimestamp();
+        long getLivelinessTimestamp();
 
     }
 
@@ -274,7 +285,7 @@ public interface ClusterStoreAndForward {
     interface StoredMessage {
         long getId();
 
-        int getDeliveryAttempt();
+        int getDeliveryCount();
 
         long getStoredTimestamp();
 
@@ -289,7 +300,7 @@ public interface ClusterStoreAndForward {
 
     class SimpleStoredMessage implements StoredMessage {
         private final long _id;
-        private final int _deliveryAttempt;
+        private final int _deliveryCount;
         private final long _storedTimestamp;
 
         private final String _type;
@@ -297,10 +308,10 @@ public interface ClusterStoreAndForward {
         private final long _messageSequence;
         private final String _envelopeJson;
 
-        public SimpleStoredMessage(long id, int deliveryAttempt, long storedTimestamp, String type, String traceId,
+        public SimpleStoredMessage(long id, int deliveryCount, long storedTimestamp, String type, String traceId,
                 long messageSequence, String envelopeJson) {
             _id = id;
-            _deliveryAttempt = deliveryAttempt;
+            _deliveryCount = deliveryCount;
             _storedTimestamp = storedTimestamp;
             _type = type;
             _traceId = traceId;
@@ -314,8 +325,8 @@ public interface ClusterStoreAndForward {
         }
 
         @Override
-        public int getDeliveryAttempt() {
-            return _deliveryAttempt;
+        public int getDeliveryCount() {
+            return _deliveryCount;
         }
 
         @Override

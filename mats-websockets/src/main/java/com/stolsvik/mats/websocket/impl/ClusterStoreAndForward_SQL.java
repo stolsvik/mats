@@ -26,8 +26,8 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward;
  * {@link DataSource} was wrapped in a Spring <code>TransactionAwareDataSourceProxy</code>.</b> This since several of
  * the methods on this interface will be invoked within a Mats process lambda, and thus participating in the
  * transactional demarcation established there won't hurt. However, the sole method that is transactional
- * ({@link #registerSessionAtThisNode(String, String)}) handles the transaction demarcation itself, so any fallout
- * should be small.
+ * ({@link #registerSessionAtThisNode(String, String, String)}) handles the transaction demarcation itself, so any
+ * fallout should be small.
  *
  * @author Endre Stølsvik 2019-12-08 11:00 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -245,10 +245,10 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     @Override
     public Optional<CurrentNode> getCurrentRegisteredNodeForSession(String matsSocketSessionId)
             throws DataAccessException {
-        return withConnectionReturn(con -> _getSession(matsSocketSessionId, con, true));
+        return withConnectionReturn(con -> _getCurrentNode(matsSocketSessionId, con, true));
     }
 
-    private Optional<CurrentNode> _getSession(String matsSocketSessionId, Connection con, boolean onlyIfHasNode)
+    private Optional<CurrentNode> _getCurrentNode(String matsSocketSessionId, Connection con, boolean onlyIfHasNode)
             throws SQLException {
         PreparedStatement select = con.prepareStatement("SELECT nodename, connection_id FROM mats_socket_session"
                 + " WHERE session_id = ?");
@@ -285,7 +285,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public boolean isSessionExists(String matsSocketSessionId) throws DataAccessException {
-        return withConnectionReturn(con -> _getSession(matsSocketSessionId, con, false).isPresent());
+        return withConnectionReturn(con -> _getCurrentNode(matsSocketSessionId, con, false).isPresent());
     }
 
     @Override
@@ -323,7 +323,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             insert.setString(8, message);
             insert.execute();
 
-            return _getSession(matsSocketSessionId, con, true);
+            return _getCurrentNode(matsSocketSessionId, con, true);
         });
     }
 
@@ -367,7 +367,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void messagesFailedDelivery(String matsSocketSessionId, Collection<Long> messageIds)
+    public void messagesIncreaseDeliveryCount(String matsSocketSessionId, Collection<Long> messageIds)
             throws DataAccessException {
         withConnection(con -> {
             PreparedStatement update = con.prepareStatement("UPDATE " + outboxTableName(matsSocketSessionId)
@@ -381,6 +381,14 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             }
             update.executeBatch();
         });
+    }
+
+    @Override
+    public void messagesDeadLetterQueue(String matsSocketSessionId,
+            Collection<Long> messageIds) throws DataAccessException {
+        log.error("Dead-Letter-Queue (DLQ) for matsSocketSessionId [" + matsSocketSessionId + "] for messageIds "
+                + messageIds + " - implemented as 'complete', so messages will just be deleted.");
+        messagesComplete(matsSocketSessionId, messageIds);
     }
 
     private static String outboxTableName(String sessionIdForHash) {
