@@ -2,6 +2,9 @@ package com.stolsvik.mats.lib_test.basics;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.stolsvik.mats.MatsConfig;
+import com.stolsvik.mats.MatsEndpoint;
+import com.stolsvik.mats.MatsFactory;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -25,7 +28,11 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 public class Test_TimeToLive extends MatsBasicTest {
     @Before
     public void setupService() {
-        matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
+        MatsEndpoint<DataTO, Void> single = matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
+                // Ensure that there is only processed ONE message per time
+                endpointConfig -> endpointConfig.setConcurrency(1),
+                // Stage config inherits from EndpointConfig
+                MatsFactory.NO_CONFIG,
                 (context, dto) -> {
                     if ("DELAY".equals(dto.string)) {
                         try {
@@ -61,7 +68,7 @@ public class Test_TimeToLive extends MatsBasicTest {
 
     @Test
     public void testWithTimeToLive() {
-        doTest(200, 2);
+        doTest(150, 2);
     }
 
     private void doTest(long timeToLive, int expectedMessages) {
@@ -87,12 +94,14 @@ public class Test_TimeToLive extends MatsBasicTest {
         // NOTE: This must be done in a separate transaction (i.e. separate initiation), or otherwise evidently the
         // persistent (not nonPersistent) final "flushing" message somehow gets prioritization over the nonPersistent
         // ones, and gets to the terminator before the above ones. So either I had to also make this one nonPersistent,
-        // or like this, do it in a separate initiation. Strange stuff.
+        // or like this, do it in a separate initiation. Since I've had several cases of Travis-CI bailing on me on
+        // this specific test, I now do BOTH: Both nonPersistent (but with "forever" TTL), and separate transaction.
         matsRule.getMatsInitiator().initiateUnchecked(
                 (msg) -> {
                     msg.traceId(randomId())
                             .from(INITIATOR)
                             .to(SERVICE)
+                            .nonPersistent()
                             .replyTo(TERMINATOR, sto)
                             .request(finalDto);
                 });
