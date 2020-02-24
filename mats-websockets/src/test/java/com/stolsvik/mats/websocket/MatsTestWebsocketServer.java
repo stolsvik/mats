@@ -89,12 +89,6 @@ public class MatsTestWebsocketServer {
             _matsFactory.getFactoryConfig().setName("MF_Server_" + portNumber);
             _matsFactory.getFactoryConfig().setNodename("EndreBox_" + portNumber);
 
-            // :: Make simple single Mats Endpoint
-            _matsFactory.single("Test.single", TestMatsSocketEndpoints.MatsDataTO.class,
-                    TestMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> {
-                        return new TestMatsSocketEndpoints.MatsDataTO(incomingDto.number, incomingDto.string
-                                + ":FromSimple", incomingDto.multiplier);
-                    });
 
             // ## Create MatsSocketServer
             // Create DataSource using H2
@@ -123,8 +117,8 @@ public class MatsTestWebsocketServer {
             // (Hack for Jetty's specific shutdown procedure)
             sce.getServletContext().setAttribute(MatsSocketServer.class.getName(), _matsSocketServer);
 
-            // Set up all the MatsSocket Test Endpoints (used for integration tests, and the HTML test pages)
-            TestMatsSocketEndpoints.setupMatsSocketEndpoints(_matsSocketServer);
+            // Set up all the Mats and MatsSocket Test Endpoints (used for integration tests, and the HTML test pages)
+            SetupTestMatsAndMatsSocketEndpoints.setupMatsAndMatsSocketEndpoints(_matsFactory, _matsSocketServer);
         }
 
         @Override

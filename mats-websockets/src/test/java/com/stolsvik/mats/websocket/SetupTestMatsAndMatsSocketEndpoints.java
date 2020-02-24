@@ -1,5 +1,6 @@
 package com.stolsvik.mats.websocket;
 
+import com.stolsvik.mats.MatsFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,22 +13,26 @@ import java.util.Objects;
  *
  * @author Endre Stølsvik 2020-02-20 18:33 - http://stolsvik.com/, endre@stolsvik.com
  */
-public class TestMatsSocketEndpoints {
-    private static final Logger log = LoggerFactory.getLogger(TestMatsSocketEndpoints.class);
+public class SetupTestMatsAndMatsSocketEndpoints {
+    private static final Logger log = LoggerFactory.getLogger(SetupTestMatsAndMatsSocketEndpoints.class);
 
-    static void setupMatsSocketEndpoints(MatsSocketServer matsSocketServer) {
-        setupStandardTestSingle(matsSocketServer);
-        setupResolveInIncoming(matsSocketServer);
-        setupRejectInIncoming(matsSocketServer);
-        setupThrowsInIncoming(matsSocketServer);
-        setupResolveInReplyAdapter(matsSocketServer);
-        setupRejectInReplyAdapter(matsSocketServer);
-        setupThrowsInReplyAdapter(matsSocketServer);
+    static void setupMatsAndMatsSocketEndpoints(MatsFactory matsFactory, MatsSocketServer matsSocketServer) {
+        // "Standard" test endpoint
+        setupMats_StandardTestSingle(matsFactory);
+        setupSocket_StandardTestSingle(matsSocketServer);
+
+        // Resolve/Reject/Throws in incomingHandler and replyAdapter
+        setupSocket_ResolveInIncoming(matsSocketServer);
+        setupSocket_RejectInIncoming(matsSocketServer);
+        setupSocket_ThrowsInIncoming(matsSocketServer);
+        setupSocket_ResolveInReplyAdapter(matsSocketServer);
+        setupSocket_RejectInReplyAdapter(matsSocketServer);
+        setupSocket_ThrowsInReplyAdapter(matsSocketServer);
     }
 
     private static final String STANDARD_ENDPOINT = "Test.single";
 
-    private static void setupStandardTestSingle(MatsSocketServer matsSocketServer) {
+    private static void setupSocket_StandardTestSingle(MatsSocketServer matsSocketServer) {
         // :: Make default MatsSocket Endpoint
         MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
                 .matsSocketEndpoint(STANDARD_ENDPOINT,
@@ -55,7 +60,16 @@ public class TestMatsSocketEndpoints {
         });
     }
 
-    private static void setupResolveInIncoming(MatsSocketServer matsSocketServer) {
+    private static void setupMats_StandardTestSingle(MatsFactory matsFactory) {
+        // :: Make simple single Mats Endpoint
+        matsFactory.single("Test.single", SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class,
+                SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> {
+                    return new SetupTestMatsAndMatsSocketEndpoints.MatsDataTO(incomingDto.number, incomingDto.string
+                            + ":FromSimple", incomingDto.multiplier);
+                });
+    }
+
+    private static void setupSocket_ResolveInIncoming(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.resolveInIncomingHandler",
                 MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
                 // RESOLVE
@@ -63,7 +77,7 @@ public class TestMatsSocketEndpoints {
                         new MatsSocketReplyDto(1, 2, msIncoming.requestTimestamp)));
     }
 
-    private static void setupRejectInIncoming(MatsSocketServer matsSocketServer) {
+    private static void setupSocket_RejectInIncoming(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.rejectInIncomingHandler",
                 MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
                 // REJECT
@@ -71,7 +85,7 @@ public class TestMatsSocketEndpoints {
                         new MatsSocketReplyDto(3, 4, msIncoming.requestTimestamp)));
     }
 
-    private static void setupThrowsInIncoming(MatsSocketServer matsSocketServer) {
+    private static void setupSocket_ThrowsInIncoming(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.throwsInIncomingHandler",
                 MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
                 // THROW
@@ -80,7 +94,7 @@ public class TestMatsSocketEndpoints {
                 });
     }
 
-    private static void setupResolveInReplyAdapter(MatsSocketServer matsSocketServer) {
+    private static void setupSocket_ResolveInReplyAdapter(MatsSocketServer matsSocketServer) {
         MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
                 .matsSocketEndpoint("Test.resolveInReplyAdapter",
                         MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
@@ -90,7 +104,7 @@ public class TestMatsSocketEndpoints {
         matsSocketEndpoint.replyAdapter((ctx, matsReply) -> ctx.resolve(new MatsSocketReplyDto(1, 2, 123)));
     }
 
-    private static void setupRejectInReplyAdapter(MatsSocketServer matsSocketServer) {
+    private static void setupSocket_RejectInReplyAdapter(MatsSocketServer matsSocketServer) {
         MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
                 .matsSocketEndpoint("Test.rejectInReplyAdapter",
                         MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
@@ -100,7 +114,7 @@ public class TestMatsSocketEndpoints {
         matsSocketEndpoint.replyAdapter((ctx, matsReply) -> ctx.reject(new MatsSocketReplyDto(1, 2, 123)));
     }
 
-    private static void setupThrowsInReplyAdapter(MatsSocketServer matsSocketServer) {
+    private static void setupSocket_ThrowsInReplyAdapter(MatsSocketServer matsSocketServer) {
         MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
                 .matsSocketEndpoint("Test.throwsInReplyAdapter",
                         MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,

@@ -21,10 +21,10 @@
     describe('MatsSocket integration-tests', function () {
         let matsSocket;
 
-        function setAuth(duration = 20000, roomForLatencyMillis = 10000) {
+        function setAuth(userId = "standard", duration = 20000, roomForLatencyMillis = 10000) {
             const now = Date.now();
             const expiry = now + duration;
-            matsSocket.setCurrentAuthorization("DummyAuth:standard:" + expiry, expiry, roomForLatencyMillis);
+            matsSocket.setCurrentAuthorization("DummyAuth:" + userId + ":" + expiry, expiry, roomForLatencyMillis);
         }
 
         const urls = env.MATS_SOCKET_URLS || "ws://localhost:8080/matssocket,ws://localhost:8081/matssocket";
@@ -38,7 +38,7 @@
             matsSocket.close("Test done");
         });
 
-        describe('authorization', function () {
+        describe('authorization callbacks', function () {
             it('Should invoke authorization callback before making calls', function (done) {
                 let authCallbackCalled = false;
 
@@ -68,7 +68,7 @@
 
             it('Should invoke authorization callback when expired', function (done) {
                 let authCallbackCalled = false;
-                setAuth(-20000);
+                setAuth("standard", -20000);
                 matsSocket.setAuthorizationExpiredCallback(function (event) {
                     authCallbackCalled = true;
                     setAuth();
@@ -84,7 +84,7 @@
             it('Should invoke authorization callback when room for latency expired', function (done) {
                 let authCallbackCalled = false;
                 // Immediately timed out.
-                setAuth(1000, 10000);
+                setAuth("standard", 1000, 10000);
                 matsSocket.setAuthorizationExpiredCallback(function (event) {
                     authCallbackCalled = true;
                     setAuth();
@@ -94,6 +94,24 @@
                         chai.assert(authCallbackCalled);
                         done();
                     })
+            });
+        });
+
+        describe('matsSocketSessionId', function () {
+
+            // NEEDED
+            // 0. MatsEndpoint: Test.slow (250 ms)
+            // 1. connect with MatsSocket
+            // 2. matsSocket.disconnect()  (invokes webSocket.close(), going into reconnect).
+            // 3. matsSocket.connect() - or just insta-reconnect itself?
+            //
+
+            it('possible to reconnect', function (done) {
+                setAuth("endre");
+                matsSocket.send("Test.single", "SEND_reconnect1_" + matsSocket.id(6), {})
+                    .then(reply => {
+                        done();
+                    });
             });
         });
 
@@ -228,7 +246,7 @@
                     string: "The String",
                     number: Math.PI
                 });
-                promise.catch(function() {
+                promise.catch(function () {
                     done();
                 });
             });
@@ -238,7 +256,7 @@
                     string: "The String",
                     number: Math.PI
                 });
-                promise.catch(function() {
+                promise.catch(function () {
                     done();
                 });
             });
@@ -260,7 +278,7 @@
                     string: "The String",
                     number: Math.PI
                 });
-                promise.catch(function() {
+                promise.catch(function () {
                     done();
                 });
             });
@@ -270,7 +288,7 @@
                     string: "The String",
                     number: Math.PI
                 });
-                promise.catch(function() {
+                promise.catch(function () {
                     done();
                 });
             });
