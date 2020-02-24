@@ -1,12 +1,12 @@
 package com.stolsvik.mats.websocket;
 
-import com.stolsvik.mats.MatsFactory;
+import java.util.Objects;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
-
-import java.util.Objects;
 
 /**
  * Sets up the test endpoints used from the integration tests (and the HTML test-pages).
@@ -28,6 +28,10 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         setupSocket_ResolveInReplyAdapter(matsSocketServer);
         setupSocket_RejectInReplyAdapter(matsSocketServer);
         setupSocket_ThrowsInReplyAdapter(matsSocketServer);
+
+        // Slow test endpoint
+        setupMats_TestSlow(matsFactory);
+        setupSocket_TestSlow(matsSocketServer);
     }
 
     private static final String STANDARD_ENDPOINT = "Test.single";
@@ -62,11 +66,11 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setupMats_StandardTestSingle(MatsFactory matsFactory) {
         // :: Make simple single Mats Endpoint
-        matsFactory.single("Test.single", SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class,
-                SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> {
-                    return new SetupTestMatsAndMatsSocketEndpoints.MatsDataTO(incomingDto.number, incomingDto.string
-                            + ":FromSimple", incomingDto.multiplier);
-                });
+        matsFactory.single(STANDARD_ENDPOINT, SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class,
+                SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> new MatsDataTO(
+                        incomingDto.number,
+                        incomingDto.string + ":FromSimple",
+                        incomingDto.sleepTime));
     }
 
     private static void setupSocket_ResolveInIncoming(MatsSocketServer matsSocketServer) {
@@ -126,6 +130,33 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         });
     }
 
+    private static void setupSocket_TestSlow(MatsSocketServer matsSocketServer) {
+        // Forwards directly to Mats, no replyAdapter
+        MatsSocketEndpoint<MatsDataTO, MatsDataTO, MatsDataTO, MatsDataTO> matsSocketEndpoint = matsSocketServer
+                .matsSocketEndpoint("Test.slow",
+                        MatsDataTO.class, MatsDataTO.class, MatsDataTO.class, MatsDataTO.class,
+                        (ctx, principal, msIncoming) -> ctx.forwardInteractivePersistent(msIncoming));
+    }
+
+    private static void setupMats_TestSlow(MatsFactory matsFactory) {
+        // :: Simple endpoint that just sleeps a tad, to simulate "long(er) running process".
+        matsFactory.single("Test.slow", SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class,
+                SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> {
+                    if (incomingDto.sleepTime > 0) {
+                        log.info("incoming.sleepTime > 0, sleeping specified [" + incomingDto.sleepTime + "] ms.");
+                        try {
+                            Thread.sleep(incomingDto.sleepTime);
+                        }
+                        catch (InterruptedException e) {
+                            throw new AssertionError("Got interrupted while slow-sleeping..!");
+                        }
+                    }
+                    return new MatsDataTO(incomingDto.number,
+                            incomingDto.string + ":FromSimple",
+                            incomingDto.sleepTime);
+                });
+    }
+
     /**
      * Request DTO class for MatsSocket Endpoint.
      */
@@ -142,7 +173,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         @Override
         public boolean equals(Object obj) {
             if (!(obj instanceof MatsSocketRequestDto)) {
-                throw new AssertionError(MatsSocketRequestDto.class.getSimpleName() + " was attempted equalled to [" + obj + "].");
+                throw new AssertionError(MatsSocketRequestDto.class.getSimpleName() + " was attempted equalled to ["
+                        + obj + "].");
             }
             MatsSocketRequestDto other = (MatsSocketRequestDto) obj;
             return Objects.equals(this.string, other.string) && (this.number == other.number);
@@ -160,7 +192,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     public static class MatsDataTO {
         public double number;
         public String string;
-        public int multiplier;
+        public int sleepTime;
 
         public MatsDataTO() {
         }
@@ -170,10 +202,10 @@ public class SetupTestMatsAndMatsSocketEndpoints {
             this.string = string;
         }
 
-        public MatsDataTO(double number, String string, int multiplier) {
+        public MatsDataTO(double number, String string, int sleepTime) {
             this.number = number;
             this.string = string;
-            this.multiplier = multiplier;
+            this.sleepTime = sleepTime;
         }
 
         @Override
@@ -183,20 +215,20 @@ public class SetupTestMatsAndMatsSocketEndpoints {
             if (o == null || !(o instanceof MatsDataTO)) return false;
             MatsDataTO matsDataTO = (MatsDataTO) o;
             return Double.compare(matsDataTO.number, number) == 0 &&
-                    multiplier == matsDataTO.multiplier &&
+                    sleepTime == matsDataTO.sleepTime &&
                     Objects.equals(string, matsDataTO.string);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(number, string, multiplier);
+            return Objects.hash(number, string, sleepTime);
         }
 
         @Override
         public String toString() {
             return "MatsDataTO [number=" + number
                     + ", string=" + string
-                    + (multiplier != 0 ? ", multiplier="+multiplier : "")
+                    + (sleepTime != 0 ? ", multiplier=" + sleepTime : "")
                     + "]";
         }
     }
@@ -226,7 +258,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         @Override
         public boolean equals(Object obj) {
             if (!(obj instanceof MatsSocketReplyDto)) {
-                throw new AssertionError(MatsSocketReplyDto.class.getSimpleName() + " was attempted equalled to [" + obj + "].");
+                throw new AssertionError(MatsSocketReplyDto.class.getSimpleName() + " was attempted equalled to [" + obj
+                        + "].");
             }
             MatsSocketReplyDto other = (MatsSocketReplyDto) obj;
             return (this.number1 == other.number1) && (this.number2 == other.number2);

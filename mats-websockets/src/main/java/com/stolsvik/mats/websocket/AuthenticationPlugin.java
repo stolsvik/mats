@@ -261,7 +261,7 @@ public interface AuthenticationPlugin {
         /**
          * Node-name of the handling node of the separate phases.
          */
-        NODES(0b01);
+        NODES(0b10);
 
         final int bitconstant;
 

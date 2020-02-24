@@ -12,6 +12,60 @@
     }
 }(typeof self !== 'undefined' ? self : this, function (exports, WebSocket) {
 
+    // MatsSocketCloseCodes enum, directly from MatsSocketServer.java
+    const MatsSocketCloseCodes = Object.freeze({
+        /**
+         * Standard code 1008 - From Server side, REJECT all outstanding: used for when the client does not behave as we
+         * expect, most typically wrt. authentication or otherwise does not observe the protocol.
+         */
+        "VIOLATED_POLICY": 1008,
+
+        /**
+         * Standard code 1011 - From Server side, REISSUE all outstanding upon reconnect: used when the server cannot
+         * talk to the underlying systems (DB or MQ). This should be a temporary situation, so doing periodic
+         * re-connects would be correct.
+         */
+        "UNEXPECTED_CONDITION": 1011,
+
+        /**
+         * Standard code 1012 - From Server side, REISSUE all outstanding upon reconnect: used when
+         * {@link MatsSocketServer#stop(int)} is invoked. Please reconnect.
+         */
+        "SERVICE_RESTART": 1012,
+
+        /**
+         * Standard code 1001 - From Client/Browser side, client should have REJECTed all outstanding: Synonym for
+         * {@link #CLOSE_SESSION}, as the WebSocket documentation states <i>"indicates that an endpoint is "going away",
+         * such as a server going down <b>or a browser having navigated away from a page.</b>"</i>, the latter point
+         * being pretty much exactly correct wrt. when to close a session. So, if a browser decides to use this code
+         * when the user navigates away and the library or application does not catch it, we'd want to catch this as a
+         * Close Session.
+         */
+        "GOING_AWAY": 1001,
+
+        /**
+         * 4000: From Client/Browser side, client should have REJECTed all outstanding: Used when the browser closes
+         * WebSocket "on purpose", wanting to close the session - typically when the user explicitly logs out, or
+         * navigates away from web page. All traces of the MatsSocketSession are effectively deleted from the server,
+         * including any undelivered replies and messages ("push") from server.
+         */
+        "CLOSE_SESSION": 4000,
+
+        /**
+         * 4001: From Server side, REJECT all outstanding: {@link MatsSocketServer#closeSession(String)} was invoked, and
+         * the WebSocket to that client was still open, so we close it. The client should reject all outstanding
+         * Promises, Futures and Acks.
+         */
+        "FORCED_SESSION_CLOSE": 4001,
+
+        /**
+         * 4002: From Server side, REISSUE all outstanding upon reconnect: We ask that the client reconnects. This gets
+         * us a clean state and in particular new authentication (In case of using OAuth/OIDC tokens, the client is
+         * expected to fetch a fresh token from token server).
+         */
+        "RECONNECT": 4002
+    });
+
     function MatsSocket(appName, appVersion, urls, socketFactory) {
 
         let clientLibNameAndVersion = "MatsSocket.js,v0.10.0";
@@ -39,7 +93,9 @@
             throw new Error("socketFactory should be a function, instead got [" + socketFactory + "]");
         }
 
+        // ==============================================================================================
         // PUBLIC:
+        // ==============================================================================================
 
         this.appName = appName;
         this.appVersion = appVersion;
@@ -57,7 +113,7 @@
          * </ol>
          * The default is 'undefined', which effectively results in the invocation of
          * <code>navigator.sendBeacon(currentWsUrl.replace('ws', 'http)+"/close_session?sessionId={sessionId}")<code>.
-         * Note that replace is replace-first, and that any 's' in 'wss' results in 'https'.
+         * Note that replace is replace-first, and that the extra 's' in 'wss' results in 'https'.
          *
          * @type {Function}
          */
@@ -112,6 +168,8 @@
             log("Got Authorization with expirationTimeMillisSinceEpoch: " + expirationTimeMillisSinceEpoch + "," +
                 "roomForLatencyMillis: " + roomForLatencyMillis, authorization);
 
+            // Evaluate whether there are stuff in the pipeline that should be sent now.
+            // (Not-yet-sent HELLO does not count..)
             evaluatePipelineSend();
         };
 
@@ -129,6 +187,10 @@
          */
         this.setAuthorizationExpiredCallback = function (authorizationExpiredCallback) {
             _authorizationExpiredCallback = authorizationExpiredCallback;
+
+            // Evaluate whether there are stuff in the pipeline that should be sent now.
+            // (Not-yet-sent HELLO does not count..)
+            evaluatePipelineSend();
         };
 
         /**
@@ -311,22 +373,23 @@
          * short.
          */
         this.close = function (reason) {
+            // Fetch properties we need before clearing state
+            let currentWsUrl = currentWebSocketUrl();
             let existingSessionId = _sessionId;
-            log("close(): Closing MatsSocketSession, id:[" + existingSessionId + "] due to [" + reason + "], currently connected: [" + (_websocket ? _websocket.url : "not connected") + "]");
+            let websocket = _websocket;
+            log("close(): Closing MatsSocketSession, id:[" + existingSessionId + "] due to [" + reason
+                + "], currently connected: [" + (_websocket ? _websocket.url : "not connected") + "]");
 
             // :: In-band session close
             // ?: Do we have WebSocket?
-            if (_websocket) {
+            if (websocket) {
                 // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
-                log(" \\-> WebSocket is open, so we close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).");
+                log(" \\-> WebSocket is open, so we close it with MatsSocketCloseCode CLOSE_SESSION (" + MatsSocketCloseCodes.CLOSE_SESSION + ").");
                 // Perform the close
-                _websocket.close(4000, reason);
+                websocket.close(MatsSocketCloseCodes.CLOSE_SESSION, reason);
             } else {
-                log(" \\-> WebSocket NOT open, so CANNOT close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).");
+                log(" \\-> WebSocket NOT open, so CANNOT close it with with MatsSocketCloseCode CLOSE_SESSION (" + MatsSocketCloseCodes.CLOSE_SESSION + ").");
             }
-
-            // Get the current websocket URL before clearing state
-            let currentWsUrl = currentWebSocketUrl();
 
             // :: Clear all state of this MatsSocket.
             clearStateAndPipelineAndFuturesAndOutstandingMessages("client close session");
@@ -359,6 +422,25 @@
         };
 
         /**
+         * Effectively emulates "lost connection". Used in testing.
+         *
+         * @param reason a string saying why.
+         */
+        this.reconnect = function (reason) {
+            log("reconnect(): Closing WebSocket with CloseCode 'RECONNECT (" + MatsSocketCloseCodes.RECONNECT
+                + ")', id:[" + _sessionId + "] due to [" + reason + "], currently connected: [" + (_websocket ? _websocket.url : "not connected") + "]");
+            // ?: Do we have WebSocket?
+            if (_websocket) {
+                // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
+                log(" \\-> WebSocket is open, so we close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).");
+                // Perform the close
+                _websocket.close(MatsSocketCloseCodes.RECONNECT, reason);
+            } else {
+                log(" \\-> WebSocket NOT open, so CANNOT close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).");
+            }
+        };
+
+        /**
          * Convenience method for making random strings for correlationIds (choose e.g. length=10) and
          * "add-on to traceId to make it pretty unique" (choose length=6).
          *
@@ -374,8 +456,8 @@
         };
 
         // ==============================================================================================
-
         // PRIVATE
+        // ==============================================================================================
 
         function error(type, msg, err) {
             if (err) {
@@ -419,6 +501,7 @@
         let _endpoints = {};
 
         let _helloSent = false;
+        let _reconnect_ForceSendHello = false;
 
         let _authorization = undefined;
         let _sendAuthorizationToServer = false;
@@ -473,7 +556,7 @@
                 let outstandingMessage = _outstandingSendsAndRequests[cmseq];
                 delete _outstandingSendsAndRequests[cmseq];
 
-                log("Clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "] with traceId ["+outstandingMessage.envelope.tid+"].");
+                log("Clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "] with traceId [" + outstandingMessage.envelope.tid + "].");
                 if (outstandingMessage.reject) {
                     try {
                         // TODO: Make better event object
@@ -507,9 +590,10 @@
          * Sends pipelined messages if pipelining is not engaged.
          */
         function evaluatePipelineSend() {
-            // ?: Is the pipeline empty?
-            if (_pipeline.length === 0) {
-                // -> Yes, so nothing to do.
+            // ?: Are there any messages in pipeline, or should we force processing to get HELLO
+            if ((_pipeline.length === 0) && !_reconnect_ForceSendHello) {
+                // -> No, no message in pipeline, and we should not force processing to get HELLO
+                // Nothing to do, drop out.
                 return;
             }
             // ?: Do we have authorization?!
@@ -559,6 +643,7 @@
 
             // ?: Are we trying to open websocket?
             if (_webSocketConnecting) {
+                log("evaluatePipelineSend(): WebSocket is currently connecting. Cannot send yet.");
                 // -> Yes, so then the socket is not open yet, but we are in the process.
                 // Return now, as opening is async. When the socket opens, it will re-run 'evaluatePipelineSend()'.
                 return;
@@ -566,6 +651,7 @@
 
             // ?: Is the WebSocket present?
             if (_websocket === undefined) {
+                log("evaluatePipelineSend(): WebSocket is not present, so initiate creation. Cannot send yet.");
                 // -> No, so go get it.
                 initiateWebSocketCreation();
                 // Returning now, as opening is async. When the socket opens, it will re-run 'evaluatePipelineSend()'.
@@ -608,6 +694,8 @@
                 prePipeline.unshift(helloMessage);
                 // We will now have sent the HELLO.
                 _helloSent = true;
+                // .. and again, we've now sent the HELLO - thus reconnected.
+                _reconnect_ForceSendHello = false;
             }
 
             // :: Send pre-pipeline messages, if there are any
@@ -755,6 +843,7 @@
 
                 // Fire off any waiting messages, next tick
                 invokeLater(function () {
+                    log("Running evaluatePipelineSend()..");
                     evaluatePipelineSend();
                 });
             };
@@ -769,17 +858,23 @@
             // Ditch this WebSocket
             _websocket = undefined;
 
-            // ?: Special codes: UNEXPECTED_CONDITION || SERVICE_RESTART || RECONNECT
-            if ((event.code === 1011)
-                || (event.code === 1012)
-                || (event.code === 4002)) {
+            // ?: Special codes, that signifies that we should try to reconnect and then reissue all outstanding.
+            if ((event.code === MatsSocketCloseCodes.UNEXPECTED_CONDITION)
+                || (event.code === MatsSocketCloseCodes.SERVICE_RESTART)
+                || (event.code === MatsSocketCloseCodes.RECONNECT)) {
                 // -> One of the special "reissue" close codes -> Reissue all outstanding..
-                log("Special 'reissue' close code, reissue and reconnect.")
+                log("Special 'reissue' close code, reissue and reconnect.");
+
+                // :: This is a reconnect - so we should do pipeline processing right away, to get the HELLO over.
+                _reconnect_ForceSendHello = true;
+
+                // :: Start reconnecting right away.
+                initiateWebSocketCreation();
+
                 // TODO: Implement reissue.
-                // TODO: Implement reconnect.
 
             } else {
-                // -> NOT one of the special "reissue" close codes -> Reject all outstanding
+                // -> NOT one of the special "reissue" close codes -> Reject all outstanding, this MatsSocket is trashed.
                 log("We were closed with close code:[" + event.code + "] and reason:[" + event.reason + "] - closing.");
                 clearStateAndPipelineAndFuturesAndOutstandingMessages("server closed session");
             }
@@ -978,4 +1073,5 @@
     };
 
     exports.MatsSocket = MatsSocket;
+    exports.MatsSocketCloseCodes = MatsSocketCloseCodes;
 }));

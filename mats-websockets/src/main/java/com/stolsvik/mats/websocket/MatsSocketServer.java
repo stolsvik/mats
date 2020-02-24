@@ -181,6 +181,10 @@ public interface MatsSocketServer {
 
     /**
      * WebSocket CloseCodes used in MatsSocket, and for what. Using both standard codes, and app-specific/defined codes.
+     * <p/>
+     * TODO: At Server: Default is assume "lost connection", i.e. NOT close session.
+     *
+     * TODO: At Client: Default is assume "lost connection", i.e. reconnect and reissue outstanding.
      */
     enum MatsSocketCloseCodes implements CloseCode {
         /**
@@ -221,16 +225,18 @@ public interface MatsSocketServer {
         CLOSE_SESSION(4000),
 
         /**
-         * 4001: From Server side, REJECT all outstanding: {@link MatsSocketServer#closeSession(String)} was invoked, and
-         * the WebSocket to that client was still open, so we close it. The client should reject all outstanding
+         * 4001: From Server side, REJECT all outstanding: {@link MatsSocketServer#closeSession(String)} was invoked,
+         * and the WebSocket to that client was still open, so we close it. The client should reject all outstanding
          * Promises, Futures and Acks.
          */
         FORCED_SESSION_CLOSE(4001),
 
         /**
-         * 4002: From Server side, REISSUE all outstanding upon reconnect: We ask that the client reconnects. This gets
-         * us a clean state and in particular new authentication (In case of using OAuth/OIDC tokens, the client is
-         * expected to fetch a fresh token from token server).
+         * 4002: Both from Server side and from Client/Browser side: REISSUE all outstanding upon reconnect: From
+         * Server: We ask that the client reconnects. This gets us a clean state and in particular new authentication
+         * (In case of using OAuth/OIDC tokens, the client is expected to fetch a fresh token from token server). From
+         * Client: The client just fancied a little break (just as if lost connection in a tunnel), used form
+         * integration tests.
          */
         RECONNECT(4002);
 

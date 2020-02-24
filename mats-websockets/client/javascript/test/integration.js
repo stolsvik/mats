@@ -31,7 +31,7 @@
 
         beforeEach(() => {
             matsSocket = new MatsSocket("TestApp", "1.2.3", urls.split(","));
-            // matsSocket.logging = true;
+            matsSocket.logging = false;
         });
 
         afterEach(() => {
@@ -97,22 +97,25 @@
             });
         });
 
-        describe('matsSocketSessionId', function () {
+        describe('reconnect', function () {
+            it('reconnects and completes outstanding request when invoking reconnect()', function (done) {
+                setAuth();
+                // Request to a service that won't reply immediately.
+                matsSocket.request("Test.slow", "REQUEST_reconnect1_" + matsSocket.id(6), {
+                    sleepTime: 250
+                }).then(reply => {
+                    done();
+                });
 
-            // NEEDED
-            // 0. MatsEndpoint: Test.slow (250 ms)
-            // 1. connect with MatsSocket
-            // 2. matsSocket.disconnect()  (invokes webSocket.close(), going into reconnect).
-            // 3. matsSocket.connect() - or just insta-reconnect itself?
-            //
-
-            it('possible to reconnect', function (done) {
-                setAuth("endre");
-                matsSocket.send("Test.single", "SEND_reconnect1_" + matsSocket.id(6), {})
-                    .then(reply => {
-                        done();
-                    });
+                // Chill a slight tad, to let that REQUEST be sent (but not resolved yet) - and then close the connection.
+                setTimeout(function () {
+                    matsSocket.reconnect("Integration-test, testing reconnects")
+                }, 100);
             });
+
+
+            // TODO: Test reconnect with different userId.
+            // TODO: Test two MatsSockets to same SessionId - the first one should be closed. Which close code?
         });
 
         describe('send', function () {
