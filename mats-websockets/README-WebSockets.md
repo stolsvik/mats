@@ -113,16 +113,16 @@ TODO: Handle debug information
 * Further messages can be pipelined in the same go - but read further for distinction between CONNECT and CONNECT_EXPECT.
 * SessionId SHALL NOT be included when starting a new Session
 * Note: CONNECT can be used both for new Session and reconnects.  
-* SessionId SHALL be included if CONNECT_EXPECT
+* SessionId SHALL be included if RECONNECT
 * No message
 * Provides the way to give initial authentication, some meta-info, and get back a the current SessionId.
-* Difference between CONNECT and CONNECT_EXPECT:
-  * "EXPECT" refers to the client expecting an existing connection, i.e. that the supplied SessionId exists. If the expected SessionId was not present, any pipelined messages are NOT executed. A SESSION_NEW reply will still be sent, now with the new SessionId.
+* Difference between CONNECT and RECONNECT:
+  * "RECONNECT" refers to the client expecting an existing connection, i.e. that the supplied SessionId exists. If the expected SessionId was not present, any pipelined messages are NOT executed. A SESSION_NEW reply will still be sent, now with the new SessionId.
   * The rationale for this distinction is when the application believes it just slept a second and hence pipelines messages that e.g. executes an order, while e.g. 30 hours has passed and the world has moved on, you might want such types of messages to be dropped, catch that a SESSION_NEW was returned instead of the expected SESSION_RECONNECTED, and thus "reboot" the application to initial state and let the user send the order again.
 ```
 [{
     type: "HELLO"
-    subType: "EXPECT_EXISTING" upon a reconnect (i.e. if sessionId is present).
+    subType: "RECONNECT" upon a reconnect (i.e. if sessionId is present).
     traceId: "AppStart[userInitiated]2897fswh"
     sessionId: "428959fjfvf8eh83" // Included if reconnect, not included if new session
     appName: "MegaApp2020-iOS"
@@ -241,12 +241,7 @@ SubTypes:
   * The Authorization was revoked
   * NOTE: Another type:AUTH_FAIL (this is subtype) will also be sent, which the client can react to
   -> Client may retry the delivery of the message at a later time (i.e. in 500 ms, or after gotten new auth)
-* LOST_SESSION
-  * Upon an "EXPECT_EXISTING", the existing session was no longer available
-  -> Rejects Promise for both SEND and REQUEST
-* ERROR:
-  * "Protocol error", client does not behave as expected, e.g. HELLO (in pipeline) does not contain expected info
-  -> Rejects Promise for both SEND and REQUEST
+* ERROR
 * NACK:
   * handleAuth did not accept message (i.e. failed authorization, or DTO not correct etc.)
   -> Rejects Promise for both SEND and REQUEST
@@ -313,28 +308,48 @@ WILL NOT BE IMPLEMENTED IN FIRST ITERATION, but is awesome cool.
 ```
 
 ### Server-to-Client: "Exception" (The processing of a message failed)
-* Application error, or TimeOut
-* Can happen on MatsSocket reception.
-```
-[{
-    type: "EXCEPTION"
-    exceptionType: "TimeOut"
-    exceptionDescription: "<explanation of what went wrong. Possibly including StackTrace if user is authorized.>"
-    correlationId: 4289nd28df324329
-}]
-```
+* RECEIVED:NACK
 
 
 
 ### Server-to-Client: "Message Error" (The received message was malformed)
-* System message - but always as a reply to some other message.
-* E.g. missing required field, or non-parseable JSON, or any other message-level error condition.
-* Entire message will be returned in "incomingMessage" field, BASE64 encoded.
-```
-[{
-    type: "MSGERROR"
-    errorDescription: "<explanation of what went wrong. Possibly including StackTrace if user is authorized.>"
-    incomingMessage: "<BASE64 encoded entire incoming message>"
-}]
-```
+* Close with PROTOCOL_ERROR, which is "fatal" (closes MatsSocket, ditches all messages).
+
+
+## ACKNOWLEDGEMENTS:
+
+Peer sends message to other peer. Needs "RECEIVED:ACK" (or NACK or whatever) to clear it out of his outbox
+("outstanding").
+
+Messages are (currently) REQUEST, SEND, REPLY.
+NOT messages: HELLO, PING. RECEIVED.
+
+Both peers keep an inbox and an outbox.
+
+Outbox: Outgoing messages are stored here. Attempted sent over. When "RECEIVED" is gotten, they are cleared out.
+
+Inbox: This is both to catch double deliveries, and not be reliant on two external system being up to
+receive messages.
+If failing to store in inbox, RECEIVED:RETRY is sent.
+If refusing to accept, RECEIVED:NACK is sent. Not stored in inbox.
+When accepted and able to store in inbox, a RECEIVED:ACK is sent.
+
+When passed on to processing system (i.e. MQ), they are MARKED as such. This is to enable catching double delivery.
+This is a "two systems commit". First set to "SENDING", then "SENT".
+and if we get "VERY BAD", then use compensating update to restore to "not sent".
+If this fails, put in memory backlog and try repeatedly.
+
+Clearing of inbox items can be done "sloppy": Either be done on schedule (i.e. things older than 7 days are deleted),
+or by an "external" system employing the standard protocol, e.g. sendind a REQUEST "oldest thing in outbox?" and getting
+a reply, then deleting anything older than that. (should use the client timestamp then).
+
+
+Failure handling:
+* Does not manage to send over a message from outbox: Try again later.
+* Manages to send over a message, but does not get RECEIVED: Will try again later, which results in a double delivery.
+  The other peer catches this, and simply sends RECEIVED again - the point is to get the outbox cleared on the other side. 
+* For Replies i MatsSocket.js, there is an outstanding Future waiting to be resolved. If there is not, then it was
+  already accepted - just reply RECEIVED again.
+   
+
 

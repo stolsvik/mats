@@ -18,6 +18,13 @@ public interface MatsSocketServer {
 
     /**
      * Registers a MatsSocket.
+     * <p/>
+     * Note for the {@link IncomingAuthorizationAndAdapter}: Used to do authorization evaluation on the supplied
+     * Principal and otherwise decide whether this message should be forwarded to the Mats fabric. It then transform the
+     * message from the MatsSocket-side to Mats-side - or throw an Exception. <b>This should only be pure Java code, no
+     * IPC or lengthy computations</b>, such things should happen in the Mats stages. It is imperative that this
+     * does not perform any state-changes to the system - it should be utterly idempotent, i.e. invoking it a hundred
+     * times with the same input should yield the same result. (Note: Logging is never considered state changing!)
      *
      * TODO: What about timeouts?!
      *
@@ -31,7 +38,9 @@ public interface MatsSocketServer {
         /**
          * Used to transform the message from the Mats-side to MatsSocket-side - or throw an Exception. <b>This should
          * only be pure Java code, no IPC or lengthy computations</b>, such things should have happened in the Mats
-         * stages.
+         * stages. It is imperative that this does not perform any state-changes to the system - it should be utterly
+         * idempotent, i.e. invoking it a hundred times with the same input should yield the same result. (Note: Logging
+         * is never considered state changing!)
          *
          * @param replyAdapter
          *            a function-like lambda that transform the incoming Mats reply into the outgoing MatsSocket reply.
@@ -257,9 +266,10 @@ public interface MatsSocketServer {
         }
 
         /**
-         * @param code the code to get a CloseCode instance of.
+         * @param code
+         *            the code to get a CloseCode instance of.
          * @return either a {@link MatsSocketCloseCodes}, or a standard {@link CloseCodes}, or a newly created object
-         * containing the unknown close code with a toString() returning "UNKNOWN(code)".
+         *         containing the unknown close code with a toString() returning "UNKNOWN(code)".
          */
         public static CloseCode getCloseCode(int code) {
             for (MatsSocketCloseCodes mscc : EnumSet.allOf(MatsSocketCloseCodes.class)) {
@@ -280,7 +290,7 @@ public interface MatsSocketServer {
 
                 @Override
                 public String toString() {
-                    return "UNKNOWN("+code+")";
+                    return "UNKNOWN(" + code + ")";
                 }
             };
         }

@@ -286,16 +286,18 @@
          * Add a message to the outgoing pipeline, evaluates whether to send the pipeline afterwards (i.e. if pipelining
          * is active or not).
          */
-        this.addMessageToPipeline = function (type, envelope, resolve, reject, receiveCallback) {
+        this.addMessageToPipeline = function (envelope, resolve, reject, receiveCallback) {
             let now = Date.now();
             _lastMessageEnqueuedMillis = now;
 
-            // Add common params to envelope
-            envelope.t = type;
-            envelope.cmcts = now;
+            // Add TYPE to the envelope
+            let type = envelope.t;
 
             // ?: Send or Request?
             if ((type === "SEND") || (type === "REQUEST")) {
+                // Add client timestamp.
+                // TODO: How necessary is this?
+                envelope.cmcts = now;
                 // If it is a REQUEST /without/ a specific Reply (client) Endpoint defined, then it is a ...
                 let requestWithPromiseCompletion = (type === "REQUEST") && (envelope.reid === undefined);
                 // Make lambda for what happens when it has been RECEIVED on server.
@@ -689,12 +691,11 @@
 
             // ----- We have an open WebSocket!
 
-            let prePipeline = [];
+            let prePipeline = undefined;
 
             // -> Yes, WebSocket is open, so send any outstanding messages
             // ?: Have we sent HELLO?
             if (!_helloSent) {
-                log("HELLO not sent, adding it to the pre-pipeline now.");
                 // -> No, HELLO not sent, so we create it now (auth is present, check above)
                 let helloMessage = {
                     t: "HELLO",
@@ -708,7 +709,7 @@
                 };
                 // ?: Have we requested a reconnect?
                 if (_sessionId !== undefined) {
-                    log("We expect session to be there [" + _sessionId + "]");
+                    log("HELLO not send, adding to pre-pipeline. HELLO:RECONNECT to MatsSocketSessionId:[" + _sessionId + "]");
                     // -> Evidently yes, so add the requested reconnect-to-sessionId.
                     helloMessage.sid = _sessionId;
                     // This implementation of MatsSocket client lib expects existing session
@@ -717,19 +718,22 @@
                     helloMessage.st = "RECONNECT";
                 } else {
                     // -> We want a new session (which is default anyway)
+                    log("HELLO not sent, adding to pre-pipeline. HELLO:NEW, we will get assigned a MatsSocketSessionId upon WELCOME.");
                     helloMessage.st = "NEW";
                 }
                 // Add the HELLO to the prePipeline
+                prePipeline = [];
                 prePipeline.unshift(helloMessage);
-                // We will now have sent the HELLO.
+                // We will now have sent the HELLO, so do not send it again.
                 _helloSent = true;
-                // .. and again, we've now sent the HELLO - thus reconnected.
+                // .. and again, we will now have sent the HELLO - If this was a RECONNECT, we have now done the immediate reconnect HELLO.
+                // (As opposed to initial connection, where we do not send before having an actual message in pipeline)
                 _reconnect_ForceSendHello = false;
             }
 
             // :: Send pre-pipeline messages, if there are any
             // (Before the HELLO is sent and sessionId is established, the max size of message is low on the server)
-            if (prePipeline.length > 0) {
+            if (prePipeline) {
                 if (that.logging) log("Flushing prePipeline of [" + prePipeline.length + "] messages.");
                 _webSocket.send(JSON.stringify(prePipeline));
                 prePipeline.length = 0;
@@ -893,6 +897,7 @@
             if ((event.code === MatsSocketCloseCodes.PROTOCOL_ERROR)
                 || (event.code === MatsSocketCloseCodes.VIOLATED_POLICY)
                 || (event.code === MatsSocketCloseCodes.CLOSE_SESSION)
+                || (event.code === MatsSocketCloseCodes.GOING_AWAY) // This one is sent by Jetty when it times out sessions.
                 || (event.code === MatsSocketCloseCodes.SESSION_LOST)) {
                 // -> One of the specific "Session is closed" CloseCodes -> Reject all outstanding, this MatsSocket is trashed.
                 log("We were closed with one of the MatsSocketCloseCode:[" + MatsSocketCloseCodes.nameFor(event.code) + "] that denotes that we should close the MatsSocketSession, reason:[" + event.reason + "].");
@@ -953,12 +958,14 @@
                         // ?: Was it a "good" RECEIVED?
                         if (envelope.st === "ACK") {
                             // -> Yes, it was "ACK" - so Server was happy.
-                            if (outstandingSendOrRequest.resolve)
+                            if (outstandingSendOrRequest.resolve) {
                                 outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
+                            }
                         } else {
                             // -> No, it was "ERROR" or "NACK", so message has not been forwarded to Mats
-                            if (outstandingSendOrRequest.reject)
+                            if (outstandingSendOrRequest.reject) {
                                 outstandingSendOrRequest.reject(eventFromEnvelope(envelope, receivedTimestamp));
+                            }
                             // ?: Check if it was a REQUEST
                             if (outstandingSendOrRequest.envelope.t === "REQUEST") {
                                 // -> Yes, this was a REQUEST
@@ -970,19 +977,30 @@
                         }
                     } else if (envelope.t === "REPLY") {
                         // -> Reply to REQUEST
-                        // It is physically possible that the REPLY comes before the RECEIVED (I've observed it!)
-                        // That could potentially be annoying for the using application (Reply before Received)..
+                        // ?: Do server want receipt, indicated by the message having 'smseq' property?
+                        if (envelope.smseq) {
+                            // -> Yes, so send RECEIVED to server
+                            that.addMessageToPipeline({
+                                t: "RECEIVED",
+                                st: "ACK",
+                                cmseq: envelope.cmseq,
+                                smseq: envelope.smseq,
+                                tid: envelope.traceId
+                            });
+                        }
+                        // It is physically possible that the REPLY comes before the RECEIVED (I've observed it!). That could potentially be annoying for the using application (Reply before Received)..
+                        // ALSO, for REPLYs that are produced in the incomingHandler, there will be no RECEIVED.
                         // Handle this by checking whether the outstandingSendOrRequest is still in place, and resolve it if so.
                         let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmseq];
                         // ?: Was the outstandingSendOrRequest still present?
                         if (outstandingSendOrRequest) {
                             // -> Yes, still present - so we delete and resolve it
                             delete _outstandingSendsAndRequests[envelope.cmseq];
-                            if (outstandingSendOrRequest.resolve)
+                            if (outstandingSendOrRequest.resolve) {
                                 outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
-                            // .. and then mark it as resolved, so that when the received comes, it won't be resolved again
-                            outstandingSendOrRequest.handled = true;
+                            }
                         }
+
                         // Complete the Promise on a REQUEST-with-Promise, or messageCallback/errorCallback on Endpoint for REQUEST-with-ReplyTo
                         _completeFuture(envelope.eid, envelope.st, envelope, receivedTimestamp);
                     }
@@ -1047,7 +1065,8 @@
     MatsSocket.prototype.send = function (endpointId, traceId, message) {
         let that = this;
         return new Promise(function (resolve, reject) {
-            that.addMessageToPipeline("SEND", {
+            that.addMessageToPipeline({
+                t: "SEND",
                 eid: endpointId,
                 tid: traceId,
                 msg: message
@@ -1070,7 +1089,8 @@
     MatsSocket.prototype.request = function (endpointId, traceId, message, receivedCallback) {
         let that = this;
         return new Promise(function (resolve, reject) {
-            that.addMessageToPipeline("REQUEST", {
+            that.addMessageToPipeline({
+                t: "REQUEST",
                 eid: endpointId,
                 tid: traceId,
                 msg: message
@@ -1094,7 +1114,8 @@
     MatsSocket.prototype.requestReplyTo = function (endpointId, traceId, message, replyToEndpointId, correlationId) {
         let that = this;
         return new Promise(function (resolve, reject) {
-            that.addMessageToPipeline("REQUEST", {
+            that.addMessageToPipeline({
+                t: "REQUEST",
                 eid: endpointId,
                 reid: replyToEndpointId,
                 cid: correlationId,

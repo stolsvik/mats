@@ -25,105 +25,113 @@ CREATE TABLE mats_socket_session
 
 CREATE TABLE mats_socket_outbox_00
 (
-    session_id       VARCHAR(255) NOT NULL, -- sessionId which this message belongs to
-    message_id       BIGINT       NOT NULL, -- random long.
-    mseq             INT          NOT NULL, -- envelope.[c|s]mseq, [Client|Server] Message Sequence, or -1 if type==MULTI
-    trace_id         ${texttype}  NOT NULL, -- what it says on the tin
-    stored_timestamp BIGINT       NOT NULL, -- millis since epoch. When the message was stored here.
-    delivery_count   INT          NOT NULL, -- Starts at zero.
-    type             VARCHAR(255) NOT NULL, -- envelope.t, i.e. "type" - or MULTI for a JSON array of messages
-    message_text     ${texttype},           --
-    message_binary   ${binarytype},
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
+    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    trace_id          ${texttype}  NOT NULL, -- what it says on the tin
+    type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_00 PRIMARY KEY (session_id, message_id)
+    CONSTRAINT PK_mats_socket_outbox_00 PRIMARY KEY (session_id, smseq)
 );
 
 CREATE TABLE mats_socket_outbox_01
 (
-    session_id       VARCHAR(255) NOT NULL, -- sessionId which this message belongs to
-    message_id       BIGINT       NOT NULL, -- random long.
-    mseq             INT          NOT NULL, -- envelope.[c|s]mseq, [Client|Server] Message Sequence, or -1 if type==MULTI
-    trace_id         ${texttype}  NOT NULL, -- what it says on the tin
-    stored_timestamp BIGINT       NOT NULL, -- millis since epoch. When the message was stored here.
-    delivery_count   INT          NOT NULL, -- Starts at zero.
-    type             VARCHAR(255) NOT NULL, -- envelope.t, i.e. "type" - or MULTI for a JSON array of messages
-    message_text     ${texttype},           --
-    message_binary   ${binarytype},
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
+    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    trace_id          ${texttype}  NOT NULL, -- what it says on the tin
+    type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_01 PRIMARY KEY (session_id, message_id)
+    CONSTRAINT PK_mats_socket_outbox_01 PRIMARY KEY (session_id, smseq)
 );
+
 
 CREATE TABLE mats_socket_outbox_02
 (
-    session_id       VARCHAR(255) NOT NULL, -- sessionId which this message belongs to
-    message_id       BIGINT       NOT NULL, -- random long.
-    mseq             INT          NOT NULL, -- envelope.[c|s]mseq, [Client|Server] Message Sequence, or -1 if type==MULTI
-    trace_id         ${texttype}  NOT NULL, -- what it says on the tin
-    stored_timestamp BIGINT       NOT NULL, -- millis since epoch. When the message was stored here.
-    delivery_count   INT          NOT NULL, -- Starts at zero.
-    type             VARCHAR(255) NOT NULL, -- envelope.t, i.e. "type" - or MULTI for a JSON array of messages
-    message_text     ${texttype},           --
-    message_binary   ${binarytype},
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
+    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    trace_id          ${texttype}  NOT NULL, -- what it says on the tin
+    type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_02 PRIMARY KEY (session_id, message_id)
+    CONSTRAINT PK_mats_socket_outbox_02 PRIMARY KEY (session_id, smseq)
 );
 
 CREATE TABLE mats_socket_outbox_03
 (
-    session_id       VARCHAR(255) NOT NULL, -- sessionId which this message belongs to
-    message_id       BIGINT       NOT NULL, -- random long.
-    mseq             INT          NOT NULL, -- envelope.[c|s]mseq, [Client|Server] Message Sequence, or -1 if type==MULTI
-    trace_id         ${texttype}  NOT NULL, -- what it says on the tin
-    stored_timestamp BIGINT       NOT NULL, -- millis since epoch. When the message was stored here.
-    delivery_count   INT          NOT NULL, -- Starts at zero.
-    type             VARCHAR(255) NOT NULL, -- envelope.t, i.e. "type" - or MULTI for a JSON array of messages
-    message_text     ${texttype},           --
-    message_binary   ${binarytype},
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
+    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    trace_id          ${texttype}  NOT NULL, -- what it says on the tin
+    type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_03 PRIMARY KEY (session_id, message_id)
+    CONSTRAINT PK_mats_socket_outbox_03 PRIMARY KEY (session_id, smseq)
 );
 
 CREATE TABLE mats_socket_outbox_04
 (
-    session_id       VARCHAR(255) NOT NULL, -- sessionId which this message belongs to
-    message_id       BIGINT       NOT NULL, -- random long.
-    mseq             INT          NOT NULL, -- envelope.[c|s]mseq, [Client|Server] Message Sequence, or -1 if type==MULTI
-    trace_id         ${texttype}  NOT NULL, -- what it says on the tin
-    stored_timestamp BIGINT       NOT NULL, -- millis since epoch. When the message was stored here.
-    delivery_count   INT          NOT NULL, -- Starts at zero.
-    type             VARCHAR(255) NOT NULL, -- envelope.t, i.e. "type" - or MULTI for a JSON array of messages
-    message_text     ${texttype},           --
-    message_binary   ${binarytype},
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
+    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    trace_id          ${texttype}  NOT NULL, -- what it says on the tin
+    type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_04 PRIMARY KEY (session_id, message_id)
+    CONSTRAINT PK_mats_socket_outbox_04 PRIMARY KEY (session_id, smseq)
 );
 
 CREATE TABLE mats_socket_outbox_05
 (
-    session_id       VARCHAR(255) NOT NULL, -- sessionId which this message belongs to
-    message_id       BIGINT       NOT NULL, -- random long.
-    mseq             INT          NOT NULL, -- envelope.[c|s]mseq, [Client|Server] Message Sequence, or -1 if type==MULTI
-    trace_id         ${texttype}  NOT NULL, -- what it says on the tin
-    stored_timestamp BIGINT       NOT NULL, -- millis since epoch. When the message was stored here.
-    delivery_count   INT          NOT NULL, -- Starts at zero.
-    type             VARCHAR(255) NOT NULL, -- envelope.t, i.e. "type" - or MULTI for a JSON array of messages
-    message_text     ${texttype},           --
-    message_binary   ${binarytype},
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
+    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    trace_id          ${texttype}  NOT NULL, -- what it says on the tin
+    type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_05 PRIMARY KEY (session_id, message_id)
+    CONSTRAINT PK_mats_socket_outbox_05 PRIMARY KEY (session_id, smseq)
 );
 
 CREATE TABLE mats_socket_outbox_06
 (
-    session_id       VARCHAR(255) NOT NULL, -- sessionId which this message belongs to
-    message_id       BIGINT       NOT NULL, -- random long.
-    mseq             INT          NOT NULL, -- envelope.[c|s]mseq, [Client|Server] Message Sequence, or -1 if type==MULTI
-    trace_id         ${texttype}  NOT NULL, -- what it says on the tin
-    stored_timestamp BIGINT       NOT NULL, -- millis since epoch. When the message was stored here.
-    delivery_count   INT          NOT NULL, -- Starts at zero.
-    type             VARCHAR(255) NOT NULL, -- envelope.t, i.e. "type" - or MULTI for a JSON array of messages
-    message_text     ${texttype},           --
-    message_binary   ${binarytype},
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
+    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    trace_id          ${texttype}  NOT NULL, -- what it says on the tin
+    type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_06 PRIMARY KEY (session_id, message_id)
+    CONSTRAINT PK_mats_socket_outbox_06 PRIMARY KEY (session_id, smseq)
 );

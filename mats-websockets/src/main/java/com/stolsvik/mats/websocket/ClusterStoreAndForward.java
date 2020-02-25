@@ -138,9 +138,11 @@ public interface ClusterStoreAndForward {
      *            the matsSocketSessionId that the message is meant for.
      * @param maxNumberOfMessages
      *            the maximum number of messages to fetch.
+     * @param takeAlreadyAttempted
+     *            if <code>true</code>, instead of excluding already attempted message, now only pick these.
      * @return a list of json encoded messages destined for the WebSocket.
      */
-    List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages)
+    List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages, boolean takeAlreadyAttempted)
             throws DataAccessException;
 
     /**
@@ -161,7 +163,7 @@ public interface ClusterStoreAndForward {
      * @param messageIds
      *            which messages failed delivery.
      */
-    void messagesIncreaseDeliveryCount(String matsSocketSessionId, Collection<Long> messageIds)
+    void messagesAttemptedDelivery(String matsSocketSessionId, Collection<Long> messageIds)
             throws DataAccessException;
 
     /**
@@ -289,50 +291,64 @@ public interface ClusterStoreAndForward {
     }
 
     interface StoredMessage {
-        long getId();
+        String getMatsSocketSessionId();
 
-        int getDeliveryCount();
+        long getServerMessageSequence();
+
+        Optional<Long> getClientMessageSequence();
 
         long getStoredTimestamp();
 
-        String getType();
+        Optional<Long> getAttemptTimestamp();
+
+        int getDeliveryCount();
 
         String getTraceId();
 
-        long getMessageSequence();
+        String getType();
 
         String getEnvelopeJson();
     }
 
     class SimpleStoredMessage implements StoredMessage {
-        private final long _id;
-        private final int _deliveryCount;
+        private final String _matsSocketSessionId;
+        private final long _serverMessageSequence;
+        private final Long _clientMessageSequence;
         private final long _storedTimestamp;
+        private final Long _attemptTimestamp;
+        private final int _deliveryCount;
 
-        private final String _type;
         private final String _traceId;
-        private final long _messageSequence;
+        private final String _type;
         private final String _envelopeJson;
 
-        public SimpleStoredMessage(long id, int deliveryCount, long storedTimestamp, String type, String traceId,
-                long messageSequence, String envelopeJson) {
-            _id = id;
-            _deliveryCount = deliveryCount;
+        public SimpleStoredMessage(String matsSocketSessionId, long serverMessageSequence, Long clientMessageSequence,
+                long storedTimestamp, Long attemptTimestamp, int deliveryCount, String traceId, String type,
+                String envelopeJson) {
+            _matsSocketSessionId = matsSocketSessionId;
+            _serverMessageSequence = serverMessageSequence;
+            _clientMessageSequence = clientMessageSequence;
             _storedTimestamp = storedTimestamp;
-            _type = type;
+            _attemptTimestamp = attemptTimestamp;
+            _deliveryCount = deliveryCount;
             _traceId = traceId;
-            _messageSequence = messageSequence;
+            _type = type;
             _envelopeJson = envelopeJson;
         }
 
         @Override
-        public long getId() {
-            return _id;
+        public String getMatsSocketSessionId() {
+            return _matsSocketSessionId;
         }
 
         @Override
-        public int getDeliveryCount() {
-            return _deliveryCount;
+        public long getServerMessageSequence() {
+            return _serverMessageSequence;
+        }
+
+        @Override
+        public Optional<Long> getClientMessageSequence() {
+            return Optional.ofNullable(_clientMessageSequence);
         }
 
         @Override
@@ -341,8 +357,13 @@ public interface ClusterStoreAndForward {
         }
 
         @Override
-        public String getType() {
-            return _type;
+        public Optional<Long> getAttemptTimestamp() {
+            return Optional.ofNullable(_attemptTimestamp);
+        }
+
+        @Override
+        public int getDeliveryCount() {
+            return _deliveryCount;
         }
 
         @Override
@@ -351,8 +372,8 @@ public interface ClusterStoreAndForward {
         }
 
         @Override
-        public long getMessageSequence() {
-            return _messageSequence;
+        public String getType() {
+            return _type;
         }
 
         @Override

@@ -145,7 +145,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     List<StoredMessage> messagesToDeliver;
                     try {
                         messagesToDeliver = _clusterStoreAndForward
-                                .getMessagesForSession(matsSocketSessionId, 20);
+                                .getMessagesForSession(matsSocketSessionId, 20, false);
                     }
                     catch (DataAccessException e) {
                         log.warn("Got problems when trying to load messages from CSAF."
@@ -179,7 +179,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                     // :: Get the MessageIds to deliver (as List, for CSAF) and TraceIds (as String, for logging)
                     List<Long> messageIds = messagesToDeliver.stream()
-                            .map(StoredMessage::getId)
+                            .map(StoredMessage::getServerMessageSequence)
                             .collect(Collectors.toList());
                     String traceIds = messagesToDeliver.stream()
                             .map(StoredMessage::getTraceId)
@@ -204,7 +204,9 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                 buf.append(',');
                             }
                             String json = storedMessage.getEnvelopeJson();
-                            // :: Replace in the sent timestamp and this node's nodename.
+                            // :: Replace in smseq, sent timestamp and this node's nodename.
+                            json = DefaultMatsSocketServer.REPLACE_SMSEQ_REGEX.matcher(json)
+                                    .replaceFirst(Long.toString(storedMessage.getServerMessageSequence()));
                             json = DefaultMatsSocketServer.REPLACE_VALUE_TIMESTAMP_REGEX.matcher(json)
                                     .replaceFirst(nowString);
                             json = DefaultMatsSocketServer.REPLACE_VALUE_REPLY_NODENAME_REGEX.matcher(json)
@@ -220,10 +222,10 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // :: Mark as complete (i.e. delete them).
                         long nanos_start_MarkComplete = System.nanoTime();
                         try {
-                            _clusterStoreAndForward.messagesComplete(matsSocketSessionId, messageIds);
+                            _clusterStoreAndForward.messagesAttemptedDelivery(matsSocketSessionId, messageIds);
                         }
                         catch (DataAccessException e) {
-                            log.warn("Got problems when trying to invoke 'messagesComplete' on CSAF for "
+                            log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
                                     + messagesToDeliver.size() + " message(s) with TraceIds [" + traceIds
                                     + "]. Bailing out, hoping for self-healer process to figure it out.", e);
                             // Bail out
@@ -235,8 +237,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                         log.info("Finished sending " + messagesToDeliver.size() + " message(s) with TraceIds ["
                                 + traceIds + "] to [" + matsSocketMessageHandler + "], get-from-CSAF took ["
-                                + millisGetMessages + "ms], send over websocket took:[" + millisSendMessages + "ms],"
-                                + " mark-complete-in-CSAF took [" + millisMarkComplete + "].");
+                                + millisGetMessages + " ms], send over websocket took:[" + millisSendMessages + " ms],"
+                                + " mark-complete-in-CSAF took [" + millisMarkComplete + " ms].");
 
                         // Loop to check if empty of messages.
                         continue;
@@ -250,10 +252,10 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                         // :: Increase delivery count
                         try {
-                            _clusterStoreAndForward.messagesIncreaseDeliveryCount(matsSocketSessionId, messageIds);
+                            _clusterStoreAndForward.messagesAttemptedDelivery(matsSocketSessionId, messageIds);
                         }
                         catch (DataAccessException e) {
-                            log.warn("Got problems when trying to invoke 'messagesIncreaseDeliveryCount' on CSAF for "
+                            log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
                                     + messagesToDeliver.size() + " message(s) with TraceIds [" + traceIds
                                     + "]. Bailing out, hoping for self-healer process to figure it out.", e);
                             // Bail out

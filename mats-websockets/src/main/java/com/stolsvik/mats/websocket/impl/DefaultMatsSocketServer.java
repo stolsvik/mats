@@ -283,7 +283,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 ReplyHandleStateDto.class, MatsObject.class, this::mats_replyHandler);
 
         // Register node control endpoint (node-specific)
-        matsFactory.terminator(terminatorId_NodeControl_ForNode(getMyNodename()),
+        matsFactory.subscriptionTerminator(terminatorId_NodeControl_ForNode(getMyNodename()),
                 NodeControlStateDto.class, MatsObject.class, this::mats_nodeControl);
 
         // Register our Forward to WebSocket handler (node-specific).
@@ -380,7 +380,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                             .traceId("MatsSocket.internal.outOfBandSessionClose[" + matsSocketSessionId + "]" + rnd(5))
                             .from(MATS_EP_PREFIX + ".internal.outOfBandSessionClose")
                             .to(terminatorId_NodeControl_ForNode(currentNode.get().getNodename()))
-                            .send(new NodeControl_CloseSessionDto(matsSocketSessionId), new NodeControlStateDto(
+                            .publish(new NodeControl_CloseSessionDto(matsSocketSessionId), new NodeControlStateDto(
                                     NodeControlStateDto.CLOSE_SESSION)));
                     return;
                 }
@@ -414,7 +414,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     .traceId("MatsSocket.internal.webSocketClose[" + matsSocketSessionId + "]" + rnd(5))
                     .from(MATS_EP_PREFIX + ".internal.outOfBandSessionClose")
                     .to(terminatorId_NodeControl_ForNode(currentNode.getNodename()))
-                    .send(new NodeControl_CloseWebSocketDto(matsSocketSessionId, currentNode.getConnectionId()),
+                    .publish(new NodeControl_CloseWebSocketDto(matsSocketSessionId, currentNode.getConnectionId()),
                             new NodeControlStateDto(NodeControlStateDto.CLOSE_WEBSOCKET)));
         }
         catch (MatsBackendException | MatsMessageSendException e) {
@@ -568,7 +568,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                             ? "no MatsSocketSession"
                             : _matsSocketMessageHandler.getId())
                     + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this),
-                    new Exception("onError-handler", thr));
+                    new Exception("webSocket.onError-handler", thr));
         }
 
         @Override
@@ -588,8 +588,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                         _matsSocketMessageHandler.getConnectionId());
                 try {
                     // ?: Did the client want to actually Close Session?
-                    if ((MatsSocketCloseCodes.GOING_AWAY == closeReason.getCloseCode())
-                            || (MatsSocketCloseCodes.CLOSE_SESSION == closeReason.getCloseCode())) {
+                    // NOTE: Need to check by the 'code' integers, since no real enum (CloseCode is an interface).
+                    if ((MatsSocketCloseCodes.GOING_AWAY.getCode() == closeReason.getCloseCode().getCode())
+                            || (MatsSocketCloseCodes.CLOSE_SESSION.getCode() == closeReason.getCloseCode().getCode())) {
                         // -> Yes, this was a "CLOSE_SESSION" (or alternatively "GOING AWAY"), which means that client
                         // wants the session to actually be gone.
                         log.info("Client explicitly Closed MatsSocketSession with CloseCode ["
@@ -887,6 +888,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     static final Pattern REPLACE_VALUE_TIMESTAMP_REGEX = Pattern.compile(
             Long.toString(REPLACE_VALUE_TIMESTAMP), Pattern.LITERAL);
 
+    static final long REPLACE_SMSEQ = 2_945_608_518_157_027_723L;
+    static final String REPLACE_SMSEQ_STRING = Long.toString(REPLACE_SMSEQ);
+    static final Pattern REPLACE_SMSEQ_REGEX = Pattern.compile(REPLACE_SMSEQ_STRING, Pattern.LITERAL);
+
     /**
      * A "random" String made manually by hammering a little on the keyboard, and trying to find a very implausible
      * string. This will be string-replaced by the sending hostname on the WebSocket-forward side. Must not include
@@ -939,6 +944,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         // Create Envelope
         msReplyEnvelope.eid = state.ms_reid;
         msReplyEnvelope.cid = state.cid;
+        msReplyEnvelope.smseq = REPLACE_SMSEQ_STRING;  // Server Message Sequence (not yet determined, get in CSAF)
         msReplyEnvelope.cmseq = state.cmseq;
         msReplyEnvelope.tid = processContext.getTraceId(); // TODO: Chop off last ":xyz", as that is added serverside.
         msReplyEnvelope.cmcts = state.cmcts;

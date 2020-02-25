@@ -129,7 +129,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             // ?: Are we closed?
             if (_closed) {
                 // -> Yes, so ignore message.
-                log.info("WebSocket received message on CLOSED MatsSocketSessionId [" + _matsSocketSessionId
+                log.info("WebSocket received message for CLOSED MatsSocketSessionId [" + _matsSocketSessionId
                         + "], connectionId:[" + _connectionId + "], this:"
                         + DefaultMatsSocketServer.id(this) + "], ignoring, msg: " + message);
                 return;
@@ -137,17 +137,18 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
             // E-> Not closed, process message (with envelope(s)).
 
-            log.info("WebSocket received message on MatsSocketSessionId [" + _matsSocketSessionId
+            log.info("WebSocket received message for MatsSocketSessionId [" + _matsSocketSessionId
                     + "], connectionId:[" + _connectionId + "], this:"
                     + DefaultMatsSocketServer.id(this));
 
+            // :: Parse the message into MatsSocket envelopes
             List<MatsSocketEnvelopeDto> envelopes;
             try {
                 envelopes = _envelopeListObjectReader.readValue(message);
             }
             catch (IOException e) {
                 log.error("Could not parse WebSocket message into MatsSocket envelope(s).", e);
-                closeWithPolicyViolation("Could not parse message into MatsSocket envelope(s)");
+                closeWithProtocolError("Could not parse message into MatsSocket envelope(s)");
                 return;
             }
 
@@ -223,6 +224,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 return;
             }
 
+            List<Long> messagesReceived = null;
+
             // :: 6. Now go through and handle all the rest of the messages
             List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
             for (MatsSocketEnvelopeDto envelope : envelopes) {
@@ -247,6 +250,20 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // ?: Is this a SEND or REQUEST?
                     else if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t)) {
                         handleSendOrRequest(clientMessageReceivedTimestamp, replyEnvelopes, envelope);
+                        // The message is handled, so go to next message.
+                        continue;
+                    }
+
+                    // ?: Is this a RECEIVED for a message from us?
+                    else if ("RECEIVED".equals(envelope.t)) {
+                        if (messagesReceived == null) {
+                            messagesReceived = new ArrayList<>();
+                        }
+                        if (envelope.smseq == null) {
+                            closeWithProtocolError("Received RECEIVED message with missing 'smseq.");
+                            return;
+                        }
+                        messagesReceived.add(Long.parseLong(envelope.smseq));
                         // The message is handled, so go to next message.
                         continue;
                     }
@@ -293,6 +310,18 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             if (shouldNotifyAboutExistingMessages) {
                 // -> Yes, so do it now.
                 _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
+            }
+
+            // ?: Did we get any RECEIVED?
+            if (messagesReceived != null) {
+                log.debug("Got RECEIVED for messages "+messagesReceived+".");
+                try {
+                    _matsSocketServer.getClusterStoreAndForward().messagesComplete(_matsSocketSessionId, messagesReceived);
+                }
+                catch (DataAccessException e) {
+                    // TODO: Make self-healer thingy.
+                    log.warn("Got problems when trying to mark messages as complete. Ignoring, hoping for miracles.");
+                }
             }
         }
         finally {

@@ -78,7 +78,7 @@ public class MatsTestWebsocketServer {
             MatsSerializer_DefaultJson matsSerializer = new MatsSerializer_DefaultJson();
             // Create the MatsFactory
             _matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
-                    this.getClass().getSimpleName(), "*testing*",
+                    MatsTestWebsocketServer.class.getSimpleName(), "*testing*",
                     new JmsMatsJmsSessionHandler_Pooling((s) -> connectionFactory.createConnection()),
                     matsSerializer);
             // Configure the MatsFactory for testing (remember, we're running two instances in same JVM)
