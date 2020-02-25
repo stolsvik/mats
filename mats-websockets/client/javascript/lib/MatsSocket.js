@@ -15,23 +15,29 @@
     // MatsSocketCloseCodes enum, directly from MatsSocketServer.java
     const MatsSocketCloseCodes = Object.freeze({
         /**
+         * Standard code 1002 - From Server side, REJECT all outstanding: used for when the client does not observe the
+         * protocol.
+         */
+        PROTOCOL_ERROR: 1002,
+
+        /**
          * Standard code 1008 - From Server side, REJECT all outstanding: used for when the client does not behave as we
          * expect, most typically wrt. authentication or otherwise does not observe the protocol.
          */
-        "VIOLATED_POLICY": 1008,
+        VIOLATED_POLICY: 1008,
 
         /**
          * Standard code 1011 - From Server side, REISSUE all outstanding upon reconnect: used when the server cannot
          * talk to the underlying systems (DB or MQ). This should be a temporary situation, so doing periodic
          * re-connects would be correct.
          */
-        "UNEXPECTED_CONDITION": 1011,
+        UNEXPECTED_CONDITION: 1011,
 
         /**
          * Standard code 1012 - From Server side, REISSUE all outstanding upon reconnect: used when
          * {@link MatsSocketServer#stop(int)} is invoked. Please reconnect.
          */
-        "SERVICE_RESTART": 1012,
+        SERVICE_RESTART: 1012,
 
         /**
          * Standard code 1001 - From Client/Browser side, client should have REJECTed all outstanding: Synonym for
@@ -41,29 +47,42 @@
          * when the user navigates away and the library or application does not catch it, we'd want to catch this as a
          * Close Session.
          */
-        "GOING_AWAY": 1001,
+        GOING_AWAY: 1001,
 
         /**
-         * 4000: From Client/Browser side, client should have REJECTed all outstanding: Used when the browser closes
-         * WebSocket "on purpose", wanting to close the session - typically when the user explicitly logs out, or
-         * navigates away from web page. All traces of the MatsSocketSession are effectively deleted from the server,
-         * including any undelivered replies and messages ("push") from server.
+         * 4000: Both from Server side and Client/Browser side, client should REJECTed all outstanding:
+         * <ul>
+         * <li>From Browser: Used when the browser closes WebSocket "on purpose", wanting to close the session -
+         * typically when the user explicitly logs out, or navigates away from web page. All traces of the
+         * MatsSocketSession are effectively deleted from the server, including any undelivered replies and messages
+         * ("push") from server.</li>
+         * <li>From Server: {@link MatsSocketServer#closeSession(String)} was invoked, and the WebSocket to that client
+         * was still open, so we close it.</li>
+         * </ul>
          */
-        "CLOSE_SESSION": 4000,
+        CLOSE_SESSION: 4000,
 
         /**
-         * 4001: From Server side, REJECT all outstanding: {@link MatsSocketServer#closeSession(String)} was invoked, and
-         * the WebSocket to that client was still open, so we close it. The client should reject all outstanding
-         * Promises, Futures and Acks.
+         * 4001: From Server side, REJECT all outstanding: A HELLO:RECONNECT was attempted, but the session was gone.
          */
-        "FORCED_SESSION_CLOSE": 4001,
+        SESSION_LOST: 4001,
 
         /**
          * 4002: From Server side, REISSUE all outstanding upon reconnect: We ask that the client reconnects. This gets
          * us a clean state and in particular new authentication (In case of using OAuth/OIDC tokens, the client is
          * expected to fetch a fresh token from token server).
          */
-        "RECONNECT": 4002
+        RECONNECT: 4002,
+
+        nameFor: function (closeCode) {
+            let keys = Object.keys(MatsSocketCloseCodes).filter(function (key) {
+                return MatsSocketCloseCodes[key] === closeCode
+            });
+            if (keys.length === 1) {
+                return keys[0];
+            }
+            return "UNKNOWN(" + closeCode + ")";
+        }
     });
 
     function MatsSocket(appName, appVersion, urls, socketFactory) {
@@ -120,66 +139,50 @@
         this.outofbandclose = undefined;
 
         /**
-         * Only set this if you explicitly want to continue a previous Session. In an SPA where the MatsSocket is
-         * instantiated upon "boot" of the SPA, you probably do not want to set this, as you rather want the new Session
-         * provided by the server. You cannot invent a SessionId, it will always originate from the server - this facility
-         * is to reconnect to an existing Session that was lost. Note: In case of connection failures, the MatsSocket will
-         * reconnect on its own.
+         * Invoked when the server kicks us off the socket and the session is closed due to "policy violations", of which there is a multitude, most
+         * revolving about protocol not being followed, or the authentication is invalid when being evaluated on the server. No such policy violations
+         * should happen if this client is used properly - the only conceivable is that a pipeline took more time to send over to the server
+         * than there was left before the authorization expired (i.e. 'roomForLatency' is set too small, compared to the available bandwidth
+         * to send the messages in the pipeline).
+         * <p/>
+         * Note that the MatsSocket session is as closed as if you
+         * invoked {@link MatsSocket#close()} on it: Before the supplied event listener function is invoked, all outstanding
+         * send/requests are rejected, all request Promises are rejected, and the MatsSocket object is as if just constructed and configured.
+         * You may "boot it up again" by sending a new message where you then will get a new MatsSocket Session. However, you should consider restarting the application if this happens, or otherwise "reboot" it
+         * by gathering data. Remember that any outstanding "addOrder" request's Promise will now have been rejected - and you don't really know whether
+         * the order was placed or not. On the received event, there will be a number detailing the number of outstanding send/requests and Promises that
+         * was rejected - if this is zero, you should actually be in sync, and can consider just "act as if nothing happened" - by sending
+         * a new message and thus get a new MatsSocket Session going.
          *
-         * @param sessionId the SessionId of the Session that you expect to be still living on the server.
+         * @param authorizationRevokedCallback
          */
-        this.setSessionId = function (sessionId) {
-            _sessionId = sessionId;
+        this.addSessionClosedListener = function (authorizationRevokedCallback) {
+            // TODO: implement;
         };
 
         /**
-         * Sets an authorization String, which for several types of authorization must be invoked on a regular basis with
-         * fresh authorization - this holds for a OIDC-type system where an access token will expire within a short time
-         * frame (e.g. expires within minutes). For an Oauth2-style authorization scheme, this could be "Bearer: ......".
-         * This must correspond to what the server side authorization plugin expects.
-         * <p />
-         * <b>NOTE: This SHOULD NOT be used to CHANGE the user!</b> It should only refresh an existing authorization for the
-         * initially authenticated user. One MatsSocket (Session) should only be used by a single user: If changing
-         * user, you should ditch the existing MatsSocket (preferably invoking 'shutdown' to close the session properly
-         * on the server side too), and make a new MatsSocket thus getting a new Session.
-         * <p />
-         * Note: If the underlying WebSocket has not been established and HELLO sent, then invoking this method will do
-         * that.
+         * If a re-connect results in a "NEW" Session - not "RECONNECTED" - the registered function will be invoked. This
+         * could happen if you e.g. close the lid of a laptop with a webapp running. When you wake it up again,
+         * it will start reconnecting to the MatsSocket. Depending on the time slept, you will then get a
+         * RECONNECTED if it was within the Session timeout on the server, or NEW if the Session has expired.
+         * If NEW, you might want to basically reload the entire webapp - or at least reset the state to as if just booted.
          *
-         * @param authorization the authorization String which will be resolved to a Principal on the server side by the
-         * authorization plugin (and which potentially also will be forwarded to other resources that requires
-         * authorization).
-         * @param expirationTimeMillisSinceEpoch the millis-since-epoch at which this authorization (e.g. JWT access
-         * token) expires. Undefined or -1 means "never expires". <i>Notice that in a JWT token, the expiration time is in
-         * seconds, not millis: Multiply by 1000.</i>
-         * @param roomForLatencyMillis the number of millis which is subtracted from the 'expirationTimeMillisSinceEpoch' to
-         * find the point in time where the MatsSocket will "refuse to use" the authorization and instead invoke the
-         * 'authorizationExpiredCallback' and wait for a new authorization being set by invocation of this method.
-         * Depending on what the usage of the authorization is on server side is, this should probably at least be 10000,
-         * i.e. 10 seconds.
+         * TODO: Just special case of ConnectionEventListener?
+         *
+         * TODO: The SessionLost mechanism on the server side is wrong! We should not reject the NEW requests, only inform that the old ones are dead.
+         *
+         * @param {function} sessionLostCallback function that will be invoked if we lost session on server side.
          */
-        this.setCurrentAuthorization = function (authorization, expirationTimeMillisSinceEpoch, roomForLatencyMillis) {
-            _authorization = authorization;
-            _expirationTimeMillisSinceEpoch = expirationTimeMillisSinceEpoch;
-            _roomForLatencyMillis = roomForLatencyMillis;
-            _sendAuthorizationToServer = true;
-            _authExpiredCallbackInvoked = false;
-
-            log("Got Authorization with expirationTimeMillisSinceEpoch: " + expirationTimeMillisSinceEpoch + "," +
-                "roomForLatencyMillis: " + roomForLatencyMillis, authorization);
-
-            // Evaluate whether there are stuff in the pipeline that should be sent now.
-            // (Not-yet-sent HELLO does not count..)
-            evaluatePipelineSend();
+        this.addSessionLostListener = function (sessionLostListener) {
+            // TODO: Implement
         };
 
         /**
          * If this MatsSockets client realizes that the 'expirationTime' of the authorization has passed when about to send
-         * a message (except PINGs, which do not need fresh auth), it will invoke this callback function. A new
-         * authorization must then be provided by invoking the 'setCurrentAuthorization' function - only when this is
-         * invoked, the MatsSocket will send messages. The MatsSocket will stack up any messages that are sent while waiting
-         * for new authorization, and send them all at once once the authorization is in (i.e. it'll "pipeline" the
-         * messages).
+         * a message, it will invoke this callback function. A new authorization must then be provided by invoking the
+         * 'setCurrentAuthorization' function - only when this is invoked, the MatsSocket will send messages. The
+         * MatsSocket will stack up any messages that are sent while waiting for new authorization, and send them all at
+         * once when the authorization is in (i.e. it'll pipeline the messages).
          *
          * @param {function} authorizationExpiredCallback function which will be invoked if the current time is more than
          * 'expirationTimeMillisSinceEpoch - roomForLatencyMillis' of the last invocation of 'setCurrentAuthorization' when
@@ -194,16 +197,45 @@
         };
 
         /**
-         * Invoked when the server kicks us off the socket due to authorization no longer being valid (e.g. logged out via
-         * different channel, e.g. HTTP, or otherwise doing revocation). The Socket will then be closed. Invoking
-         * setCurrentAuthorization will again open it, sending all pipelined messages.
+         * Sets an authorization String, which for several types of authorization must be invoked on a regular basis with
+         * fresh authorization - this holds for a OAuth/OIDC-type system where an access token will expire within a short time
+         * frame (e.g. expires within minutes). For an Oauth2-style authorization scheme, this could be "Bearer: ......".
+         * This must correspond to what the server side authorization plugin expects.
+         * <p />
+         * <b>NOTE: This SHOULD NOT be used to CHANGE the user!</b> It should only refresh an existing authorization for the
+         * initially authenticated user. One MatsSocket (Session) should only be used by a single user: If changing
+         * user, you should ditch the existing MatsSocket (preferably invoking 'shutdown' to close the session properly
+         * on the server side too), and make a new MatsSocket thus getting a new Session.
+         * <p />
+         * Note: If the underlying WebSocket has not been established and HELLO sent, then invoking this method will NOT
+         * do that - only the first actual MatsSocket message will start the WebSocket and do HELLO.
          *
-         * TODO: Just a special case of AuthorizationExpiredCallback?! "AuthorizationInvalidCallback" as generic term?
-         *
-         * @param authorizationRevokedCallback
+         * @param authorization the authorization String which will be resolved to a Principal on the server side by the
+         * authorization plugin (and which potentially also will be forwarded to other resources that requires
+         * authorization).
+         * @param expirationTimeMillisSinceEpoch the millis-since-epoch at which this authorization (e.g. JWT access
+         * token) expires. Undefined or -1 means "never expires". <i>Notice that in a JWT token, the expiration time is in
+         * seconds, not millis: Multiply by 1000.</i>
+         * @param roomForLatencyMillis the number of millis which is subtracted from the 'expirationTimeMillisSinceEpoch' to
+         * find the point in time where the MatsSocket will "refuse to use" the authorization and instead invoke the
+         * 'authorizationExpiredCallback' and wait for a new authorization being set by invocation of this method.
+         * Depending on what the usage of the Authorization string is on server side is, this should probably <b>at least</b> be 10000,
+         * i.e. 10 seconds - but if the Mats endpoints uses the Authorization string do further accesses, latency and
+         * queueing must be taken into account (e.g. for calling into another API that also needs a valid token).
          */
-        this.setAuthorizationRevokedCallback = function (authorizationRevokedCallback) {
-            // TODO: implement;
+        this.setCurrentAuthorization = function (authorization, expirationTimeMillisSinceEpoch, roomForLatencyMillis) {
+            _authorization = authorization;
+            _expirationTimeMillisSinceEpoch = expirationTimeMillisSinceEpoch;
+            _roomForLatencyMillis = roomForLatencyMillis;
+            _sendAuthorizationToServer = true;
+            _authExpiredCallbackInvoked = false;
+
+            log("Got Authorization with expirationTimeMillisSinceEpoch: " + expirationTimeMillisSinceEpoch + "," +
+                "roomForLatencyMillis: " + roomForLatencyMillis, authorization);
+
+            // Evaluate whether there are stuff in the pipeline that should be sent now.
+            // (Not-yet-sent HELLO does not count..)
+            evaluatePipelineSend();
         };
 
         /**
@@ -229,21 +261,6 @@
          */
         this.getLastMessageEnqueuedTimestamp = function () {
             return _lastMessageEnqueuedMillis;
-        };
-
-        /**
-         * If a reconnect results in a "NEW" Session - not "RECONNECTED" - the registered function will be invoked. This
-         * could happen if you e.g. close the lid of a laptop with a webapp running. When you wake it up again,
-         * it will start reconnecting to the MatsSocket. Depending on the time slept, you will then get a
-         * RECONNECTED if it was within the Session timeout on the server, or NEW if the Session has expired.
-         * If NEW, you might want to basically reload the entire webapp - or at least reset the state to as if just booted.
-         *
-         * TODO: Just special case of ConnectionEventListener?
-         *
-         * @param {function} sessionLostCallback function that will be invoked if we lost session on server side.
-         */
-        this.addSessionLostListener = function (sessionLostListener) {
-            // TODO: Implement
         };
 
         /**
@@ -376,23 +393,18 @@
             // Fetch properties we need before clearing state
             let currentWsUrl = currentWebSocketUrl();
             let existingSessionId = _sessionId;
-            let websocket = _websocket;
+            let webSocket = _webSocket;
             log("close(): Closing MatsSocketSession, id:[" + existingSessionId + "] due to [" + reason
-                + "], currently connected: [" + (_websocket ? _websocket.url : "not connected") + "]");
+                + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
 
-            // :: In-band session close
-            // ?: Do we have WebSocket?
-            if (websocket) {
-                // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
-                log(" \\-> WebSocket is open, so we close it with MatsSocketCloseCode CLOSE_SESSION (" + MatsSocketCloseCodes.CLOSE_SESSION + ").");
-                // Perform the close
-                websocket.close(MatsSocketCloseCodes.CLOSE_SESSION, reason);
-            } else {
-                log(" \\-> WebSocket NOT open, so CANNOT close it with with MatsSocketCloseCode CLOSE_SESSION (" + MatsSocketCloseCodes.CLOSE_SESSION + ").");
-            }
+            // :: Remove beforeunload eventlistener
+            deregisterBeforeunload();
 
             // :: Clear all state of this MatsSocket.
             clearStateAndPipelineAndFuturesAndOutstandingMessages("client close session");
+
+            // :: In-band session close
+            closeWebSocket(webSocket, existingSessionId, MatsSocketCloseCodes.CLOSE_SESSION, "client close session");
 
             // :: Out-of-band session close
             // ?: Do we have a sessionId?
@@ -428,17 +440,24 @@
          */
         this.reconnect = function (reason) {
             log("reconnect(): Closing WebSocket with CloseCode 'RECONNECT (" + MatsSocketCloseCodes.RECONNECT
-                + ")', id:[" + _sessionId + "] due to [" + reason + "], currently connected: [" + (_websocket ? _websocket.url : "not connected") + "]");
-            // ?: Do we have WebSocket?
-            if (_websocket) {
-                // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
-                log(" \\-> WebSocket is open, so we close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).");
-                // Perform the close
-                _websocket.close(MatsSocketCloseCodes.RECONNECT, reason);
-            } else {
-                log(" \\-> WebSocket NOT open, so CANNOT close it with MatsSocket-specific CloseCode CLOSE_SESSION (4000).");
-            }
+                + ")', MatsSocketSessionId:[" + _sessionId + "] due to [" + reason + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
+            closeWebSocket(_webSocket, _sessionId, MatsSocketCloseCodes.RECONNECT, "client close session");
         };
+
+        function closeWebSocket(webSocket, sessionId, closeCodeNumber, reason) {
+            // ?: Do we have WebSocket?
+            let closeCodeName = MatsSocketCloseCodes.nameFor(closeCodeNumber);
+            if (webSocket) {
+                // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
+                log(" \\-> WebSocket is open, so we close it with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
+                // Perform the close
+                webSocket.close(closeCodeNumber, reason);
+            } else if (sessionId) {
+                log(" \\-> WebSocket NOT open, so CANNOT close it with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
+            } else {
+                log(" \\-> Missing both WebSocket and MatsSocketSessionId, so CANNOT close it  with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
+            }
+        }
 
         /**
          * Convenience method for making random strings for correlationIds (choose e.g. length=10) and
@@ -523,26 +542,36 @@
         // "That" reference
         const that = this;
 
-        // ?: Is the self object an EventTarget (ie. window in a Browser context)
-        if (typeof (self) === 'object' && typeof (self.addEventListener) === 'function') {
-            // Yes -> Add "onbeforeunload" event listener to shut down the MatsSocket cleanly (closing session) when
-            //        user navigates away from page.
-            self.addEventListener("beforeunload", function (event) {
-                that.close("window.onbeforeunload");
-            });
+        function beforeunloadHandler() {
+            that.close("window.onbeforeunload");
         }
+
+        function registerBeforeunload() {
+            // ?: Is the self object an EventTarget (ie. window in a Browser context)
+            if (typeof (self) === 'object' && typeof (self.addEventListener) === 'function') {
+                // Yes -> Add "onbeforeunload" event listener to shut down the MatsSocket cleanly (closing session) when user navigates away from page.
+                self.addEventListener("beforeunload", beforeunloadHandler);
+            }
+        }
+
+        function deregisterBeforeunload() {
+            if (typeof (self) === 'object' && typeof (self.addEventListener) === 'function') {
+                self.removeEventListener("beforeunload", beforeunloadHandler);
+            }
+        }
+
         const userAgent = (typeof (self) === 'object' && typeof (self.navigator) === 'object') ? self.navigator.userAgent : "Unknown";
 
         function clearStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
-            if (_websocket) {
+            if (_webSocket) {
                 // We don't want the onclose callback invoked from this event that we initiated ourselves.
-                _websocket.onclose = undefined;
+                _webSocket.onclose = undefined;
                 // We don't want any messages either, as we'll now be clearing out futures and outstanding messages ("acks")
-                _websocket.onmessage = undefined;
+                _webSocket.onmessage = undefined;
                 // Also drop onerror for good measure.
-                _websocket.onerror = undefined;
+                _webSocket.onerror = undefined;
             }
-            _websocket = undefined;
+            _webSocket = undefined;
             _sessionId = undefined;
             _urlIndexCurrentlyConnecting = 0;
 
@@ -650,7 +679,7 @@
             }
 
             // ?: Is the WebSocket present?
-            if (_websocket === undefined) {
+            if (_webSocket === undefined) {
                 log("evaluatePipelineSend(): WebSocket is not present, so initiate creation. Cannot send yet.");
                 // -> No, so go get it.
                 initiateWebSocketCreation();
@@ -685,7 +714,7 @@
                     // This implementation of MatsSocket client lib expects existing session
                     // when reconnecting, thus wants pipelined messages to be ditched if
                     // the assumption about existing session fails.
-                    helloMessage.st = "EXPECT_EXISTING";
+                    helloMessage.st = "RECONNECT";
                 } else {
                     // -> We want a new session (which is default anyway)
                     helloMessage.st = "NEW";
@@ -702,13 +731,13 @@
             // (Before the HELLO is sent and sessionId is established, the max size of message is low on the server)
             if (prePipeline.length > 0) {
                 if (that.logging) log("Flushing prePipeline of [" + prePipeline.length + "] messages.");
-                _websocket.send(JSON.stringify(prePipeline));
+                _webSocket.send(JSON.stringify(prePipeline));
                 prePipeline.length = 0;
             }
             // :: Send any pipelined messages.
             if (_pipeline.length > 0) {
                 if (that.logging) log("Flushing pipeline of [" + _pipeline.length + "] messages.");
-                _websocket.send(JSON.stringify(_pipeline));
+                _webSocket.send(JSON.stringify(_pipeline));
                 // Clear pipeline
                 _pipeline.length = 0;
             }
@@ -740,7 +769,7 @@
         // If true, we're currently already trying to get a WebSocket
         let _webSocketConnecting = false;
         // If not undefined, we have an open WebSocket available.
-        let _websocket = undefined;
+        let _webSocket = undefined;
 
         let _urlIndexCurrentlyConnecting = 0; // Cycles through the URLs
         let _connectionAttemptRound = 0; // When cycled one time through URLs, increases.
@@ -754,7 +783,7 @@
 
         function initiateWebSocketCreation() {
             // ?: Assert that we do not have the WebSocket already
-            if (_websocket !== undefined) {
+            if (_webSocket !== undefined) {
                 // -> Damn, we did have a WebSocket. Why are we here?!
                 throw (new Error("Should not be here, as WebSocket is already in place, or we're trying to connect"));
             }
@@ -829,7 +858,7 @@
                 clearTimeout(timeoutId);
 
                 // Store our brand new, open-for-business WebSocket.
-                _websocket = websocket;
+                _webSocket = websocket;
                 // We're not /trying/ to connect anymore..
                 _webSocketConnecting = false;
                 // Since we've just established this WebSocket, we have obviously not sent HELLO yet.
@@ -840,6 +869,8 @@
                 websocket.onerror = _onerror;
                 websocket.onclose = _onclose;
                 websocket.onmessage = _onmessage;
+
+                registerBeforeunload();
 
                 // Fire off any waiting messages, next tick
                 invokeLater(function () {
@@ -856,14 +887,19 @@
         function _onclose(event) {
             log("websocket.onclose", event);
             // Ditch this WebSocket
-            _websocket = undefined;
+            _webSocket = undefined;
 
-            // ?: Special codes, that signifies that we should try to reconnect and then reissue all outstanding.
-            if ((event.code === MatsSocketCloseCodes.UNEXPECTED_CONDITION)
-                || (event.code === MatsSocketCloseCodes.SERVICE_RESTART)
-                || (event.code === MatsSocketCloseCodes.RECONNECT)) {
-                // -> One of the special "reissue" close codes -> Reissue all outstanding..
-                log("Special 'reissue' close code, reissue and reconnect.");
+            // ?: Special codes, that signifies that we should close (terminate) the MatsSocketSession.
+            if ((event.code === MatsSocketCloseCodes.PROTOCOL_ERROR)
+                || (event.code === MatsSocketCloseCodes.VIOLATED_POLICY)
+                || (event.code === MatsSocketCloseCodes.CLOSE_SESSION)
+                || (event.code === MatsSocketCloseCodes.SESSION_LOST)) {
+                // -> One of the specific "Session is closed" CloseCodes -> Reject all outstanding, this MatsSocket is trashed.
+                log("We were closed with one of the MatsSocketCloseCode:[" + MatsSocketCloseCodes.nameFor(event.code) + "] that denotes that we should close the MatsSocketSession, reason:[" + event.reason + "].");
+                clearStateAndPipelineAndFuturesAndOutstandingMessages(event.reason);
+            } else {
+                // -> NOT one of the specific "Session is closed" CloseCodes -> Reconnect and Reissue all outstanding..
+                log("We were closed with a CloseCode [" + MatsSocketCloseCodes.nameFor(event.code) + "] that does not denote that we should close the session. Initiate reconnect and reissue all outstanding.");
 
                 // :: This is a reconnect - so we should do pipeline processing right away, to get the HELLO over.
                 _reconnect_ForceSendHello = true;
@@ -873,17 +909,13 @@
 
                 // TODO: Implement reissue.
 
-            } else {
-                // -> NOT one of the special "reissue" close codes -> Reject all outstanding, this MatsSocket is trashed.
-                log("We were closed with close code:[" + event.code + "] and reason:[" + event.reason + "] - closing.");
-                clearStateAndPipelineAndFuturesAndOutstandingMessages("server closed session");
             }
         }
 
         function _onmessage(webSocketEvent) {
-            // // ?: Is this message received on the current '_websocket' instance (i.e. different (reconnect), or cleared/closed)?
-            // if (this !== _websocket) {
-            //     // -> NO! This received-message is not on the current _websocket instance.
+            // // ?: Is this message received on the current '_webSocket' instance (i.e. different (reconnect), or cleared/closed)?
+            // if (this !== _webSocket) {
+            //     // -> NO! This received-message is not on the current _webSocket instance.
             //     // We just drop the messages on the floor, as nobody is waiting for them anymore:
             //     // If we closed with outstanding messages or futures, they were rejected.
             //     // NOTE: This happens all the time on the node.js integration tests, triggering the if-missing-

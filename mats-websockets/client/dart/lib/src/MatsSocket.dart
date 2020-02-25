@@ -652,7 +652,7 @@ enum EnvelopeType {
 }
 
 enum EnvelopeSubType {
-  NEW, EXPECT_EXISTING, ACK, NACK, ERROR, RESOLVE, REJECT
+  NEW, RECONNECT, ACK, NACK, ERROR, RESOLVE, REJECT
 }
 
 String enumName(dynamic value) {
@@ -760,7 +760,7 @@ class Envelope {
   Envelope.hello(
       this.appName, this.appVersion, this.sessionId, this.authorization) {
     type = EnvelopeType.HELLO;
-    subType = (sessionId == null) ? EnvelopeSubType.NEW : EnvelopeSubType.EXPECT_EXISTING;
+    subType = (sessionId == null) ? EnvelopeSubType.NEW : EnvelopeSubType.RECONNECT;
   }
 
   Envelope.send(this.endpointId, this.traceId, this.data) {

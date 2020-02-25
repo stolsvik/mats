@@ -78,10 +78,10 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         _threadPool.shutdownNow();
     }
 
-    void newMessagesInCsafNotify(MatsSocketOnMessageHandler matsSocketOnMessageHandler) {
-        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketOnMessageHandler.getId() + "]");
+    void newMessagesInCsafNotify(MatsSocketMessageHandler matsSocketMessageHandler) {
+        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketMessageHandler.getId() + "]");
         // :: Check if there is an existing handler for this MatsSocketSession
-        String uniqueId = matsSocketOnMessageHandler.getId() + matsSocketOnMessageHandler.getConnectionId();
+        String uniqueId = matsSocketMessageHandler.getId() + matsSocketMessageHandler.getConnectionId();
         boolean[] fireOffNewHandler = new boolean[1];
 
         _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
@@ -100,12 +100,12 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         // ?: Should we fire off new handler?
         if (fireOffNewHandler[0]) {
             // -> Yes, none were running, so fire off new handler.
-            _threadPool.execute(() -> this.handlerRunnable(matsSocketOnMessageHandler, uniqueId));
+            _threadPool.execute(() -> this.handlerRunnable(matsSocketMessageHandler, uniqueId));
         }
     }
 
-    void handlerRunnable(MatsSocketOnMessageHandler matsSocketOnMessageHandler, String uniqueId) {
-        String matsSocketSessionId = matsSocketOnMessageHandler.getId();
+    void handlerRunnable(MatsSocketMessageHandler matsSocketMessageHandler, String uniqueId) {
+        String matsSocketSessionId = matsSocketMessageHandler.getId();
 
         boolean removeOnExit = true;
 
@@ -113,7 +113,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
             RENOTIFY: while (true) { // LOOP: "Re-notifications"
                 // ?: Check if WebSocket Session is still open.
-                if (!matsSocketOnMessageHandler.getWebSocketSession().isOpen()) {
+                if (!matsSocketMessageHandler.getWebSocketSession().isOpen()) {
                     log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
                             + " Session was closed. Notifying CSAF that this MatsSocketSession does not reside here on"
                             + " [" + _matsSocketServer.getMyNodename() + "] anymore, forwarding notification to new"
@@ -122,7 +122,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     // :: Deregister this specific MatsSocket Session (this connection) from this node.
                     try {
                         _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId,
-                                matsSocketOnMessageHandler.getConnectionId());
+                                matsSocketMessageHandler.getConnectionId());
                     }
                     catch (DataAccessException e) {
                         log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to notify CSAF about"
@@ -214,7 +214,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         buf.append(']');
 
                         // :: Actually send message(s) over WebSocket.
-                        matsSocketOnMessageHandler.webSocketSendText(buf.toString());
+                        matsSocketMessageHandler.webSocketSendText(buf.toString());
                         float millisSendMessages = msSince(nanos_start_SendMessage);
 
                         // :: Mark as complete (i.e. delete them).
@@ -234,7 +234,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // ----- Good path!
 
                         log.info("Finished sending " + messagesToDeliver.size() + " message(s) with TraceIds ["
-                                + traceIds + "] to [" + matsSocketOnMessageHandler + "], get-from-CSAF took ["
+                                + traceIds + "] to [" + matsSocketMessageHandler + "], get-from-CSAF took ["
                                 + millisGetMessages + "ms], send over websocket took:[" + millisSendMessages + "ms],"
                                 + " mark-complete-in-CSAF took [" + millisMarkComplete + "].");
 

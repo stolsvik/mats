@@ -102,7 +102,7 @@
                 setAuth();
                 // Request to a service that won't reply immediately.
                 matsSocket.request("Test.slow", "REQUEST_reconnect1_" + matsSocket.id(6), {
-                    sleepTime: 250
+                    sleepTime: 350
                 }).then(reply => {
                     done();
                 });
@@ -110,7 +110,7 @@
                 // Chill a slight tad, to let that REQUEST be sent (but not resolved yet) - and then close the connection.
                 setTimeout(function () {
                     matsSocket.reconnect("Integration-test, testing reconnects")
-                }, 100);
+                }, 200);
             });
 
 

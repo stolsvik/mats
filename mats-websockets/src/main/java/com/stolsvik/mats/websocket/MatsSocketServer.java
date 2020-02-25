@@ -1,6 +1,7 @@
 package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
+import java.util.EnumSet;
 
 import javax.websocket.CloseReason.CloseCode;
 import javax.websocket.CloseReason.CloseCodes;
@@ -181,15 +182,16 @@ public interface MatsSocketServer {
 
     /**
      * WebSocket CloseCodes used in MatsSocket, and for what. Using both standard codes, and app-specific/defined codes.
-     * <p/>
-     * TODO: At Server: Default is assume "lost connection", i.e. NOT close session.
-     *
-     * TODO: At Client: Default is assume "lost connection", i.e. reconnect and reissue outstanding.
      */
     enum MatsSocketCloseCodes implements CloseCode {
         /**
-         * Standard code 1008 - From Server side, REJECT all outstanding: used for when the client does not behave as we
-         * expect, most typically wrt. authentication or otherwise does not observe the protocol.
+         * Standard code 1002 - From Server side, REJECT all outstanding: used for when the client does not observe the
+         * protocol.
+         */
+        PROTOCOL_ERROR(CloseCodes.PROTOCOL_ERROR.getCode()),
+
+        /**
+         * Standard code 1008 - From Server side, REJECT all outstanding: used for when the we cannot authenticate.
          */
         VIOLATED_POLICY(CloseCodes.VIOLATED_POLICY.getCode()),
 
@@ -217,19 +219,22 @@ public interface MatsSocketServer {
         GOING_AWAY(CloseCodes.GOING_AWAY.getCode()),
 
         /**
-         * 4000: From Client/Browser side, client should have REJECTed all outstanding: Used when the browser closes
-         * WebSocket "on purpose", wanting to close the session - typically when the user explicitly logs out, or
-         * navigates away from web page. All traces of the MatsSocketSession are effectively deleted from the server,
-         * including any undelivered replies and messages ("push") from server.
+         * 4000: Both from Server side and Client/Browser side, client should REJECTed all outstanding:
+         * <ul>
+         * <li>From Browser: Used when the browser closes WebSocket "on purpose", wanting to close the session -
+         * typically when the user explicitly logs out, or navigates away from web page. All traces of the
+         * MatsSocketSession are effectively deleted from the server, including any undelivered replies and messages
+         * ("push") from server.</li>
+         * <li>From Server: {@link MatsSocketServer#closeSession(String)} was invoked, and the WebSocket to that client
+         * was still open, so we close it.</li>
+         * </ul>
          */
         CLOSE_SESSION(4000),
 
         /**
-         * 4001: From Server side, REJECT all outstanding: {@link MatsSocketServer#closeSession(String)} was invoked,
-         * and the WebSocket to that client was still open, so we close it. The client should reject all outstanding
-         * Promises, Futures and Acks.
+         * 4001: From Server side, REJECT all outstanding: A HELLO:RECONNECT was attempted, but the session was gone.
          */
-        FORCED_SESSION_CLOSE(4001),
+        SESSION_LOST(4001),
 
         /**
          * 4002: Both from Server side and from Client/Browser side: REISSUE all outstanding upon reconnect: From
@@ -249,6 +254,35 @@ public interface MatsSocketServer {
         @Override
         public int getCode() {
             return _closeCode;
+        }
+
+        /**
+         * @param code the code to get a CloseCode instance of.
+         * @return either a {@link MatsSocketCloseCodes}, or a standard {@link CloseCodes}, or a newly created object
+         * containing the unknown close code with a toString() returning "UNKNOWN(code)".
+         */
+        public static CloseCode getCloseCode(int code) {
+            for (MatsSocketCloseCodes mscc : EnumSet.allOf(MatsSocketCloseCodes.class)) {
+                if (mscc.getCode() == code) {
+                    return mscc;
+                }
+            }
+            for (CloseCodes stdcc : EnumSet.allOf(CloseCodes.class)) {
+                if (stdcc.getCode() == code) {
+                    return stdcc;
+                }
+            }
+            return new CloseCode() {
+                @Override
+                public int getCode() {
+                    return code;
+                }
+
+                @Override
+                public String toString() {
+                    return "UNKNOWN("+code+")";
+                }
+            };
         }
     }
 }

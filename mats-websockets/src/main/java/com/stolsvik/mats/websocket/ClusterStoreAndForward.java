@@ -80,14 +80,20 @@ public interface ClusterStoreAndForward {
      */
     void notifySessionLiveliness(Collection<String> matsSocketSessionIds) throws DataAccessException;
 
+    /**
+     * @param matsSocketSessionId
+     *            the MatsSocketSessionId for which to check whether there is a session
+     * @return whether a CSAF Session exists - NOTE: Not whether it is currently registered!
+     */
     boolean isSessionExists(String matsSocketSessionId) throws DataAccessException;
 
     /**
      * Deregisters a Session home when a WebSocket is closed. This node's nodename and this WebSocket Session's
      * ConnectionId is taken into account, so that if it has changed async, it will not deregister a new session home
-     * (which can potentially be on the same node, this the 'connectionId' parameter).
+     * (which can potentially be on the same node  the 'connectionId' parameter).
      *
      * @param matsSocketSessionId
+     *            the MatsSocketSessionId for which to deregister the specific WebSocket Session's ConnectionId.
      * @param connectionId
      *            an id that is unique for this specific WebSocket Session (i.e. TCP Connection), so that if it closes,
      *            a new registration will not be deregistered by the old MatsSocketSession realizing that it is closed
