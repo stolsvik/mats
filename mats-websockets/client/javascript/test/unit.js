@@ -44,15 +44,15 @@
             const webSocket = {};
             // Make send function:
             webSocket.send = function (payload) {
-                JSON.parse(payload).forEach(({t, cmseq}, idx) => {
+                JSON.parse(payload).forEach(({t, cmid}, idx) => {
                     if (t === 'HELLO') {
                         setTimeout(() => {
                             webSocket.onmessage({data: JSON.stringify([{t: "WELCOME"}])});
                         }, idx);
                     }
-                    if (cmseq !== undefined) {
+                    if (cmid !== undefined) {
                         setTimeout(() => {
-                            webSocket.onmessage({data: JSON.stringify([{t: "RECEIVED", cmseq: cmseq, st: "ACK"}])});
+                            webSocket.onmessage({data: JSON.stringify([{t: "RECEIVED", cmid: cmid, st: "ACK"}])});
                         }, idx);
                     }
                 });

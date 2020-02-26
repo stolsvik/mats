@@ -26,8 +26,8 @@ CREATE TABLE mats_socket_session
 CREATE TABLE mats_socket_outbox_00
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
-    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
@@ -36,14 +36,14 @@ CREATE TABLE mats_socket_outbox_00
     message_text      ${texttype},
     message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_00 PRIMARY KEY (session_id, smseq)
+    CONSTRAINT PK_mats_socket_outbox_00 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_outbox_01
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
-    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
@@ -52,15 +52,15 @@ CREATE TABLE mats_socket_outbox_01
     message_text      ${texttype},
     message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_01 PRIMARY KEY (session_id, smseq)
+    CONSTRAINT PK_mats_socket_outbox_01 PRIMARY KEY (session_id, smid)
 );
 
 
 CREATE TABLE mats_socket_outbox_02
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
-    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
@@ -69,14 +69,14 @@ CREATE TABLE mats_socket_outbox_02
     message_text      ${texttype},
     message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_02 PRIMARY KEY (session_id, smseq)
+    CONSTRAINT PK_mats_socket_outbox_02 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_outbox_03
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
-    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
@@ -85,14 +85,14 @@ CREATE TABLE mats_socket_outbox_03
     message_text      ${texttype},
     message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_03 PRIMARY KEY (session_id, smseq)
+    CONSTRAINT PK_mats_socket_outbox_03 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_outbox_04
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
-    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
@@ -101,14 +101,14 @@ CREATE TABLE mats_socket_outbox_04
     message_text      ${texttype},
     message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_04 PRIMARY KEY (session_id, smseq)
+    CONSTRAINT PK_mats_socket_outbox_04 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_outbox_05
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
-    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
@@ -117,14 +117,14 @@ CREATE TABLE mats_socket_outbox_05
     message_text      ${texttype},
     message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_05 PRIMARY KEY (session_id, smseq)
+    CONSTRAINT PK_mats_socket_outbox_05 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_outbox_06
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smseq             BIGINT       NOT NULL, -- Server Message Sequence, 'envelope.smseq' - currently random long.
-    cmseq             BIGINT,                -- Client Message Sequence, 'envelope.cmseq', if reply to a client message.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
@@ -133,5 +133,5 @@ CREATE TABLE mats_socket_outbox_06
     message_text      ${texttype},
     message_binary    ${binarytype},
 
-    CONSTRAINT PK_mats_socket_outbox_06 PRIMARY KEY (session_id, smseq)
+    CONSTRAINT PK_mats_socket_outbox_06 PRIMARY KEY (session_id, smid)
 );

@@ -26,8 +26,8 @@ class MatsSocketEnvelopeDto {
     String tid; // TraceId
     String sid; // SessionId
     String cid; // CorrelationId
-    String smseq; // ServerMessageSequenceNumber, messageId from server. String, since JavaScript bad on Long.
-    Long cmseq; // ClientMessageSequenceNumber, Sequence from Client - this is for SEND and REQUEST messages.
+    String smid; // ServerMessageId, messageId from Server. String, since JavaScript bad on Long.
+    String cmid; // ClientMessageId, messageId from Client - this is for SEND and REQUEST messages.
     String eid; // target MatsSocketEndpointId: Which MatsSocket Endpoint (server/client) this message is for
     String reid; // reply MatsSocketEndpointId: Which MatsSocket Endpoint (client/server) this message is for
 

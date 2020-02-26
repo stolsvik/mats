@@ -224,7 +224,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 return;
             }
 
-            List<Long> messagesReceived = null;
+            List<String> messagesReceived = null;
 
             // :: 6. Now go through and handle all the rest of the messages
             List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
@@ -259,11 +259,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                         if (messagesReceived == null) {
                             messagesReceived = new ArrayList<>();
                         }
-                        if (envelope.smseq == null) {
-                            closeWithProtocolError("Received RECEIVED message with missing 'smseq.");
+                        if (envelope.smid == null) {
+                            closeWithProtocolError("Received RECEIVED message with missing 'smid.");
                             return;
                         }
-                        messagesReceived.add(Long.parseLong(envelope.smseq));
+                        messagesReceived.add(envelope.smid);
                         // The message is handled, so go to next message.
                         continue;
                     }
@@ -313,6 +313,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             }
 
             // ?: Did we get any RECEIVED?
+            // TODO: Make this a bit more nifty, putting such Ids on a queue of sorts, finishing async
             if (messagesReceived != null) {
                 log.debug("Got RECEIVED for messages "+messagesReceived+".");
                 try {
@@ -331,7 +332,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
     private void commonPropsOnReceived(MatsSocketEnvelopeDto envelope, MatsSocketEnvelopeDto replyEnvelope,
             long clientMessageReceivedTimestamp) {
-        replyEnvelope.cmseq = envelope.cmseq;
+        replyEnvelope.cmid = envelope.cmid;
         replyEnvelope.tid = envelope.tid; // TraceId
         replyEnvelope.cid = envelope.cid; // CorrelationId
         replyEnvelope.cmcts = envelope.cmcts; // Set by client..
@@ -661,7 +662,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         log.info("  \\- " + envelope.t + " to:[" + eid + "], reply:[" + envelope.reid + "], msg:["
                 + envelope.msg + "].");
 
-        // TODO: Validate incoming message: cmseq, tid, whatever - reject if not OK.
+        // TODO: Validate incoming message: cmid, tid, whatever - reject if not OK.
 
         MatsSocketEndpointRegistration<?, ?, ?, ?> registration = _matsSocketServer
                 .getMatsSocketEndpointRegistration(eid);
@@ -827,7 +828,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 if (isRequest()) {
                     ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
                             _matsSocketEndpointRegistration.getMatsSocketEndpointId(), _envelope.reid,
-                            _envelope.cid, _envelope.cmseq, _envelope.cmcts, _clientMessageReceivedTimestamp,
+                            _envelope.cid, _envelope.cmid, _envelope.cmcts, _clientMessageReceivedTimestamp,
                             System.currentTimeMillis(), _matsSocketServer.getMyNodename());
                     // Set ReplyTo parameter
                     init.replyTo(_matsSocketServer.getReplyTerminatorId(), sto);

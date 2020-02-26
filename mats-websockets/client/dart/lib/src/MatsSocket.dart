@@ -556,15 +556,15 @@ class MatsSocket {
     _pipeline.length = 0;
 
     // :: Reject all outstanding receives and replies
-    _outstandingSendsAndRequests.forEach((cmseq, outstanding) {
+    _outstandingSendsAndRequests.forEach((cmid, outstanding) {
       if (!outstanding._receive.isCompleted) {
-        _log.info('Clearing outstanding receive on [$cmseq] to '
+        _log.info('Clearing outstanding receive on [$cmid] to '
             '[${outstanding.envelope.endpointId}].');
         outstanding._receive.completeError(
             MatsSocketCloseException(reason), StackTrace.current);
       }
       if (outstanding?._reply?.isCompleted == false) {
-        _log.info('Clearing outstanding reply on [$cmseq] to '
+        _log.info('Clearing outstanding reply on [$cmid] to '
             '[${outstanding.envelope.endpointId}].');
         outstanding._reply.completeError(
             MatsSocketCloseException(reason), StackTrace.current);
@@ -743,7 +743,7 @@ class Envelope {
     sessionId = envelope['sid'];
     authorization = envelope['auth'];
     messageSequenceId =
-        (envelope['cmseq'] is String) ? int.parse(envelope['cmseq']) : envelope['cmseq'];
+        (envelope['cmid'] is String) ? int.parse(envelope['cmid']) : envelope['cmid'];
 
     // Timestamps and handling nodenames (pretty much debug information).
     clientMessageCreated = readDateTime(envelope['cmcts']) ?? DateTime.now();
@@ -789,7 +789,7 @@ class Envelope {
       'msg': data,
       'eid': endpointId,
       'reid': replyEndpointId,
-      'cmseq': messageSequenceId,
+      'cmid': messageSequenceId,
       'cid': correlationId,
       'an': appName,
       'av': appVersion,

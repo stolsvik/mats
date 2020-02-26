@@ -178,8 +178,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     }
 
                     // :: Get the MessageIds to deliver (as List, for CSAF) and TraceIds (as String, for logging)
-                    List<Long> messageIds = messagesToDeliver.stream()
-                            .map(StoredMessage::getServerMessageSequence)
+                    List<String> messageIds = messagesToDeliver.stream()
+                            .map(StoredMessage::getServerMessageId)
                             .collect(Collectors.toList());
                     String traceIds = messagesToDeliver.stream()
                             .map(StoredMessage::getTraceId)
@@ -204,9 +204,9 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                 buf.append(',');
                             }
                             String json = storedMessage.getEnvelopeJson();
-                            // :: Replace in smseq, sent timestamp and this node's nodename.
-                            json = DefaultMatsSocketServer.REPLACE_SMSEQ_REGEX.matcher(json)
-                                    .replaceFirst(Long.toString(storedMessage.getServerMessageSequence()));
+                            // :: Replace in smid, sent timestamp and this node's nodename.
+                            json = DefaultMatsSocketServer.REPLACE_VALUE_SMID_REGEX.matcher(json)
+                                    .replaceFirst(storedMessage.getServerMessageId());
                             json = DefaultMatsSocketServer.REPLACE_VALUE_TIMESTAMP_REGEX.matcher(json)
                                     .replaceFirst(nowString);
                             json = DefaultMatsSocketServer.REPLACE_VALUE_REPLY_NODENAME_REGEX.matcher(json)
@@ -219,7 +219,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         matsSocketMessageHandler.webSocketSendText(buf.toString());
                         float millisSendMessages = msSince(nanos_start_SendMessage);
 
-                        // :: Mark as complete (i.e. delete them).
+                        // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)
+                        // Result: will not be picked up on the next round of fetching messages.
                         long nanos_start_MarkComplete = System.nanoTime();
                         try {
                             _clusterStoreAndForward.messagesAttemptedDelivery(matsSocketSessionId, messageIds);
@@ -250,7 +251,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                 + " message(s) with TraceIds [" + traceIds + "]."
                                 + " Increasing 'delivery_count' for message, will try again.", ioe);
 
-                        // :: Increase delivery count
+                        // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)
                         try {
                             _clusterStoreAndForward.messagesAttemptedDelivery(matsSocketSessionId, messageIds);
                         }

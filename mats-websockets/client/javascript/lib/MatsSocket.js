@@ -322,7 +322,7 @@
 
                 // Add the message Sequence Id
                 let thisMessageSequenceId = _messageSequenceId++;
-                envelope.cmseq = thisMessageSequenceId;
+                envelope.cmid = thisMessageSequenceId;
                 // Store the outstanding Send or Request
                 _outstandingSendsAndRequests[thisMessageSequenceId] = outstandingSendOrRequest;
 
@@ -406,7 +406,7 @@
             clearStateAndPipelineAndFuturesAndOutstandingMessages("client close session");
 
             // :: In-band session close
-            closeWebSocket(webSocket, existingSessionId, MatsSocketCloseCodes.CLOSE_SESSION, "client close session");
+            closeWebSocket(webSocket, existingSessionId, MatsSocketCloseCodes.CLOSE_SESSION, reason);
 
             // :: Out-of-band session close
             // ?: Do we have a sessionId?
@@ -545,7 +545,7 @@
         const that = this;
 
         function beforeunloadHandler() {
-            that.close("window.onbeforeunload");
+            that.close(clientLibNameAndVersion+" window.onbeforeunload close");
         }
 
         function registerBeforeunload() {
@@ -581,11 +581,11 @@
             _pipeline.length = 0;
 
             // :: Reject all outstanding messages
-            for (let cmseq in _outstandingSendsAndRequests) {
-                if (!_outstandingSendsAndRequests.hasOwnProperty(cmseq)) continue;
+            for (let cmid in _outstandingSendsAndRequests) {
+                if (!_outstandingSendsAndRequests.hasOwnProperty(cmid)) continue;
 
-                let outstandingMessage = _outstandingSendsAndRequests[cmseq];
-                delete _outstandingSendsAndRequests[cmseq];
+                let outstandingMessage = _outstandingSendsAndRequests[cmid];
+                delete _outstandingSendsAndRequests[cmid];
 
                 log("Clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "] with traceId [" + outstandingMessage.envelope.tid + "].");
                 if (outstandingMessage.reject) {
@@ -599,11 +599,11 @@
             }
 
             // :: Reject all futures
-            for (let cmseq in _futures) {
-                if (!_futures.hasOwnProperty(cmseq)) continue;
+            for (let cmid in _futures) {
+                if (!_futures.hasOwnProperty(cmid)) continue;
 
-                let future = _futures[cmseq];
-                delete _futures[cmseq];
+                let future = _futures[cmid];
+                delete _futures[cmid];
 
                 log("Clearing REQUEST future [" + future.envelope.t + "] to [" + future.envelope.eid + "] with traceId [" + future.envelope.tid + "].");
                 if (future.reject) {
@@ -754,7 +754,7 @@
                 subType: envelope.st,
                 traceId: envelope.tid,
                 correlationId: envelope.cid,
-                messageSequenceId: envelope.cmseq,
+                messageSequenceId: envelope.cmid,
 
                 // Timestamps and handling nodenames (pretty much debug information).
                 clientMessageCreated: envelope.cmcts,
@@ -909,11 +909,13 @@
                 // :: This is a reconnect - so we should do pipeline processing right away, to get the HELLO over.
                 _reconnect_ForceSendHello = true;
 
-                // :: Start reconnecting right away.
-                initiateWebSocketCreation();
+                // :: Start reconnecting, but give the server a little time to settle
+                setTimeout(function() {
+                    initiateWebSocketCreation();
 
-                // TODO: Implement reissue.
+                    // TODO: Implement reissue!
 
+                }, 200);
             }
         }
 
@@ -945,7 +947,7 @@
                         if (that.logging) log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
                     } else if (envelope.t === "RECEIVED") {
                         // -> RECEIVED ack/server_error/nack
-                        let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmseq];
+                        let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmid];
                         // ?: Check that we found it.
                         if (outstandingSendOrRequest === undefined) {
                             // -> No, the OutstandingSendOrRequest was not present.
@@ -954,7 +956,7 @@
                         }
                         // E-> Yes, we had OutstandingSendOrRequest
                         // Delete it, as we're handling it now
-                        delete _outstandingSendsAndRequests[envelope.cmseq];
+                        delete _outstandingSendsAndRequests[envelope.cmid];
                         // ?: Was it a "good" RECEIVED?
                         if (envelope.st === "ACK") {
                             // -> Yes, it was "ACK" - so Server was happy.
@@ -977,25 +979,25 @@
                         }
                     } else if (envelope.t === "REPLY") {
                         // -> Reply to REQUEST
-                        // ?: Do server want receipt, indicated by the message having 'smseq' property?
-                        if (envelope.smseq) {
+                        // ?: Do server want receipt, indicated by the message having 'smid' property?
+                        if (envelope.smid) {
                             // -> Yes, so send RECEIVED to server
                             that.addMessageToPipeline({
                                 t: "RECEIVED",
                                 st: "ACK",
-                                cmseq: envelope.cmseq,
-                                smseq: envelope.smseq,
+                                cmid: envelope.cmid,
+                                smid: envelope.smid,
                                 tid: envelope.traceId
                             });
                         }
                         // It is physically possible that the REPLY comes before the RECEIVED (I've observed it!). That could potentially be annoying for the using application (Reply before Received)..
                         // ALSO, for REPLYs that are produced in the incomingHandler, there will be no RECEIVED.
                         // Handle this by checking whether the outstandingSendOrRequest is still in place, and resolve it if so.
-                        let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmseq];
+                        let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmid];
                         // ?: Was the outstandingSendOrRequest still present?
                         if (outstandingSendOrRequest) {
                             // -> Yes, still present - so we delete and resolve it
-                            delete _outstandingSendsAndRequests[envelope.cmseq];
+                            delete _outstandingSendsAndRequests[envelope.cmid];
                             if (outstandingSendOrRequest.resolve) {
                                 outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
                             }
@@ -1005,7 +1007,7 @@
                         _completeFuture(envelope.eid, envelope.st, envelope, receivedTimestamp);
                     }
                 } catch (err) {
-                    error("message", "Got error while handling incoming envelope.cmseq [" + envelope.cmseq + "], type '" + envelope.t + (envelope.st ? ":" + envelope.st : "") + ": " + JSON.stringify(envelope), err);
+                    error("message", "Got error while handling incoming envelope.cmid [" + envelope.cmid + "], type '" + envelope.t + (envelope.st ? ":" + envelope.st : "") + ": " + JSON.stringify(envelope), err);
                 }
             }
         }
@@ -1015,7 +1017,7 @@
             if (endpointId === undefined) {
                 // -> Yes, REQUEST-with-Promise (missing (client) EndpointId)
                 // Get the outstanding future
-                let future = _futures[envelope.cmseq];
+                let future = _futures[envelope.cmid];
                 // ?: Did we have a future?
                 if (future === undefined) {
                     // -> No, missing future, no Promise. Pretty strange, really (error in this code..)
@@ -1024,7 +1026,7 @@
                 }
                 // E-> We found the future
                 // Delete the outstanding future, as we will complete it now.
-                delete _futures[envelope.cmseq];
+                delete _futures[envelope.cmid];
                 // Was it RESOLVE or REJECT?
                 if (resolveOrReject === "RESOLVE") {
                     future.resolve(eventFromEnvelope(envelope, receivedTimestamp));

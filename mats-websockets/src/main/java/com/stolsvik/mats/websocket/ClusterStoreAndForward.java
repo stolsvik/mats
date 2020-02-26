@@ -23,7 +23,7 @@ import java.util.Optional;
  * Each node has his own instance of this class, connected to the same backing datastore.
  * <p />
  * It is assumed that the consumption of messages for a session is done single threaded, on one node only. That is, only
- * one thread on one node will actually {@link #getMessagesForSession(String, int)} get messages}, and, more
+ * one thread on one node will actually {@link #getMessagesForSession(String, int, boolean)} get messages}, and, more
  * importantly, {@link #messagesComplete(String, Collection) register dem as completed}. Wrt. multiple nodes, this
  * argument still holds, since only one node can hold a MatsSocket Session. I believe it is possible to construct a bad
  * async situation here (connect to one node, authenticate, get SessionId, immediately disconnect and perform reconnect,
@@ -90,7 +90,7 @@ public interface ClusterStoreAndForward {
     /**
      * Deregisters a Session home when a WebSocket is closed. This node's nodename and this WebSocket Session's
      * ConnectionId is taken into account, so that if it has changed async, it will not deregister a new session home
-     * (which can potentially be on the same node  the 'connectionId' parameter).
+     * (which can potentially be on the same node the 'connectionId' parameter).
      *
      * @param matsSocketSessionId
      *            the MatsSocketSessionId for which to deregister the specific WebSocket Session's ConnectionId.
@@ -121,15 +121,15 @@ public interface ClusterStoreAndForward {
      * @param traceId
      *            the server-side traceId for this message.
      * @param clientMessageSequence
-     *            the envelope.cmseq, or -1 if MULTI
+     *            the envelope.cmid, or -1 if MULTI
      * @param type
      *            the type of the reply, currently "REPLY", or "MULTI" of a JSON Array of multiple messages.
      * @param message
      *            the JSON-serialized MatsSocket <b>Envelope</b>.
      * @return the current node holding MatsSocket Session, or empty if none.
      */
-    Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId, long clientMessageSequence,
-            String type, String message) throws DataAccessException;
+    Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId,
+            String clientMessageSequence, String type, String message) throws DataAccessException;
 
     /**
      * Fetch a set of messages, up to 'maxNumberOfMessages'.
@@ -142,39 +142,41 @@ public interface ClusterStoreAndForward {
      *            if <code>true</code>, instead of excluding already attempted message, now only pick these.
      * @return a list of json encoded messages destined for the WebSocket.
      */
-    List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages, boolean takeAlreadyAttempted)
+    List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages,
+            boolean takeAlreadyAttempted)
             throws DataAccessException;
 
     /**
      * States that the messages are delivered. Will typically delete the message.
      *
      * @param matsSocketSessionId
-     *            the matsSocketSessionId that the messageIds refers to.
-     * @param messageIds
+     *            the matsSocketSessionId that the serverMessageIds refers to.
+     * @param serverMessageIds
      *            which messages are complete.
      */
-    void messagesComplete(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException;
+    void messagesComplete(String matsSocketSessionId, Collection<String> serverMessageIds) throws DataAccessException;
 
     /**
      * Notches the 'delivery_count' one up for the specified messages.
      *
      * @param matsSocketSessionId
-     *            the matsSocketSessionId that the messageIds refers to.
-     * @param messageIds
+     *            the matsSocketSessionId that the serverMessageIds refers to.
+     * @param serverMessageIds
      *            which messages failed delivery.
      */
-    void messagesAttemptedDelivery(String matsSocketSessionId, Collection<Long> messageIds)
+    void messagesAttemptedDelivery(String matsSocketSessionId, Collection<String> serverMessageIds)
             throws DataAccessException;
 
     /**
      * States that the messages overran the accepted number of delivery attempts.
      *
      * @param matsSocketSessionId
-     *            the matsSocketSessionId that the messageIds refers to.
-     * @param messageIds
+     *            the matsSocketSessionId that the serverMessageIds refers to.
+     * @param serverMessageIds
      *            which messages should be DLQed.
      */
-    void messagesDeadLetterQueue(String matsSocketSessionId, Collection<Long> messageIds) throws DataAccessException;
+    void messagesDeadLetterQueue(String matsSocketSessionId, Collection<String> serverMessageIds)
+            throws DataAccessException;
 
     /**
      * If having problems accessing the underlying common data store.
@@ -293,9 +295,9 @@ public interface ClusterStoreAndForward {
     interface StoredMessage {
         String getMatsSocketSessionId();
 
-        long getServerMessageSequence();
+        String getServerMessageId();
 
-        Optional<Long> getClientMessageSequence();
+        Optional<String> getClientMessageId();
 
         long getStoredTimestamp();
 
@@ -312,8 +314,8 @@ public interface ClusterStoreAndForward {
 
     class SimpleStoredMessage implements StoredMessage {
         private final String _matsSocketSessionId;
-        private final long _serverMessageSequence;
-        private final Long _clientMessageSequence;
+        private final String _serverMessageSequence;
+        private final String _clientMessageSequence;
         private final long _storedTimestamp;
         private final Long _attemptTimestamp;
         private final int _deliveryCount;
@@ -322,7 +324,8 @@ public interface ClusterStoreAndForward {
         private final String _type;
         private final String _envelopeJson;
 
-        public SimpleStoredMessage(String matsSocketSessionId, long serverMessageSequence, Long clientMessageSequence,
+        public SimpleStoredMessage(String matsSocketSessionId, String serverMessageSequence,
+                String clientMessageSequence,
                 long storedTimestamp, Long attemptTimestamp, int deliveryCount, String traceId, String type,
                 String envelopeJson) {
             _matsSocketSessionId = matsSocketSessionId;
@@ -342,12 +345,12 @@ public interface ClusterStoreAndForward {
         }
 
         @Override
-        public long getServerMessageSequence() {
+        public String getServerMessageId() {
             return _serverMessageSequence;
         }
 
         @Override
-        public Optional<Long> getClientMessageSequence() {
+        public Optional<String> getClientMessageId() {
             return Optional.ofNullable(_clientMessageSequence);
         }
 

@@ -837,7 +837,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     static class ReplyHandleStateDto {
         private final String sid;
         private final String cid;
-        private final Long cmseq;
+        private final String cmid;
         private final String ms_eid;
         private final String ms_reid;
 
@@ -852,7 +852,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             /* no-args constructor for Jackson */
             sid = null;
             cid = null;
-            cmseq = null;
+            cmid = null;
             ms_eid = null;
             ms_reid = null;
             cmcts = 0L;
@@ -862,12 +862,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         }
 
         ReplyHandleStateDto(String matsSocketSessionId, String matsSocketEndpointId, String replyEndpointId,
-                String correlationId, Long messageSequence, Long clientMessageCreatedTimestamp,
+                String correlationId, String messageSequence, Long clientMessageCreatedTimestamp,
                 Long clientMessageReceivedTimestamp, Long matsMessageSentTimestamp,
                 String receivedNodename) {
             sid = matsSocketSessionId;
             cid = correlationId;
-            cmseq = messageSequence;
+            cmid = messageSequence;
             ms_eid = matsSocketEndpointId;
             ms_reid = replyEndpointId;
             cmcts = clientMessageCreatedTimestamp;
@@ -888,9 +888,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     static final Pattern REPLACE_VALUE_TIMESTAMP_REGEX = Pattern.compile(
             Long.toString(REPLACE_VALUE_TIMESTAMP), Pattern.LITERAL);
 
-    static final long REPLACE_SMSEQ = 2_945_608_518_157_027_723L;
-    static final String REPLACE_SMSEQ_STRING = Long.toString(REPLACE_SMSEQ);
-    static final Pattern REPLACE_SMSEQ_REGEX = Pattern.compile(REPLACE_SMSEQ_STRING, Pattern.LITERAL);
+    static final String REPLACE_VALUE_SMID = "X&~d2j,O}@w.h£X";
+    static final Pattern REPLACE_VALUE_SMID_REGEX = Pattern.compile(REPLACE_VALUE_SMID, Pattern.LITERAL);
 
     /**
      * A "random" String made manually by hammering a little on the keyboard, and trying to find a very implausible
@@ -944,8 +943,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         // Create Envelope
         msReplyEnvelope.eid = state.ms_reid;
         msReplyEnvelope.cid = state.cid;
-        msReplyEnvelope.smseq = REPLACE_SMSEQ_STRING;  // Server Message Sequence (not yet determined, get in CSAF)
-        msReplyEnvelope.cmseq = state.cmseq;
+        msReplyEnvelope.smid = REPLACE_VALUE_SMID;  // Server Message Id (not yet determined, created when stored CSAF)
+        msReplyEnvelope.cmid = state.cmid;
         msReplyEnvelope.tid = processContext.getTraceId(); // TODO: Chop off last ":xyz", as that is added serverside.
         msReplyEnvelope.cmcts = state.cmcts;
         msReplyEnvelope.cmrts = state.cmrts;
@@ -962,7 +961,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         Optional<CurrentNode> nodeNameHoldingWebSocket;
         try {
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageForSession(
-                    state.sid, processContext.getTraceId(), msReplyEnvelope.cmseq, msReplyEnvelope.t,
+                    state.sid, processContext.getTraceId(), msReplyEnvelope.cmid, msReplyEnvelope.t,
                     serializedEnvelope);
         }
         catch (DataAccessException e) {
@@ -1079,7 +1078,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
      *            the desired length of the returned random string.
      * @return a random string of the specified length.
      */
-    public static String rnd(int length) {
+    static String rnd(int length) {
         StringBuilder buf = new StringBuilder(length);
         ThreadLocalRandom tlr = ThreadLocalRandom.current();
         for (int i = 0; i < length; i++)
