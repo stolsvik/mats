@@ -126,9 +126,9 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * invoke finishSetup(), e.g. when any needed caches are finished populated, and the endpoint will then be finished
      * and started.
      * <p/>
-     * Another way to implement "delayed start" is to obviously just not create the endpoint until later: MatsFactory has
-     * no <i>"that's it, now all endpoints must have been created"</i>-lifecycle stage, and can fire up new endpoints
-     * until the JVM is dead.
+     * Another way to implement "delayed start" is to obviously just not create the endpoint until later: MatsFactory
+     * has no <i>"that's it, now all endpoints must have been created"</i>-lifecycle stage, and can fire up new
+     * endpoints until the JVM is dead.
      */
     void finishSetup();
 
@@ -161,7 +161,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         /**
          * Deserializes the incoming message class to the desired type - assuming that it actually is a serialized
          * representation of that class.
-         * 
+         *
          * @param type
          *            the class that the incoming message should be deserialized to.
          * @param <T>
@@ -243,8 +243,9 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         String getMatsMessageId();
 
         /**
-         * @return the unique messageId for the incoming message, from the underlying message system - which can be used
-         *         to catch double-deliveries. (For a JMS Implementation, this will be the "JMSMessageID").
+         * @return the unique messageId for the incoming message, from the underlying message system - which could be
+         *         used to catch double-deliveries, but do prefer {@link #getMatsMessageId()}. (For a JMS
+         *         Implementation, this will be the "JMSMessageID").
          */
         String getSystemMessageId();
 
@@ -358,7 +359,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * might want to consider compressing it before attaching it and instead use the
          * {@link #addBytes(String, byte[]) addBytes(..)} method (and will then have to decompress it on the receiving
          * side).
-         * 
+         *
          * @param key
          *            the key on which to store the String payload. The receiver will have to use this key to get the
          *            payload out again, so either it will be a specific key that the sender and receiver agree upon, or
@@ -561,7 +562,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * <p/>
          * Mandatory: If the Mats implementation has a transactional SQL Connection, it shall be available by
          * <code>'context.getAttribute(Connection.class)'</code>.
-         * 
+         *
          * @param type
          *            The expected type of the attribute
          * @param name

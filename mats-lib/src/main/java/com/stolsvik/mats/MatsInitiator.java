@@ -61,9 +61,10 @@ public interface MatsInitiator extends Closeable {
     /**
      * Will be thrown by the {@link MatsInitiator#initiate(InitiateLambda)}-method if it is not possible at this time to
      * establish a connection to the underlying messaging system (e.g. to ActiveMQ if used in JMS implementation with
-     * ActiveMQ as JMS Message Broker), or if there was any other kind of problems interacting with the MQ. Do note that
-     * in all cases of this exception, any other external resource (typically database) will <b>not</b> have been
-     * committed - unlike if you get the {@link MatsMessageSendException}.
+     * ActiveMQ as JMS Message Broker), or if there was any other kind of problems interacting with the MQ or other
+     * external resources (typically database) in the same transactional demarcation. Do note that in all cases of this
+     * exception, any other external resource (again, typically database) will <b>not</b> have been committed -
+     * <b>unlike if you get the {@link MatsMessageSendException}</b>.
      */
     class MatsBackendException extends Exception {
         public MatsBackendException(String message) {
