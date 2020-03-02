@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonDeserializer;
@@ -12,6 +13,7 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
  */
+@JsonPropertyOrder({ "t", "st", "smid", "cmid", "tid" })
 class MatsSocketEnvelopeDto {
     String clv; // Client Lib and Versions, informative, e.g.
     // "MatsSockLibCsharp,v2.0.3; iOS,v13.2"

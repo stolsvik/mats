@@ -22,9 +22,9 @@ public interface MatsSocketServer {
      * Note for the {@link IncomingAuthorizationAndAdapter}: Used to do authorization evaluation on the supplied
      * Principal and otherwise decide whether this message should be forwarded to the Mats fabric. It then transform the
      * message from the MatsSocket-side to Mats-side - or throw an Exception. <b>This should only be pure Java code, no
-     * IPC or lengthy computations</b>, such things should happen in the Mats stages. It is imperative that this
-     * does not perform any state-changes to the system - it should be utterly idempotent, i.e. invoking it a hundred
-     * times with the same input should yield the same result. (Note: Logging is never considered state changing!)
+     * IPC or lengthy computations</b>, such things should happen in the Mats stages. It is imperative that this does
+     * not perform any state-changes to the system - it should be utterly idempotent, i.e. invoking it a hundred times
+     * with the same input should yield the same result. (Note: Logging is never considered state changing!)
      *
      * TODO: What about timeouts?!
      *
@@ -108,32 +108,39 @@ public interface MatsSocketServer {
         boolean isRequest();
 
         /**
-         * <b>FOR PURE "GET-style" REQUESTS!</b>: Both the "nonPersistent" flag <i>(messages in flow are not stored and
-         * only lives "in-memory", can thus be lost, i.e. is unreliable, but is very fast)</i> and "interactive" flag
-         * <i>(prioritized since a human is waiting)</i> will be set. Forwards the MatsSocket message to the Mats
-         * endpoint of the same endpointId as the MatsSocketEndpointId. If it was a MatsSocket "REQUEST" from the
-         * client, it will be a Mats request(..) message, while if it was a "SEND", it will be a Mats send(..) message.
+         * <b>TYPICALLY for pure "GET-style" requests, or log event processing (not audit logging, though).</b>: Both
+         * the "nonPersistent" flag <i>(messages in flow are not stored and only lives "in-memory", can thus be lost,
+         * i.e. is unreliable, but is very fast)</i> and "interactive" flag <i>(prioritized since a human is
+         * waiting)</i> will be set. Forwards the MatsSocket message to the Mats endpoint of the same endpointId as the
+         * MatsSocketEndpointId.
+         * <p/>
+         * If it was a MatsSocket "REQUEST" from the client, it will be a Mats request(..) message, while if it was a
+         * "SEND", it will be a Mats send(..) message.
          *
          * TODO: What about timeout? Must be implemented client side.
          */
         void forwardInteractiveUnreliable(MI matsMessage);
 
         /**
-         * <b>For requests whose call flow can potentially change state in the system</b>: The "interactive" flag will
-         * be set, since there is a human waiting. Forwards the MatsSocket message to the Mats endpoint of the same
-         * endpointId as the MatsSocketEndpointId, as a normal <i>persistent</i> message, which should imply that it is
-         * using reliable messaging. If it was a MatsSocket "REQUEST" from the client, it will be a Mats request(..)
-         * message, while if it was a "SEND", it will be a Mats send(..) message.
+         * <b>For requests or sends whose call flow can potentially change state in the system</b>: The "interactive"
+         * flag will be set, since there is a human waiting. Forwards the MatsSocket message to the Mats endpoint of the
+         * same endpointId as the MatsSocketEndpointId, as a normal <i>persistent</i> message, which should imply that
+         * it is using reliable messaging.
+         * <p/>
+         * If it was a MatsSocket "REQUEST" from the client, it will be a Mats request(..) message, while if it was a
+         * "SEND", it will be a Mats send(..) message.
          */
         void forwardInteractivePersistent(MI matsMessage);
 
         /**
-         * <b>Customized Mats message creation:</b> Using the method, you can customize how the Mats message will be
+         * <b>Customized Mats message creation:</b> Using this method, you can customize how the Mats message will be
          * created, including setting {@link MatsInitiate#setTraceProperty(String, Object) TraceProperties} - <b>NOTE:
          * 'to(..) must be set by you!</b>. The message properties "from", and if REQUEST, "replyTo" with correlation
          * information state, will already be set. No other properties are changed, which includes the 'interactive'
-         * flag, which is not set either (you can set it, though). If it was a MatsSocket "REQUEST" from the client, it
-         * will be a Mats request(..) message, while if it was a "SEND", it will be a Mats send(..) message.
+         * flag, which is not set either (you can set it, though).
+         * <p/>
+         * If it was a MatsSocket "REQUEST" from the client, it will be a Mats request(..) message, while if it was a
+         * "SEND", it will be a Mats send(..) message.
          *
          * @param matsMessage
          *            the message to send to the Mats Endpoint.
@@ -144,8 +151,9 @@ public interface MatsSocketServer {
         void forwardCustom(MI matsMessage, InitiateLambda customInit);
 
         /**
-         * Send "Resolve" reply (resolves the client side Promise) to the MatsSocket directly, i.e. without forward to
-         * Mats - can be used if you can answer the MatsSocket request directly without going onto the Mats MQ fabric.
+         * <b>Only for {@link #isRequest()}:</b> Send "Resolve" reply (resolves the client side Promise) to the
+         * MatsSocket directly, i.e. without forward to Mats - can be used if you can answer the MatsSocket request
+         * directly without going onto the Mats MQ fabric.
          *
          * @param matsSocketResolveMessage
          *            the resolve message (the actual reply), or {@code null} if you just want to resolve it without
@@ -154,8 +162,9 @@ public interface MatsSocketServer {
         void resolve(R matsSocketResolveMessage);
 
         /**
-         * Send "Reject" reply (rejects the client side Promise) to the MatsSocket directly, i.e. without forward to
-         * Mats - can be used if you can answer the MatsSocket request directly without going onto the Mats MQ fabric.
+         * <b>Only for {@link #isRequest()}:</b> Send "Reject" reply (rejects the client side Promise) to the MatsSocket
+         * directly, i.e. without forward to Mats - can be used if you can answer the MatsSocket request directly
+         * without going onto the Mats MQ fabric.
          *
          * @param matsSocketRejectMessage
          *            the reject message, or {@code null} if you just want to reject it without adding any information.

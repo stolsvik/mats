@@ -946,7 +946,19 @@
                         _sessionId = envelope.sid;
                         if (that.logging) log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
                     } else if (envelope.t === "RECEIVED") {
-                        // -> RECEIVED ack/server_error/nack
+                        // -> RECEIVED-message-from-client (ack/nack/retry/error)
+
+                        // TODO: Handle RECEIVED:RETRY!
+
+                        // ?: Do server want receipt of the RECEIVED-from-client, indicated by the message having 'cmid' property?
+                        if (envelope.cmid && (envelope.st !== "ERROR")) {
+                            // -> Yes, so send RECEIVED to server
+                            that.addMessageToPipeline({
+                                t: "ACKACK",
+                                cmid: envelope.cmid,
+                            });
+                        }
+
                         let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmid];
                         // ?: Check that we found it.
                         if (outstandingSendOrRequest === undefined) {
@@ -958,8 +970,8 @@
                         // Delete it, as we're handling it now
                         delete _outstandingSendsAndRequests[envelope.cmid];
                         // ?: Was it a "good" RECEIVED?
-                        if (envelope.st === "ACK") {
-                            // -> Yes, it was "ACK" - so Server was happy.
+                        if ((envelope.st === undefined) || (envelope.st === "ACK")) {
+                            // -> Yes, it was undefined or "ACK" - so Server was happy.
                             if (outstandingSendOrRequest.resolve) {
                                 outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
                             }
@@ -977,6 +989,35 @@
                                 _completeFuture(requestEnvelope.reid, "REJECT", envelope, receivedTimestamp);
                             }
                         }
+                    } else if (envelope.t === "ACKACK") {
+                        // -> ACKNOWLEDGE of the RECEIVED: We can delete from our inbox
+                        // NOTICE: Comes into play with Server-side SEND and REQUEST. Not yet.
+                    } else if (envelope.t === "SEND") {
+                        // -> SEND: Send message to terminator
+                        // ?: Do server want receipt, indicated by the message having 'smid' property?
+                        if (envelope.smid) {
+                            // -> Yes, so send RECEIVED to server
+                            that.addMessageToPipeline({
+                                t: "RECEIVED",
+                                st: "ACK",
+                                smid: envelope.smid,
+                            });
+                        }
+                        // TODO: Implement SEND
+
+                    } else if (envelope.t === "REQUEST") {
+                        // -> REQUEST: Request a REPLY from an endpoint
+                        // ?: Do server want receipt, indicated by the message having 'smid' property?
+                        if (envelope.smid) {
+                            // -> Yes, so send RECEIVED to server
+                            that.addMessageToPipeline({
+                                t: "RECEIVED",
+                                st: "ACK",
+                                smid: envelope.smid,
+                            });
+                        }
+                        // TODO: Implement REQUEST
+
                     } else if (envelope.t === "REPLY") {
                         // -> Reply to REQUEST
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
@@ -985,12 +1026,11 @@
                             that.addMessageToPipeline({
                                 t: "RECEIVED",
                                 st: "ACK",
-                                cmid: envelope.cmid,
                                 smid: envelope.smid,
-                                tid: envelope.traceId
                             });
                         }
-                        // It is physically possible that the REPLY comes before the RECEIVED (I've observed it!). That could potentially be annoying for the using application (Reply before Received)..
+                        // It is physically possible that the REPLY comes before the RECEIVED (I've observed it!).
+                        // .. Such a situation could potentially be annoying for the using application (Reply before Received)..
                         // ALSO, for REPLYs that are produced in the incomingHandler, there will be no RECEIVED.
                         // Handle this by checking whether the outstandingSendOrRequest is still in place, and resolve it if so.
                         let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmid];
