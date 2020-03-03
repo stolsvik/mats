@@ -48,13 +48,13 @@ import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleState
 class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
     private static final Logger log = LoggerFactory.getLogger(MatsSocketMessageHandler.class);
 
+    private final DefaultMatsSocketServer _matsSocketServer;
     private Session _webSocketSession; // Non-final to be able to null out upon close.
     private String _connectionId; // Non-final to be able to null out upon close.
     private final SessionAuthenticator _sessionAuthenticator;
 
     // Derived
     private Basic _webSocketBasicRemote; // Non-final to be able to null out upon close.
-    private final DefaultMatsSocketServer _matsSocketServer;
     private final AuthenticationContext _authenticationContext;
     private final ObjectReader _envelopeListObjectReader;
     private final ObjectWriter _envelopeListObjectWriter;
@@ -71,15 +71,15 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
     private boolean _closed; // set true upon close. When closed, won't process any more messages.
     private boolean _helloReceived; // set true when HELLO processed. HELLO only accepted once.
 
-    MatsSocketMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
+    MatsSocketMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession, String connectionId,
             HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
+        _matsSocketServer = matsSocketServer;
         _webSocketSession = webSocketSession;
-        _connectionId = webSocketSession.getId() + "_" + DefaultMatsSocketServer.rnd(10);
+        _connectionId = connectionId;
         _sessionAuthenticator = sessionAuthenticator;
 
         // Derived
         _webSocketBasicRemote = _webSocketSession.getBasicRemote();
-        _matsSocketServer = matsSocketServer;
         _authenticationContext = new AuthenticationContextImpl(handshakeRequest, _webSocketSession);
         _envelopeListObjectReader = _matsSocketServer.getEnvelopeListObjectReader();
         _envelopeListObjectWriter = _matsSocketServer.getEnvelopeListObjectWriter();
@@ -131,17 +131,16 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             // ?: Are we closed?
             if (_closed) {
                 // -> Yes, so ignore message.
-                log.info("WebSocket received message for CLOSED MatsSocketSessionId [" + _matsSocketSessionId
-                        + "], connectionId:[" + _connectionId + "], this:"
+                log.info("WebSocket @OnMessage: WebSocket received message for CLOSED MatsSocketSessionId ["
+                        + _matsSocketSessionId + "], connectionId:[" + _connectionId + "], this:"
                         + DefaultMatsSocketServer.id(this) + "], ignoring, msg: " + message);
                 return;
             }
 
-            // E-> Not closed, process message (with envelope(s)).
+            // E-> Not closed, process message (containing MatsSocket envelope(s)).
 
-            log.info("WebSocket received message for MatsSocketSessionId [" + _matsSocketSessionId
-                    + "], connectionId:[" + _connectionId + "], this:"
-                    + DefaultMatsSocketServer.id(this));
+            log.info("WebSocket @OnMessage: WebSocket received message for MatsSocketSessionId [" + _matsSocketSessionId
+                    + "], connectionId:[" + _connectionId + "], this:" + DefaultMatsSocketServer.id(this));
 
             // :: Parse the message into MatsSocket envelopes
             List<MatsSocketEnvelopeDto> envelopes;
@@ -823,7 +822,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     if (retry > 30) {
                         log.error("Dammit, didn't manage to recover from a MatsMessageSendRuntimeException."
                                 + " Closing session and websocket with SERVER_ERROR.", ex);
-                        closeSessionAndWebSocket(MatsSocketCloseCodes.SERVER_ERROR,
+                        closeSessionAndWebSocket(MatsSocketCloseCodes.UNEXPECTED_CONDITION,
                                 "Server error, could not reliably recover.");
                         return false;
                     }
@@ -836,7 +835,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                         log.warn("Got interrupted while chill-sleeping trying to recover from"
                                 + "MatsMessageSendRuntimeException. Closing session and websocket with SERVER_ERROR.",
                                 exc);
-                        closeSessionAndWebSocket(MatsSocketCloseCodes.SERVER_ERROR,
+                        closeSessionAndWebSocket(MatsSocketCloseCodes.UNEXPECTED_CONDITION,
                                 "Server error, could not reliably recover.");
                         return false;
                     }

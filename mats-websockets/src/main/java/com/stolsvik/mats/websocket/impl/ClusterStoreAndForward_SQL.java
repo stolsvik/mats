@@ -37,9 +37,11 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     private static final Logger log = LoggerFactory.getLogger(ClusterStoreAndForward_SQL.class);
 
+    private static final String INBOX_TABLE_PREFIX = "mats_socket_inbox_";
+
     private static final String OUTBOX_TABLE_PREFIX = "mats_socket_outbox_";
 
-    private static final int NUMBER_OF_OUTBOX_TABLES = 7;
+    private static final int NUMBER_OF_BOX_TABLES = 7;
 
     private final DataSource _dataSource;
     private final String _nodename;
@@ -103,6 +105,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 else {
                     createdTimestamp = now = _clock.millis();
                 }
+                select.close();
 
                 // :: Generic "UPSERT" implementation: DELETE-then-INSERT (no need for SELECT/UPDATE-or-INSERT here)
                 // Unconditionally delete session (the INSERT puts in the new values).
@@ -124,6 +127,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 // Execute them both
                 delete.execute();
                 insert.execute();
+                delete.close();
+                insert.close();
 
                 // ?: If we turned off autocommit, we should commit now.
                 if (autoCommitPre) {
@@ -158,6 +163,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             update.setString(2, connectionId);
             update.setString(3, _nodename);
             update.execute();
+            update.close();
         });
     }
 
@@ -172,17 +178,22 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         PreparedStatement select = con.prepareStatement("SELECT nodename, connection_id FROM mats_socket_session"
                 + " WHERE session_id = ?");
         select.setString(1, matsSocketSessionId);
-        ResultSet resultSet = select.executeQuery();
-        boolean next = resultSet.next();
-        if (!next) {
-            return Optional.empty();
+        try {
+            ResultSet resultSet = select.executeQuery();
+            boolean next = resultSet.next();
+            if (!next) {
+                return Optional.empty();
+            }
+            String nodename = resultSet.getString(1);
+            if ((nodename == null) && onlyIfHasNode) {
+                return Optional.empty();
+            }
+            String connectionId = resultSet.getString(2);
+            return Optional.of(new SimpleCurrentNode(nodename, connectionId));
         }
-        String nodename = resultSet.getString(1);
-        if ((nodename == null) && onlyIfHasNode) {
-            return Optional.empty();
+        finally {
+            select.close();
         }
-        String connectionId = resultSet.getString(2);
-        return Optional.of(new SimpleCurrentNode(nodename, connectionId));
     }
 
     @Override
@@ -199,6 +210,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 update.addBatch();
             }
             update.executeBatch();
+            update.close();
         });
     }
 
@@ -215,11 +227,19 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                     + " WHERE session_id = ?");
             deleteSession.setString(1, matsSocketSessionId);
             deleteSession.execute();
+            deleteSession.close();
 
-            PreparedStatement deleteMessages = con.prepareStatement("DELETE FROM "
-                    + outboxTableName(matsSocketSessionId) + " WHERE session_id = ?");
-            deleteMessages.setString(1, matsSocketSessionId);
-            deleteMessages.execute();
+            PreparedStatement deleteInbox = con.prepareStatement("DELETE FROM " + inboxTableName(matsSocketSessionId)
+                    + " WHERE session_id = ?");
+            deleteInbox.setString(1, matsSocketSessionId);
+            deleteInbox.execute();
+            deleteInbox.close();
+
+            PreparedStatement deleteOutbox = con.prepareStatement("DELETE FROM " + outboxTableName(matsSocketSessionId)
+                    + " WHERE session_id = ?");
+            deleteOutbox.setString(1, matsSocketSessionId);
+            deleteOutbox.execute();
+            deleteOutbox.close();
         });
     }
 
@@ -227,12 +247,13 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public void storeMessageIdInInbox(String matsSocketSessionId,
             String clientMessageId) throws ClientMessageIdAlreadyExistsException, DataAccessException {
         try (Connection con = _dataSource.getConnection()) {
-            PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_inbox"
+            PreparedStatement insert = con.prepareStatement("INSERT INTO " + inboxTableName(matsSocketSessionId)
                     + " (session_id, cmid)"
                     + " VALUES (?, ?)");
             insert.setString(1, matsSocketSessionId);
             insert.setString(2, clientMessageId);
             insert.execute();
+            insert.close();
         }
         catch (SQLIntegrityConstraintViolationException e) {
             throw new ClientMessageIdAlreadyExistsException("Could not insert the ClientMessageId [" + clientMessageId
@@ -248,7 +269,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             throws DataAccessException {
         withConnectionVoid(con -> {
             // TODO / OPTIMIZE: Make "in" optimizations.
-            PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM mats_socket_inbox"
+            PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM " + inboxTableName(matsSocketSessionId)
                     + " WHERE session_id = ?"
                     + "   AND cmid = ?");
             for (String messageId : clientMessageIds) {
@@ -257,6 +278,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 deleteMsg.addBatch();
             }
             deleteMsg.executeBatch();
+            deleteMsg.close();
         });
     }
 
@@ -356,8 +378,15 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         outboxMessagesComplete(matsSocketSessionId, serverMessageIds);
     }
 
+    private static String inboxTableName(String sessionIdForHash) {
+        int tableNum = Math.floorMod(sessionIdForHash.hashCode(), NUMBER_OF_BOX_TABLES);
+        // Handle up to 100 tables ("00" - "99")
+        String num = tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum);
+        return INBOX_TABLE_PREFIX + num;
+    }
+
     private static String outboxTableName(String sessionIdForHash) {
-        int tableNum = Math.floorMod(sessionIdForHash.hashCode(), NUMBER_OF_OUTBOX_TABLES);
+        int tableNum = Math.floorMod(sessionIdForHash.hashCode(), NUMBER_OF_BOX_TABLES);
         // Handle up to 100 tables ("00" - "99")
         String num = tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum);
         return OUTBOX_TABLE_PREFIX + num;

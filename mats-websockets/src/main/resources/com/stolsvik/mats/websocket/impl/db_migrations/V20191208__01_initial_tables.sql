@@ -19,21 +19,70 @@ CREATE TABLE mats_socket_session
 );
 
 -- == The INBOX ==
--- To recognize a redelivery of an already processed messages, i.e. "double delivery catcher".
-CREATE TABLE mats_socket_inbox
+-- To recognize a client-to-server redelivery of an already processed messages, i.e. "double delivery catcher".
+-- Going for some good ol' premature optimization:
+-- Create 7 outbox tables, hoping that this will reduce contention on the table approximately exactly 7-fold.
+-- (7 was chosen based on one finger in the air, and another in the ear, and listening for answers from the ancient ones.)
+-- Hash-key is MatsSocketSessionId (i.e. 'session_id' in these tables), using ".hashCode() % 7".
+CREATE TABLE mats_socket_inbox_00
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
 
-    CONSTRAINT PK_mats_socket_inbox PRIMARY KEY (session_id, cmid)
+    CONSTRAINT PK_mats_socket_inbox_00 PRIMARY KEY (session_id, cmid)
+);
+
+CREATE TABLE mats_socket_inbox_01
+(
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+
+    CONSTRAINT PK_mats_socket_inbox_01 PRIMARY KEY (session_id, cmid)
+);
+
+CREATE TABLE mats_socket_inbox_02
+(
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+
+    CONSTRAINT PK_mats_socket_inbox_02 PRIMARY KEY (session_id, cmid)
+);
+
+CREATE TABLE mats_socket_inbox_03
+(
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+
+    CONSTRAINT PK_mats_socket_inbox_03 PRIMARY KEY (session_id, cmid)
+);
+
+CREATE TABLE mats_socket_inbox_04
+(
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+
+    CONSTRAINT PK_mats_socket_inbox_04 PRIMARY KEY (session_id, cmid)
+);
+
+CREATE TABLE mats_socket_inbox_05
+(
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+
+    CONSTRAINT PK_mats_socket_inbox_05 PRIMARY KEY (session_id, cmid)
+);
+
+CREATE TABLE mats_socket_inbox_06
+(
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+
+    CONSTRAINT PK_mats_socket_inbox_06 PRIMARY KEY (session_id, cmid)
 );
 
 -- == The OUTBOX ==
--- :: Going for some good ol' premature optimization:
--- Create 7 outbox tables, hoping that this will reduce contention on the table approximately exactly 7-fold.
--- (7 was chosen based on one finger in the air, and another in the ear, and listening for answers from the ancient ones.)
--- NOTE: MatsSocketSessionId (i.e. 'session_id' in these tables) is the hash-key, using ".hashCode() % 7".
-
+-- To store outbound messages to enable retransmission if failure.
+-- Also using good'ol premature optimizations.
 CREATE TABLE mats_socket_outbox_00
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.

@@ -203,25 +203,26 @@ public interface MatsSocketServer {
      */
     enum MatsSocketCloseCodes implements CloseCode {
         /**
-         * Standard code 1002 - From Server side, REJECT all outstanding: used for when the client does not observe the
-         * protocol.
+         * Standard code 1002 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
+         * used when the client does not observe the protocol.
          */
         PROTOCOL_ERROR(CloseCodes.PROTOCOL_ERROR.getCode()),
 
         /**
-         * Standard code 1008 - From Server side, REJECT all outstanding: used for when the we cannot authenticate.
+         * Standard code 1008 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
+         * used when the we cannot authenticate.
          */
         VIOLATED_POLICY(CloseCodes.VIOLATED_POLICY.getCode()),
 
         /**
-         * Standard code 1011 - From Server side, REISSUE all outstanding upon reconnect: used when the server cannot
-         * talk to the underlying systems (DB or MQ). This should be a temporary situation, so doing periodic
-         * re-connects would be correct.
+         * Standard code 1011 - From Server side, Client should REJECT all outstanding and "crash"/reboot application.
+         * This is the default close code if the MatsSocket "onMessage"-handler throws anything, and may also explicitly
+         * be used by the implementation if it encounters a situation it cannot recover from.
          */
         UNEXPECTED_CONDITION(CloseCodes.UNEXPECTED_CONDITION.getCode()),
 
         /**
-         * Standard code 1012 - From Server side, REISSUE all outstanding upon reconnect: used when
+         * Standard code 1012 - From Server side, Client should REISSUE all outstanding upon reconnect: used when
          * {@link MatsSocketServer#stop(int)} is invoked. Please reconnect.
          */
         SERVICE_RESTART(CloseCodes.SERVICE_RESTART.getCode()),
@@ -231,13 +232,22 @@ public interface MatsSocketServer {
          * {@link #CLOSE_SESSION}, as the WebSocket documentation states <i>"indicates that an endpoint is "going away",
          * such as a server going down <b>or a browser having navigated away from a page.</b>"</i>, the latter point
          * being pretty much exactly correct wrt. when to close a session. So, if a browser decides to use this code
-         * when the user navigates away and the library or application does not catch it, we'd want to catch this as a
-         * Close Session.
+         * when the user navigates away and the client MatsSocket library or employing application does not catch it,
+         * we'd want to catch this as a Close Session. Notice that I've not experienced a browser that actually utilizes
+         * this close code yet, though!
+         * <p/>
+         * <b>Notice that if a close with this close code <i>is initiated from the Server-side</i>, this should NOT be
+         * considered a CLOSE_SESSION by the neither the client nor the server!</b> At least Jetty's implementation of
+         * JSR 356 WebSocket API for Java sends GOING_AWAY upon socket close due to timeout. Since a timeout can happen
+         * if we loose connection and thus can't convey PINGs, the MatsSocketServer must not interpret Jetty's
+         * timeout-close as Close Session. Likewise, if the client just experienced massive lag on the connection, and
+         * thus didn't get the PING over to the server in a timely fashion, but then suddenly gets Jetty's timeout close
+         * with GOING_AWAY, this should not be interpreted by the client as the server wants to close the session.
          */
         GOING_AWAY(CloseCodes.GOING_AWAY.getCode()),
 
         /**
-         * 4000: Both from Server side and Client/Browser side, client should REJECTed all outstanding:
+         * 4000: Both from Server side and Client/Browser side, client should REJECT all outstanding:
          * <ul>
          * <li>From Browser: Used when the browser closes WebSocket "on purpose", wanting to close the session -
          * typically when the user explicitly logs out, or navigates away from web page. All traces of the
@@ -250,7 +260,10 @@ public interface MatsSocketServer {
         CLOSE_SESSION(4000),
 
         /**
-         * 4001: From Server side, REJECT all outstanding: A HELLO:RECONNECT was attempted, but the session was gone.
+         * 4001: From Server side, Client should REJECT all outstanding and should consider "rebooting" the application,
+         * in particular if if there was any outstanding requests as their state is now indeterminate: A HELLO:RECONNECT
+         * was attempted, but the session was gone. A new session was provided instead. The client application must get
+         * its state synchronized with the server side's view of the world, thus the suggestion of "reboot".
          */
         SESSION_LOST(4001),
 
@@ -261,13 +274,7 @@ public interface MatsSocketServer {
          * Client: The client just fancied a little break (just as if lost connection in a tunnel), used form
          * integration tests.
          */
-        RECONNECT(4002),
-
-        /**
-         * 4003: From Server side, REJECT all outstanding - session is (or should have been) closed: The server
-         * experienced problems where it cannot guarantee proper function anymore.
-         */
-        SERVER_ERROR(4002);
+        RECONNECT(4002);
 
         private final int _closeCode;
 
