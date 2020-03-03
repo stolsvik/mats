@@ -99,7 +99,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     /**
      * Creates a new {@link MatsTrace}. Must add a {@link Call} before sending.
-     * 
+     *
      * @param traceId
      *            the user-defined hopefully-unique id for this call flow.
      * @param flowId
@@ -126,8 +126,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     public MatsTraceStringImpl withDebugInfo(String initializingAppName, String initializingAppVersion,
-            String initializingHost, String initiatorId,
-            long initializedTimestamp, String debugInfo) {
+            String initializingHost, String initiatorId, long initializedTimestamp, String debugInfo) {
         an = initializingAppName;
         av = initializingAppVersion;
         h = initializingHost;

@@ -170,7 +170,7 @@ public interface MatsInitiator extends Closeable {
 
     @FunctionalInterface
     interface InitiateLambda {
-        void initiate(MatsInitiate msg);
+        void initiate(MatsInitiate init);
     }
 
     /**
