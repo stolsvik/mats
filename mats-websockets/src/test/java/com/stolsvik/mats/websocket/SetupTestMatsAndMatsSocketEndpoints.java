@@ -2,6 +2,7 @@ package com.stolsvik.mats.websocket;
 
 import java.util.Objects;
 
+import com.stolsvik.mats.websocket.DummySessionAuthenticator.DummyAuthPrincipal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,6 +23,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         setupSocket_StandardTestSingle(matsSocketServer);
 
         // Resolve/Reject/Throws in incomingHandler and replyAdapter
+        setupSocket_IgnoreInIncoming(matsSocketServer);
+        setupSocket_DenyInIncoming(matsSocketServer);
         setupSocket_ResolveInIncoming(matsSocketServer);
         setupSocket_RejectInIncoming(matsSocketServer);
         setupSocket_ThrowsInIncoming(matsSocketServer);
@@ -71,6 +74,20 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                         incomingDto.number,
                         incomingDto.string + ":FromSimple",
                         incomingDto.sleepTime));
+    }
+
+    private static void setupSocket_IgnoreInIncoming(MatsSocketServer matsSocketServer) {
+        matsSocketServer.matsSocketEndpoint("Test.ignoreInIncomingHandler",
+                MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
+                // IGNORE - i.e. do nothing
+                (ctx, principal, msIncoming) -> {});
+    }
+
+    private static void setupSocket_DenyInIncoming(MatsSocketServer matsSocketServer) {
+        matsSocketServer.matsSocketEndpoint("Test.denyInIncomingHandler",
+                MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
+                // DENY
+                (ctx, principal, msIncoming) -> ctx.deny());
     }
 
     private static void setupSocket_ResolveInIncoming(MatsSocketServer matsSocketServer) {

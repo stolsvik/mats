@@ -82,13 +82,16 @@ public interface MatsSocketServer {
 
     interface MatsSocketEndpointRequestContext<MI, R> extends MatsSocketEndpointContext {
         /**
-         * @return current "Authorization header" in effect for the MatsSocket that delivered the message.
+         * @return current <i>Authorization Header</i> in effect for the MatsSocket that delivered the message. This
+         *         String is what resolves to the {@link #getPrincipal() current Principal} via the
+         *         {@link AuthenticationPlugin}.
          */
         String getAuthorizationHeader();
 
         /**
-         * @return the resolved Principal for the {@link #getAuthorizationHeader() Authorization header}. It is assumed
-         *         that you must cast this a more specific class which the authentication plugin provides.
+         * @return the resolved Principal from the {@link #getAuthorizationHeader() Authorization Header}, via the
+         *         {@link AuthenticationPlugin}. It is assumed that you must cast this a more specific class which the
+         *         authentication plugin provides.
          */
         Principal getPrincipal();
 
@@ -106,6 +109,13 @@ public interface MatsSocketServer {
          * @return whether this is a "REQUEST" (true) or "SEND" (false).
          */
         boolean isRequest();
+
+        /**
+         * Invoke if you want to deny this message from being processed, e.g. your preliminary Authorization checks
+         * determined that the {@link #getPrincipal() current Principal} is not allowed to perform the requested
+         * operation. Will send a "negative acknowledgement" to the client.
+         */
+        void deny();
 
         /**
          * <b>TYPICALLY for pure "GET-style" requests, or log event processing (not audit logging, though).</b>: Both

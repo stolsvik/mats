@@ -761,20 +761,48 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
                 incomingAuthEval.handleIncoming(requestContext, _principal, msg);
                 // ?: If we insta-settled the request, then do a REPLY
-                if (requestContext._settled) {
-                    // -> Yes, the handleIncoming settled the incoming message, so we insta-reply
-                    // NOTICE: We thus elide the "RECEIVED", as the client will handle the missing RECEIVED
-                    handledEnvelope.t = "REPLY";
-                    handledEnvelope.st = requestContext._resolved ? "RESOLVE" : "REJECT";
-                    handledEnvelope.msg = requestContext._matsSocketReplyMessage;
-                    log.info("handleIncoming(..) insta-settled the incoming message with"
-                            + " [REPLY:" + handledEnvelope.st + "]");
-                }
-                else {
-                    // -> No, no insta-settling, so it was probably sent off to Mats
-                    handledEnvelope.t = "RECEIVED";
-                    handledEnvelope.st = "ACK";
-                    handledEnvelope.mmsts = System.currentTimeMillis();
+                switch (requestContext._handled) {
+                    case IGNORED:
+                        if (requestContext.isRequest()) {
+                            handledEnvelope.t = "RECEIVED";
+                            handledEnvelope.st = "NACK";
+                            handledEnvelope.desc = "An incoming REQUEST envelope was ignored by the MatsSocket incoming handler.";
+                            log.warn("handleIncoming(..) ignored an incoming REQUEST, i.e. not answered at all."
+                                    + " Replying with [RECEIVED:NACK] to reject the outstanding request promise");
+                        }
+                        else {
+                            handledEnvelope.t = "RECEIVED";
+                            handledEnvelope.st = "ACK";
+                            log.info("handleIncoming(..) evidently ignored the incoming SEND envelope. Responding"
+                                    + " [RECEIVED:ACK], since that is OK.");
+                        }
+                        break;
+                    case DENIED:
+                        handledEnvelope.t = "RECEIVED";
+                        handledEnvelope.st = "NACK";
+                        log.info("handleIncoming(..) denied the incoming message. Replying with"
+                                + " [RECEIVED:NACK]");
+                        break;
+                    case SETTLED_RESOLVE:
+                    case SETTLED_REJECT:
+                        // -> Yes, the handleIncoming insta-settled the incoming message, so we insta-reply
+                        // NOTICE: We thus elide the "RECEIVED", as the client will handle the missing RECEIVED
+                        handledEnvelope.t = "REPLY";
+                        handledEnvelope.st = requestContext._handled == Processed.SETTLED_RESOLVE
+                                ? "RESOLVE"
+                                : "REJECT";
+                        handledEnvelope.msg = requestContext._matsSocketReplyMessage;
+                        log.info("handleIncoming(..) insta-settled the incoming message with"
+                                + " [REPLY:" + handledEnvelope.st + "]");
+                        break;
+                    case FORWARDED:
+                        handledEnvelope.t = "RECEIVED";
+                        handledEnvelope.st = "ACK";
+                        // TODO: Debug
+                        handledEnvelope.mmsts = System.currentTimeMillis();
+                        log.info("handleIncoming(..) forwarded the incoming message. Replying with"
+                                + " [RECEIVED:" + handledEnvelope.st + "]");
+                        break;
                 }
             });
         }
@@ -893,6 +921,29 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
     }
 
+    private enum Processed {
+        /**
+         * If none of the deny, forward or settle methods was invoked - the state starts here.
+         */
+        IGNORED,
+        /**
+         * {@link MatsSocketEndpointRequestContext#deny()} was invoked.
+         */
+        DENIED,
+        /**
+         * {@link MatsSocketEndpointRequestContext#resolve(Object)} was invoked.
+         */
+        SETTLED_RESOLVE,
+        /**
+         * {@link MatsSocketEndpointRequestContext#reject(Object)} was invoked.
+         */
+        SETTLED_REJECT,
+        /**
+         * {@link MatsSocketEndpointRequestContext#forwardCustom(Object, InitiateLambda)} or its ilk was invoked.
+         */
+        FORWARDED
+    }
+
     private static class MatsSocketEndpointRequestContextImpl<MI, R> implements
             MatsSocketEndpointRequestContext<MI, R> {
         private final DefaultMatsSocketServer _matsSocketServer;
@@ -928,9 +979,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
 
         private R _matsSocketReplyMessage;
-        private boolean _handled; // If either forwarded, or settled
-        private boolean _settled; // If settled
-        private boolean _resolved = true; // If neither resolve() nor reject() is invoked, it is a resolve.
+        private Processed _handled = Processed.IGNORED;
+        private boolean _resolved = true;
 
         @Override
         public String getMatsSocketEndpointId() {
@@ -963,6 +1013,14 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
 
         @Override
+        public void deny() {
+            if (_handled != Processed.IGNORED) {
+                throw new IllegalStateException("Already handled.");
+            }
+            _handled = Processed.DENIED;
+        }
+
+        @Override
         public void forwardInteractiveUnreliable(MI matsMessage) {
             forwardCustom(matsMessage, customInit -> {
                 customInit.to(getMatsSocketEndpointId());
@@ -981,10 +1039,10 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
         @Override
         public void forwardCustom(MI matsMessage, InitiateLambda customInit) {
-            if (_handled) {
+            if (_handled != Processed.IGNORED) {
                 throw new IllegalStateException("Already handled.");
             }
-            _handled = true;
+            _handled = Processed.FORWARDED;
 
             // :: First store the ClientMessageId in the Inbox.
             /*
@@ -1034,30 +1092,26 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         public void resolve(R matsSocketResolveMessage) {
             if (!isRequest()) {
                 throw new IllegalStateException("This is not a request, thus you cannot resolve nor reject it."
-                        + " For a SEND, your options is to forward to Mats, or not forward (and just return).");
+                        + " For a SEND, your options is to deny() it, forward it to Mats, or ignore it (and just return).");
             }
-            if (_handled) {
+            if (_handled != Processed.IGNORED) {
                 throw new IllegalStateException("Already handled.");
             }
             _matsSocketReplyMessage = matsSocketResolveMessage;
-            _handled = true;
-            _settled = true;
-            _resolved = true;
+            _handled = Processed.SETTLED_RESOLVE;
         }
 
         @Override
         public void reject(R matsSocketRejectMessage) {
             if (!isRequest()) {
                 throw new IllegalStateException("This is not a request, thus you cannot resolve nor reject it."
-                        + " For a SEND, your options is to forward to Mats, or not forward (and just return).");
+                        + " For a SEND, your options is to deny() it, forward it to Mats, or ignore it (and just return).");
             }
-            if (_handled) {
+            if (_handled != Processed.IGNORED) {
                 throw new IllegalStateException("Already handled.");
             }
             _matsSocketReplyMessage = matsSocketRejectMessage;
-            _handled = true;
-            _settled = true;
-            _resolved = false;
+            _handled = Processed.SETTLED_REJECT;
         }
     }
 }

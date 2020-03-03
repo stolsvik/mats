@@ -300,59 +300,53 @@
          * Add a message to the outgoing pipeline, evaluates whether to send the pipeline afterwards (i.e. if pipelining
          * is active or not).
          */
-        this.addMessageToPipeline = function (envelope, resolve, reject, receiveCallback) {
-            let now = Date.now();
-            _lastMessageEnqueuedMillis = now;
-
-            // Add TYPE to the envelope
-            let type = envelope.t;
-
-            // ?: Send or Request?
-            if ((type === "SEND") || (type === "REQUEST")) {
-                // Add client timestamp.
-                // TODO: How necessary is this?
-                envelope.cmcts = now;
-                // If it is a REQUEST /without/ a specific Reply (client) Endpoint defined, then it is a ...
-                let requestWithPromiseCompletion = (type === "REQUEST") && (envelope.reid === undefined);
-                // Make lambda for what happens when it has been RECEIVED on server.
-                let outstandingSendOrRequest = {
-                    // Store the outgoing message
-                    envelope: envelope,
-                    // Common for RECEIVED->ERROR or ->NACK is that the Promise will be rejected.
-                    reject: reject
-                };
-                // ?: Is it an ordinary REQUEST with Promise-completion?
-                if (requestWithPromiseCompletion) {
-                    // -> Yes, ordinary REQUEST with Promise-completion
-                    // Upon RECEIVED->ACK, invoke receiveCallback
-                    outstandingSendOrRequest.resolve = receiveCallback;
-                } else {
-                    // -> No, it is SEND or REQUEST-with-ReplyTo.
-                    // Upon RECEIVED->ACK, resolve the Promise with the Received-acknowledgement
-                    outstandingSendOrRequest.resolve = resolve;
-                }
-
-                outstandingSendOrRequest.reject = reject;
-
-                // Add the message Sequence Id
-                let thisMessageSequenceId = _messageSequenceId++;
-                envelope.cmid = thisMessageSequenceId;
-                // Store the outstanding Send or Request
-                _outstandingSendsAndRequests[thisMessageSequenceId] = outstandingSendOrRequest;
-
-                // ?: If this is a requestWithPromiseCompletion, we'll have a future to look forward to.
-                if (requestWithPromiseCompletion) {
-                    _futures[thisMessageSequenceId] = {
-                        resolve: resolve,
-                        reject: reject,
-                        envelope: envelope
-                    };
-                }
-            }
-
+        this.addEnvelopeToPipeline = function (envelope) {
+            _lastMessageEnqueuedMillis = Date.now();
             _pipeline.push(envelope);
             if (this.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
             evaluatePipelineLater()
+        };
+
+        this.addSendOrRequestEnvelopeToPipeline = function (envelope, ack, nack, requestResolve, requestReject) {
+            let type = envelope.t;
+
+            if ((type !== "SEND") && (type !== "REQUEST")) {
+                throw Error("Only SEND and REQUEST messages can be enqueued via this method.")
+            }
+
+            // Add client timestamp.
+            // TODO: How necessary is this?
+            envelope.cmcts = Date.now();
+
+            // Make lambda for what happens when it has been RECEIVED on server.
+            let outstandingSendOrRequest = Object.create(null);
+            // Store the outgoing message
+            outstandingSendOrRequest.envelope = envelope;
+            // Store acn/nack callbacks
+            outstandingSendOrRequest.ack = ack;
+            outstandingSendOrRequest.nack = nack;
+            outstandingSendOrRequest.requestResolve = requestResolve;
+            outstandingSendOrRequest.requestReject = requestReject;
+
+            // Add the message Sequence Id
+            let thisMessageSequenceId = _messageSequenceId++;
+            envelope.cmid = thisMessageSequenceId;
+
+            // Store the outstanding Send or Request
+            _outstandingSendsAndRequests[thisMessageSequenceId] = outstandingSendOrRequest;
+
+            // If it is a REQUEST /without/ a specific Reply (client) Endpoint defined, then it is a ...
+            let requestWithPromiseCompletion = (type === "REQUEST") && (envelope.reid === undefined);
+            // ?: If this is a requestWithPromiseCompletion, we'll have a future to look forward to.
+            if (requestWithPromiseCompletion) {
+                _futures[thisMessageSequenceId] = {
+                    resolve: requestResolve,
+                    reject: requestReject,
+                    envelope: envelope
+                };
+            }
+
+            this.addEnvelopeToPipeline(envelope);
         };
 
         let _evaluatePipelineLater_timeout = undefined;
@@ -559,7 +553,7 @@
         const that = this;
 
         function beforeunloadHandler() {
-            that.close(clientLibNameAndVersion+" window.onbeforeunload close");
+            that.close(clientLibNameAndVersion + " window.onbeforeunload close");
         }
 
         function registerBeforeunload() {
@@ -602,10 +596,10 @@
                 delete _outstandingSendsAndRequests[cmid];
 
                 log("Clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "] with traceId [" + outstandingMessage.envelope.tid + "].");
-                if (outstandingMessage.reject) {
+                if (outstandingMessage.nack) {
                     try {
                         // TODO: Make better event object
-                        outstandingMessage.reject({type: "CLEARED", description: reason});
+                        outstandingMessage.nack({type: "CLEARED", description: reason});
                     } catch (err) {
                         error("Got error while clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "].", err);
                     }
@@ -925,7 +919,7 @@
                 _reconnect_ForceSendHello = true;
 
                 // :: Start reconnecting, but give the server a little time to settle
-                setTimeout(function() {
+                setTimeout(function () {
                     initiateWebSocketCreation();
 
                     // TODO: Implement reissue!
@@ -956,6 +950,8 @@
                 try {
                     if (that.logging) log(" \\- onmessage: handling message " + i + ": " + envelope.t + ", envelope:" + JSON.stringify(envelope));
 
+                    // TODO: Handle RETRY!
+
                     if (envelope.t === "WELCOME") {
                         // TODO: Handle WELCOME message better. At least notify if sessionLost..
                         _sessionId = envelope.sid;
@@ -963,12 +959,10 @@
                     } else if (envelope.t === "RECEIVED") {
                         // -> RECEIVED-message-from-client (ack/nack/retry/error)
 
-                        // TODO: Handle RECEIVED:RETRY!
-
                         // ?: Do server want receipt of the RECEIVED-from-client, indicated by the message having 'cmid' property?
                         if (envelope.cmid && (envelope.st !== "ERROR")) {
                             // -> Yes, so send RECEIVED to server
-                            that.addMessageToPipeline({
+                            that.addEnvelopeToPipeline({
                                 t: "ACKACK",
                                 cmid: envelope.cmid,
                             });
@@ -987,13 +981,13 @@
                         // ?: Was it a "good" RECEIVED?
                         if ((envelope.st === undefined) || (envelope.st === "ACK")) {
                             // -> Yes, it was undefined or "ACK" - so Server was happy.
-                            if (outstandingSendOrRequest.resolve) {
-                                outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
+                            if (outstandingSendOrRequest.ack) {
+                                outstandingSendOrRequest.ack(eventFromEnvelope(envelope, receivedTimestamp));
                             }
                         } else {
                             // -> No, it was "ERROR" or "NACK", so message has not been forwarded to Mats
-                            if (outstandingSendOrRequest.reject) {
-                                outstandingSendOrRequest.reject(eventFromEnvelope(envelope, receivedTimestamp));
+                            if (outstandingSendOrRequest.nack) {
+                                outstandingSendOrRequest.nack(eventFromEnvelope(envelope, receivedTimestamp));
                             }
                             // ?: Check if it was a REQUEST
                             if (outstandingSendOrRequest.envelope.t === "REQUEST") {
@@ -1012,7 +1006,7 @@
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
                         if (envelope.smid) {
                             // -> Yes, so send RECEIVED to server
-                            that.addMessageToPipeline({
+                            that.addEnvelopeToPipeline({
                                 t: "RECEIVED",
                                 st: "ACK",
                                 smid: envelope.smid,
@@ -1025,7 +1019,7 @@
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
                         if (envelope.smid) {
                             // -> Yes, so send RECEIVED to server
-                            that.addMessageToPipeline({
+                            that.addEnvelopeToPipeline({
                                 t: "RECEIVED",
                                 st: "ACK",
                                 smid: envelope.smid,
@@ -1038,7 +1032,7 @@
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
                         if (envelope.smid) {
                             // -> Yes, so send RECEIVED to server
-                            that.addMessageToPipeline({
+                            that.addEnvelopeToPipeline({
                                 t: "RECEIVED",
                                 st: "ACK",
                                 smid: envelope.smid,
@@ -1053,8 +1047,8 @@
                         if (outstandingSendOrRequest) {
                             // -> Yes, still present - so we delete and resolve it
                             delete _outstandingSendsAndRequests[envelope.cmid];
-                            if (outstandingSendOrRequest.resolve) {
-                                outstandingSendOrRequest.resolve(eventFromEnvelope(envelope, receivedTimestamp));
+                            if (outstandingSendOrRequest.ack) {
+                                outstandingSendOrRequest.ack(eventFromEnvelope(envelope, receivedTimestamp));
                             }
                         }
 
@@ -1122,7 +1116,7 @@
     MatsSocket.prototype.send = function (endpointId, traceId, message) {
         let that = this;
         return new Promise(function (resolve, reject) {
-            that.addMessageToPipeline({
+            that.addSendOrRequestEnvelopeToPipeline({
                 t: "SEND",
                 eid: endpointId,
                 tid: traceId,
@@ -1146,12 +1140,12 @@
     MatsSocket.prototype.request = function (endpointId, traceId, message, receivedCallback) {
         let that = this;
         return new Promise(function (resolve, reject) {
-            that.addMessageToPipeline({
+            that.addSendOrRequestEnvelopeToPipeline({
                 t: "REQUEST",
                 eid: endpointId,
                 tid: traceId,
                 msg: message
-            }, resolve, reject, receivedCallback);
+            }, receivedCallback, receivedCallback, resolve, reject);
         });
     };
 
@@ -1171,7 +1165,7 @@
     MatsSocket.prototype.requestReplyTo = function (endpointId, traceId, message, replyToEndpointId, correlationId) {
         let that = this;
         return new Promise(function (resolve, reject) {
-            that.addMessageToPipeline({
+            that.addSendOrRequestEnvelopeToPipeline({
                 t: "REQUEST",
                 eid: endpointId,
                 reid: replyToEndpointId,

@@ -37,7 +37,7 @@
         afterEach(() => {
             // :: Chill the close slightly, so as to get the final "ACKACK" envelope over to delete server's inbox.
             let toClose = matsSocket;
-            setTimeout(function() {
+            setTimeout(function () {
                 toClose.close("Test done");
             }, 25);
         });
@@ -237,68 +237,165 @@
             });
         });
 
-        describe("settle in IncomingAuthorizationAndAdapter", function () {
+        describe("requests handled in IncomingAuthorizationAndAdapter", function () {
             // Set a valid authorization before each request
             beforeEach(() => setAuth());
 
-            it("context.resolve(..)", function () {
-                return matsSocket.request("Test.resolveInIncomingHandler", "REQUEST_resolved_in_incomingHandler" + matsSocket.id(6), {
-                    string: "The String",
-                    number: Math.PI
-                });
+            // FOR ALL: Both the received callback should be invoked, and the Promise resolved/rejected
+
+            it("ignored (handler did nothing), should NACK request (must either deny, insta-settle or forward)", function (done) {
+                let received = false;
+                let promise = matsSocket.request("Test.ignoreInIncomingHandler", "REQUEST_ignored_in_incomingHandler" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.catch(function () {
+                    if (received) {
+                        done();
+                    }
+                })
+            });
+
+            it("context.deny()", function (done) {
+                let received = false;
+                let promise = matsSocket.request("Test.denyInIncomingHandler", "REQUEST_denied_in_incomingHandler" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.catch(function () {
+                    if (received) {
+                        done();
+                    }
+                })
+            });
+
+            it("context.resolve(..)", function (done) {
+                let received = false;
+                let promise = matsSocket.request("Test.resolveInIncomingHandler", "REQUEST_resolved_in_incomingHandler" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.then(function () {
+                    if (received) {
+                        done();
+                    }
+                })
+
             });
 
             it("context.reject(..)", function (done) {
-                let promise = matsSocket.request("Test.rejectInIncomingHandler", "REQUEST_rejected_in_incomingHandler" + matsSocket.id(6), {
-                    string: "The String",
-                    number: Math.PI
+                let received = false;
+                let promise = matsSocket.request("Test.rejectInIncomingHandler", "REQUEST_rejected_in_incomingHandler" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.catch(function () {
+                    if (received) {
+                        done();
+                    }
                 });
+            });
+
+            it("Exception in incomingAdapter should reject", function (done) {
+                let received = false;
+                let promise = matsSocket.request("Test.throwsInIncomingHandler", "REQUEST_throws_in_incomingHandler" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.catch(function () {
+                    if (received) {
+                        done();
+                    }
+                });
+            });
+        });
+
+        describe("sends handled in IncomingAuthorizationAndAdapter", function () {
+            // Set a valid authorization before each request
+            beforeEach(() => setAuth());
+
+            // FOR ALL: Both the received callback should be invoked, and the Promise resolved/rejected
+
+            it("ignored (handler did nothing) should ACK send (resolve Promise)", function () {
+                return matsSocket.send("Test.ignoreInIncomingHandler", "SEND_ignored_in_incomingHandler" + matsSocket.id(6), {});
+            });
+
+            it("context.deny() should NACK (reject Promise)", function (done) {
+                let promise = matsSocket.send("Test.denyInIncomingHandler", "SEND_denied_in_incomingHandler" + matsSocket.id(6), {});
+                promise.catch(function () {
+                    done();
+                })
+            });
+
+            it("context.resolve(..) should NACK since it is not allowed to resolve/reject a send", function (done) {
+                let promise = matsSocket.send("Test.resolveInIncomingHandler", "SEND_resolved_in_incomingHandler" + matsSocket.id(6), {});
+                promise.catch(function () {
+                    done();
+                })
+
+            });
+
+            it("context.reject(..) should NACK since it is not allowed to resolve/reject a send", function (done) {
+                let promise = matsSocket.send("Test.rejectInIncomingHandler", "SEND_rejected_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
                     done();
                 });
             });
 
-            it("Exception in incomingAdapter should reject", function (done) {
-                let promise = matsSocket.request("Test.throwsInIncomingHandler", "REQUEST_throws_in_incomingHandler" + matsSocket.id(6), {
-                    string: "The String",
-                    number: Math.PI
-                });
+            it("Exception in incomingAdapter should NACK", function (done) {
+                let promise = matsSocket.send("Test.throwsInIncomingHandler", "SEND_throws_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
                     done();
                 });
             });
         });
 
-        describe("settle in replyAdapter", function () {
+
+        describe("requests handled in replyAdapter", function () {
             // Set a valid authorization before each request
             beforeEach(() => setAuth());
 
-            it("context.resolve(..)", function () {
-                return matsSocket.request("Test.resolveInReplyAdapter", "REQUEST_resolved_in_replyAdapter" + matsSocket.id(6), {
-                    string: "The String",
-                    number: Math.PI
+            // FOR ALL: Both the received callback should be invoked, and the Promise resolved/rejected
+
+            it("context.resolve(..)", function (done) {
+                let received = false;
+                let promise = matsSocket.request("Test.resolveInReplyAdapter", "REQUEST_resolved_in_replyAdapter" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.then(function () {
+                    if (received) {
+                        done();
+                    }
                 });
             });
 
             it("context.reject(..)", function (done) {
-                let promise = matsSocket.request("Test.rejectInReplyAdapter", "REQUEST_rejected_in_replyAdapter" + matsSocket.id(6), {
-                    string: "The String",
-                    number: Math.PI
-                });
+                let received = false;
+                let promise = matsSocket.request("Test.rejectInReplyAdapter", "REQUEST_rejected_in_replyAdapter" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
                 promise.catch(function () {
-                    done();
+                    if (received) {
+                        done();
+                    }
                 });
             });
 
             it("Exception in replyAdapter should reject", function (done) {
-                let promise = matsSocket.request("Test.throwsInReplyAdapter", "REQUEST_throws_in_replyAdapter" + matsSocket.id(6), {
-                    string: "The String",
-                    number: Math.PI
-                });
+                let received = false;
+                let promise = matsSocket.request("Test.throwsInReplyAdapter", "REQUEST_throws_in_replyAdapter" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
                 promise.catch(function () {
-                    done();
+                    if (received) {
+                        done();
+                    }
                 });
-            });
+            })
+            ;
         });
 
         describe("client close", function () {
