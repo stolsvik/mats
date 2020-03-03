@@ -4,12 +4,12 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ThreadLocalRandom;
 
 import javax.sql.DataSource;
 
@@ -68,7 +68,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     @Override
     public void registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId)
             throws DataAccessException, WrongUserException {
-        withConnection(con -> {
+        try (Connection con = _dataSource.getConnection()) {
             boolean autoCommitPre = con.getAutoCommit();
             try { // turn back autocommit, just to be sure we've not changed state of connection.
 
@@ -137,13 +137,16 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                     con.setAutoCommit(true);
                 }
             }
-        });
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Got '" + e.getClass().getSimpleName() + "' accessing DataSource.", e);
+        }
     }
 
     @Override
     public void deregisterSessionFromThisNode(String matsSocketSessionId, String connectionId)
             throws DataAccessException {
-        withConnection(con -> {
+        withConnectionVoid(con -> {
             // Note that we include a "WHERE nodename=<thisnode> AND connection_id=<specified connectionId>"
             // here, so as to not mess up if he has already re-registered with new socket, or on a new node.
             PreparedStatement update = con.prepareStatement("UPDATE mats_socket_session"
@@ -184,7 +187,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public void notifySessionLiveliness(Collection<String> matsSocketSessionIds) throws DataAccessException {
-        withConnection(con -> {
+        withConnectionVoid(con -> {
             long now = _clock.millis();
             // TODO / OPTIMIZE: Make "in" optimizations.
             PreparedStatement update = con.prepareStatement("UPDATE mats_socket_session"
@@ -206,7 +209,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public void closeSession(String matsSocketSessionId) throws DataAccessException {
-        withConnection(con -> {
+        withConnectionVoid(con -> {
             // Notice that we DO NOT include WHERE nodename is us. User asked us to delete, and that we do.
             PreparedStatement deleteSession = con.prepareStatement("DELETE FROM mats_socket_session"
                     + " WHERE session_id = ?");
@@ -221,8 +224,45 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId,
-            String clientMessageSequence, String type, String message) throws DataAccessException {
+    public void storeMessageIdInInbox(String matsSocketSessionId,
+            String clientMessageId) throws ClientMessageIdAlreadyExistsException, DataAccessException {
+        try (Connection con = _dataSource.getConnection()) {
+            PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_inbox"
+                    + " (session_id, cmid)"
+                    + " VALUES (?, ?)");
+            insert.setString(1, matsSocketSessionId);
+            insert.setString(2, clientMessageId);
+            insert.execute();
+        }
+        catch (SQLIntegrityConstraintViolationException e) {
+            throw new ClientMessageIdAlreadyExistsException("Could not insert the ClientMessageId [" + clientMessageId
+                    + "] for MatsSocketSessionId [" + matsSocketSessionId + "].", e);
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Got '" + e.getClass().getSimpleName() + "' accessing DataSource.", e);
+        }
+    }
+
+    @Override
+    public void deleteMessageIdsFromInbox(String matsSocketSessionId, Collection<String> clientMessageIds)
+            throws DataAccessException {
+        withConnectionVoid(con -> {
+            // TODO / OPTIMIZE: Make "in" optimizations.
+            PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM mats_socket_inbox"
+                    + " WHERE session_id = ?"
+                    + "   AND cmid = ?");
+            for (String messageId : clientMessageIds) {
+                deleteMsg.setString(1, matsSocketSessionId);
+                deleteMsg.setString(2, messageId);
+                deleteMsg.addBatch();
+            }
+            deleteMsg.executeBatch();
+        });
+    }
+
+    @Override
+    public Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String traceId,
+            String clientMessageId, String type, String message) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("INSERT INTO " + outboxTableName(matsSocketSessionId)
                     + "(session_id, smid, cmid, stored_timestamp,"
@@ -231,7 +271,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             String randomId = DefaultMatsSocketServer.rnd(6);
             insert.setString(1, matsSocketSessionId);
             insert.setString(2, randomId);
-            insert.setString(3, clientMessageSequence);
+            insert.setString(3, clientMessageId);
             insert.setLong(4, _clock.millis());
             insert.setInt(5, 0);
             insert.setString(6, traceId);
@@ -244,7 +284,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages,
+    public List<StoredMessage> getMessagesFromOutbox(String matsSocketSessionId, int maxNumberOfMessages,
             boolean takeAlreadyAttempted)
             throws DataAccessException {
         return withConnectionReturn(con -> {
@@ -272,10 +312,10 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void messagesAttemptedDelivery(String matsSocketSessionId, Collection<String> serverMessageIds)
+    public void outboxMessagesAttemptedDelivery(String matsSocketSessionId, Collection<String> serverMessageIds)
             throws DataAccessException {
         long now = _clock.millis();
-        withConnection(con -> {
+        withConnectionVoid(con -> {
             PreparedStatement update = con.prepareStatement("UPDATE " + outboxTableName(matsSocketSessionId)
                     + "   SET attempt_timestamp = ?,"
                     + "       delivery_count = delivery_count + 1"
@@ -292,8 +332,9 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void messagesComplete(String matsSocketSessionId, Collection<String> serverMessageIds) throws DataAccessException {
-        withConnection(con -> {
+    public void outboxMessagesComplete(String matsSocketSessionId, Collection<String> serverMessageIds)
+            throws DataAccessException {
+        withConnectionVoid(con -> {
             // TODO / OPTIMIZE: Make "in" optimizations.
             PreparedStatement deleteMsg = con.prepareStatement("DELETE FROM " + outboxTableName(matsSocketSessionId)
                     + " WHERE session_id = ?"
@@ -308,11 +349,11 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void messagesDeadLetterQueue(String matsSocketSessionId, Collection<String> serverMessageIds)
+    public void outboxMessagesDeadLetterQueue(String matsSocketSessionId, Collection<String> serverMessageIds)
             throws DataAccessException {
         log.error("Dead-Letter-Queue (DLQ) for matsSocketSessionId [" + matsSocketSessionId + "] for serverMessageIds "
                 + serverMessageIds + " - implemented as 'complete', so messages will just be deleted.");
-        messagesComplete(matsSocketSessionId, serverMessageIds);
+        outboxMessagesComplete(matsSocketSessionId, serverMessageIds);
     }
 
     private static String outboxTableName(String sessionIdForHash) {
@@ -339,19 +380,22 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @FunctionalInterface
     private interface Lambda<T> {
-        T transact(Connection con) throws SQLException, WrongUserException;
+        T transact(Connection con) throws SQLException;
     }
 
-    private void withConnection(LambdaVoid lambda) throws DataAccessException {
-        withConnectionReturn(con -> {
-            lambda.transact(con);
-            // Void return;
-            return null;
-        });
+    private void withConnectionVoid(LambdaVoid lambdaVoid) throws DataAccessException {
+        try {
+            try (Connection con = _dataSource.getConnection()) {
+                lambdaVoid.transact(con);
+            }
+        }
+        catch (SQLException e) {
+            throw new DataAccessException("Got '" + e.getClass().getSimpleName() + "' accessing DataSource.", e);
+        }
     }
 
     @FunctionalInterface
     private interface LambdaVoid {
-        void transact(Connection con) throws SQLException, WrongUserException;
+        void transact(Connection con) throws SQLException;
     }
 }

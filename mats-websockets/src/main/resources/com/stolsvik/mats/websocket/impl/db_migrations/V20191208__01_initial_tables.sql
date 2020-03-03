@@ -18,6 +18,17 @@ CREATE TABLE mats_socket_session
     CONSTRAINT PK_mats_socket_session PRIMARY KEY (session_id)
 );
 
+-- == The INBOX ==
+-- To recognize a redelivery of an already processed messages, i.e. "double delivery catcher".
+CREATE TABLE mats_socket_inbox
+(
+    session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+
+    CONSTRAINT PK_mats_socket_inbox PRIMARY KEY (session_id, cmid)
+);
+
+-- == The OUTBOX ==
 -- :: Going for some good ol' premature optimization:
 -- Create 7 outbox tables, hoping that this will reduce contention on the table approximately exactly 7-fold.
 -- (7 was chosen based on one finger in the air, and another in the ear, and listening for answers from the ancient ones.)
@@ -26,7 +37,7 @@ CREATE TABLE mats_socket_session
 CREATE TABLE mats_socket_outbox_00
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
     cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
@@ -42,7 +53,7 @@ CREATE TABLE mats_socket_outbox_00
 CREATE TABLE mats_socket_outbox_01
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
     cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
@@ -59,7 +70,7 @@ CREATE TABLE mats_socket_outbox_01
 CREATE TABLE mats_socket_outbox_02
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
     cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
@@ -75,7 +86,7 @@ CREATE TABLE mats_socket_outbox_02
 CREATE TABLE mats_socket_outbox_03
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
     cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
@@ -91,7 +102,7 @@ CREATE TABLE mats_socket_outbox_03
 CREATE TABLE mats_socket_outbox_04
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
     cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
@@ -107,7 +118,7 @@ CREATE TABLE mats_socket_outbox_04
 CREATE TABLE mats_socket_outbox_05
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
     cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
@@ -123,7 +134,7 @@ CREATE TABLE mats_socket_outbox_05
 CREATE TABLE mats_socket_outbox_06
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - currently random long.
+    smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
     cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client message.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.

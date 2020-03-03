@@ -23,8 +23,8 @@ import java.util.Optional;
  * Each node has his own instance of this class, connected to the same backing datastore.
  * <p />
  * It is assumed that the consumption of messages for a session is done single threaded, on one node only. That is, only
- * one thread on one node will actually {@link #getMessagesForSession(String, int, boolean)} get messages}, and, more
- * importantly, {@link #messagesComplete(String, Collection) register dem as completed}. Wrt. multiple nodes, this
+ * one thread on one node will actually {@link #getMessagesFromOutbox(String, int, boolean)} get messages}, and, more
+ * importantly, {@link #outboxMessagesComplete(String, Collection) register dem as completed}. Wrt. multiple nodes, this
  * argument still holds, since only one node can hold a MatsSocket Session. I believe it is possible to construct a bad
  * async situation here (connect to one node, authenticate, get SessionId, immediately disconnect and perform reconnect,
  * and do this until the current {@link ClusterStoreAndForward} has the wrong idea of which node holds the Session) but
@@ -57,8 +57,7 @@ public interface ClusterStoreAndForward {
      *            a new registration will not be deregistered by the old MatsSocketSession realizing that it is closed
      *            and then invoking {@link #deregisterSessionFromThisNode(String, String)}
      * @throws WrongUserException
-     *             if the userId provided does not match the original userId that created the session. Note that this is
-     *             an extension of {@link DataAccessException}, just out of implementation convenience.
+     *             if the userId provided does not match the original userId that created the session.
      * @throws DataAccessException
      *             if problems with underlying data store.
      */
@@ -104,13 +103,41 @@ public interface ClusterStoreAndForward {
 
     /**
      * Invoked when the client explicitly tells us that he closed this session, CLOSE_SESSION. This deletes the session
-     * instance, and any messages in queue for it. Throws {@link IllegalStateException} if this node is not the home of
-     * the session.
+     * instance, and any messages in queue for it. No new incoming REPLYs, SENDs or RECEIVEs for this SessionId will be
+     * sent anywhere. (Notice that the implementation might still store any new outboxed messages, not checking that the
+     * session actually exists. But this SessionId will never be reused (exception without extreme "luck"), and the
+     * implementation will periodically purge such non-session-attached outbox messages).
      *
      * @param matsSocketSessionId
      *            the MatsSocketSessionId that should be closed.
      */
-    void closeSession(String matsSocketSessionId) throws IllegalStateException, DataAccessException;
+    void closeSession(String matsSocketSessionId) throws DataAccessException;
+
+    /**
+     * Stores the incoming message Id, to avoid double delivery. If the messageId already exists, a
+     * {@link ClientMessageIdAlreadyExistsException} will be raised.
+     *
+     * @param matsSocketSessionId
+     *            the MatsSocketSessionId for which to store the incoming message id.
+     * @param clientMessageId
+     *            the client's message Id for the incoming message.
+     * @throws ClientMessageIdAlreadyExistsException
+     *             if this messageId already existed for this SessionId.
+     */
+    void storeMessageIdInInbox(String matsSocketSessionId, String clientMessageId)
+            throws ClientMessageIdAlreadyExistsException, DataAccessException;
+
+    /**
+     * Deletes the incoming message Ids, as we've established that the client will never try to send this particular
+     * message again.
+     *
+     * @param matsSocketSessionId
+     *            the MatsSocketSessionId for which to delete the incoming message id.
+     * @param clientMessageIds
+     *            the client's message Ids for the incoming messages to delete.
+     */
+    void deleteMessageIdsFromInbox(String matsSocketSessionId, Collection<String> clientMessageIds)
+            throws DataAccessException;
 
     /**
      * Stores the message for the Session, returning the nodename for the node holding the session, if any. If the
@@ -120,7 +147,7 @@ public interface ClusterStoreAndForward {
      *            the matsSocketSessionId that the message is meant for.
      * @param traceId
      *            the server-side traceId for this message.
-     * @param clientMessageSequence
+     * @param clientMessageId
      *            the envelope.cmid, or -1 if MULTI
      * @param type
      *            the type of the reply, currently "REPLY", or "MULTI" of a JSON Array of multiple messages.
@@ -128,8 +155,8 @@ public interface ClusterStoreAndForward {
      *            the JSON-serialized MatsSocket <b>Envelope</b>.
      * @return the current node holding MatsSocket Session, or empty if none.
      */
-    Optional<CurrentNode> storeMessageForSession(String matsSocketSessionId, String traceId,
-            String clientMessageSequence, String type, String message) throws DataAccessException;
+    Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String traceId,
+            String clientMessageId, String type, String message) throws DataAccessException;
 
     /**
      * Fetch a set of messages, up to 'maxNumberOfMessages'.
@@ -142,9 +169,8 @@ public interface ClusterStoreAndForward {
      *            if <code>true</code>, instead of excluding already attempted message, now only pick these.
      * @return a list of json encoded messages destined for the WebSocket.
      */
-    List<StoredMessage> getMessagesForSession(String matsSocketSessionId, int maxNumberOfMessages,
-            boolean takeAlreadyAttempted)
-            throws DataAccessException;
+    List<StoredMessage> getMessagesFromOutbox(String matsSocketSessionId, int maxNumberOfMessages,
+            boolean takeAlreadyAttempted) throws DataAccessException;
 
     /**
      * States that the messages are delivered. Will typically delete the message.
@@ -154,7 +180,8 @@ public interface ClusterStoreAndForward {
      * @param serverMessageIds
      *            which messages are complete.
      */
-    void messagesComplete(String matsSocketSessionId, Collection<String> serverMessageIds) throws DataAccessException;
+    void outboxMessagesComplete(String matsSocketSessionId, Collection<String> serverMessageIds)
+            throws DataAccessException;
 
     /**
      * Notches the 'delivery_count' one up for the specified messages.
@@ -164,7 +191,7 @@ public interface ClusterStoreAndForward {
      * @param serverMessageIds
      *            which messages failed delivery.
      */
-    void messagesAttemptedDelivery(String matsSocketSessionId, Collection<String> serverMessageIds)
+    void outboxMessagesAttemptedDelivery(String matsSocketSessionId, Collection<String> serverMessageIds)
             throws DataAccessException;
 
     /**
@@ -175,8 +202,28 @@ public interface ClusterStoreAndForward {
      * @param serverMessageIds
      *            which messages should be DLQed.
      */
-    void messagesDeadLetterQueue(String matsSocketSessionId, Collection<String> serverMessageIds)
+    void outboxMessagesDeadLetterQueue(String matsSocketSessionId, Collection<String> serverMessageIds)
             throws DataAccessException;
+
+    /**
+     * Thrown from {@link #registerSessionAtThisNode(String, String, String)} if the userId does not match the original
+     * userId that created this session.
+     */
+    class WrongUserException extends Exception {
+        public WrongUserException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Thrown if the operation resulted in a Unique Constraint situation. Relevant for
+     * {@link #storeMessageIdInInbox(String, String)}.
+     */
+    class ClientMessageIdAlreadyExistsException extends Exception {
+        public ClientMessageIdAlreadyExistsException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
 
     /**
      * If having problems accessing the underlying common data store.
@@ -188,16 +235,6 @@ public interface ClusterStoreAndForward {
 
         public DataAccessException(String message, Throwable cause) {
             super(message, cause);
-        }
-    }
-
-    /**
-     * Thrown from {@link #registerSessionAtThisNode(String, String, String)} if the userId does not match the original
-     * userId that created this session.
-     */
-    class WrongUserException extends DataAccessException {
-        public WrongUserException(String message) {
-            super(message);
         }
     }
 
@@ -315,7 +352,7 @@ public interface ClusterStoreAndForward {
     class SimpleStoredMessage implements StoredMessage {
         private final String _matsSocketSessionId;
         private final String _serverMessageSequence;
-        private final String _clientMessageSequence;
+        private final String _clientMessageId;
         private final long _storedTimestamp;
         private final Long _attemptTimestamp;
         private final int _deliveryCount;
@@ -325,12 +362,12 @@ public interface ClusterStoreAndForward {
         private final String _envelopeJson;
 
         public SimpleStoredMessage(String matsSocketSessionId, String serverMessageSequence,
-                String clientMessageSequence,
+                String clientMessageId,
                 long storedTimestamp, Long attemptTimestamp, int deliveryCount, String traceId, String type,
                 String envelopeJson) {
             _matsSocketSessionId = matsSocketSessionId;
             _serverMessageSequence = serverMessageSequence;
-            _clientMessageSequence = clientMessageSequence;
+            _clientMessageId = clientMessageId;
             _storedTimestamp = storedTimestamp;
             _attemptTimestamp = attemptTimestamp;
             _deliveryCount = deliveryCount;
@@ -351,7 +388,7 @@ public interface ClusterStoreAndForward {
 
         @Override
         public Optional<String> getClientMessageId() {
-            return Optional.ofNullable(_clientMessageSequence);
+            return Optional.ofNullable(_clientMessageId);
         }
 
         @Override

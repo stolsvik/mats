@@ -960,7 +960,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
         Optional<CurrentNode> nodeNameHoldingWebSocket;
         try {
-            nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageForSession(
+            nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
                     state.sid, processContext.getTraceId(), msReplyEnvelope.cmid, msReplyEnvelope.t,
                     serializedEnvelope);
         }

@@ -35,7 +35,11 @@
         });
 
         afterEach(() => {
-            matsSocket.close("Test done");
+            // :: Chill the close slightly, so as to get the final "ACKACK" envelope over to delete server's inbox.
+            let toClose = matsSocket;
+            setTimeout(function() {
+                toClose.close("Test done");
+            }, 25);
         });
 
         describe('authorization callbacks', function () {

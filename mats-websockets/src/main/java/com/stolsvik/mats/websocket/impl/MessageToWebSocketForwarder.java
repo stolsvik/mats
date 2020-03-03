@@ -145,7 +145,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     List<StoredMessage> messagesToDeliver;
                     try {
                         messagesToDeliver = _clusterStoreAndForward
-                                .getMessagesForSession(matsSocketSessionId, 20, false);
+                                .getMessagesFromOutbox(matsSocketSessionId, 20, false);
                     }
                     catch (DataAccessException e) {
                         log.warn("Got problems when trying to load messages from CSAF."
@@ -223,7 +223,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // Result: will not be picked up on the next round of fetching messages.
                         long nanos_start_MarkComplete = System.nanoTime();
                         try {
-                            _clusterStoreAndForward.messagesAttemptedDelivery(matsSocketSessionId, messageIds);
+                            _clusterStoreAndForward.outboxMessagesAttemptedDelivery(matsSocketSessionId, messageIds);
                         }
                         catch (DataAccessException e) {
                             log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
@@ -253,7 +253,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                         // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)
                         try {
-                            _clusterStoreAndForward.messagesAttemptedDelivery(matsSocketSessionId, messageIds);
+                            _clusterStoreAndForward.outboxMessagesAttemptedDelivery(matsSocketSessionId, messageIds);
                         }
                         catch (DataAccessException e) {
                             log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
@@ -273,7 +273,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         if (!dlqMessages.isEmpty()) {
                             // :: DLQ messages
                             try {
-                                _clusterStoreAndForward.messagesDeadLetterQueue(matsSocketSessionId, messageIds);
+                                _clusterStoreAndForward.outboxMessagesDeadLetterQueue(matsSocketSessionId, messageIds);
                             }
                             catch (DataAccessException e) {
                                 log.warn("Got problems when trying to invoke 'messagesDeadLetterQueue' on CSAF for "

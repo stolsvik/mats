@@ -261,7 +261,13 @@ public interface MatsSocketServer {
          * Client: The client just fancied a little break (just as if lost connection in a tunnel), used form
          * integration tests.
          */
-        RECONNECT(4002);
+        RECONNECT(4002),
+
+        /**
+         * 4003: From Server side, REJECT all outstanding - session is (or should have been) closed: The server
+         * experienced problems where it cannot guarantee proper function anymore.
+         */
+        SERVER_ERROR(4002);
 
         private final int _closeCode;
 
