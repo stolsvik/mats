@@ -2,7 +2,6 @@ package com.stolsvik.mats.websocket;
 
 import java.util.Objects;
 
-import com.stolsvik.mats.websocket.DummySessionAuthenticator.DummyAuthPrincipal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,15 +55,14 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                                             .interactive()
                                             .nonPersistent()
                                             .setTraceProperty("requestTimestamp", msIncoming.requestTimestamp));
+                        },
+                        (ctx, matsReply) -> {
+                            log.info("Adapting message: " + matsReply);
+                            MatsSocketReplyDto reply = new MatsSocketReplyDto(matsReply.string.length(),
+                                    matsReply.number,
+                                    ctx.getMatsContext().getTraceProperty("requestTimestamp", Long.class));
+                            ctx.resolve(reply);
                         });
-
-        // .. add the optional ReplyAdapter, needed here due to differing ReplyDTO between Mats and MatsSocket
-        matsSocketEndpoint.replyAdapter((ctx, matsReply) -> {
-            log.info("Adapting message: " + matsReply);
-            MatsSocketReplyDto reply = new MatsSocketReplyDto(matsReply.string.length(), matsReply.number,
-                    ctx.getMatsContext().getTraceProperty("requestTimestamp", Long.class));
-            ctx.resolve(reply);
-        });
     }
 
     private static void setupMats_StandardTestSingle(MatsFactory matsFactory) {
@@ -77,82 +75,81 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     }
 
     private static void setupSocket_IgnoreInIncoming(MatsSocketServer matsSocketServer) {
-        matsSocketServer.matsSocketEndpoint("Test.ignoreInIncomingHandler",
-                MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
+        matsSocketServer.matsSocketDirectReplyEndpoint("Test.ignoreInIncomingHandler",
+                MatsSocketRequestDto.class, MatsSocketReplyDto.class,
                 // IGNORE - i.e. do nothing
-                (ctx, principal, msIncoming) -> {});
+                (ctx, principal, msIncoming) -> {
+                });
     }
 
     private static void setupSocket_DenyInIncoming(MatsSocketServer matsSocketServer) {
-        matsSocketServer.matsSocketEndpoint("Test.denyInIncomingHandler",
-                MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
+        matsSocketServer.matsSocketDirectReplyEndpoint("Test.denyInIncomingHandler",
+                MatsSocketRequestDto.class, MatsSocketReplyDto.class,
                 // DENY
                 (ctx, principal, msIncoming) -> ctx.deny());
     }
 
     private static void setupSocket_ResolveInIncoming(MatsSocketServer matsSocketServer) {
-        matsSocketServer.matsSocketEndpoint("Test.resolveInIncomingHandler",
-                MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
+        matsSocketServer.matsSocketDirectReplyEndpoint("Test.resolveInIncomingHandler",
+                MatsSocketRequestDto.class, MatsSocketReplyDto.class,
                 // RESOLVE
                 (ctx, principal, msIncoming) -> ctx.resolve(
                         new MatsSocketReplyDto(1, 2, msIncoming.requestTimestamp)));
     }
 
     private static void setupSocket_RejectInIncoming(MatsSocketServer matsSocketServer) {
-        matsSocketServer.matsSocketEndpoint("Test.rejectInIncomingHandler",
-                MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
+        matsSocketServer.matsSocketDirectReplyEndpoint("Test.rejectInIncomingHandler",
+                MatsSocketRequestDto.class, MatsSocketReplyDto.class,
                 // REJECT
                 (ctx, principal, msIncoming) -> ctx.reject(
                         new MatsSocketReplyDto(3, 4, msIncoming.requestTimestamp)));
     }
 
     private static void setupSocket_ThrowsInIncoming(MatsSocketServer matsSocketServer) {
-        matsSocketServer.matsSocketEndpoint("Test.throwsInIncomingHandler",
-                MatsSocketRequestDto.class, Void.class, Void.class, MatsSocketReplyDto.class,
+        matsSocketServer.matsSocketDirectReplyEndpoint("Test.throwsInIncomingHandler",
+                MatsSocketRequestDto.class, MatsSocketReplyDto.class,
                 // THROW
                 (ctx, principal, msIncoming) -> {
                     throw new IllegalStateException("Exception in IncomingAuthorizationAndAdapter should REJECT");
                 });
     }
 
+    // TODO: Make, and handle, "IGNORE" in replyAdapter. Should reject.
+
     private static void setupSocket_ResolveInReplyAdapter(MatsSocketServer matsSocketServer) {
-        MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
-                .matsSocketEndpoint("Test.resolveInReplyAdapter",
-                        MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                        (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
-                                msg -> msg.to(STANDARD_ENDPOINT)));
-        // RESOLVE
-        matsSocketEndpoint.replyAdapter((ctx, matsReply) -> ctx.resolve(new MatsSocketReplyDto(1, 2, 123)));
+        matsSocketServer.matsSocketEndpoint("Test.resolveInReplyAdapter",
+                MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
+                        msg -> msg.to(STANDARD_ENDPOINT)),
+                // RESOLVE
+                (ctx, matsReply) -> ctx.resolve(new MatsSocketReplyDto(1, 2, 123)));
     }
 
     private static void setupSocket_RejectInReplyAdapter(MatsSocketServer matsSocketServer) {
-        MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
-                .matsSocketEndpoint("Test.rejectInReplyAdapter",
-                        MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                        (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(2, "string2"),
-                                msg -> msg.to(STANDARD_ENDPOINT)));
-        // REJECT
-        matsSocketEndpoint.replyAdapter((ctx, matsReply) -> ctx.reject(new MatsSocketReplyDto(1, 2, 123)));
+        matsSocketServer.matsSocketEndpoint("Test.rejectInReplyAdapter",
+                MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(2, "string2"),
+                        msg -> msg.to(STANDARD_ENDPOINT)),
+                // REJECT
+                (ctx, matsReply) -> ctx.reject(new MatsSocketReplyDto(1, 2, 123)));
     }
 
     private static void setupSocket_ThrowsInReplyAdapter(MatsSocketServer matsSocketServer) {
-        MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
-                .matsSocketEndpoint("Test.throwsInReplyAdapter",
-                        MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                        (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(3, "string3"),
-                                msg -> msg.to(STANDARD_ENDPOINT)));
-        // THROW
-        matsSocketEndpoint.replyAdapter((ctx, matsReply) -> {
-            throw new IllegalStateException("Exception in ReplyAdapter should REJECT.");
-        });
+        matsSocketServer.matsSocketEndpoint("Test.throwsInReplyAdapter",
+                MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(3, "string3"),
+                        msg -> msg.to(STANDARD_ENDPOINT)),
+                // THROW
+                (ctx, matsReply) -> {
+                    throw new IllegalStateException("Exception in ReplyAdapter should REJECT.");
+                });
     }
 
     private static void setupSocket_TestSlow(MatsSocketServer matsSocketServer) {
         // Forwards directly to Mats, no replyAdapter
-        MatsSocketEndpoint<MatsDataTO, MatsDataTO, MatsDataTO, MatsDataTO> matsSocketEndpoint = matsSocketServer
-                .matsSocketEndpoint("Test.slow",
-                        MatsDataTO.class, MatsDataTO.class, MatsDataTO.class, MatsDataTO.class,
-                        (ctx, principal, msIncoming) -> ctx.forwardInteractivePersistent(msIncoming));
+        matsSocketServer.matsSocketEndpoint("Test.slow",
+                MatsDataTO.class, MatsDataTO.class, MatsDataTO.class,
+                (ctx, principal, msIncoming) -> ctx.forwardInteractivePersistent(msIncoming));
     }
 
     private static void setupMats_TestSlow(MatsFactory matsFactory) {

@@ -17,36 +17,128 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 public interface MatsSocketServer {
 
     /**
-     * Registers a MatsSocket.
-     * <p/>
-     * Note for the {@link IncomingAuthorizationAndAdapter}: Used to do authorization evaluation on the supplied
-     * Principal and otherwise decide whether this message should be forwarded to the Mats fabric. It then transform the
-     * message from the MatsSocket-side to Mats-side - or throw an Exception. <b>This should only be pure Java code, no
-     * IPC or lengthy computations</b>, such things should happen in the Mats stages. It is imperative that this does
-     * not perform any state-changes to the system - it should be utterly idempotent, i.e. invoking it a hundred times
-     * with the same input should yield the same result. (Note: Logging is never considered state changing!)
-     *
-     * TODO: What about timeouts?!
-     *
-     * @param matsSocketEndpointId
+     * Registers a MatsSocket Endpoint, including a {@link ReplyAdapter} which can adapt the reply from the Mats
+     * endpoint before being fed back to the MatsSocket - and also decide whether to resolve or reject the waiting
+     * Client Promise.
      */
     <I, MI, MR, R> MatsSocketEndpoint<I, MI, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
             Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
+            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter);
+
+    /**
+     * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Endpoint where there is no replyAdapter -
+     * the reply from the Mats endpoint is directly fed back (as "resolved") to the MatsSocket. The Mats Reply class and
+     * MatsSocket Reply class is thus the same.
+     */
+    <I, MI, R> MatsSocketEndpoint<I, MI, R, R> matsSocketEndpoint(String matsSocketEndpointId,
+            Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<R> replyClass,
             IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval);
 
-    interface MatsSocketEndpoint<I, MI, MR, R> {
-        /**
-         * Used to transform the message from the Mats-side to MatsSocket-side - or throw an Exception. <b>This should
-         * only be pure Java code, no IPC or lengthy computations</b>, such things should have happened in the Mats
-         * stages. It is imperative that this does not perform any state-changes to the system - it should be utterly
-         * idempotent, i.e. invoking it a hundred times with the same input should yield the same result. (Note: Logging
-         * is never considered state changing!)
-         *
-         * @param replyAdapter
-         *            a function-like lambda that transform the incoming Mats reply into the outgoing MatsSocket reply.
-         */
-        void replyAdapter(ReplyAdapter<MR, R> replyAdapter);
+    /**
+     * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Endpoint meant for situations where you
+     * intend to reply directly in the {@link IncomingAuthorizationAndAdapter} without forwarding to Mats.
+     */
+    <I, R> MatsSocketEndpoint<I, Void, Void, R> matsSocketDirectReplyEndpoint(String matsSocketEndpointId,
+            Class<I> msIncomingClass, Class<R> msReplyClass,
+            IncomingAuthorizationAndAdapter<I, Void, R> incomingAuthEval);
+
+    /**
+     * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Terminator (no reply), specifically for
+     * "SEND" and "REPLY" (reply to a Server-to-Client {@link #request(String, String, String, Object, String, String)
+     * request}) operations from the Client.
+     */
+    <I, MI> MatsSocketEndpoint<I, MI, Void, Void> matsSocketTerminator(String matsSocketEndpointId,
+            Class<I> msIncomingClass, Class<MI> matsIncomingClass,
+            IncomingAuthorizationAndAdapter<I, MI, Void> incomingAuthEval);
+
+    /**
+     * Should handle (preliminary) Authorization evaluation on the supplied
+     * {@link MatsSocketEndpointRequestContext#getPrincipal() Principal} and decide whether this message should be
+     * forwarded to the Mats fabric (or directly resolved, rejected or denied). If it decides to forward to Mats, it
+     * then adapt the incoming message to a message that can be forwarded to the Mats fabric
+     * <p/>
+     * <b>Note: Do remember that the MatsSocket is "live connected directly to the Internet" and ANY data coming in as
+     * the incoming message can be utter garbage, and designed methodically to hack your system!</b>
+     * <p/>
+     * <b>Note: This should <i>preferentially</i> only be pure and quick Java code, without much database access or
+     * lengthy computations</b>, as such things should happen in the Mats stages. You hold up the incoming message
+     * handler while inside this method, hindering new messages for this MatsSocketSession from being processed in a
+     * timely fashion - and you can also potentially deplete the WebSocket/Servlet thread pool.
+     * <p/>
+     * Note: It is imperative that this does not perform any state-changes to the system - it should be utterly
+     * idempotent, i.e. invoking it a hundred times with the same input should yield the same result. (Note: Logging is
+     * never considered state changing!)
+     */
+    @FunctionalInterface
+    interface IncomingAuthorizationAndAdapter<I, MI, R> {
+        void handleIncoming(MatsSocketEndpointRequestContext<MI, R> ctx, Principal principal, I msIncoming);
     }
+
+    /**
+     * Used to transform the message from the Mats-side to MatsSocket-side, and decide whether to resolve or reject the
+     * waiting Client-side Promise - <b>this must only be pure Java DTO transformation code!</b>
+     * <p/>
+     * <b>Note: This should <i>definitely</i> only be pure and fast Java code, without <i>any</i> database access or
+     * lengthy computations</b>, as these things should have been done in the Mats stages. This method is run by the
+     * receiving Mats subscription terminator, of which there is literally only one per node, meaning that it affects
+     * <i>all</i> other replies that are coming in for <i>all</i> MatsSocketSessions on this node!!
+     * <p/>
+     * Note: It is imperative that this does not perform any state-changes to the system - it should be utterly
+     * idempotent, i.e. invoking it a hundred times with the same input should yield the same result. (Note: Logging is
+     * never considered state changing!)
+     */
+    @FunctionalInterface
+    interface ReplyAdapter<MR, R> {
+        void adaptReply(MatsSocketEndpointReplyContext<MR, R> ctx, MR matsReply);
+    }
+
+    interface MatsSocketEndpoint<I, MI, MR, R> {
+    }
+
+    /**
+     * Sends a message to the specified MatsSocketSession, to the specified Client TerminatorId. This is "fire into the
+     * void" style messaging, where you have no idea of whether the client received the message. Usage scenarios include
+     * <i>"New information about order progress"</i> which may or may not include said information (if not included, the
+     * client must do a request to update) - but where the server does not really care if the client gets the
+     * information, only that <i>if</i> he actually has the webpage/app open at the time, he will get the message and
+     * thus update his view of the changed world.
+     * <p/>
+     * Note: If the specified session is closed when this method is invoked, the message will (effectively) silently be
+     * dropped. Even if you just got hold of the sessionId and it was active then, it might asynchronously close while
+     * you invoke this method.
+     * <p/>
+     * Note: The message is put in the outbox, and if the session is actually connected, it will be delivered ASAP,
+     * otherwise it will rest in the outbox for delivery once the session reconnects. If the session then closes or
+     * times out while the message is in the outbox, it will be deleted.
+     * <p/>
+     * Note: Given that the session actually is live and the client is connected or connects before the session is
+     * closed or times out, the guaranteed delivery and exactly-once features are in effect, and this still holds in
+     * face of session reconnects.
+     */
+    void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto);
+
+    /**
+     * Initiates a request to the specified MatsSocketSession, to the specified Client EndpointId, with a replyTo
+     * specified to (typically) a {@link #matsSocketTerminator(String, Class, Class, IncomingAuthorizationAndAdapter)
+     * MatsSocket terminator} - which includes a String "correlationSpecifier" which is used to correlate the reply to
+     * the request (available {@link MatsSocketEndpointRequestContext#getCorrelationSpecifier() here} for the reply
+     * processing). Do note that since you have no control of when the Client decides to close the browser or terminate
+     * the app, you have no guarantee that a reply will ever come - so code accordingly.
+     * <p/>
+     * Note: If the specified session is closed when this method is invoked, the message will (effectively) silently be
+     * dropped. Even if you just got hold of the sessionId and it was active then, it might asynchronously close while
+     * you invoke this method.
+     * <p/>
+     * Note: The message is put in the outbox, and if the session is actually connected, it will be delivered ASAP,
+     * otherwise it will rest in the outbox for delivery once the session reconnects. If the session then closes or
+     * times out while the message is in the outbox, it will be deleted.
+     * <p/>
+     * Note: Given that the session actually is live and the client is connected or connects before the session is
+     * closed or times out, the guaranteed delivery and exactly-once features are in effect, and this still holds in
+     * face of session reconnects.
+     */
+    void request(String sessionId, String traceId, String clientEndpointId, Object requestDto,
+            String replyToMatsSocketTerminatorId, String correlationSpecifier);
 
     /**
      * Closes the specified MatsSocket Session - to be used for out-of-band closing of Session if the WebSocket is down.
@@ -62,16 +154,6 @@ public interface MatsSocketServer {
      * at application shutdown.
      */
     void stop(int gracefulShutdownMillis);
-
-    @FunctionalInterface
-    interface IncomingAuthorizationAndAdapter<I, MI, R> {
-        void handleIncoming(MatsSocketEndpointRequestContext<MI, R> ctx, Principal principal, I msIncoming);
-    }
-
-    @FunctionalInterface
-    interface ReplyAdapter<MR, R> {
-        void adaptReply(MatsSocketEndpointReplyContext<MR, R> ctx, MR matsReply);
-    }
 
     interface MatsSocketEndpointContext {
         /**
@@ -104,6 +186,16 @@ public interface MatsSocketServer {
          * @return the incoming MatsSocket Message.
          */
         MI getMatsSocketIncomingMessage();
+
+        /**
+         * If this is a REPLY from a {@link MatsSocketServer#request(String, String, String, Object, String, String)
+         * request}, this method returns the CorrelationSpecifier that was provided in the request.
+         *
+         * @return the CorrelationSpecifier that was provided in the
+         *         {@link MatsSocketServer#request(String, String, String, Object, String, String) request}, otherwise
+         *         <code>null</code>.
+         */
+        String getCorrelationSpecifier();
 
         /**
          * @return whether this is a "REQUEST" (true) or "SEND" (false).
@@ -247,9 +339,9 @@ public interface MatsSocketServer {
          * this close code yet, though!
          * <p/>
          * <b>Notice that if a close with this close code <i>is initiated from the Server-side</i>, this should NOT be
-         * considered a CLOSE_SESSION by the neither the client nor the server!</b> At least Jetty's implementation of
-         * JSR 356 WebSocket API for Java sends GOING_AWAY upon socket close due to timeout. Since a timeout can happen
-         * if we loose connection and thus can't convey PINGs, the MatsSocketServer must not interpret Jetty's
+         * considered a CLOSE_SESSION by neither the client nor the server!</b> At least Jetty's implementation of JSR
+         * 356 WebSocket API for Java sends GOING_AWAY upon socket close due to timeout. Since a timeout can happen if
+         * we loose connection and thus can't convey PINGs, the MatsSocketServer must not interpret Jetty's
          * timeout-close as Close Session. Likewise, if the client just experienced massive lag on the connection, and
          * thus didn't get the PING over to the server in a timely fashion, but then suddenly gets Jetty's timeout close
          * with GOING_AWAY, this should not be interpreted by the client as the server wants to close the session.
@@ -259,7 +351,7 @@ public interface MatsSocketServer {
         /**
          * 4000: Both from Server side and Client/Browser side, client should REJECT all outstanding:
          * <ul>
-         * <li>From Browser: Used when the browser closes WebSocket "on purpose", wanting to close the session -
+         * <li>From Client/Browser: Used when the client closes WebSocket "on purpose", wanting to close the session -
          * typically when the user explicitly logs out, or navigates away from web page. All traces of the
          * MatsSocketSession are effectively deleted from the server, including any undelivered replies and messages
          * ("push") from server.</li>
@@ -278,11 +370,14 @@ public interface MatsSocketServer {
         SESSION_LOST(4001),
 
         /**
-         * 4002: Both from Server side and from Client/Browser side: REISSUE all outstanding upon reconnect: From
-         * Server: We ask that the client reconnects. This gets us a clean state and in particular new authentication
-         * (In case of using OAuth/OIDC tokens, the client is expected to fetch a fresh token from token server). From
-         * Client: The client just fancied a little break (just as if lost connection in a tunnel), used form
-         * integration tests.
+         * 4002: Both from Server side and from Client/Browser side: REISSUE all outstanding upon reconnect:
+         * <ul>
+         * <li>From Client: The client just fancied a little break (just as if lost connection in a tunnel), used from
+         * integration tests.</li>
+         * <li>From Server: We ask that the client reconnects. This gets us a clean state and in particular new
+         * authentication (In case of using OAuth/OIDC tokens, the client is expected to fetch a fresh token from token
+         * server).</li>
+         * </ul>
          */
         RECONNECT(4002);
 

@@ -196,7 +196,7 @@
             });
 
             it("Should reply to our own endpoint with our correlation data", function (done) {
-                const correlationId = matsSocket.id(6)
+                const correlationId = matsSocket.id(6);
                 matsSocket.endpoint("ClientSide.customEndpoint", ({correlationId: messageCorrelationId}) => {
                     chai.assert.equal(messageCorrelationId, correlationId);
                     done()

@@ -347,10 +347,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     @Override
     public <I, MI, MR, R> MatsSocketEndpoint<I, MI, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
             Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval) {
+            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter) {
+        // :: Create it
         MatsSocketEndpointRegistration<I, MI, MR, R> matsSocketRegistration = new MatsSocketEndpointRegistration<>(
                 matsSocketEndpointId, msIncomingClass, matsIncomingClass, matsReplyClass, msReplyClass,
-                incomingAuthEval);
+                incomingAuthEval, replyAdapter);
+        // Register it.
         MatsSocketEndpointRegistration<?, ?, ?, ?> existing = _matsSocketEndpointsByMatsSocketEndpointId.putIfAbsent(
                 matsSocketEndpointId, matsSocketRegistration);
         // Assert that there was no existing mapping
@@ -360,6 +362,44 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                     + " taken, existing: [" + existing + "].");
         }
         return matsSocketRegistration;
+    }
+
+    @Override
+    public <I, MI, R> MatsSocketEndpoint<I, MI, R, R> matsSocketEndpoint(String matsSocketEndpointId,
+            Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<R> replyClass,
+            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval) {
+        // Create an endpoint having the MR and R both being the same class, and lacking the AdaptReply.
+        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, matsIncomingClass, replyClass, replyClass,
+                incomingAuthEval, null);
+    }
+
+    @Override
+    public <I, R> MatsSocketEndpoint<I, Void, Void, R> matsSocketDirectReplyEndpoint(String matsSocketEndpointId,
+            Class<I> msIncomingClass, Class<R> msReplyClass,
+            IncomingAuthorizationAndAdapter<I, Void, R> incomingAuthEval) {
+        // Create an endpoint having the MI and MR both being Void, and lacking the AdaptReply.
+        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, Void.class, Void.class, msReplyClass,
+                incomingAuthEval, null);
+    }
+
+    @Override
+    public <I, MI> MatsSocketEndpoint<I, MI, Void, Void> matsSocketTerminator(String matsSocketEndpointId,
+            Class<I> msIncomingClass, Class<MI> matsIncomingClass,
+            IncomingAuthorizationAndAdapter<I, MI, Void> incomingAuthEval) {
+        // Create an endpoint having the MR and R both being Void, and lacking the AdaptReply.
+        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, matsIncomingClass, Void.class, Void.class,
+                incomingAuthEval, null);
+    }
+
+    @Override
+    public void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto) {
+        throw new IllegalStateException("Not yet implemented.");
+    }
+
+    @Override
+    public void request(String sessionId, String traceId, String clientEndpointId, Object requestDto,
+            String replyToMatsSocketTerminatorId, String correlationSpecifier) {
+        throw new IllegalStateException("Not yet implemented.");
     }
 
     @Override
@@ -681,19 +721,19 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         private final Class<MR> _matsReplyClass;
         private final Class<R> _msReplyClass;
         private final IncomingAuthorizationAndAdapter<I, MI, R> _incomingAuthEval;
+        private final ReplyAdapter<MR, R> _replyAdapter;
 
         public MatsSocketEndpointRegistration(String matsSocketEndpointId, Class<I> msIncomingClass,
                 Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-                IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval) {
+                IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter) {
             _matsSocketEndpointId = matsSocketEndpointId;
             _msIncomingClass = msIncomingClass;
             _matsIncomingClass = matsIncomingClass;
             _matsReplyClass = matsReplyClass;
             _msReplyClass = msReplyClass;
             _incomingAuthEval = incomingAuthEval;
+            _replyAdapter = replyAdapter;
         }
-
-        private volatile ReplyAdapter<MR, R> _replyAdapter;
 
         String getMatsSocketEndpointId() {
             return _matsSocketEndpointId;
@@ -705,11 +745,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
         IncomingAuthorizationAndAdapter<I, MI, R> getIncomingAuthEval() {
             return _incomingAuthEval;
-        }
-
-        @Override
-        public void replyAdapter(ReplyAdapter<MR, R> replyAdapter) {
-            _replyAdapter = replyAdapter;
         }
     }
 

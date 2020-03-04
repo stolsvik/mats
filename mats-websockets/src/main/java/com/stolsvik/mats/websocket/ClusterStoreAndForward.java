@@ -150,7 +150,7 @@ public interface ClusterStoreAndForward {
      * @param clientMessageId
      *            the envelope.cmid, or -1 if MULTI
      * @param type
-     *            the type of the reply, currently "REPLY", or "MULTI" of a JSON Array of multiple messages.
+     *            the type of the reply, currently "REPLY".
      * @param message
      *            the JSON-serialized MatsSocket <b>Envelope</b>.
      * @return the current node holding MatsSocket Session, or empty if none.

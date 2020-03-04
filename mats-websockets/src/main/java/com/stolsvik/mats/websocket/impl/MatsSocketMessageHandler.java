@@ -1008,6 +1008,12 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
 
         @Override
+        public String getCorrelationSpecifier() {
+            // TODO: Implement.
+            return null;
+        }
+
+        @Override
         public boolean isRequest() {
             return _envelope.t.equals("REQUEST");
         }
