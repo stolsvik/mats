@@ -51,6 +51,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
     private final DefaultMatsSocketServer _matsSocketServer;
     private Session _webSocketSession; // Non-final to be able to null out upon close.
     private String _connectionId; // Non-final to be able to null out upon close.
+    // SYNC: itself.
     private final SessionAuthenticator _sessionAuthenticator;
 
     // Derived
@@ -61,9 +62,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
     // Set
     private String _matsSocketSessionId;
+    // SYNC: Auth-fields are only modified while holding sync on _sessionAuthenticator.
     private String _authorization; // nulled upon close
     private Principal _principal; // nulled upon close
     private String _userId; // nulled upon close
+    private long _lastAuthenticatedMillis; // set to System.currentTimeMillis() each time (re)evaluated OK.
 
     private String _clientLibAndVersion;
     private String _appNameAndVersion;
@@ -89,8 +92,10 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         return _webSocketSession;
     }
 
+    private final Object _webSocketSendSync = new Object();
+
     void webSocketSendText(String text) throws IOException {
-        synchronized (_webSocketBasicRemote) {
+        synchronized (_webSocketSendSync) {
             _webSocketBasicRemote.sendText(text);
         }
     }
@@ -158,31 +163,44 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
             // :: 1. Look for Authorization header in any of the messages
             // NOTE! Authorization header can come with ANY message!
+            String newAuthorization = null;
             for (MatsSocketEnvelopeDto envelope : envelopes) {
                 // ?: Pick out any Authorization header, i.e. the auth-string - it can come in any message.
                 if (envelope.auth != null) {
                     // -> Yes, there was an authorization header sent along with this message
-                    _authorization = envelope.auth;
+                    newAuthorization = envelope.auth;
                     log.info("Found authorization header in message of type [" + (envelope.st != null ? envelope.t + ':'
                             + envelope.st : envelope.t) + "]");
-                    // No 'break', as we want to go through all messages and find the latest auth header.
+                    // Notify client about "new" (as in existing) messages, just in case there are any.
+                    shouldNotifyAboutExistingMessages = true;
+                    // Notice: No 'break', as we want to go through all messages and find the latest auth header.
                 }
             }
 
             // AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
 
-            // :: 2. do we have Authorization header? (I.e. it must sent along in the very first pipeline..)
+            // :: 2. Evaluate Authentication by Authorization header
+            boolean authenticationOk = doAuthentication(newAuthorization);
+            // ?: Did this go OK?
+            if (!authenticationOk) {
+                // -> No, not OK - doAuthentication() has already closed session and websocket and the lot.
+                return;
+            }
+
+            // :: 3. Are we authenticated? (I.e. Authorization Header must sent along in the very first pipeline..)
             if (_authorization == null) {
                 log.error("We have not got Authorization header!");
                 closeWithPolicyViolation("Missing Authorization header");
                 return;
             }
-
-            // :: 3. Evaluate Authentication by Authorization header
-            boolean authenticationOk = doAuthentication();
-            // ?: Did this go OK?
-            if (!authenticationOk) {
-                // -> No, not OK - doAuthentication() has already closed session and websocket and the lot.
+            if (_principal == null) {
+                log.error("We have not got Principal!");
+                closeWithPolicyViolation("Missing Principal");
+                return;
+            }
+            if (_userId == null) {
+                log.error("We have not got UserId!");
+                closeWithPolicyViolation("Missing UserId");
                 return;
             }
 
@@ -209,8 +227,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                             // -> No, not OK - handleHello(..) has already closed session and websocket and the lot.
                             return;
                         }
-                        // Notify client about "new" (as in existing) messages, just in case there are any.
-                        shouldNotifyAboutExistingMessages = true;
                     }
                     finally {
                         MDC.remove(MDC_MESSAGE_TYPE);
@@ -219,9 +235,12 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 }
             }
 
-            // :: 5. Assert state: All present: SessionId, Principal and userId.
-            if ((_matsSocketSessionId == null) || (_principal == null) || (_userId == null)) {
-                closeWithPolicyViolation("Illegal state at checkpoint A.");
+            // :: 5. Assert state: All present: SessionId, Authorization, Principal and UserId.
+            if ((_matsSocketSessionId == null)
+                    || (_authorization == null)
+                    || (_principal == null)
+                    || (_userId == null)) {
+                closeWithPolicyViolation("Illegal state at checkpoint.");
                 return;
             }
 
@@ -266,7 +285,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
                     // ?: Is this a REPLY for a request from us?
                     else if ("REPLY".equals(envelope.t)) {
-                        // TODO: We do not have SEND or REQUEST server-to-client implemented yet.
+                        // TODO: We do not have REQUEST server-to-client implemented yet.
                         throw new IllegalStateException("Not yet handled.");
                     }
 
@@ -290,7 +309,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // :: This is the "client has deleted an information-bearing message from his outbox"-message,
                     // denoting that we can delete it from inbox on our side
 
-                    // ?: Is this a RECEIVED for a message from us?
+                    // ?: Is this a ACKACK for a RECEIVED from us?
                     else if ("ACKACK".equals(envelope.t)) {
                         if (envelope.cmid == null) {
                             closeWithProtocolError("Received ACKACK message with missing 'cmid.");
@@ -435,6 +454,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         _authorization = null;
         _principal = null;
         _userId = null;
+        _lastAuthenticatedMillis = -1;
         // :: Also nulling out our references to the WebSocket, to ensure that it is impossible to send anything more
         _webSocketSession = null;
         _webSocketBasicRemote = null;
@@ -460,113 +480,170 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         DefaultMatsSocketServer.closeWebSocket(webSocketSession, closeCode, reason);
     }
 
-    private boolean doAuthentication() {
-        // ?: Do we have principal already?
-        if (_principal == null) {
-            // -> NO, we do not have Principal
-            // Ask SessionAuthenticator if it likes this Authorization header
+    boolean reevaluateAuthenticationForOutgoingMessage() {
+        /*
+         * Any evaluation implication SessionAuthenticator, and setting of _authorization, _principal and _userId, is
+         * done within sync of SessionAuthenticator.
+         */
+        synchronized (_sessionAuthenticator) {
+            // Ask SessionAuthenticator whether he still is happy with this Principal being authenticated, or
+            // supplies a new Principal
             AuthenticationResult authenticationResult;
             try {
-                authenticationResult = _sessionAuthenticator.initialAuthentication(_authenticationContext,
-                        _authorization);
+                authenticationResult = _sessionAuthenticator.reevaluateAuthenticationOutgoingMessage(
+                        _authenticationContext, _authorization, _principal, _lastAuthenticatedMillis);
             }
             catch (RuntimeException re) {
-                log.error("Got Exception when invoking SessionAuthenticator.initialAuthentication(..),"
-                        + " Authorization header: " + _authorization, re);
-                closeWithPolicyViolation("Initial Auth-eval: Got Exception");
+                log.error("Got Exception when invoking SessionAuthenticator"
+                        + ".reevaluateAuthenticationOutgoingMessage(..), Authorization header: " + _authorization, re);
+                closeWithPolicyViolation("Auth reevaluateAuthenticationOutgoingMessage(..): Got Exception.");
                 return false;
             }
-            if (authenticationResult instanceof AuthenticationResult_Authenticated) {
-                // -> Authenticated
-                AuthenticationResult_Authenticated result = (AuthenticationResult_Authenticated) authenticationResult;
-                _principal = result._principal;
-                _userId = result._userId;
-                MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
-                MDC.put(MDC_USER_ID, _userId);
-                log.info("Authenticated with UserId: [" + _userId + "] and Principal [" + _principal + "]");
-                // GOOD! Got new Principal and UserId.
-                return true;
+            // Return whether we're still Authenticated or StillValid, and thus good to go with sending message
+            boolean okToSendOutgoingMessages = (authenticationResult instanceof AuthenticationResult_Authenticated)
+                    || (authenticationResult instanceof AuthenticationResult_StillValid);
+
+            // ?: If we're not OK, then we should hold outgoing messages for now
+            if (!okToSendOutgoingMessages) {
+                _holdOutgoingMessages = true;
             }
-            else {
-                // -> NotAuthenticated, null, or any other result.
-                log.error("SessionAuthenticator replied " + authenticationResult + ", Authorization header: "
-                        + _authorization);
-                // ?: Is it NotAuthenticated?
-                if (authenticationResult instanceof AuthenticationResult_NotAuthenticated) {
-                    // -> Yes, explicit NotAuthenticated
-                    AuthenticationResult_NotAuthenticated notAuthenticated = (AuthenticationResult_NotAuthenticated) authenticationResult;
-                    closeWithPolicyViolation("Initial Auth-eval: " + notAuthenticated.getReason());
+            return okToSendOutgoingMessages;
+        }
+    }
+
+    private volatile boolean _holdOutgoingMessages;
+
+    boolean isHoldOutgoingMessages() {
+        return _holdOutgoingMessages;
+    }
+
+    private boolean doAuthentication(String newAuthorization) {
+        /*
+         * Any evaluation implication SessionAuthenticator, and setting of _authorization, _principal and _userId, is
+         * done within sync of SessionAuthenticator.
+         */
+        synchronized (_sessionAuthenticator) {
+            // ?: Do we have an existing Principal?
+            if (_principal == null) {
+                // -> No, we do not have an existing Principal
+                // Assert that we then have a new Authorization
+                String authorizationToEvaluate = newAuthorization;
+                if (authorizationToEvaluate == null) {
+                    throw new AssertionError("We have not got Principal, and a new Authorization header is"
+                            + " not provided either.");
+                }
+                // Ask SessionAuthenticator if it likes this Authorization header
+                AuthenticationResult authenticationResult;
+                try {
+                    authenticationResult = _sessionAuthenticator.initialAuthentication(_authenticationContext,
+                            authorizationToEvaluate);
+                }
+                catch (RuntimeException re) {
+                    log.error("Got Exception when invoking SessionAuthenticator.initialAuthentication(..),"
+                            + " Authorization header: " + authorizationToEvaluate, re);
+                    closeWithPolicyViolation("Initial Auth-eval: Got Exception");
+                    return false;
+                }
+                if (authenticationResult instanceof AuthenticationResult_Authenticated) {
+                    // -> Authenticated!
+                    goodAuthentication(authorizationToEvaluate,
+                            (AuthenticationResult_Authenticated) authenticationResult, "Authenticated");
+                    return true;
                 }
                 else {
-                    // -> Some unexpected value - no good.
-                    closeWithPolicyViolation("Initial Auth-eval: Failed");
+                    // -> InvalidAuthentication, null, or any other result.
+                    badAuthentication(authorizationToEvaluate, authenticationResult, "Initial Auth-eval");
+                    return false;
                 }
-                return false;
             }
+            else {
+                // -> Yes, we already have Principal
+                // Ask SessionAuthenticator whether he still is happy with this Principal being authenticated, or
+                // supplies a new Principal
+                String authorizationToEvaluate = (newAuthorization != null ? newAuthorization : _authorization);
+                if (authorizationToEvaluate == null) {
+                    throw new AssertionError("We have not gotten neither an existing or a new"
+                            + " Authorization Header.");
+                }
+                AuthenticationResult authenticationResult;
+                try {
+                    authenticationResult = _sessionAuthenticator.reevaluateAuthentication(_authenticationContext,
+                            authorizationToEvaluate, _principal);
+                }
+                catch (RuntimeException re) {
+                    log.error("Got Exception when invoking SessionAuthenticator.reevaluateAuthentication(..),"
+                            + " Authorization header: " + authorizationToEvaluate, re);
+                    closeWithPolicyViolation("Auth re-eval: Got Exception.");
+                    return false;
+                }
+                if (authenticationResult instanceof AuthenticationResult_Authenticated) {
+                    // -> Authenticated anew
+                    goodAuthentication(authorizationToEvaluate,
+                            (AuthenticationResult_Authenticated) authenticationResult, "New authentication");
+                    return true;
+                }
+                else if (authenticationResult instanceof AuthenticationResult_StillValid) {
+                    // -> The existing authentication is still valid
+                    log.debug("Still valid authentication with UserId: [" + _userId + "] and Principal [" + _principal
+                            + "]");
+                    // Update Authorization, in case it changed (strange that it didn't return "Authenticated" instead?)
+                    _authorization = authorizationToEvaluate;
+                    // Update lastAuthenticatedMillis, since it was still happy with it.
+                    _lastAuthenticatedMillis = System.currentTimeMillis();
+                    return true;
+                }
+                else {
+                    // -> InvalidAuthentication, null, or any other result.
+                    badAuthentication(authorizationToEvaluate, authenticationResult, "Auth re-eval");
+                    return false;
+                }
+            }
+        } // end sync _sessionAuthenticator
+          // NOTE! There should NOT be a default return here!
+    }
+
+    private void goodAuthentication(String authorizationToEvaluate,
+            AuthenticationResult_Authenticated authenticationResult,
+            String what) {
+        AuthenticationResult_Authenticated result = authenticationResult;
+        _authorization = authorizationToEvaluate;
+        _principal = result._principal;
+        _userId = result._userId;
+        _lastAuthenticatedMillis = System.currentTimeMillis();
+        // We can now send outgoing messages
+        _holdOutgoingMessages = false;
+        MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
+        MDC.put(MDC_USER_ID, _userId);
+        log.info(what + " with UserId: [" + _userId + "] and Principal [" + _principal + "]");
+    }
+
+    private void badAuthentication(String authorizationToEvaluate, AuthenticationResult authenticationResult,
+            String what) {
+        log.error("SessionAuthenticator replied " + authenticationResult + ", Authorization header: "
+                + authorizationToEvaluate);
+        // ?: Is it NotAuthenticated?
+        if (authenticationResult instanceof AuthenticationResult_NotAuthenticated) {
+            // -> Yes, explicit NotAuthenticated
+            AuthenticationResult_NotAuthenticated invalidAuthentication = (AuthenticationResult_NotAuthenticated) authenticationResult;
+            closeWithPolicyViolation(what + ": " + invalidAuthentication.getReason());
         }
         else {
-            // -> Yes, we already have Principal
-            // Ask SessionAuthenticator whether he still is happy with this Principal being authenticated, or supplies
-            // a new Principal
-            AuthenticationResult authenticationResult;
-            try {
-                authenticationResult = _sessionAuthenticator.reevaluateAuthentication(_authenticationContext,
-                        _authorization, _principal);
-            }
-            catch (RuntimeException re) {
-                log.error("Got Exception when invoking SessionAuthenticator.reevaluateAuthentication(..),"
-                        + " Authorization header: " + _authorization, re);
-                closeWithPolicyViolation("Auth re-eval: Got Exception.");
-                return false;
-            }
-            if (authenticationResult instanceof AuthenticationResult_Authenticated) {
-                // -> Authenticated anew
-                AuthenticationResult_Authenticated result = (AuthenticationResult_Authenticated) authenticationResult;
-                _principal = result._principal;
-                _userId = result._userId;
-                MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
-                MDC.put(MDC_USER_ID, _userId);
-                log.info("Authenticated with UserId: [" + _userId + "] and Principal [" + _principal + "]");
-                // GOOD! Got (potentially) new Principal and UserId.
-                return true;
-            }
-            else if (authenticationResult instanceof AuthenticationResult_StillValid) {
-                // -> The existing authentication is still valid
-                log.debug("Still authenticated with UserId: [" + _userId + "] and Principal [" + _principal + "]");
-                // GOOD! Existing auth still good.
-                return true;
-            }
-            else {
-                // -> NotAuthenticated, null, or any other result.
-                log.error("SessionAuthenticator replied " + authenticationResult + ", Authorization header: "
-                        + _authorization);
-                // ?: Is it NotAuthenticated?
-                if (authenticationResult instanceof AuthenticationResult_NotAuthenticated) {
-                    // -> Yes, explicit NotAuthenticated
-                    AuthenticationResult_NotAuthenticated notAuthenticated = (AuthenticationResult_NotAuthenticated) authenticationResult;
-                    closeWithPolicyViolation("Auth re-eval: " + notAuthenticated.getReason());
-                }
-                else {
-                    // -> Some unexpected value - no good.
-                    closeWithPolicyViolation("Auth re-eval: Failed");
-                }
-                return false;
-            }
+            // -> Null or some unexpected value - no good.
+            closeWithPolicyViolation(what + ": Failed");
         }
-        // NOTE! There should NOT be a default return here!
     }
 
     private boolean handleHello(long clientMessageReceivedTimestamp, MatsSocketEnvelopeDto envelope) {
         log.info("Handling HELLO:" + envelope.st + "!");
-        // We've received hello.
-        _helloReceived = true;
         // ?: Auth is required - should already have been processed
-        if ((_principal == null) || (_authorization == null)) {
+        if ((_principal == null) || (_authorization == null) || (_userId == null)) {
             // NOTE: This shall really never happen, as the implicit state machine should not have put us in this
             // situation. But just as an additional check.
             closeWithPolicyViolation("Missing authentication when evaluating HELLO message");
             return false;
         }
+        // We've received hello.
+        _helloReceived = true;
 
         _clientLibAndVersion = envelope.clv;
         if (_clientLibAndVersion == null) {

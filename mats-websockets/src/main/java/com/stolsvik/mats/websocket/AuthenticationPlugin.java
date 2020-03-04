@@ -18,6 +18,9 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestCon
 /**
  * Plugin that must evaluate whether a MatsSocket connection is authenticated. It receives the String that the client
  * provides, and evaluates whether it is good, and if so returns a Principal and a UserId.
+ * <p/>
+ * <i>Thread Safety:</i> Concurrency issues wrt. to multiple threads accessing a {@link SessionAuthenticator}: Only one
+ * thread will access any of the authenticate methods at any one time, and memory consistency is handled.
  *
  * @author Endre Stølsvik 2020-01-10 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -35,6 +38,9 @@ public interface AuthenticationPlugin {
      */
     SessionAuthenticator newSessionAuthenticator();
 
+    /**
+     * An instance of this interface shall be returned upon invocation of {@link #newSessionAuthenticator()}.
+     */
     interface SessionAuthenticator {
         /**
          * Implement this if you want to do a check on the Origin header value while the initial WebSocket
@@ -120,7 +126,10 @@ public interface AuthenticationPlugin {
 
         /**
          * Invoked when the MatsSocket connects over WebSocket, and is first authenticated by the Authorization string
-         * typically supplied via the initial "HELLO" message from the client.
+         * typically supplied via the initial "HELLO" message from the client - we obviously do not then have a
+         * Principal yet, so this {@link SessionAuthenticator} needs to supply it. All subsequent authentication
+         * evaluations is done using {@link #reevaluateAuthentication(AuthenticationContext, String, Principal)
+         * reevaluateAuthentication(...)}.
          * <p />
          * <b>NOTE!</b> Read the JavaDoc for
          * {@link #checkHandshake(ServerEndpointConfig, HandshakeRequest, HandshakeResponse) checkHandshake(..)} wrt.
@@ -139,17 +148,22 @@ public interface AuthenticationPlugin {
         AuthenticationResult initialAuthentication(AuthenticationContext context, String authorizationHeader);
 
         /**
-         * Invoked on every subsequent "pipeline" of messages (including every time the client supplies a new
-         * Authorization string). This should thus be as fast as possible, preferably using only code without doing any
-         * IO. If the 'existingPrincipal' is still valid (and with that also the userId that was supplied at
-         * {@link AuthenticationContext#authenticated(Principal, String)}), then you can invoke
-         * {@link AuthenticationContext#stillValid()}.
+         * Invoked on every subsequent "pipeline" of incoming messages (including every time the Client supplies a new
+         * Authorization string). The reason for separating this out in a different method is that you should want to
+         * optimize it heavily (read 'Note' below): If the 'existingPrincipal' is still valid (and with that also the
+         * userId that was supplied at {@link AuthenticationContext#authenticated(Principal, String)}), then you can
+         * return the result of {@link AuthenticationContext#stillValid()}. A correct, albeit possibly slow,
+         * implementation of this method is to just forward the call to
+         * {@link #initialAuthentication(AuthenticationContext, String) initialAuthentication(..)} - it was however
+         * decided to not default-implement this solution in the interface, so that you should consider the implications
+         * of this.
          * <p />
          * <b>NOTE!</b> You might want to hold on to the 'authorizationHeader' between the invocations to quickly
          * evaluate whether it has changed: In e.g. an OAuth setting, where the authorizationHeader is a bearer access
          * token, you could shortcut evaluation: If it has not changed, then you might be able to just evaluate whether
          * it has expired by comparing a timestamp that you stored when first evaluating it, towards the current time.
-         * If the authorizationHeader (token) has changed, you would do full evaluation of it.
+         * However, if the authorizationHeader (token) has changed, you would do full evaluation of it, as with
+         * {@link #initialAuthentication(AuthenticationContext, String) initialAuthentication(..)}.
          *
          * @param context
          *            were you may get additional information (the {@link HandshakeRequest} and the WebSocket
@@ -166,6 +180,64 @@ public interface AuthenticationPlugin {
          */
         AuthenticationResult reevaluateAuthentication(AuthenticationContext context, String authorizationHeader,
                 Principal existingPrincipal);
+
+        /**
+         * This method is invoked each time the server wants to send a message to the client - either a REPLY to a
+         * request from the Client, or a {@link MatsSocketServer#send(String, String, String, Object) SEND} or
+         * {@link MatsSocketServer#request(String, String, String, Object, String, String) REQUEST} from the server. If
+         * the method returns {@link AuthenticationContext#invalidAuthentication(String) invalidAuthentication()}, the
+         * server will now hold this delivery, and instead ask the client for re-auth, and when this comes in and is
+         * valid, the delivery will ensue.
+         * <p/>
+         * It is default-implemented to invoke
+         * {@link #reevaluateAuthentication(AuthenticationContext, String, Principal) reevaluateAuthentication(..)}, but
+         * the reason for separating this out in (yet a) different method is that you might want to add a bit more slack
+         * wrt. expiry if OAuth-style auth is in play: Let's say a request from the Client is performed right at the
+         * limit of the expiry of the token (where the "slack" is set to a ridiculously low 10 seconds). But let's now
+         * imagine that this request takes 11 seconds to complete. If you do not override the default implementation,
+         * the default implementation will forward to {@code reevaluateAuthentication}, get
+         * {@link AuthenticationContext#invalidAuthentication(String) invalidAuthentication()} as answer, and thus
+         * initiate a full round-trip to the client and to the auth-server to get a new token. Considering that this
+         * {@link SessionAuthenticator SessionAuthenticator} was OK with the authentication when the request came it,
+         * and that by the situation's definition the WebSocket connection has not gone done in the mean time (otherwise
+         * it would have to do full initial auth), one could argue that a Reply should have some extra room wrt. expiry.
+         * For Server-to-Client messages SEND and REQUEST, the same mechanism is employed, and I'd argue that the same
+         * arguments hold: This {@code SessionAuthenticator} was happy with the authentication some X minutes ago and
+         * the connection has never gone down, so you should work pretty hard to set up a situation where a REQUEST from
+         * the Server or some data using SEND from the Server would be a large security consideration.
+         * <p/>
+         * You get provided the last time this {@code SessionAuthenticator} was happy with this exact Authorization
+         * Header as parameter 'lastAuthenticatedMillis'. An ok implementation is to simply answer
+         * {@link AuthenticationContext#stillValid() stillValid()} if this is less than X minutes ago, otherwise answer
+         * {@link AuthenticationContext#invalidAuthentication(String) invalidAuthentication()}. Another slightly more
+         * elaborate implementation is to store the token and the actual expiry time of the token in
+         * {@link #reevaluateAuthentication(AuthenticationContext, String, Principal) reevaluateAuthentication(..)}, and
+         * if the token is the same with this invocation, just evaluate the expiry time against current time, but add X
+         * minutes slack to this evaluation.
+         *
+         * @param context
+         *            were you may get additional information (the {@link HandshakeRequest} and the WebSocket
+         *            {@link Session}), and can create {@link AuthenticationResult} to return.
+         * @param authorizationHeader
+         *            the string value to evaluate for being a valid authorization, in any way you fanzy - it is
+         *            supplied by the client, where you also will have to supply a authentication plugin that creates
+         *            the strings that you here will evaluate.
+         * @param existingPrincipal
+         *            The {@link Principal} that was returned with the last authentication (either initial or
+         *            reevaluate).
+         * @param lastAuthenticatedMillis
+         *            the millis-since-epoch of when this exact 'authorizationHeader' was deemed OK by this same
+         *            {@code SessionAuthenticator}.
+         * @return an {@link AuthenticationResult}, which you get from any of the method on the
+         *         {@link AuthenticationContext} - preferably either {@link AuthenticationContext#stillValid()
+         *         stillValid()} or {@link AuthenticationContext#invalidAuthentication(String) invalidAuthentication()}
+         *         based on whether to let this Server-to-Client message through, or force the Client to reauthenticate
+         *         before getting the message.
+         */
+        default AuthenticationResult reevaluateAuthenticationOutgoingMessage(AuthenticationContext context,
+                String authorizationHeader, Principal existingPrincipal, long lastAuthenticatedMillis) {
+            return reevaluateAuthentication(context, authorizationHeader, existingPrincipal);
+        }
     }
 
     interface AuthenticationContext {
@@ -194,7 +266,7 @@ public interface AuthenticationPlugin {
          *            a String which will be sent all the way to the client (so do not include sensitive information).
          * @return an {@link AuthenticationResult} that can be returned by the methods of {@link SessionAuthenticator}.
          */
-        AuthenticationResult notAuthenticated(String reason);
+        AuthenticationResult invalidAuthentication(String reason);
 
         /**
          * Return the result from this method from

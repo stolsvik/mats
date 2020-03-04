@@ -34,7 +34,7 @@ class AuthenticationContextImpl implements AuthenticationContext {
     }
 
     @Override
-    public AuthenticationResult notAuthenticated(String reason) {
+    public AuthenticationResult invalidAuthentication(String reason) {
         return new AuthenticationResult_NotAuthenticated(reason);
     }
 

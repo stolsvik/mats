@@ -26,13 +26,13 @@ class DummySessionAuthenticator implements SessionAuthenticator {
         // ?: If it does not follow standard for DummySessionAuthenticator, fail
         if (split.length != 3) {
             // -> Not three parts -> Fail
-            return context.notAuthenticated("The Authorization should read 'DummyAuth:<userId>:<expiresMillis>':"
+            return context.invalidAuthentication("The Authorization should read 'DummyAuth:<userId>:<expiresMillis>':"
                     + " Supplied is not three parts.");
         }
         // ?: First part reads "DummyAuth"?
         if (!"DummyAuth".equals(split[0])) {
             // -> Not "DummyAuth" -> Fail
-            return context.notAuthenticated("The Authorization should read 'DummyAuth:<userId>:<expiresMillis>':"
+            return context.invalidAuthentication("The Authorization should read 'DummyAuth:<userId>:<expiresMillis>':"
                     + " First part is not 'DummyAuth'");
         }
 

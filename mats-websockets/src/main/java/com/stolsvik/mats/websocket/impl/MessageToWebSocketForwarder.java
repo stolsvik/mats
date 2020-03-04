@@ -112,6 +112,11 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         try { // try-catchAll: Log heavily.
 
             RENOTIFY: while (true) { // LOOP: "Re-notifications"
+                // ?: Should we hold outgoing messages? (Waiting for answer to "REAUTH" from Client)
+                if (matsSocketMessageHandler.isHoldOutgoingMessages()) {
+                    // -> Yes, so bail out
+                    return;
+                }
                 // ?: Check if WebSocket Session is still open.
                 if (!matsSocketMessageHandler.getWebSocketSession().isOpen()) {
                     log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
@@ -161,6 +166,16 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // -> Yes, it was empty. Break out of "Clear out stored messages.." loop.
                         // ----- Good path!
                         break;
+                    }
+
+                    // :: Now do authentication check for whether we're still good to go wrt. sending these messages.
+                    boolean authOk = matsSocketMessageHandler.reevaluateAuthenticationForOutgoingMessage();
+                    if (!authOk) {
+                        // Send "REAUTH" message, to get Client to send us new auth
+                        matsSocketMessageHandler.webSocketSendText("[{t:\"REAUTH\"}]");
+                        // Bail out and wait for new auth to come in, which will re-start sending.
+                        // NOTICE: The nok-ok return will also have set "holdOutgoingMessages".
+                        return;
                     }
 
                     // :: If there are any messages with deliveryCount > 0, then try to send these alone.
