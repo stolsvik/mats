@@ -36,7 +36,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         setupSocket_TestSlow(matsSocketServer);
 
         // Server push: MatsSocketServer.send(..) and .request(..)
-        setupSocket_ServerPush_Send(matsSocketServer);
+        setupSocket_ServerPush_Send_MatsStage(matsSocketServer);
+        setupSocket_ServerPush_Send_Thread(matsSocketServer);
         setupMats_ServerPush_Send(matsFactory, matsSocketServer);
     }
 
@@ -184,23 +185,38 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     // ===== Server Push: MatsSocketServer.send(..) and .request(..)
 
-    private static void setupSocket_ServerPush_Send(MatsSocketServer matsSocketServer) {
-        // Forwards directly to Mats, no replyAdapter
-        matsSocketServer.matsSocketTerminator("Test.server.send",
+    private static void setupSocket_ServerPush_Send_MatsStage(MatsSocketServer matsSocketServer) {
+        matsSocketServer.matsSocketTerminator("Test.server.send.matsStage",
                 MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msIncoming) -> ctx.forwardInteractivePersistent(
-                        new MatsDataTO(msIncoming.number, ctx.getMatsSocketSessionId())));
+                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(msIncoming.number,
+                        ctx.getMatsSocketSessionId(), 1), init -> init.to("Test.server.send")));
+    }
+
+    private static void setupSocket_ServerPush_Send_Thread(MatsSocketServer matsSocketServer) {
+        matsSocketServer.matsSocketTerminator("Test.server.send.thread",
+                MatsDataTO.class, MatsDataTO.class,
+                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(msIncoming.number,
+                        ctx.getMatsSocketSessionId(), 2), init -> init.to("Test.server.send")));
     }
 
     private static void setupMats_ServerPush_Send(MatsFactory matsFactory, MatsSocketServer matsSocketServer) {
-        // :: Simple endpoint that does a MatsSocketServer.send(..)
+        // :: Simple endpoint that does a MatsSocketServer.send(..), either inside MatsStage, or in separate thread.
         matsFactory.terminator("Test.server.send", Void.class, MatsDataTO.class,
                 (processContext, state, incomingDto) -> {
-                    // Fire off the sending in a new Thread, just to prove that this can be done totally outside context
-                    new Thread(() -> {
-                        matsSocketServer.send(incomingDto.string, "TraceId", "ClientSide.terminator", incomingDto);
-                    }, "MatsSocketSender").start();
+                    if (incomingDto.sleepTime == 1) {
+                        // Fire the sending off directly within the MatsStage, to prove that this is possible.
+                        matsSocketServer.send(incomingDto.string, processContext.getTraceId()
+                                + ":SentFromMatsStage", "ClientSide.terminator", incomingDto);
+                    }
+                    else if (incomingDto.sleepTime == 2) {
+                        // Fire the sending in a new Thread, to prove that this can be done totally outside context.
+                        new Thread(() -> {
+                            matsSocketServer.send(incomingDto.string, processContext.getTraceId()
+                                    + ":SentFromThread", "ClientSide.terminator", incomingDto);
+                        }, "Test-MatsSocketServer.send()").start();
+                    }
                 });
+
     }
 
     /**

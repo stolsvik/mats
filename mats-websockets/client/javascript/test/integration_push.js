@@ -46,12 +46,28 @@
             // Set a valid authorization before each request
             beforeEach(() => setAuth());
 
-            it('Send a message to Server, which responds by sending a message to terminator at Client (us!)', function (done) {
+            it('Send a message to Server, which responds by sending a message to terminator at Client (us!), directly in the MatsStage', function (done) {
+                let traceId = "MatsSocketServer.send_test_" + matsSocket.id(6);
+
                 matsSocket.terminator("ClientSide.terminator", (msg) => {
                     chai.assert.strictEqual(msg.data.number, Math.E);
+                    chai.assert.strictEqual(msg.traceId, traceId + ":SentFromMatsStage");
                     done()
                 });
-                matsSocket.send("Test.server.send", "REQUEST-with-ReplyTo_1_" + matsSocket.id(6), {
+                matsSocket.send("Test.server.send.matsStage", traceId, {
+                    number: Math.E
+                })
+            });
+
+            it('Send a message to Server, which responds by sending a message to terminator at Client (us!), in a separate Thread', function (done) {
+                let traceId = "MatsSocketServer.send_test_" + matsSocket.id(6);
+
+                matsSocket.terminator("ClientSide.terminator", (msg) => {
+                    chai.assert.strictEqual(msg.data.number, Math.E);
+                    chai.assert.strictEqual(msg.traceId, traceId + ":SentFromThread");
+                    done()
+                });
+                matsSocket.send("Test.server.send.thread", traceId, {
                     number: Math.E
                 })
             });
