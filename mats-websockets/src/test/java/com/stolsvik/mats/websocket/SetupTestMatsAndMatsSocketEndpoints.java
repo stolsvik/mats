@@ -34,7 +34,13 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         // Slow test endpoint
         setupMats_TestSlow(matsFactory);
         setupSocket_TestSlow(matsSocketServer);
+
+        // Server push: MatsSocketServer.send(..) and .request(..)
+        setupSocket_ServerPush_Send(matsSocketServer);
+        setupMats_ServerPush_Send(matsFactory, matsSocketServer);
     }
+
+    // ===== "Standard Endpoint".
 
     private static final String STANDARD_ENDPOINT = "Test.single";
 
@@ -73,6 +79,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                         incomingDto.string + ":FromSimple",
                         incomingDto.sleepTime));
     }
+
+    // ===== IncomingHandler
 
     private static void setupSocket_IgnoreInIncoming(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketDirectReplyEndpoint("Test.ignoreInIncomingHandler",
@@ -114,6 +122,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                 });
     }
 
+    // ===== ReplyAdapter
     // TODO: Make, and handle, "IGNORE" in replyAdapter. Should reject.
 
     private static void setupSocket_ResolveInReplyAdapter(MatsSocketServer matsSocketServer) {
@@ -145,17 +154,19 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                 });
     }
 
+    // ===== Slow endpoint
+
     private static void setupSocket_TestSlow(MatsSocketServer matsSocketServer) {
         // Forwards directly to Mats, no replyAdapter
-        matsSocketServer.matsSocketEndpoint("Test.slow",
-                MatsDataTO.class, MatsDataTO.class, MatsDataTO.class,
+        matsSocketServer.matsSocketTerminator("Test.slow",
+                MatsDataTO.class, MatsDataTO.class,
                 (ctx, principal, msIncoming) -> ctx.forwardInteractivePersistent(msIncoming));
     }
 
     private static void setupMats_TestSlow(MatsFactory matsFactory) {
         // :: Simple endpoint that just sleeps a tad, to simulate "long(er) running process".
-        matsFactory.single("Test.slow", SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class,
-                SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> {
+        matsFactory.single("Test.slow", MatsDataTO.class, MatsDataTO.class,
+                (processContext, incomingDto) -> {
                     if (incomingDto.sleepTime > 0) {
                         log.info("incoming.sleepTime > 0, sleeping specified [" + incomingDto.sleepTime + "] ms.");
                         try {
@@ -168,6 +179,27 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                     return new MatsDataTO(incomingDto.number,
                             incomingDto.string + ":FromSimple",
                             incomingDto.sleepTime);
+                });
+    }
+
+    // ===== Server Push: MatsSocketServer.send(..) and .request(..)
+
+    private static void setupSocket_ServerPush_Send(MatsSocketServer matsSocketServer) {
+        // Forwards directly to Mats, no replyAdapter
+        matsSocketServer.matsSocketTerminator("Test.server.send",
+                MatsDataTO.class, MatsDataTO.class,
+                (ctx, principal, msIncoming) -> ctx.forwardInteractivePersistent(
+                        new MatsDataTO(msIncoming.number, ctx.getMatsSocketSessionId())));
+    }
+
+    private static void setupMats_ServerPush_Send(MatsFactory matsFactory, MatsSocketServer matsSocketServer) {
+        // :: Simple endpoint that does a MatsSocketServer.send(..)
+        matsFactory.terminator("Test.server.send", Void.class, MatsDataTO.class,
+                (processContext, state, incomingDto) -> {
+                    // Fire off the sending in a new Thread, just to prove that this can be done totally outside context
+                    new Thread(() -> {
+                        matsSocketServer.send(incomingDto.string, "TraceId", "ClientSide.terminator", incomingDto);
+                    }, "MatsSocketSender").start();
                 });
     }
 

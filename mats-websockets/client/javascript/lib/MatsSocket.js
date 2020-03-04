@@ -285,11 +285,11 @@
          */
         this.terminator = function (endpointId, messageCallback, errorCallback) {
             // :: Assert for double-registrations
-            if (_endpoints[endpointId] !== undefined) {
-                throw new Error("Cannot register more than one endpoint to same endpointId [" + endpointId + "], existing: " + _endpoints[endpointId]);
+            if (_terminators[endpointId] !== undefined) {
+                throw new Error("Cannot register more than one endpoint to same endpointId [" + endpointId + "], existing: " + _terminators[endpointId]);
             }
             log("Registering endpoint on id [" + endpointId + "]:\n #messageCallback: " + messageCallback + "\n #errorCallback: " + errorCallback);
-            _endpoints[endpointId] = {
+            _terminators[endpointId] = {
                 resolve: messageCallback,
                 reject: errorCallback
             };
@@ -527,7 +527,7 @@
         // fields
         let _sessionId = undefined;
         let _pipeline = [];
-        let _endpoints = {};
+        let _terminators = {};
 
         let _helloSent = false;
         let _reconnect_ForceSendHello = false;
@@ -1003,16 +1003,31 @@
                         // NOTICE: Comes into play with Server-side SEND and REQUEST. Not yet.
                     } else if (envelope.t === "SEND") {
                         // -> SEND: Send message to terminator
+                        // Find the (client) Terminator which the Reply should go to
+                        let terminator = _terminators[envelope.eid];
+
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
                         if (envelope.smid) {
                             // -> Yes, so send RECEIVED to server
-                            that.addEnvelopeToPipeline({
+                            let ackEnvelope = {
                                 t: "RECEIVED",
-                                st: "ACK",
+                                st: (terminator !== undefined ? "ACK" : "NACK"),
                                 smid: envelope.smid,
-                            });
+                            };
+                            if (!terminator) {
+                                ackEnvelope.desc = "The Client Endpoint [" + envelope.eid + "] does not exist!"
+                            }
+                            that.addEnvelopeToPipeline(ackEnvelope);
                         }
-                        // TODO: Implement SEND
+
+                        // ?: Do we have the desired Terminator?
+                        if (terminator === undefined) {
+                            // -> No, we do not have this. Programming error from app.
+                            error("missing client terminator", "The Client Endpoint [" + envelope.eid + "] does not exist!!", envelope);
+                            return;
+                        }
+                        // E-> We found the terminator to tell
+                        terminator.resolve(eventFromEnvelope(envelope, receivedTimestamp));
 
                     } else if (envelope.t === "REQUEST") {
                         // -> REQUEST: Request a REPLY from an endpoint
@@ -1085,19 +1100,19 @@
             } else {
                 // -> No, this is a REQUEST-with-ReplyTo
                 // Find the (client) Endpoint which the Reply should go to
-                let endpoint = _endpoints[endpointId];
+                let terminator = _terminators[endpointId];
                 // ?: Do we not have it?
-                if (endpoint === undefined) {
+                if (terminator === undefined) {
                     // -> No, we do not have this. Programming error from app.
                     // TODO: Should catch this upon the requestReplyTo(...) invocation.
-                    error("missing client endpoint", "The Client Endpoint [" + envelope.eid + "] is not present!", envelope);
+                    error("missing client terminator", "The Client Endpoint [" + envelope.eid + "] is not present!", envelope);
                     return;
                 }
-                // E-> We found the endpoint to tell
+                // E-> We found the terminator to tell
                 if (envelope.st === "RESOLVE") {
-                    endpoint.resolve(eventFromEnvelope(envelope, receivedTimestamp));
-                } else if (endpoint.reject) {
-                    endpoint.reject(eventFromEnvelope(envelope, receivedTimestamp));
+                    terminator.resolve(eventFromEnvelope(envelope, receivedTimestamp));
+                } else if (terminator.reject) {
+                    terminator.reject(eventFromEnvelope(envelope, receivedTimestamp));
                 }
             }
         }

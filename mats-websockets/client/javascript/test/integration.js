@@ -188,7 +188,6 @@
 
             it("Should reply to our own endpoint", function (done) {
                 matsSocket.terminator("ClientSide.customEndpoint", () => done());
-                // Return a promise, that mocha will watch and resolve
                 matsSocket.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_1_" + matsSocket.id(6), {
                     string: "Request String",
                     number: Math.E
@@ -201,7 +200,6 @@
                     chai.assert.equal(messageCorrelationId, correlationId);
                     done()
                 });
-                // Return a promise, that mocha will watch and resolve
                 matsSocket.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_2_" + matsSocket.id(6), {
                     string: "Request String",
                     number: Math.E

@@ -436,6 +436,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             try {
                 _matsFactory.getDefaultInitiator().initiate(
                         init -> init
+                                .from("MatsSocketServer.send")
                                 .traceId("PingWebSocketHolder")
                                 .to(terminatorId_NotifyNewMessage_ForNode(currentNode.getNodename()))
                                 .publish(sessionId));
@@ -692,8 +693,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         @Override
         public void onClose(Session session, CloseReason closeReason) {
             log.info("WebSocket @OnClose, code:[" + MatsSocketCloseCodes.getCloseCode(closeReason.getCloseCode()
-                    .getCode()) + "], reason:[" + closeReason.getReasonPhrase() + "], MatsSocket SessionId: ["
-                    + (_matsSocketMessageHandler == null
+                    .getCode()) + "] (timeout:[" + _timeoutException + "]), reason:[" + closeReason.getReasonPhrase()
+                    + "], MatsSocket SessionId: [" + (_matsSocketMessageHandler == null
                             ? "no MatsSocketSession"
                             : _matsSocketMessageHandler.getId())
                     + "], ConnectionId:" + _connectionId + ", this:" + id(this));
@@ -704,12 +705,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                 _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketMessageHandler.getId(),
                         _matsSocketMessageHandler.getConnectionId());
                 try {
-                    // ?: Did the client or Server want to actually Close Session?
-                    // NOTE: Need to check by the 'code' integers, since no real enum (CloseCode is an interface).
                     // Is this a GOING_AWAY that is NOT from the server side?
                     boolean goingAwayFromClientSide = (MatsSocketCloseCodes.GOING_AWAY.getCode() == closeReason
                             .getCloseCode().getCode())
                             && (!_timeoutException);
+                    // ?: Did the client or Server want to actually Close Session?
+                    // NOTE: Need to check by the 'code' integers, since no real enum (CloseCode is an interface).
                     if (goingAwayFromClientSide
                             || (MatsSocketCloseCodes.CLOSE_SESSION.getCode() == closeReason.getCloseCode().getCode())
                             || (MatsSocketCloseCodes.UNEXPECTED_CONDITION.getCode() == closeReason.getCloseCode()
@@ -719,7 +720,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                         // we should actually close this session
                         log.info("Explicitly Closed MatsSocketSession due to CloseCode ["
                                 + MatsSocketCloseCodes.getCloseCode(closeReason.getCloseCode().getCode())
-                                + "], actually closing (terminating) it.");
+                                + "] (timeout:[" + _timeoutException + "]), actually closing (terminating) it.");
                         // Close session in CSAF
                         _matsSocketServer._clusterStoreAndForward.closeSession(_matsSocketMessageHandler.getId());
                     }
@@ -727,7 +728,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
                         // -> No, this was a broken connection, or something else like an explicit disconnect w/o close
                         log.info("Got a non-closing CloseCode [" + MatsSocketCloseCodes.getCloseCode(closeReason
                                 .getCloseCode().getCode()) + "] (timeout:[" + _timeoutException
-                                + "], assuming that Client might want to reconnect - deregistering"
+                                + "]), assuming that Client might want to reconnect - deregistering"
                                 + " MatsSocketSession from CSAF.");
                         // Deregister session from CSAF
                         _matsSocketServer._clusterStoreAndForward.deregisterSessionFromThisNode(
@@ -1179,9 +1180,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
     String serializeEnvelope(MatsSocketEnvelopeDto msReplyEnvelope) {
         if (msReplyEnvelope.t == null) {
             throw new IllegalStateException("Type ('t') cannot be null.");
-        }
-        if (msReplyEnvelope.cmrts == null) {
-            throw new IllegalStateException("ClientMessageReceivedTimestamp ('cmrts') cannot be null.");
         }
         // JSONify the MatsSocket Reply.
         try {

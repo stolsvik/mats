@@ -183,6 +183,12 @@ public interface MatsSocketServer {
         String getUserId();
 
         /**
+         * @return the MatsSocketSession Id. This can be useful when wanting to do a
+         *         {@link MatsSocketServer#send(String, String, String, Object)}.
+         */
+        String getMatsSocketSessionId();
+
+        /**
          * @return the incoming MatsSocket Message.
          */
         I getMatsSocketIncomingMessage();

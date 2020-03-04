@@ -1003,6 +1003,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
 
         @Override
+        public String getMatsSocketSessionId() {
+            return _matsSocketSessionId;
+        }
+
+        @Override
         public I getMatsSocketIncomingMessage() {
             return _incomingMessage;
         }
