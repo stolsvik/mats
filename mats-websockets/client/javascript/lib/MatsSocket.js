@@ -283,7 +283,7 @@
          * @param errorCallback is relevant if this endpoint is set as the replyTo-target on a requestReplyTo(..) invocation, and will
          * get invoked with the Event if the corresponding Promise-variant would have been rejected.
          */
-        this.endpoint = function (endpointId, messageCallback, errorCallback) {
+        this.terminator = function (endpointId, messageCallback, errorCallback) {
             // :: Assert for double-registrations
             if (_endpoints[endpointId] !== undefined) {
                 throw new Error("Cannot register more than one endpoint to same endpointId [" + endpointId + "], existing: " + _endpoints[endpointId]);

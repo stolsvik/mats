@@ -29,7 +29,7 @@ NOTE! You must open the browser's DevTool Console to get any effect of this!
         }, 100 + (100 * Math.random()));
     });
 
-    matsSocket.endpoint("ClientSide.testEndpoint", function (e) {
+    matsSocket.terminator("ClientSide.testEndpoint", function (e) {
         var millis = Date.now() - e.clientMessageCreated;
         console.log("Got message! CorrelationId:" + e.correlationId + ", time taken: " + millis + "ms"
             + ", clientMessageReceivedNodename: " + e.clientMessageReceivedNodename

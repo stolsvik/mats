@@ -187,7 +187,7 @@
             beforeEach(() => setAuth());
 
             it("Should reply to our own endpoint", function (done) {
-                matsSocket.endpoint("ClientSide.customEndpoint", () => done());
+                matsSocket.terminator("ClientSide.customEndpoint", () => done());
                 // Return a promise, that mocha will watch and resolve
                 matsSocket.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_1_" + matsSocket.id(6), {
                     string: "Request String",
@@ -197,7 +197,7 @@
 
             it("Should reply to our own endpoint with our correlation data", function (done) {
                 const correlationId = matsSocket.id(6);
-                matsSocket.endpoint("ClientSide.customEndpoint", ({correlationId: messageCorrelationId}) => {
+                matsSocket.terminator("ClientSide.customEndpoint", ({correlationId: messageCorrelationId}) => {
                     chai.assert.equal(messageCorrelationId, correlationId);
                     done()
                 });
@@ -215,7 +215,7 @@
 
             it("Pipeline should reply to our own endpoint", function (done) {
                 let replyCount = 0;
-                matsSocket.endpoint("ClientSide.testEndpoint", function (e) {
+                matsSocket.terminator("ClientSide.testEndpoint", function (e) {
                     replyCount += 1;
                     if (replyCount === 3) {
                         done();
