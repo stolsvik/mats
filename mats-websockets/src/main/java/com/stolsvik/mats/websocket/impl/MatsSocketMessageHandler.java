@@ -755,7 +755,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         try {
             _matsSocketServer.getMatsFactory().getDefaultInitiator().initiateUnchecked(init -> {
 
-                MatsSocketEndpointRequestContextImpl<?, ?> requestContext = new MatsSocketEndpointRequestContextImpl(
+                MatsSocketEndpointRequestContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointRequestContextImpl(
                         _matsSocketServer, registration, _matsSocketSessionId, init, envelope,
                         clientMessageReceivedTimestamp, _authorization, _principal, _userId, msg);
 
@@ -923,7 +923,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
     private enum Processed {
         /**
-         * If none of the deny, forward or settle methods was invoked - the state starts here.
+         * If none of the deny, forward or settle methods was invoked. The "state machine" starts here, and can only go
+         * to one of the other values - and then it cannot be changed.
          */
         IGNORED,
         /**
@@ -944,8 +945,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         FORWARDED
     }
 
-    private static class MatsSocketEndpointRequestContextImpl<MI, R> implements
-            MatsSocketEndpointRequestContext<MI, R> {
+    private static class MatsSocketEndpointRequestContextImpl<I, MI, R> implements
+            MatsSocketEndpointRequestContext<I, MI, R> {
         private final DefaultMatsSocketServer _matsSocketServer;
         private final MatsSocketEndpointRegistration _matsSocketEndpointRegistration;
 
@@ -959,13 +960,13 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         private final String _authorization;
         private final Principal _principal;
         private final String _userId;
-        private final MI _incomingMessage;
+        private final I _incomingMessage;
 
         public MatsSocketEndpointRequestContextImpl(DefaultMatsSocketServer matsSocketServer,
                 MatsSocketEndpointRegistration matsSocketEndpointRegistration, String matsSocketSessionId,
                 MatsInitiate matsInitiate,
                 MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp, String authorization,
-                Principal principal, String userId, MI incomingMessage) {
+                Principal principal, String userId, I incomingMessage) {
             _matsSocketServer = matsSocketServer;
             _matsSocketEndpointRegistration = matsSocketEndpointRegistration;
             _matsSocketSessionId = matsSocketSessionId;
@@ -980,7 +981,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
         private R _matsSocketReplyMessage;
         private Processed _handled = Processed.IGNORED;
-        private boolean _resolved = true;
 
         @Override
         public String getMatsSocketEndpointId() {
@@ -1003,7 +1003,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
 
         @Override
-        public MI getMatsSocketIncomingMessage() {
+        public I getMatsSocketIncomingMessage() {
             return _incomingMessage;
         }
 

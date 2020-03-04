@@ -629,7 +629,7 @@
          * Sends pipelined messages if pipelining is not engaged.
          */
         function evaluatePipelineSend() {
-            // ?: Are there any messages in pipeline, or should we force processing to get HELLO
+            // ?: Are there any messages in pipeline, or should we force processing to get HELLO due to reconnect.
             if ((_pipeline.length === 0) && !_reconnect_ForceSendHello) {
                 // -> No, no message in pipeline, and we should not force processing to get HELLO
                 // Nothing to do, drop out.

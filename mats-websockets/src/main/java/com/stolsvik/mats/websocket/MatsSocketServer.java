@@ -71,7 +71,7 @@ public interface MatsSocketServer {
      */
     @FunctionalInterface
     interface IncomingAuthorizationAndAdapter<I, MI, R> {
-        void handleIncoming(MatsSocketEndpointRequestContext<MI, R> ctx, Principal principal, I msIncoming);
+        void handleIncoming(MatsSocketEndpointRequestContext<I, MI, R> ctx, Principal principal, I msIncoming);
     }
 
     /**
@@ -162,7 +162,7 @@ public interface MatsSocketServer {
         String getMatsSocketEndpointId();
     }
 
-    interface MatsSocketEndpointRequestContext<MI, R> extends MatsSocketEndpointContext {
+    interface MatsSocketEndpointRequestContext<I, MI, R> extends MatsSocketEndpointContext {
         /**
          * @return current <i>Authorization Header</i> in effect for the MatsSocket that delivered the message. This
          *         String is what resolves to the {@link #getPrincipal() current Principal} via the
@@ -185,7 +185,7 @@ public interface MatsSocketServer {
         /**
          * @return the incoming MatsSocket Message.
          */
-        MI getMatsSocketIncomingMessage();
+        I getMatsSocketIncomingMessage();
 
         /**
          * If this is a REPLY from a {@link MatsSocketServer#request(String, String, String, Object, String, String)
