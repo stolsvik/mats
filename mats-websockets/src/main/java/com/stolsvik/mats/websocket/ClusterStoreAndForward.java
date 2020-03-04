@@ -141,14 +141,16 @@ public interface ClusterStoreAndForward {
 
     /**
      * Stores the message for the Session, returning the nodename for the node holding the session, if any. If the
-     * session is timed out, the message won't be stored (i.e. dumped on the floor) and the return value is empty.
+     * session is closed/timed out, the message won't be stored (i.e. dumped on the floor) and the return value is
+     * empty. The ServerMessageId is set by the CSAF, and available when
+     * {@link #getMessagesFromOutbox(String, int, boolean) getting messages}.
      *
      * @param matsSocketSessionId
      *            the matsSocketSessionId that the message is meant for.
      * @param traceId
      *            the server-side traceId for this message.
      * @param clientMessageId
-     *            the envelope.cmid, or -1 if MULTI
+     *            the envelope.cmid
      * @param type
      *            the type of the reply, currently "REPLY".
      * @param message

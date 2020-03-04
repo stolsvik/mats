@@ -393,7 +393,60 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
 
     @Override
     public void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto) {
-        throw new IllegalStateException("Not yet implemented.");
+        // Create Envelope
+        MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
+        msReplyEnvelope.t = "SEND";
+        msReplyEnvelope.eid = clientTerminatorId;
+        msReplyEnvelope.smid = REPLACE_VALUE_SMID; // Server Message Id (not yet determined, created when stored CSAF)
+        msReplyEnvelope.tid = traceId;
+        // TODO: Add "message sent from server timestamp and nodename"
+        msReplyEnvelope.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
+        msReplyEnvelope.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
+        msReplyEnvelope.msg = messageDto; // This object will be serialized.
+
+        // Serialize and store the message for forward ("StoreAndForward")
+        String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
+        Optional<CurrentNode> nodeNameHoldingWebSocket;
+        try {
+            nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
+                    sessionId, traceId, null, msReplyEnvelope.t, serializedEnvelope);
+        }
+        catch (DataAccessException e) {
+            // TODO: Fix
+            throw new AssertionError("Damn", e);
+        }
+
+        // ?: Check if WE have the session locally
+        Optional<MatsSocketMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(sessionId);
+        if (localMatsSocketSession.isPresent()) {
+            // -> Yes, evidently we have it! Do local forward.
+            _messageToWebSocketForwarder.newMessagesInCsafNotify(localMatsSocketSession.get());
+            return;
+        }
+        // E-> We did not have it locally - do remote ping.
+
+        // TODO: If this is invoked within a Mats stage, then it should use the process context's initiator
+        // TODO: Idea: Either have a specific "MatsFactory.getCurrentTreadLocalMatsInitiate()"
+        // TODO: .. or let matsFactory.getDefaultInitiator() be magic and do such switcheroo internally.
+
+        // ?: If we do have a nodename, ping it about new message
+        if (nodeNameHoldingWebSocket.isPresent()) {
+            CurrentNode currentNode = nodeNameHoldingWebSocket.get();
+            // -> Yes we got a nodename, ping it.
+            try {
+                _matsFactory.getDefaultInitiator().initiate(
+                        init -> init
+                                .traceId("PingWebSocketHolder")
+                                .to(terminatorId_NotifyNewMessage_ForNode(currentNode.getNodename()))
+                                .publish(sessionId));
+            }
+            catch (MatsBackendException | MatsMessageSendException e) {
+                log.warn("Got [" + e.getClass().getSimpleName()
+                        + "] when trying to send Mats-ping to current node holding"
+                        + " the websocket [" + currentNode.getNodename()
+                        + "], ignoring, hoping for self-healer to figure it out", e);
+            }
+        }
     }
 
     @Override
@@ -1015,11 +1068,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         msReplyEnvelope.tid = processContext.getTraceId(); // TODO: Chop off last ":xyz", as that is added serverside.
         msReplyEnvelope.cmcts = state.cmcts;
         msReplyEnvelope.cmrts = state.cmrts;
+        msReplyEnvelope.cmrnn = state.recnn; // The receiving nodename
         msReplyEnvelope.mmsts = state.mmsts;
         msReplyEnvelope.mmrrts = matsMessageReplyReceivedTimestamp;
-        msReplyEnvelope.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
-        msReplyEnvelope.cmrnn = state.recnn; // The receiving nodename
         msReplyEnvelope.mmrrnn = getMyNodename(); // The Mats-receiving nodename (this processing)
+        msReplyEnvelope.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
         msReplyEnvelope.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
         msReplyEnvelope.msg = msReply; // This object will be serialized.
 
@@ -1043,6 +1096,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             _messageToWebSocketForwarder.newMessagesInCsafNotify(localMatsSocketSession.get());
             return;
         }
+        // E-> We did not have it locally - do remote ping.
 
         // ?: If we do have a nodename, ping it about new message
         nodeNameHoldingWebSocket.ifPresent(
