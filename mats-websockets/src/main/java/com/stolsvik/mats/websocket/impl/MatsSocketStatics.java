@@ -22,4 +22,10 @@ public interface MatsSocketStatics {
     default float msSince(long nanosStart) {
         return ms(System.nanoTime() - nanosStart);
     }
+
+    class DebugStackTrace extends Exception {
+        public DebugStackTrace(String what) {
+            super("Debug Stacktrace to record where " + what + " happened.");
+        }
+    }
 }

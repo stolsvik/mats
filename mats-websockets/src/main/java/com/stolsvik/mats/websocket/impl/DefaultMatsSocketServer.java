@@ -60,7 +60,7 @@ import com.stolsvik.mats.websocket.MatsSocketServer;
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
  */
-public class DefaultMatsSocketServer implements MatsSocketServer {
+public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStatics {
     private static final Logger log = LoggerFactory.getLogger(DefaultMatsSocketServer.class);
 
     private static final String MATS_EP_PREFIX = "MatsSocket";
@@ -359,7 +359,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         if (existing != null) {
             // -> There was existing mapping - shall not happen.
             throw new IllegalStateException("Cannot register a MatsSocket onto an EndpointId [" + matsSocketEndpointId
-                    + "] which already is taken, existing registration: [" + existing + "].");
+                    + "] which already is taken, existing registration: [" + existing
+                    + "]. NOTE: The Cause of this exception is the DebugStacktrace of the existing registration!",
+                    existing._registrationPoint);
         }
         return matsSocketRegistration;
     }
@@ -777,6 +779,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         private final IncomingAuthorizationAndAdapter<I, MI, R> _incomingAuthEval;
         private final ReplyAdapter<MR, R> _replyAdapter;
 
+        private final DebugStackTrace _registrationPoint;
+
         public MatsSocketEndpointRegistration(String matsSocketEndpointId, Class<I> msIncomingClass,
                 Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
                 IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter) {
@@ -787,6 +791,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
             _msReplyClass = msReplyClass;
             _incomingAuthEval = incomingAuthEval;
             _replyAdapter = replyAdapter;
+
+            _registrationPoint = new DebugStackTrace("registration of MatsSocketEndpoint [" + matsSocketEndpointId
+                    + "]");
         }
 
         String getMatsSocketEndpointId() {
