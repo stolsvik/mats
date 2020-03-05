@@ -182,7 +182,7 @@
 
             // FOR ALL: Both the received callback should be invoked, and the Promise resolved/rejected
 
-            it("ignored (handler did nothing), should NACK request (must either deny, insta-settle or forward)", function (done) {
+            it("ignored (handler did nothing), should NACK when REQUEST (and thus reject Promise) since it is not allowed to ignore a Request (must either deny, insta-settle or forward)", function (done) {
                 let received = false;
                 let promise = matsSocket.request("Test.ignoreInIncomingHandler", "REQUEST_ignored_in_incomingHandler" + matsSocket.id(6), {},
                     function () {
@@ -195,7 +195,7 @@
                 })
             });
 
-            it("context.deny()", function (done) {
+            it("context.deny() should NACK (and thus reject Promise)", function (done) {
                 let received = false;
                 let promise = matsSocket.request("Test.denyInIncomingHandler", "REQUEST_denied_in_incomingHandler" + matsSocket.id(6), {},
                     function () {
@@ -208,7 +208,7 @@
                 })
             });
 
-            it("context.resolve(..)", function (done) {
+            it("context.resolve(..) should ACK received, and RESOLVE the Promise.", function (done) {
                 let received = false;
                 let promise = matsSocket.request("Test.resolveInIncomingHandler", "REQUEST_resolved_in_incomingHandler" + matsSocket.id(6), {},
                     function () {
@@ -222,7 +222,7 @@
 
             });
 
-            it("context.reject(..)", function (done) {
+            it("context.reject(..) should ACK received, and REJECT the Promise", function (done) {
                 let received = false;
                 let promise = matsSocket.request("Test.rejectInIncomingHandler", "REQUEST_rejected_in_incomingHandler" + matsSocket.id(6), {},
                     function () {
@@ -235,7 +235,7 @@
                 });
             });
 
-            it("Exception in incomingAdapter should reject", function (done) {
+            it("Exception in incomingAdapter should NACK (and thus reject Promise)", function (done) {
                 let received = false;
                 let promise = matsSocket.request("Test.throwsInIncomingHandler", "REQUEST_throws_in_incomingHandler" + matsSocket.id(6), {},
                     function () {
@@ -255,7 +255,7 @@
 
             // FOR ALL: Both the received callback should be invoked, and the Promise resolved/rejected
 
-            it("ignored (handler did nothing) should ACK send (resolve Promise)", function () {
+            it("ignored (handler did nothing) should ACK when SEND (thus resolve Promise)", function () {
                 return matsSocket.send("Test.ignoreInIncomingHandler", "SEND_ignored_in_incomingHandler" + matsSocket.id(6), {});
             });
 
@@ -266,7 +266,7 @@
                 })
             });
 
-            it("context.resolve(..) should NACK since it is not allowed to resolve/reject a send", function (done) {
+            it("context.resolve(..) should NACK (reject Promise) since it is not allowed to resolve/reject a send", function (done) {
                 let promise = matsSocket.send("Test.resolveInIncomingHandler", "SEND_resolved_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
                     done();
@@ -274,14 +274,14 @@
 
             });
 
-            it("context.reject(..) should NACK since it is not allowed to resolve/reject a send", function (done) {
+            it("context.reject(..) should NACK (reject Promise) since it is not allowed to resolve/reject a send", function (done) {
                 let promise = matsSocket.send("Test.rejectInIncomingHandler", "SEND_rejected_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
                     done();
                 });
             });
 
-            it("Exception in incomingAdapter should NACK", function (done) {
+            it("Exception in incomingAdapter should NACK (reject Promise)", function (done) {
                 let promise = matsSocket.send("Test.throwsInIncomingHandler", "SEND_throws_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
                     done();
