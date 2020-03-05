@@ -367,33 +367,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     @Override
-    public <I, MI, R> MatsSocketEndpoint<I, MI, R, R> matsSocketEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<R> replyClass,
-            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval) {
-        // Create an endpoint having the MR and R both being the same class, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, matsIncomingClass, replyClass, replyClass,
-                incomingAuthEval, null);
-    }
-
-    @Override
-    public <I, R> MatsSocketEndpoint<I, Void, Void, R> matsSocketDirectReplyEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<R> msReplyClass,
-            IncomingAuthorizationAndAdapter<I, Void, R> incomingAuthEval) {
-        // Create an endpoint having the MI and MR both being Void, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, Void.class, Void.class, msReplyClass,
-                incomingAuthEval, null);
-    }
-
-    @Override
-    public <I, MI> MatsSocketEndpoint<I, MI, Void, Void> matsSocketTerminator(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<MI> matsIncomingClass,
-            IncomingAuthorizationAndAdapter<I, MI, Void> incomingAuthEval) {
-        // Create an endpoint having the MR and R both being Void, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, matsIncomingClass, Void.class, Void.class,
-                incomingAuthEval, null);
-    }
-
-    @Override
     public void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto) {
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();

@@ -30,26 +30,38 @@ public interface MatsSocketServer {
      * the reply from the Mats endpoint is directly fed back (as "resolved") to the MatsSocket. The Mats Reply class and
      * MatsSocket Reply class is thus the same.
      */
-    <I, MI, R> MatsSocketEndpoint<I, MI, R, R> matsSocketEndpoint(String matsSocketEndpointId,
+    default <I, MI, R> MatsSocketEndpoint<I, MI, R, R> matsSocketEndpoint(String matsSocketEndpointId,
             Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<R> replyClass,
-            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval);
+            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval) {
+        // Create an endpoint having the MR and R both being the same class, and lacking the AdaptReply.
+        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, matsIncomingClass, replyClass, replyClass,
+                incomingAuthEval, null);
+    }
 
     /**
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Endpoint meant for situations where you
      * intend to reply directly in the {@link IncomingAuthorizationAndAdapter} without forwarding to Mats.
      */
-    <I, R> MatsSocketEndpoint<I, Void, Void, R> matsSocketDirectReplyEndpoint(String matsSocketEndpointId,
+    default <I, R> MatsSocketEndpoint<I, Void, Void, R> matsSocketDirectReplyEndpoint(String matsSocketEndpointId,
             Class<I> msIncomingClass, Class<R> msReplyClass,
-            IncomingAuthorizationAndAdapter<I, Void, R> incomingAuthEval);
+            IncomingAuthorizationAndAdapter<I, Void, R> incomingAuthEval) {
+        // Create an endpoint having the MI and MR both being Void, and lacking the AdaptReply.
+        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, Void.class, Void.class, msReplyClass,
+                incomingAuthEval, null);
+    }
 
     /**
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Terminator (no reply), specifically for
      * "SEND" and "REPLY" (reply to a Server-to-Client {@link #request(String, String, String, Object, String, String)
      * request}) operations from the Client.
      */
-    <I, MI> MatsSocketEndpoint<I, MI, Void, Void> matsSocketTerminator(String matsSocketEndpointId,
+    default <I, MI> MatsSocketEndpoint<I, MI, Void, Void> matsSocketTerminator(String matsSocketEndpointId,
             Class<I> msIncomingClass, Class<MI> matsIncomingClass,
-            IncomingAuthorizationAndAdapter<I, MI, Void> incomingAuthEval);
+            IncomingAuthorizationAndAdapter<I, MI, Void> incomingAuthEval) {
+        // Create an endpoint having the MR and R both being Void, and lacking the AdaptReply.
+        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, matsIncomingClass, Void.class, Void.class,
+                incomingAuthEval, null);
+    }
 
     /**
      * Should handle (preliminary) Authorization evaluation on the supplied
