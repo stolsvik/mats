@@ -358,8 +358,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer {
         // Assert that there was no existing mapping
         if (existing != null) {
             // -> There was existing mapping - shall not happen.
-            throw new IllegalStateException("Cannot register a MatsSocket onto an EndpointId which already is"
-                    + " taken, existing: [" + existing + "].");
+            throw new IllegalStateException("Cannot register a MatsSocket onto an EndpointId [" + matsSocketEndpointId
+                    + "] which already is taken, existing registration: [" + existing + "].");
         }
         return matsSocketRegistration;
     }
