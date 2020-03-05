@@ -42,6 +42,8 @@ public interface ClusterStoreAndForward {
      */
     void boot();
 
+    // ---------- Session management ----------
+
     /**
      * Registers a Session home to this node - only one node can ever be home, so any old is deleted. When
      * "re-registering" a session, it is asserted that the provided 'userId' is the same UserId as originally registered
@@ -113,6 +115,8 @@ public interface ClusterStoreAndForward {
      */
     void closeSession(String matsSocketSessionId) throws DataAccessException;
 
+    // ---------- Inbox ----------
+
     /**
      * Stores the incoming message Id, to avoid double delivery. If the messageId already exists, a
      * {@link ClientMessageIdAlreadyExistsException} will be raised.
@@ -139,6 +143,8 @@ public interface ClusterStoreAndForward {
     void deleteMessageIdsFromInbox(String matsSocketSessionId, Collection<String> clientMessageIds)
             throws DataAccessException;
 
+    // ---------- Outbox ----------
+
     /**
      * Stores the message for the Session, returning the nodename for the node holding the session, if any. If the
      * session is closed/timed out, the message won't be stored (i.e. dumped on the floor) and the return value is
@@ -147,18 +153,24 @@ public interface ClusterStoreAndForward {
      *
      * @param matsSocketSessionId
      *            the matsSocketSessionId that the message is meant for.
+     * @param serverMessageId
+     *            unique id for outbox'ed message within the MatsSocketSessionId. Must be long enough that it is
+     *            <b><i>extremely</i></b> unlikely that is collides with another message within the same
+     *            MatsSocketSessionId - but do remember that there will at any one time be pretty few messages in the
+     *            outbox for a given MatsSocketSession.
+     * @param clientMessageId
+     *            For Client Replies to requests from Server-to-Client, this is the Client's Message Id, which we need
+     *            to send back in the message-received acknowledgement.
      * @param traceId
      *            the server-side traceId for this message.
-     * @param clientMessageId
-     *            the envelope.cmid
      * @param type
      *            the type of the reply, currently "REPLY".
      * @param message
      *            the JSON-serialized MatsSocket <b>Envelope</b>.
      * @return the current node holding MatsSocket Session, or empty if none.
      */
-    Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String traceId,
-            String clientMessageId, String type, String message) throws DataAccessException;
+    Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
+            String clientMessageId, String traceId, String type, String message) throws DataAccessException;
 
     /**
      * Fetch a set of messages, up to 'maxNumberOfMessages'.
@@ -207,6 +219,16 @@ public interface ClusterStoreAndForward {
     void outboxMessagesDeadLetterQueue(String matsSocketSessionId, Collection<String> serverMessageIds)
             throws DataAccessException;
 
+    // ---------- "Request box" ----------
+
+    void storeRequestCorrelation(String matsSocketSessionId, String serverMessageId, long requestTimestamp,
+            String correlationString, byte[] correlationBinary) throws DataAccessException;
+
+    Optional<RequestCorrelation> getAndDeleteRequestCorrelation(String matsSocketSessionId, String serverMessageId)
+            throws DataAccessException;
+
+    // ---------- Exceptions and DTOs ----------
+
     /**
      * Thrown from {@link #registerSessionAtThisNode(String, String, String)} if the userId does not match the original
      * userId that created this session.
@@ -237,6 +259,59 @@ public interface ClusterStoreAndForward {
 
         public DataAccessException(String message, Throwable cause) {
             super(message, cause);
+        }
+    }
+
+    interface RequestCorrelation {
+        String getMatsSocketSessionId();
+
+        String getServerMessageId();
+
+        long getRequestTimestamp();
+
+        String getCorrelationString();
+
+        byte[] getCorrelationBinary();
+    }
+
+    class SimpleRequestCorrelation implements RequestCorrelation {
+        private final String _matsSocketSessionId;
+        private final String _serverMessageId;
+        private final long _requestTimestamp;
+        private final String _correlationString;
+        private final byte[] _correlationBinary;
+
+        public SimpleRequestCorrelation(String matsSocketSessionId, String serverMessageId, long requestTimestamp,
+                String correlationString, byte[] correlationBinary) {
+            _matsSocketSessionId = matsSocketSessionId;
+            _serverMessageId = serverMessageId;
+            _requestTimestamp = requestTimestamp;
+            _correlationString = correlationString;
+            _correlationBinary = correlationBinary;
+        }
+
+        @Override
+        public String getMatsSocketSessionId() {
+            return _matsSocketSessionId;
+        }
+
+        public String getServerMessageId() {
+            return _serverMessageId;
+        }
+
+        @Override
+        public long getRequestTimestamp() {
+            return _requestTimestamp;
+        }
+
+        @Override
+        public String getCorrelationString() {
+            return _correlationString;
+        }
+
+        @Override
+        public byte[] getCorrelationBinary() {
+            return _correlationBinary;
         }
     }
 
@@ -353,7 +428,7 @@ public interface ClusterStoreAndForward {
 
     class SimpleStoredMessage implements StoredMessage {
         private final String _matsSocketSessionId;
-        private final String _serverMessageSequence;
+        private final String _serverMessageId;
         private final String _clientMessageId;
         private final long _storedTimestamp;
         private final Long _attemptTimestamp;
@@ -363,12 +438,12 @@ public interface ClusterStoreAndForward {
         private final String _type;
         private final String _envelopeJson;
 
-        public SimpleStoredMessage(String matsSocketSessionId, String serverMessageSequence,
+        public SimpleStoredMessage(String matsSocketSessionId, String serverMessageId,
                 String clientMessageId,
                 long storedTimestamp, Long attemptTimestamp, int deliveryCount, String traceId, String type,
                 String envelopeJson) {
             _matsSocketSessionId = matsSocketSessionId;
-            _serverMessageSequence = serverMessageSequence;
+            _serverMessageId = serverMessageId;
             _clientMessageId = clientMessageId;
             _storedTimestamp = storedTimestamp;
             _attemptTimestamp = attemptTimestamp;
@@ -385,7 +460,7 @@ public interface ClusterStoreAndForward {
 
         @Override
         public String getServerMessageId() {
-            return _serverMessageSequence;
+            return _serverMessageId;
         }
 
         @Override

@@ -1,5 +1,6 @@
 package com.stolsvik.mats.websocket;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 import org.slf4j.Logger;
@@ -31,14 +32,11 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         setupSocket_RejectInReplyAdapter(matsSocketServer);
         setupSocket_ThrowsInReplyAdapter(matsSocketServer);
 
-        // Slow test endpoint
-        setupMats_TestSlow(matsFactory);
-        setupSocket_TestSlow(matsSocketServer);
+        setup_TestSlow(matsSocketServer, matsFactory);
 
-        // Server push: MatsSocketServer.send(..) and .request(..)
-        setupSocket_ServerPush_Send_MatsStage(matsSocketServer);
-        setupSocket_ServerPush_Send_Thread(matsSocketServer);
-        setupMats_ServerPush_Send(matsFactory, matsSocketServer);
+        setup_ServerPush_Send(matsSocketServer, matsFactory);
+
+        setup_ServerPush_Request(matsSocketServer, matsFactory);
     }
 
     // ===== "Standard Endpoint".
@@ -157,14 +155,12 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     // ===== Slow endpoint
 
-    private static void setupSocket_TestSlow(MatsSocketServer matsSocketServer) {
-        // Forwards directly to Mats, no replyAdapter
+    private static void setup_TestSlow(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
+        // :: Forwards directly to Mats, no replyAdapter
         matsSocketServer.matsSocketTerminator("Test.slow",
                 MatsDataTO.class, MatsDataTO.class,
                 (ctx, principal, msIncoming) -> ctx.forwardInteractivePersistent(msIncoming));
-    }
 
-    private static void setupMats_TestSlow(MatsFactory matsFactory) {
         // :: Simple endpoint that just sleeps a tad, to simulate "long(er) running process".
         matsFactory.single("Test.slow", MatsDataTO.class, MatsDataTO.class,
                 (processContext, incomingDto) -> {
@@ -185,21 +181,17 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     // ===== Server Push: MatsSocketServer.send(..) and .request(..)
 
-    private static void setupSocket_ServerPush_Send_MatsStage(MatsSocketServer matsSocketServer) {
+    private static void setup_ServerPush_Send(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
         matsSocketServer.matsSocketTerminator("Test.server.send.matsStage",
                 MatsDataTO.class, MatsDataTO.class,
                 (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(msIncoming.number,
                         ctx.getMatsSocketSessionId(), 1), init -> init.to("Test.server.send")));
-    }
 
-    private static void setupSocket_ServerPush_Send_Thread(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketTerminator("Test.server.send.thread",
                 MatsDataTO.class, MatsDataTO.class,
                 (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(msIncoming.number,
                         ctx.getMatsSocketSessionId(), 2), init -> init.to("Test.server.send")));
-    }
 
-    private static void setupMats_ServerPush_Send(MatsFactory matsFactory, MatsSocketServer matsSocketServer) {
         // :: Simple endpoint that does a MatsSocketServer.send(..), either inside MatsStage, or in separate thread.
         matsFactory.terminator("Test.server.send", Void.class, MatsDataTO.class,
                 (processContext, state, incomingDto) -> {
@@ -217,6 +209,40 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                     }
                 });
 
+    }
+
+    private static void setup_ServerPush_Request(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
+        // Receives the "start", which starts the cascade - and forwards to the following Mats endpoint
+        matsSocketServer.matsSocketTerminator("Test.server.request.start",
+                MatsDataTO.class, MatsDataTO.class,
+                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(msIncoming.number,
+                        msIncoming.string), init -> init.to("Test.server.requestToClient")));
+
+        // .. which initiates a request to Client Endpoint, asking for reply to go to the following MatsSocket Endpoint
+        matsFactory.terminator("Test.server.requestToClient", Void.class, MatsDataTO.class,
+                (processContext, state, incomingDto) -> {
+                    String matsSocketSessionId = processContext.getString("matsSocketSessionId");
+                    matsSocketServer.request(matsSocketSessionId, processContext.getTraceId(),
+                            "ClientSide.endpoint",
+                            new MatsDataTO(incomingDto.number, incomingDto.string),
+                            "Test.server.request.replyReceiver",
+                            "CorrelationString", "CorrelationBinary".getBytes(StandardCharsets.UTF_8));
+                });
+
+        // .. which gets the Reply from Client, and forwards the it to the following Mats endpoint
+        matsSocketServer.matsSocketTerminator("Test.server.request.replyReceiver",
+                MatsDataTO.class, MatsDataTO.class,
+                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(msIncoming.number,
+                        msIncoming.string), init -> init.to("Test.server.sendReplyBackToClient")));
+
+        // .. which finally sends the Reply back to the Client on a Terminator there.
+        matsFactory.terminator("Test.server.sendReplyBackToClient", Void.class, MatsDataTO.class,
+                (processContext, state, incomingDto) -> {
+                    String matsSocketSessionId = processContext.getString("matsSocketSessionId");
+                    matsSocketServer.send(matsSocketSessionId, processContext.getTraceId(),
+                            "ClientSide.terminator",
+                            new MatsDataTO(incomingDto.number, incomingDto.string));
+                });
     }
 
     /**

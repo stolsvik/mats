@@ -278,7 +278,7 @@
         };
 
         /**
-         * @param endpointId the id of this client side endpoint.
+         * @param endpointId the id of this client side Terminator.
          * @param messageCallback receives an Event when everything went OK, containing the message on the "data" property.
          * @param errorCallback is relevant if this endpoint is set as the replyTo-target on a requestReplyTo(..) invocation, and will
          * get invoked with the Event if the corresponding Promise-variant would have been rejected.
@@ -286,13 +286,36 @@
         this.terminator = function (endpointId, messageCallback, errorCallback) {
             // :: Assert for double-registrations
             if (_terminators[endpointId] !== undefined) {
-                throw new Error("Cannot register more than one endpoint to same endpointId [" + endpointId + "], existing: " + _terminators[endpointId]);
+                throw new Error("Cannot register more than one Terminator to same endpointId [" + endpointId + "], existing: " + _terminators[endpointId]);
             }
-            log("Registering endpoint on id [" + endpointId + "]:\n #messageCallback: " + messageCallback + "\n #errorCallback: " + errorCallback);
+            if (_endpoints[endpointId] !== undefined) {
+                throw new Error("Cannot register a Terminator to same endpointId [" + endpointId + "] as an Endpoint, existing: " + _endpoints[endpointId]);
+            }
+            log("Registering Terminator on id [" + endpointId + "]:\n #messageCallback: " + messageCallback + "\n #errorCallback: " + errorCallback);
             _terminators[endpointId] = {
                 resolve: messageCallback,
                 reject: errorCallback
             };
+        };
+
+        /**
+         * An Endpoint in MatsSocket.js is a function that takes a message event and produces a Promises, whose return
+         * (resolve or reject) is the return value of the endpoint.
+         *
+         * @param endpointId the id of this client side Endpoint.
+         * @param {function} promiseProducer a function that takes a Message Event and returns a Promise which when
+         * later either Resolve or Reject will be the return value of the endpoint call.
+         */
+        this.endpoint = function (endpointId, promiseProducer) {
+            // :: Assert for double-registrations
+            if (_endpoints[endpointId] !== undefined) {
+                throw new Error("Cannot register more than one Endpoint to same endpointId [" + endpointId + "], existing: " + _endpoints[endpointId]);
+            }
+            if (_terminators[endpointId] !== undefined) {
+                throw new Error("Cannot register an Endpoint to same endpointId [" + endpointId + "] as a Terminator, existing: " + _terminators[endpointId]);
+            }
+            log("Registering Endpoint on id [" + endpointId + "]:\n #promiseProducer: " + promiseProducer);
+            _endpoints[endpointId] = promiseProducer;
         };
 
         /**
@@ -301,7 +324,6 @@
          * is active or not).
          */
         this.addEnvelopeToPipeline = function (envelope) {
-            _lastMessageEnqueuedMillis = Date.now();
             _pipeline.push(envelope);
             if (this.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
             evaluatePipelineLater()
@@ -313,6 +335,8 @@
             if ((type !== "SEND") && (type !== "REQUEST")) {
                 throw Error("Only SEND and REQUEST messages can be enqueued via this method.")
             }
+            // Update timestamp of last "information bearing message" sent.
+            _lastMessageEnqueuedMillis = Date.now();
 
             // Add client timestamp.
             // TODO: How necessary is this?
@@ -527,7 +551,8 @@
         // fields
         let _sessionId = undefined;
         let _pipeline = [];
-        let _terminators = {};
+        let _terminators = Object.create(null);
+        let _endpoints = Object.create(null);
 
         let _helloSent = false;
         let _reconnect_ForceSendHello = false;
@@ -1003,7 +1028,7 @@
                         // NOTICE: Comes into play with Server-side SEND and REQUEST. Not yet.
                     } else if (envelope.t === "SEND") {
                         // -> SEND: Send message to terminator
-                        // Find the (client) Terminator which the Reply should go to
+                        // Find the (client) Terminator which the Send should go to
                         let terminator = _terminators[envelope.eid];
 
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
@@ -1023,7 +1048,7 @@
                         // ?: Do we have the desired Terminator?
                         if (terminator === undefined) {
                             // -> No, we do not have this. Programming error from app.
-                            error("missing client terminator", "The Client Endpoint [" + envelope.eid + "] does not exist!!", envelope);
+                            error("missing client Terminator", "The Client Terminator [" + envelope.eid + "] does not exist!!", envelope);
                             return;
                         }
                         // E-> We found the terminator to tell
@@ -1031,16 +1056,53 @@
 
                     } else if (envelope.t === "REQUEST") {
                         // -> REQUEST: Request a REPLY from an endpoint
+                        // Find the (client) Endpoint which the Request should go to
+                        let endpoint = _endpoints[envelope.eid];
+
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
                         if (envelope.smid) {
                             // -> Yes, so send RECEIVED to server
-                            that.addEnvelopeToPipeline({
+                            let ackEnvelope = {
                                 t: "RECEIVED",
-                                st: "ACK",
+                                st: (endpoint !== undefined ? "ACK" : "NACK"),
                                 smid: envelope.smid,
-                            });
+                            };
+                            if (!endpoint) {
+                                ackEnvelope.desc = "The Client Endpoint [" + envelope.eid + "] does not exist!"
+                            }
+                            that.addEnvelopeToPipeline(ackEnvelope);
                         }
-                        // TODO: Implement REQUEST
+
+                        // ?: Do we have the desired Terminator?
+                        if (endpoint === undefined) {
+                            // -> No, we do not have this. Programming error from app.
+                            error("missing client Endpoint", "The Client Endpoint [" + envelope.eid + "] does not exist!!", envelope);
+                            return;
+                        }
+                        // E-> We found the Endpoint to request, invoke it!
+                        let promise = endpoint(eventFromEnvelope(envelope, receivedTimestamp));
+                        let fulfilled = function(resolveReject, msg) {
+                            // Update timestamp of last "information bearing message" sent.
+                            _lastMessageEnqueuedMillis = Date.now();
+                            // Create the Reply message
+                            let replyEnvelope = {
+                                t: "REPLY",
+                                st: resolveReject,
+                                eid: envelope.reid,
+                                smid: envelope.smid,
+                                tid: envelope.tid,
+                                msg: msg
+                            };
+                            // Add the message Sequence Id
+                            replyEnvelope.cmid = _messageSequenceId++;
+                            that.addEnvelopeToPipeline(replyEnvelope);
+                        };
+                        promise.then(function(resolveMessage) {
+                            fulfilled("RESOLVE", resolveMessage);
+                        });
+                        promise.catch(function(rejectMessage) {
+                            fulfilled("REJECT", rejectMessage);
+                        });
 
                     } else if (envelope.t === "REPLY") {
                         // -> Reply to REQUEST
@@ -1050,7 +1112,7 @@
                             that.addEnvelopeToPipeline({
                                 t: "RECEIVED",
                                 st: "ACK",
-                                smid: envelope.smid,
+                                smid: envelope.smid
                             });
                         }
                         // It is physically possible that the REPLY comes before the RECEIVED (I've observed it!).

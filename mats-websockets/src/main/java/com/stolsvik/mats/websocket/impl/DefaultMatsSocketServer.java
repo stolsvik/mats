@@ -368,11 +368,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     @Override
     public void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto) {
+        // Create ServerMessageId
+        String serverMessageId = rnd(6);
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
         msReplyEnvelope.t = "SEND";
         msReplyEnvelope.eid = clientTerminatorId;
-        msReplyEnvelope.smid = REPLACE_VALUE_SMID; // Server Message Id (not yet determined, created when stored CSAF)
+        msReplyEnvelope.smid = serverMessageId;
         msReplyEnvelope.tid = traceId;
         // TODO: Add "message sent from server timestamp and nodename"
         msReplyEnvelope.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
@@ -384,13 +386,55 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         Optional<CurrentNode> nodeNameHoldingWebSocket;
         try {
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
-                    sessionId, traceId, null, msReplyEnvelope.t, serializedEnvelope);
+                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope);
         }
         catch (DataAccessException e) {
             // TODO: Fix
             throw new AssertionError("Damn", e);
         }
 
+        pingLocalOrRemoteNode(sessionId, nodeNameHoldingWebSocket, "MatsSocketServer.send");
+    }
+
+    @Override
+    public void request(String sessionId, String traceId, String clientEndpointId, Object requestDto,
+            String replyToMatsSocketTerminatorId, String correlationString, byte[] correlationBinary) {
+        // Create ServerMessageId
+        String serverMessageId = rnd(6);
+        // Create Envelope
+        MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
+        msReplyEnvelope.t = "REQUEST";
+        msReplyEnvelope.eid = clientEndpointId;
+        msReplyEnvelope.reid = replyToMatsSocketTerminatorId;
+        msReplyEnvelope.smid = serverMessageId;
+        msReplyEnvelope.tid = traceId;
+        // TODO: Add "message sent from server timestamp and nodename"
+        msReplyEnvelope.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
+        msReplyEnvelope.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
+        msReplyEnvelope.msg = requestDto; // This object will be serialized.
+
+        // Serialize and store the message for forward ("StoreAndForward")
+        // .. and store Correlation information
+        String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
+        Optional<CurrentNode> nodeNameHoldingWebSocket;
+        try {
+            // Store Correlation information
+            _clusterStoreAndForward.storeRequestCorrelation(sessionId, serverMessageId, System.currentTimeMillis(),
+                    correlationString, correlationBinary);
+            // Stick the message in Outbox
+            nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
+                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope);
+        }
+        catch (DataAccessException e) {
+            // TODO: Fix
+            throw new AssertionError("Damn", e);
+        }
+
+        pingLocalOrRemoteNode(sessionId, nodeNameHoldingWebSocket, "MatsSocketServer.request");
+    }
+
+    private void pingLocalOrRemoteNode(String sessionId, Optional<CurrentNode> nodeNameHoldingWebSocket,
+            String from) {
         // ?: Check if WE have the session locally
         Optional<MatsSocketMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(sessionId);
         if (localMatsSocketSession.isPresent()) {
@@ -399,20 +443,19 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             return;
         }
         // E-> We did not have it locally - do remote ping.
-
-        // TODO: If this is invoked within a Mats stage, then it should use the process context's initiator
-        // TODO: Idea: Either have a specific "MatsFactory.getCurrentTreadLocalMatsInitiate()"
-        // TODO: .. or let matsFactory.getDefaultInitiator() be magic and do such switcheroo internally.
-
         // ?: If we do have a nodename, ping it about new message
         if (nodeNameHoldingWebSocket.isPresent()) {
             CurrentNode currentNode = nodeNameHoldingWebSocket.get();
             // -> Yes we got a nodename, ping it.
             try {
+                // TODO: If this is invoked within a Mats stage, then it should use the process context's initiator
+                // TODO: Idea: Either have a specific "MatsFactory.getCurrentTreadLocalMatsInitiate()"
+                // TODO: .. or let matsFactory.getDefaultInitiator() be magic and do such switcheroo internally.
+
                 _matsFactory.getDefaultInitiator().initiate(
                         init -> init
-                                .from("MatsSocketServer.send")
-                                .traceId("PingWebSocketHolder")
+                                .from(from)
+                                .traceId("PingWebSocketHolder_" + rnd(6))
                                 .to(terminatorId_NotifyNewMessage_ForNode(currentNode.getNodename()))
                                 .publish(sessionId));
             }
@@ -423,12 +466,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                         + "], ignoring, hoping for self-healer to figure it out", e);
             }
         }
-    }
-
-    @Override
-    public void request(String sessionId, String traceId, String clientEndpointId, Object requestDto,
-            String replyToMatsSocketTerminatorId, String correlationSpecifier) {
-        throw new IllegalStateException("Not yet implemented.");
     }
 
     @Override
@@ -557,12 +594,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     MatsSocketEndpointRegistration<?, ?, ?, ?> getMatsSocketEndpointRegistration(String eid) {
-        MatsSocketEndpointRegistration matsSocketRegistration = _matsSocketEndpointsByMatsSocketEndpointId.get(eid);
-        log.info("MatsSocketRegistration for [" + eid + "]: " + matsSocketRegistration);
-        if (matsSocketRegistration == null) {
+        MatsSocketEndpointRegistration<?, ?, ?, ?> registration = _matsSocketEndpointsByMatsSocketEndpointId.get(eid);
+        log.info("MatsSocketRegistration for [" + eid + "]: " + registration);
+        if (registration == null) {
             throw new IllegalArgumentException("Cannot find MatsSocketRegistration for [" + escape(eid) + "]");
         }
-        return matsSocketRegistration;
+        return registration;
     }
 
     /**
@@ -640,8 +677,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         public void onError(Session session, Throwable thr) {
             // Deduce if this is a Server side timeout
             // Note: This is modelled after Jetty. If different with other JSR 356 implementations, please expand.
-            _timeoutException = thr.getCause() instanceof TimeoutException ||
-                    thr.getMessage().toLowerCase().contains("timeout expired");
+            _timeoutException = (thr.getCause() instanceof TimeoutException
+                    || ((thr.getMessage() != null) && thr.getMessage().toLowerCase().contains("timeout expired")));
 
             // ?: Is it a timeout situation?
             if (_timeoutException) {
@@ -686,13 +723,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                             && (!_timeoutException);
                     // ?: Did the client or Server want to actually Close Session?
                     // NOTE: Need to check by the 'code' integers, since no real enum (CloseCode is an interface).
-                    if (goingAwayFromClientSide
+                    if ((MatsSocketCloseCodes.UNEXPECTED_CONDITION.getCode() == closeReason.getCloseCode().getCode())
                             || (MatsSocketCloseCodes.CLOSE_SESSION.getCode() == closeReason.getCloseCode().getCode())
-                            || (MatsSocketCloseCodes.UNEXPECTED_CONDITION.getCode() == closeReason.getCloseCode()
-                                    .getCode())) {
-                        // -> Yes, this was a "CLOSE_SESSION" (or alternatively "UNEXPECTED_CONDITION", typically from
-                        // server side, or a "GOING AWAY" that was NOT initiated from server side), which means that
-                        // we should actually close this session
+                            || (MatsSocketCloseCodes.VIOLATED_POLICY.getCode() == closeReason.getCloseCode().getCode())
+                            || (MatsSocketCloseCodes.PROTOCOL_ERROR.getCode() == closeReason.getCloseCode().getCode())
+                            || goingAwayFromClientSide) {
+                        // -> Yes, this was a one of the actual-close CloseCodes, or a "GOING AWAY" that was NOT
+                        // initiated from server side), which means that we should actually close this session
                         log.info("Explicitly Closed MatsSocketSession due to CloseCode ["
                                 + MatsSocketCloseCodes.getCloseCode(closeReason.getCloseCode().getCode())
                                 + "] (timeout:[" + _timeoutException + "]), actually closing (terminating) it.");
@@ -989,9 +1026,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     static final Pattern REPLACE_VALUE_TIMESTAMP_REGEX = Pattern.compile(
             Long.toString(REPLACE_VALUE_TIMESTAMP), Pattern.LITERAL);
 
-    static final String REPLACE_VALUE_SMID = "X&~d2j,O}@w.h£X";
-    static final Pattern REPLACE_VALUE_SMID_REGEX = Pattern.compile(REPLACE_VALUE_SMID, Pattern.LITERAL);
-
     /**
      * A "random" String made manually by hammering a little on the keyboard, and trying to find a very implausible
      * string. This will be string-replaced by the sending hostname on the WebSocket-forward side. Must not include
@@ -1041,10 +1075,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     + registration._msReplyClass.getName() + "].");
         }
 
+        String serverMessageId = rnd(6);
+
         // Create Envelope
         msReplyEnvelope.eid = state.ms_reid;
         msReplyEnvelope.cid = state.cid;
-        msReplyEnvelope.smid = REPLACE_VALUE_SMID; // Server Message Id (not yet determined, created when stored CSAF)
+        msReplyEnvelope.smid = serverMessageId;
         msReplyEnvelope.cmid = state.cmid;
         msReplyEnvelope.tid = processContext.getTraceId(); // TODO: Chop off last ":xyz", as that is added serverside.
         msReplyEnvelope.cmcts = state.cmcts;
@@ -1057,12 +1093,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         msReplyEnvelope.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
         msReplyEnvelope.msg = msReply; // This object will be serialized.
 
+        // Create ServerMessageId
         // Serialize and store the message for forward ("StoreAndForward")
         String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
         Optional<CurrentNode> nodeNameHoldingWebSocket;
         try {
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
-                    state.sid, processContext.getTraceId(), msReplyEnvelope.cmid, msReplyEnvelope.t,
+                    state.sid, serverMessageId, msReplyEnvelope.cmid, processContext.getTraceId(), msReplyEnvelope.t,
                     serializedEnvelope);
         }
         catch (DataAccessException e) {

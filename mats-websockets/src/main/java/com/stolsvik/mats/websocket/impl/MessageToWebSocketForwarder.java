@@ -196,8 +196,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     List<String> messageIds = messagesToDeliver.stream()
                             .map(StoredMessage::getServerMessageId)
                             .collect(Collectors.toList());
-                    String traceIds = messagesToDeliver.stream()
-                            .map(StoredMessage::getTraceId)
+                    String messageTypesAndTraceIds = messagesToDeliver.stream()
+                            .map(msg -> msg.getType() + ':' + msg.getTraceId())
                             .collect(Collectors.joining(", "));
 
                     // :: Forward message(s) over WebSocket
@@ -219,9 +219,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                 buf.append(',');
                             }
                             String json = storedMessage.getEnvelopeJson();
-                            // :: Replace in smid, sent timestamp and this node's nodename.
-                            json = DefaultMatsSocketServer.REPLACE_VALUE_SMID_REGEX.matcher(json)
-                                    .replaceFirst(storedMessage.getServerMessageId());
+                            // :: Replace in sent timestamp and this node's nodename.
                             json = DefaultMatsSocketServer.REPLACE_VALUE_TIMESTAMP_REGEX.matcher(json)
                                     .replaceFirst(nowString);
                             json = DefaultMatsSocketServer.REPLACE_VALUE_REPLY_NODENAME_REGEX.matcher(json)
@@ -242,7 +240,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         }
                         catch (DataAccessException e) {
                             log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
-                                    + messagesToDeliver.size() + " message(s) with TraceIds [" + traceIds
+                                    + messagesToDeliver.size() + " message(s) with TraceIds [" + messageTypesAndTraceIds
                                     + "]. Bailing out, hoping for self-healer process to figure it out.", e);
                             // Bail out
                             return;
@@ -252,9 +250,10 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // ----- Good path!
 
                         log.info("Finished sending " + messagesToDeliver.size() + " message(s) with TraceIds ["
-                                + traceIds + "] to [" + matsSocketMessageHandler + "], get-from-CSAF took ["
+                                + messageTypesAndTraceIds + "] to [" + matsSocketMessageHandler
+                                + "], get-from-CSAF took ["
                                 + millisGetMessages + " ms], send over websocket took:[" + millisSendMessages + " ms],"
-                                + " mark-complete-in-CSAF took [" + millisMarkComplete + " ms].");
+                                + " mark delivery attempt in CSAF took [" + millisMarkComplete + " ms].");
 
                         // Loop to check if empty of messages.
                         continue;
@@ -263,7 +262,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // -> Evidently got problems forwarding the message over WebSocket
                         log.warn("Got [" + ioe.getClass().getSimpleName()
                                 + "] while trying to send " + messagesToDeliver.size()
-                                + " message(s) with TraceIds [" + traceIds + "]."
+                                + " message(s) with TraceIds [" + messageTypesAndTraceIds + "]."
                                 + " Increasing 'delivery_count' for message, will try again.", ioe);
 
                         // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)
@@ -272,7 +271,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         }
                         catch (DataAccessException e) {
                             log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
-                                    + messagesToDeliver.size() + " message(s) with TraceIds [" + traceIds
+                                    + messagesToDeliver.size() + " message(s) with TraceIds [" + messageTypesAndTraceIds
                                     + "]. Bailing out, hoping for self-healer process to figure it out.", e);
                             // Bail out
                             return;
@@ -292,7 +291,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                             }
                             catch (DataAccessException e) {
                                 log.warn("Got problems when trying to invoke 'messagesDeadLetterQueue' on CSAF for "
-                                        + messagesToDeliver.size() + " message(s) with TraceIds [" + traceIds
+                                        + messagesToDeliver.size() + " message(s) with TraceIds ["
+                                        + messageTypesAndTraceIds
                                         + "]. Bailing out, hoping for self-healer process to figure it out.", e);
                                 // Bail out
                                 return;

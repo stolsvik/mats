@@ -72,5 +72,48 @@
                 })
             });
         });
+
+        describe('MatsSocketServer.request()', function () {
+            // Set a valid authorization before each request
+            beforeEach(() => setAuth());
+
+            it('Send a message to the Server, which responds by doing a Server-to-Client request (thus coming back here!), and when this returns, sends it back', function (done) {
+                let traceId = "MatsSocketServer.send_test_" + matsSocket.id(6);
+
+                let initialMessage = "Message_" + matsSocket.id(20);
+
+                // This endpoint will get a request from the Server, to which we respond - and the server will then send the reply back to the Terminator below.
+                matsSocket.endpoint("ClientSide.endpoint", function (messageEvent) {
+                    console.log("Got request!", messageEvent);
+
+                    chai.assert.strictEqual(messageEvent.traceId, traceId);
+
+                    return new Promise(function (resolve, reject) {
+                        // Resolve it a tad later, to "emulate" some kind of processing
+                        setTimeout(function () {
+                            let data = messageEvent.data;
+                            resolve({
+                                string: data.string + ":From_IntegrationEndpointA",
+                                number: data.number + Math.PI
+                            });
+                        }, 25);
+                    });
+                });
+
+                // This terminator will get the final result from the Server
+                matsSocket.terminator("ClientSide.terminator", (msg) => {
+                    chai.assert.strictEqual(msg.data.number, Math.E + Math.PI);
+                    chai.assert.strictEqual(msg.data.string, initialMessage + ":From_IntegrationEndpointA");
+                    chai.assert.strictEqual(msg.traceId, traceId);
+                    done()
+                });
+
+                // Here we send the message that starts the cascade
+                matsSocket.send("Test.server.request.start", traceId, {
+                    string: initialMessage,
+                    number: Math.E
+                })
+            });
+        });
     });
 }));

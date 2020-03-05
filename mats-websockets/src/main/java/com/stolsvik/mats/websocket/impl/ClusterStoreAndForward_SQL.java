@@ -25,12 +25,11 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward;
  * using Flyway: {@link ClusterStoreAndForward_SQL_DbMigrations}.
  * <p/>
  * <b>NOTE: If in a Spring JDBC environment, where the MatsFactory is created using the
- * <code>JmsMatsTransactionManager_JmsAndSpringDstm</code> Mats transaction manager, it would be good if the supplied
- * {@link DataSource} was wrapped in a Spring <code>TransactionAwareDataSourceProxy</code>.</b> This since several of
- * the methods on this interface will be invoked within a Mats process lambda, and thus participating in the
- * transactional demarcation established there won't hurt. However, the sole method that is transactional
- * ({@link #registerSessionAtThisNode(String, String, String)}) handles the transaction demarcation itself, so any
- * fallout should be small.
+ * <code>JmsMatsTransactionManager_JmsAndSpringDstm</code> Mats transaction manager, you must wrap the
+ * {@link DataSource} supplied to this class in a Spring <code>TransactionAwareDataSourceProxy</code>.</b> This since
+ * several of the methods on this interface will be invoked within a Mats process lambda, and thus participating in the
+ * transactional demarcation established there is vital to achieve the guaranteed delivery and exactly-once delivery
+ * semantics.
  *
  * @author Endre Stølsvik 2019-12-08 11:00 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -40,6 +39,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     private static final String INBOX_TABLE_PREFIX = "mats_socket_inbox_";
 
     private static final String OUTBOX_TABLE_PREFIX = "mats_socket_outbox_";
+
+    private static final String REQUEST_OUT_TABLE_PREFIX = "mats_socket_request_out_";
 
     private static final int NUMBER_OF_BOX_TABLES = 7;
 
@@ -283,16 +284,15 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String traceId,
-            String clientMessageId, String type, String message) throws DataAccessException {
+    public Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
+            String clientMessageId, String traceId, String type, String message) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("INSERT INTO " + outboxTableName(matsSocketSessionId)
                     + "(session_id, smid, cmid, stored_timestamp,"
                     + " delivery_count, trace_id, type, message_text)"
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            String randomId = DefaultMatsSocketServer.rnd(6);
             insert.setString(1, matsSocketSessionId);
-            insert.setString(2, randomId);
+            insert.setString(2, serverMessageId);
             insert.setString(3, clientMessageId);
             insert.setLong(4, _clock.millis());
             insert.setInt(5, 0);
@@ -367,6 +367,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 deleteMsg.addBatch();
             }
             deleteMsg.executeBatch();
+            deleteMsg.close();
         });
     }
 
@@ -376,6 +377,57 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         log.error("Dead-Letter-Queue (DLQ) for matsSocketSessionId [" + matsSocketSessionId + "] for serverMessageIds "
                 + serverMessageIds + " - implemented as 'complete', so messages will just be deleted.");
         outboxMessagesComplete(matsSocketSessionId, serverMessageIds);
+    }
+
+    @Override
+    public void storeRequestCorrelation(String matsSocketSessionId, String serverMessageId, long requestTimestamp,
+            String correlationString, byte[] correlationBinary) throws DataAccessException {
+        withConnectionVoid(con -> {
+            PreparedStatement insert = con.prepareStatement("INSERT INTO " + requestOutTableName(matsSocketSessionId)
+                    + " (session_id, smid, request_timestamp, correlation_text, correlation_binary)"
+                    + " VALUES (?, ?, ?, ?, ?)");
+            insert.setString(1, matsSocketSessionId);
+            insert.setString(2, serverMessageId);
+            insert.setLong(3, requestTimestamp);
+            insert.setString(4, correlationString);
+            insert.setBytes(5, correlationBinary);
+            insert.execute();
+            insert.close();
+        });
+    }
+
+    @Override
+    public Optional<RequestCorrelation> getAndDeleteRequestCorrelation(String matsSocketSessionId,
+            String serverMessageId) throws DataAccessException {
+        return withConnectionReturn(con -> {
+            PreparedStatement insert = con.prepareStatement("SELECT "
+                    + " request_timestamp, correlation_text, correlation_binary"
+                    + "  FROM " + requestOutTableName(matsSocketSessionId)
+                    + " WHERE session_id = ?"
+                    + " AND smid = ?");
+            insert.setString(1, matsSocketSessionId);
+            insert.setString(2, serverMessageId);
+            ResultSet rs = insert.executeQuery();
+            // ?: Did we get a result? (Shall only be one, due to unique constraint in SQL DDL).
+            if (rs.next()) {
+                // -> Yes, we have the row!
+                // Get the data
+                RequestCorrelation requestCorrelation = new SimpleRequestCorrelation(matsSocketSessionId,
+                        serverMessageId, rs.getLong(1), rs.getString(2), rs.getBytes(3));
+                // Delete the Correlation
+                PreparedStatement deleteCorrelation = con.prepareStatement("DELETE FROM " + requestOutTableName(
+                        matsSocketSessionId)
+                        + " WHERE session_id = ?"
+                        + " AND smid = ?");
+                deleteCorrelation.setString(1, matsSocketSessionId);
+                deleteCorrelation.setString(2, serverMessageId);
+                deleteCorrelation.execute();
+                // Return the data.
+                return Optional.of(requestCorrelation);
+            }
+            // E-> No, no result - so empty.
+            return Optional.empty();
+        });
     }
 
     private static String inboxTableName(String sessionIdForHash) {
@@ -390,6 +442,13 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         // Handle up to 100 tables ("00" - "99")
         String num = tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum);
         return OUTBOX_TABLE_PREFIX + num;
+    }
+
+    private static String requestOutTableName(String sessionIdForHash) {
+        int tableNum = Math.floorMod(sessionIdForHash.hashCode(), NUMBER_OF_BOX_TABLES);
+        // Handle up to 100 tables ("00" - "99")
+        String num = tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum);
+        return REQUEST_OUT_TABLE_PREFIX + num;
     }
 
     // ==============================================================================

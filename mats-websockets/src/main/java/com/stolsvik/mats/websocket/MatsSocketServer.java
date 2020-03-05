@@ -132,10 +132,18 @@ public interface MatsSocketServer {
     /**
      * Initiates a request to the specified MatsSocketSession, to the specified Client EndpointId, with a replyTo
      * specified to (typically) a {@link #matsSocketTerminator(String, Class, Class, IncomingAuthorizationAndAdapter)
-     * MatsSocket terminator} - which includes a String "correlationSpecifier" which is used to correlate the reply to
-     * the request (available {@link MatsSocketEndpointRequestContext#getCorrelationSpecifier() here} for the reply
-     * processing). Do note that since you have no control of when the Client decides to close the browser or terminate
-     * the app, you have no guarantee that a reply will ever come - so code accordingly.
+     * MatsSocket terminator} - which includes a String "correlationString" and byte array "correlationBinary" which can
+     * be used to correlate the reply to the request (available
+     * {@link MatsSocketEndpointRequestContext#getCorrelationString() here} and
+     * {@link MatsSocketEndpointRequestContext#getCorrelationString() here} for the reply processing). Do note that
+     * since you have no control of when the Client decides to close the browser or terminate the app, you have no
+     * guarantee that a reply will ever come - so code accordingly.
+     * <p/>
+     * Note: the {@code correlationString} and {@code correlationBinary} are not sent over to the client, but stored
+     * server side in the {@link ClusterStoreAndForward}. This both means that you do not need to be afraid of size (but
+     * storing megabytes is silly anyway), but more importantly, this data cannot be tampered with client side - you can
+     * be safe that what you gave in here is what you get out in the
+     * {@link MatsSocketEndpointRequestContext#getCorrelationString()}
      * <p/>
      * Note: If the specified session is closed when this method is invoked, the message will (effectively) silently be
      * dropped. Even if you just got hold of the sessionId and it was active then, it might asynchronously close while
@@ -150,7 +158,7 @@ public interface MatsSocketServer {
      * face of session reconnects.
      */
     void request(String sessionId, String traceId, String clientEndpointId, Object requestDto,
-            String replyToMatsSocketTerminatorId, String correlationSpecifier);
+            String replyToMatsSocketTerminatorId, String correlationString, byte[] correlationBinary);
 
     /**
      * Closes the specified MatsSocket Session - to be used for out-of-band closing of Session if the WebSocket is down.
@@ -206,19 +214,31 @@ public interface MatsSocketServer {
         I getMatsSocketIncomingMessage();
 
         /**
-         * If this is a REPLY from a {@link MatsSocketServer#request(String, String, String, Object, String, String)
-         * request}, this method returns the CorrelationSpecifier that was provided in the request.
+         * If this is a Client Reply from a Server-to-Client
+         * {@link MatsSocketServer#request(String, String, String, Object, String, String, byte[]) request}, this method
+         * returns the 'correlationString' that was provided in the request.
          *
-         * @return the CorrelationSpecifier that was provided in the
-         *         {@link MatsSocketServer#request(String, String, String, Object, String, String) request}, otherwise
-         *         <code>null</code>.
+         * @return the 'correlationString' that was provided in the
+         *         {@link MatsSocketServer#request(String, String, String, Object, String, String, byte[]) request} ,
+         *         otherwise <code>null</code>.
          */
-        String getCorrelationSpecifier();
+        String getCorrelationString();
 
         /**
-         * @return whether this is a "REQUEST" (true) or "SEND" (false).
+         * If this is a Client Reply from a Server-to-Client
+         * {@link MatsSocketServer#request(String, String, String, Object, String, String, byte[]) request}, this method
+         * returns the 'correlationBinary' that was provided in the request.
+         *
+         * @return the 'correlationBinary' that was provided in the
+         *         {@link MatsSocketServer#request(String, String, String, Object, String, String, byte[]) request} ,
+         *         otherwise <code>null</code>.
          */
-        boolean isRequest();
+        byte[] getCorrelationBinary();
+
+        /**
+         * @return the {@link MessageType} of the message being processed - either SEND, REQUEST or REPLY.
+         */
+        MessageType getMessageType();
 
         /**
          * Invoke if you want to deny this message from being processed, e.g. your preliminary Authorization checks
@@ -228,14 +248,15 @@ public interface MatsSocketServer {
         void deny();
 
         /**
-         * <b>TYPICALLY for pure "GET-style" requests, or log event processing (not audit logging, though).</b>: Both
-         * the "nonPersistent" flag <i>(messages in flow are not stored and only lives "in-memory", can thus be lost,
-         * i.e. is unreliable, but is very fast)</i> and "interactive" flag <i>(prioritized since a human is
-         * waiting)</i> will be set. Forwards the MatsSocket message to the Mats endpoint of the same endpointId as the
-         * MatsSocketEndpointId.
+         * <b>TYPICALLY for pure "GET-style" Requests, or Sends for e.g. log event store/processing</b> (not audit
+         * logging, though - those you want reliable): Both the "nonPersistent" flag <i>(messages in flow are not stored
+         * and only lives "in-memory", can thus be lost, i.e. is unreliable, but is very fast)</i> and "interactive"
+         * flag <i>(prioritized since a human is waiting)</i> will be set. Forwards the MatsSocket message to the Mats
+         * endpoint of the same endpointId as the MatsSocketEndpointId.
          * <p/>
-         * If it was a MatsSocket "REQUEST" from the client, it will be a Mats request(..) message, while if it was a
-         * "SEND", it will be a Mats send(..) message.
+         * If the {@link #getMessageType() MessageType} of the incoming message from the Client is
+         * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
+         * {@link MessageType#SEND SEND} or {@link MessageType#REPLY REPLY}, it will be a Mats send(..) message.
          *
          * TODO: What about timeout? Must be implemented client side.
          */
@@ -247,8 +268,9 @@ public interface MatsSocketServer {
          * same endpointId as the MatsSocketEndpointId, as a normal <i>persistent</i> message, which should imply that
          * it is using reliable messaging.
          * <p/>
-         * If it was a MatsSocket "REQUEST" from the client, it will be a Mats request(..) message, while if it was a
-         * "SEND", it will be a Mats send(..) message.
+         * If the {@link #getMessageType() MessageType} of the incoming message from the Client is
+         * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
+         * {@link MessageType#SEND SEND} or {@link MessageType#REPLY REPLY}, it will be a Mats send(..) message.
          */
         void forwardInteractivePersistent(MI matsMessage);
 
@@ -259,8 +281,9 @@ public interface MatsSocketServer {
          * information state, will already be set. No other properties are changed, which includes the 'interactive'
          * flag, which is not set either (you can set it, though).
          * <p/>
-         * If it was a MatsSocket "REQUEST" from the client, it will be a Mats request(..) message, while if it was a
-         * "SEND", it will be a Mats send(..) message.
+         * If the {@link #getMessageType() MessageType} of the incoming message from the Client is
+         * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
+         * {@link MessageType#SEND SEND} or {@link MessageType#REPLY REPLY}, it will be a Mats send(..) message.
          *
          * @param matsMessage
          *            the message to send to the Mats Endpoint.
@@ -271,9 +294,9 @@ public interface MatsSocketServer {
         void forwardCustom(MI matsMessage, InitiateLambda customInit);
 
         /**
-         * <b>Only for {@link #isRequest()}:</b> Send "Resolve" reply (resolves the client side Promise) to the
-         * MatsSocket directly, i.e. without forward to Mats - can be used if you can answer the MatsSocket request
-         * directly without going onto the Mats MQ fabric.
+         * <b>Only for {@link MessageType#REQUEST REQUESTs}:</b> Send "Resolve" reply (resolves the client side Promise)
+         * to the MatsSocket directly, i.e. without forward to Mats - can be used if you can answer the MatsSocket
+         * request directly without going onto the Mats MQ fabric.
          *
          * @param matsSocketResolveMessage
          *            the resolve message (the actual reply), or {@code null} if you just want to resolve it without
@@ -282,14 +305,32 @@ public interface MatsSocketServer {
         void resolve(R matsSocketResolveMessage);
 
         /**
-         * <b>Only for {@link #isRequest()}:</b> Send "Reject" reply (rejects the client side Promise) to the MatsSocket
-         * directly, i.e. without forward to Mats - can be used if you can answer the MatsSocket request directly
-         * without going onto the Mats MQ fabric.
+         * <b>Only for {@link MessageType#REQUEST REQUESTs}:</b> Send "Reject" reply (rejects the client side Promise)
+         * to the MatsSocket directly, i.e. without forward to Mats - can be used if you can answer the MatsSocket
+         * request directly without going onto the Mats MQ fabric.
          *
          * @param matsSocketRejectMessage
          *            the reject message, or {@code null} if you just want to reject it without adding any information.
          */
         void reject(R matsSocketRejectMessage);
+    }
+
+    enum MessageType {
+        /**
+         * The sender sends a "fire and forget" style message.
+         */
+        SEND,
+
+        /**
+         * The sender initiates a request, to which a {@link #REPLY} message is expected.
+         */
+        REQUEST,
+
+        /**
+         * A reply to a previous {@link #REQUEST} - if the Client did the {@code REQUEST}, the Server will answer with a
+         * {@code REPLY}.
+         */
+        REPLY
     }
 
     interface MatsSocketEndpointReplyContext<MR, R> extends MatsSocketEndpointContext {

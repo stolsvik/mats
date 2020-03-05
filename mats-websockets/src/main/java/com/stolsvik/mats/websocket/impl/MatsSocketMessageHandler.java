@@ -30,10 +30,12 @@ import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.ClientMessageIdAlreadyExistsException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.RequestCorrelation;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.WrongUserException;
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_Authenticated;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_NotAuthenticated;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_StillValid;
@@ -274,19 +276,14 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // so that we can catch double-deliveries of same message.
 
                     // ?: Is this a SEND or REQUEST to us?
-                    else if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t)) {
-                        boolean ok = handleSendOrRequest(clientMessageReceivedTimestamp, replyEnvelopes, envelope);
+                    else if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t) || "REPLY".equals(envelope.t)) {
+                        boolean ok = handleSendOrRequestOrReply(clientMessageReceivedTimestamp, replyEnvelopes,
+                                envelope);
                         if (!ok) {
                             return;
                         }
                         // The message is handled, so go to next message.
                         continue;
-                    }
-
-                    // ?: Is this a REPLY for a request from us?
-                    else if ("REPLY".equals(envelope.t)) {
-                        // TODO: We do not have REQUEST server-to-client implemented yet.
-                        throw new IllegalStateException("Not yet handled.");
                     }
 
                     // :: This is the "client has received an information-bearing message"-message, denoting
@@ -807,16 +804,25 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         return true;
     }
 
-    private boolean handleSendOrRequest(long clientMessageReceivedTimestamp, List<MatsSocketEnvelopeDto> replyEnvelopes,
-            MatsSocketEnvelopeDto envelope) {
+    private boolean handleSendOrRequestOrReply(long clientMessageReceivedTimestamp,
+            List<MatsSocketEnvelopeDto> replyEnvelopes, MatsSocketEnvelopeDto envelope) {
         String eid = envelope.eid;
-        log.info("  \\- " + envelope.t + " to:[" + eid + "], reply:[" + envelope.reid + "], msg:["
+        MessageType messageType = MessageType.valueOf(envelope.t);
+
+        log.info("  \\- " + messageType + " to:[" + eid + "], reply:[" + envelope.reid + "], msg:["
                 + envelope.msg + "].");
 
-        // TODO: Validate incoming message: cmid, tid, whatever - reject if not OK.
-
+        // :: Assert some props.
         if (envelope.cmid == null) {
-            closeWithProtocolError("Missing CMID on " + envelope.t + ".");
+            closeWithProtocolError("Missing 'cmid' on " + envelope.t + ".");
+            return false;
+        }
+        if (envelope.tid == null) {
+            closeWithProtocolError("Missing 'tid' (TraceId) on " + envelope.t + ", cmid:[" + envelope.cmid + "].");
+            return false;
+        }
+        if ((messageType == MessageType.REPLY) && (envelope.smid == null)) {
+            closeWithProtocolError("Missing 'smid' on a REPLY from Client, cmid:[" + envelope.cmid + "].");
             return false;
         }
 
@@ -829,18 +835,47 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         MatsSocketEnvelopeDto handledEnvelope = new MatsSocketEnvelopeDto();
 
         // :: Perform the entire handleIncoming(..) inside Mats initiate-lambda
+        RequestCorrelation[] _correlationInfo_LambdaHack = new RequestCorrelation[1];
         try {
             _matsSocketServer.getMatsFactory().getDefaultInitiator().initiateUnchecked(init -> {
 
+                String correlationString = null;
+                byte[] correlationBinary = null;
+                // ?: If this is a REPLY, we'll get-and-delete the Correlation information.
+                if (messageType == MessageType.REPLY) {
+                    try {
+                        Optional<RequestCorrelation> correlationInfoO = _matsSocketServer.getClusterStoreAndForward()
+                                .getAndDeleteRequestCorrelation(_matsSocketSessionId, envelope.smid);
+                        if (!correlationInfoO.isPresent()) {
+                            throw new DuplicateDeliveryException("Missing Correlation information for REPLY for smid:["
+                                    + envelope.smid + "] - this implies double delivery.");
+                        }
+                        RequestCorrelation correlationInfo = correlationInfoO.get();
+                        // Store it for half-assed attempt at un-fucking the situation if we get "VERY BAD!"-situation.
+                        _correlationInfo_LambdaHack[0] = correlationInfo;
+                        log.info("Incoming REPLY for Server-to-Client Request for smid[" + envelope.smid
+                                + "], time since request: [" + (System.currentTimeMillis() - correlationInfo
+                                        .getRequestTimestamp()) + " ms].");
+                        correlationString = correlationInfo.getCorrelationString();
+                        correlationBinary = correlationInfo.getCorrelationBinary();
+                    }
+                    catch (DataAccessException e) {
+                        throw new DatabaseRuntimeException(
+                                "Got problems trying to get Correlation information for REPLY for smid:["
+                                        + envelope.smid + "].", e);
+                    }
+                }
+
                 MatsSocketEndpointRequestContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointRequestContextImpl(
                         _matsSocketServer, registration, _matsSocketSessionId, init, envelope,
-                        clientMessageReceivedTimestamp, _authorization, _principal, _userId, msg);
+                        clientMessageReceivedTimestamp, _authorization, _principal, _userId, messageType,
+                        correlationString, correlationBinary, msg);
 
                 incomingAuthEval.handleIncoming(requestContext, _principal, msg);
                 // ?: If we insta-settled the request, then do a REPLY
                 switch (requestContext._handled) {
                     case IGNORED:
-                        if (requestContext.isRequest()) {
+                        if (messageType == MessageType.REQUEST) {
                             handledEnvelope.t = "RECEIVED";
                             handledEnvelope.st = "NACK";
                             handledEnvelope.desc = "An incoming REQUEST envelope was ignored by the MatsSocket incoming handler.";
@@ -864,7 +899,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     case SETTLED_REJECT:
                         // -> Yes, the handleIncoming insta-settled the incoming message, so we insta-reply
                         // NOTICE: We thus elide the "RECEIVED", as the client will handle the missing RECEIVED
-                        handledEnvelope.t = "REPLY";
+                        handledEnvelope.t = MessageType.REPLY.name();
                         handledEnvelope.st = requestContext._handled == Processed.SETTLED_RESOLVE
                                 ? "RESOLVE"
                                 : "REJECT";
@@ -883,7 +918,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 }
             });
         }
-        catch (ClientMessageIdAlreadyExistsRuntimeException e) {
+        catch (DuplicateDeliveryException e) {
             // Double delivery: Simply say "yes, yes, good, good" to client, as we have already processed this one.
             log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
                     + "] of type [" + envelope.t + (envelope.st != null ? ':' + envelope.st : "")
@@ -909,22 +944,36 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         catch (MatsMessageSendRuntimeException e) {
             // Evidently got problems talking to MQ, aka "VERY BAD!". Trying to do compensating tx, then client RETRY
             log.warn("Got major problems running handleIncoming(..) due to DB committing, but MQ not committing."
-                    + " Now trying compensating transaction (deleting received message),"
-                    + " then replying RECEIVED:RETRY to client.", e);
+                    + " Now trying compensating transaction - deleting from inbox (SEND or REQUEST) or"
+                    + " re-inserting Correlation info (REPLY) - then replying RETRY to client.", e);
 
-            // :: Compensating transaction, i.e. delete that we've received the message, so that we can RETRY.
-            // Go for a massively crude attempt to fix this if DB is down now
+            // :: Compensating transaction, i.e. delete that we've received the message (if SEND or REQUEST), or store
+            // back the Correlation information (if REPLY), so that we can RETRY.
+            // Go for a massively crude attempt to fix this if DB is down now: Retry the operation for some seconds.
             int retry = 0;
             while (true) {
                 try {
-                    _matsSocketServer.getClusterStoreAndForward()
-                            .deleteMessageIdsFromInbox(_matsSocketSessionId, Collections.singleton(envelope.cmid));
+                    // ?: Was this a REPLY (that wasn't a double-delivery)
+                    if (_correlationInfo_LambdaHack[0] != null) {
+                        // -> Yes, REPLY, so try to store back the Correlation Information since we did not handle
+                        // it after all (so go for RETRY from Client).
+                        RequestCorrelation c = _correlationInfo_LambdaHack[0];
+                        _matsSocketServer.getClusterStoreAndForward()
+                                .storeRequestCorrelation(_matsSocketSessionId, envelope.smid,
+                                        c.getRequestTimestamp(), c.getCorrelationString(), c.getCorrelationBinary());
+                    }
+                    else {
+                        // -> No, this was SEND or REQUEST, so try to delete the entry in the inbox since we did not
+                        // handle it after all (so go for RETRY from Client).
+                        _matsSocketServer.getClusterStoreAndForward()
+                                .deleteMessageIdsFromInbox(_matsSocketSessionId, Collections.singleton(envelope.cmid));
+                    }
                     // YES, this worked out!
                     break;
                 }
                 catch (DataAccessException ex) {
                     retry++;
-                    if (retry > 30) {
+                    if (retry >= 12) {
                         log.error("Dammit, didn't manage to recover from a MatsMessageSendRuntimeException."
                                 + " Closing session and websocket with SERVER_ERROR.", ex);
                         closeSessionAndWebSocket(MatsSocketCloseCodes.UNEXPECTED_CONDITION,
@@ -932,9 +981,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                         return false;
                     }
                     log.warn("Didn't manage to get out of a MatsMessageSendRuntimeException situation at attempt ["
-                            + retry + "], will try again after sleeping a second.", e);
+                            + retry + "], will try again after sleeping half a second.", e);
                     try {
-                        Thread.sleep(1000);
+                        Thread.sleep(500);
                     }
                     catch (InterruptedException exc) {
                         log.warn("Got interrupted while chill-sleeping trying to recover from"
@@ -986,15 +1035,30 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         return "MatsSocketSession{id='" + getId() + ",connId:'" + getConnectionId() + "'}";
     }
 
-    private static class ClientMessageIdAlreadyExistsRuntimeException extends RuntimeException {
-        public ClientMessageIdAlreadyExistsRuntimeException(Exception e) {
+    /**
+     * Raised if a message seems to be double-delivered. Either that it already exists in the inbox, or that, for a
+     * REPLY, there is no Correlation info for it.
+     */
+    private static class DuplicateDeliveryException extends RuntimeException {
+        public DuplicateDeliveryException(Exception e) {
             super(e);
+        }
+
+        public DuplicateDeliveryException(String message) {
+            super(message);
         }
     }
 
+    /**
+     * Raised if problems during handling of incoming information-bearing message in Mats stages. Leads to RETRY.
+     */
     private static class DatabaseRuntimeException extends RuntimeException {
         public DatabaseRuntimeException(Exception e) {
             super(e);
+        }
+
+        public DatabaseRuntimeException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
@@ -1037,13 +1101,19 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         private final String _authorization;
         private final Principal _principal;
         private final String _userId;
+
+        private final String _correlationString;
+        private final byte[] _correlationBinary;
         private final I _incomingMessage;
+
+        private final MessageType _messageType;
 
         public MatsSocketEndpointRequestContextImpl(DefaultMatsSocketServer matsSocketServer,
                 MatsSocketEndpointRegistration matsSocketEndpointRegistration, String matsSocketSessionId,
                 MatsInitiate matsInitiate,
                 MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp, String authorization,
-                Principal principal, String userId, I incomingMessage) {
+                Principal principal, String userId, MessageType messageType,
+                String correlationString, byte[] correlationBinary, I incomingMessage) {
             _matsSocketServer = matsSocketServer;
             _matsSocketEndpointRegistration = matsSocketEndpointRegistration;
             _matsSocketSessionId = matsSocketSessionId;
@@ -1053,6 +1123,10 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             _authorization = authorization;
             _principal = principal;
             _userId = userId;
+            _messageType = messageType;
+
+            _correlationString = correlationString;
+            _correlationBinary = correlationBinary;
             _incomingMessage = incomingMessage;
         }
 
@@ -1090,14 +1164,18 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
 
         @Override
-        public String getCorrelationSpecifier() {
-            // TODO: Implement.
-            return null;
+        public String getCorrelationString() {
+            return _correlationString;
         }
 
         @Override
-        public boolean isRequest() {
-            return _envelope.t.equals("REQUEST");
+        public byte[] getCorrelationBinary() {
+            return _correlationBinary;
+        }
+
+        @Override
+        public MessageType getMessageType() {
+            return _messageType;
         }
 
         @Override
@@ -1132,31 +1210,40 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             }
             _handled = Processed.FORWARDED;
 
-            // :: First store the ClientMessageId in the Inbox.
-            /*
-             * This shall throw UniqueConstraintException if we've already processed this before.
-             *
-             * Notice: It MIGHT be that the SQLIntegrityConstraintViolationException (or similar) is not raised until
-             * commit due to races, albeit this seems rather far-fetched considering that there shall not be any
-             * concurrent handling of this particular MatsSocketSessionId. Anyway, such an exception on commit will lead
-             * to throw-out with MatsBackendRuntimeException, and the client shall then end up with redelivery. At this
-             * NEXT time, we should get the unique constraint violation right here.
-             */
-            try {
-                _matsSocketServer.getClusterStoreAndForward().storeMessageIdInInbox(_matsSocketSessionId,
-                        _envelope.cmid);
-            }
-            catch (ClientMessageIdAlreadyExistsException e) {
-                throw new ClientMessageIdAlreadyExistsRuntimeException(e);
-            }
-            catch (DataAccessException e) {
-                throw new DatabaseRuntimeException(e);
+            // ?: Is this a REQUEST or SEND, meaning that we do not have a Correlation entry in the CSAF?
+            if ((getMessageType() == MessageType.REQUEST) || (getMessageType() == MessageType.SEND)) {
+                // -> Yes, REQUEST or SEND: Store the ClientMessageId in the Inbox, to catch double deliveries.
+                /*
+                 * This shall throw UniqueConstraintException if we've already processed this before.
+                 *
+                 * Notice: It MIGHT be that the SQLIntegrityConstraintViolationException (or similar) is not raised
+                 * until commit due to races, albeit this seems rather far-fetched considering that there shall not be
+                 * any concurrent handling of this particular MatsSocketSessionId. Anyway, failure on commit will lead
+                 * to the Mats stage to throw, and the client shall then end up with redelivery. When redelivered, the
+                 * other message should already be in place, and we should get the unique constraint violation right
+                 * here.
+                 */
+                try {
+                    _matsSocketServer.getClusterStoreAndForward().storeMessageIdInInbox(_matsSocketSessionId,
+                            _envelope.cmid);
+                }
+                catch (ClientMessageIdAlreadyExistsException e) {
+                    throw new DuplicateDeliveryException(e);
+                }
+                catch (DataAccessException e) {
+                    throw new DatabaseRuntimeException(e);
+                }
             }
 
             MatsInitiate init = _matsInitiate;
             init.from("MatsSocketEndpoint." + _envelope.eid)
                     .traceId(_envelope.tid);
-            if (isRequest()) {
+            // Add a small extra side-load - the MatsSocketSessionId - since it seems nice.
+            init.addString("matsSocketSessionId", _matsSocketSessionId);
+            // -> Is this a REQUEST?
+            if (getMessageType() == MessageType.REQUEST) {
+                // -> Yes, this is a REQUEST, so we should forward as Mats .request(..)
+                // Need to make state so that receiving terminator know what to do.
                 ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
                         _matsSocketEndpointRegistration.getMatsSocketEndpointId(), _envelope.reid,
                         _envelope.cid, _envelope.cmid, _envelope.cmcts, _clientMessageReceivedTimestamp,
@@ -1169,6 +1256,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 init.request(matsMessage);
             }
             else {
+                // -> No, not a REQUEST (thus either SEND or REPLY): Forward as fire-and-forget style Mats .send(..)
                 // Invoke the customizer
                 customInit.initiate(init);
                 // Send the SEND message
@@ -1178,8 +1266,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
         @Override
         public void resolve(R matsSocketResolveMessage) {
-            if (!isRequest()) {
-                throw new IllegalStateException("This is not a request, thus you cannot resolve nor reject it."
+            if (getMessageType() != MessageType.REQUEST) {
+                throw new IllegalStateException("This is not a Request, thus you cannot resolve nor reject it."
                         + " For a SEND, your options is to deny() it, forward it to Mats, or ignore it (and just return).");
             }
             if (_handled != Processed.IGNORED) {
@@ -1191,8 +1279,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
         @Override
         public void reject(R matsSocketRejectMessage) {
-            if (!isRequest()) {
-                throw new IllegalStateException("This is not a request, thus you cannot resolve nor reject it."
+            if (getMessageType() != MessageType.REQUEST) {
+                throw new IllegalStateException("This is not a Request, thus you cannot resolve nor reject it."
                         + " For a SEND, your options is to deny() it, forward it to Mats, or ignore it (and just return).");
             }
             if (_handled != Processed.IGNORED) {
