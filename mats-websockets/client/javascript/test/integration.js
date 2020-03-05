@@ -42,65 +42,6 @@
             }, 25);
         });
 
-        describe('authorization callbacks', function () {
-            it('Should invoke authorization callback before making calls', function (done) {
-                let authCallbackCalled = false;
-
-                matsSocket.setAuthorizationExpiredCallback(function (event) {
-                    authCallbackCalled = true;
-                    setAuth();
-                });
-                matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {})
-                    .then(reply => {
-                        chai.assert(authCallbackCalled);
-                        done();
-                    });
-            });
-
-            it('Should not invoke authorization callback if authorization present', function (done) {
-                let authCallbackCalled = false;
-                setAuth();
-                matsSocket.setAuthorizationExpiredCallback(function (event) {
-                    authCallbackCalled = true;
-                });
-                matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {})
-                    .then(reply => {
-                        chai.assert(!authCallbackCalled);
-                        done();
-                    });
-            });
-
-            it('Should invoke authorization callback when expired', function (done) {
-                let authCallbackCalled = false;
-                setAuth("standard", -20000);
-                matsSocket.setAuthorizationExpiredCallback(function (event) {
-                    authCallbackCalled = true;
-                    setAuth();
-                });
-                matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {})
-                    .then(reply => {
-                        chai.assert(authCallbackCalled);
-                        done();
-                    });
-
-            });
-
-            it('Should invoke authorization callback when room for latency expired', function (done) {
-                let authCallbackCalled = false;
-                // Immediately timed out.
-                setAuth("standard", 1000, 10000);
-                matsSocket.setAuthorizationExpiredCallback(function (event) {
-                    authCallbackCalled = true;
-                    setAuth();
-                });
-                matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {})
-                    .then(reply => {
-                        chai.assert(authCallbackCalled);
-                        done();
-                    })
-            });
-        });
-
         describe('reconnect', function () {
             it('reconnects and completes outstanding request when invoking reconnect()', function (done) {
                 setAuth();

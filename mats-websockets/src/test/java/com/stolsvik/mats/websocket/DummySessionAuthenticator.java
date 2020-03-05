@@ -20,8 +20,9 @@ class DummySessionAuthenticator implements SessionAuthenticator {
 
     @Override
     public AuthenticationResult initialAuthentication(AuthenticationContext context, String authorizationHeader) {
-        // NOTICE! You do not want to log the Authorization Header in production!
-        log.info("Initial Authentication, resolving principal for Authorization Header [" + authorizationHeader + "].");
+        // NOTICE! DO NOT LOG AUTHORIZATION HEADER IN PRODUCTION!!
+        log.info("initialAuthentication(..): Resolving principal for Authorization Header [" + authorizationHeader
+                + "].");
         String[] split = authorizationHeader.split(":");
         // ?: If it does not follow standard for DummySessionAuthenticator, fail
         if (split.length != 3) {
@@ -34,6 +35,13 @@ class DummySessionAuthenticator implements SessionAuthenticator {
             // -> Not "DummyAuth" -> Fail
             return context.invalidAuthentication("The Authorization should read 'DummyAuth:<userId>:<expiresMillis>':"
                     + " First part is not 'DummyAuth'");
+        }
+
+        // ?: Is it a special auth string that wants to fail upon initialAuthentication?
+        if (split[1].contains("fail_initialAuthentication")) {
+            // -> Yes, special auth string
+            return context.invalidAuthentication("Asked to fail in initialAuthentication(..)");
+
         }
 
         long expires = Long.parseLong(split[2]);
@@ -61,8 +69,14 @@ class DummySessionAuthenticator implements SessionAuthenticator {
     @Override
     public AuthenticationResult reevaluateAuthentication(AuthenticationContext context, String authorizationHeader,
             Principal existingPrincipal) {
-        // NOTICE! You do not want to log the Authorization Header in production!
-        log.info("Reevaluating Authentication for Authorization Header ["+authorizationHeader+"].");
+        // NOTICE! DO NOT LOG AUTHORIZATION HEADER IN PRODUCTION!!
+        log.info("reevaluateAuthentication(..): Authorization Header [" + authorizationHeader + "].");
+        // ?: Is it a special auth string that wants to fail upon reevaluateAuthentication?
+        if (authorizationHeader.contains(":fail_reevaluateAuthentication:")) {
+            // -> Yes, special auth string
+            return context.invalidAuthentication("Asked to fail in reevaluateAuthentication(..)");
+
+        }
         // ?: If the AuthorizationHeader has not changed, then just evaluate expiry
         if (_currentGoodAuthorizationHeader.equals(authorizationHeader)) {
             // This throws if not good
@@ -72,6 +86,22 @@ class DummySessionAuthenticator implements SessionAuthenticator {
         }
         // E-> Changed auth header, so do full initialAuth
         return initialAuthentication(context, authorizationHeader);
+    }
+
+    @Override
+    public AuthenticationResult reevaluateAuthenticationForOutgoingMessage(AuthenticationContext context,
+            String authorizationHeader, Principal existingPrincipal, long lastAuthenticatedMillis) {
+        // NOTICE! DO NOT LOG AUTHORIZATION HEADER IN PRODUCTION!!
+        log.info("reevaluateAuthenticationForOutgoingMessage(..): Authorization Header [" + authorizationHeader
+                + "], lastAuthenticatedMillis:[" + lastAuthenticatedMillis + "]");
+        // ?: Is it a special auth string that wants to fail upon reevaluateAuthenticationForOutgoingMessage?
+        if (authorizationHeader.contains(":fail_reevaluateAuthenticationForOutgoingMessage:")) {
+            // -> Yes, special auth string
+            return context.invalidAuthentication("Asked to fail in reevaluateAuthenticationForOutgoingMessage(..)");
+
+        }
+        // E-> No, so just forward to reevaluateAuthentication(..)
+        return reevaluateAuthentication(context, authorizationHeader, existingPrincipal);
     }
 
     public static class DummyAuthPrincipal implements Principal {

@@ -234,7 +234,7 @@ public interface AuthenticationPlugin {
          *         based on whether to let this Server-to-Client message through, or force the Client to reauthenticate
          *         before getting the message.
          */
-        default AuthenticationResult reevaluateAuthenticationOutgoingMessage(AuthenticationContext context,
+        default AuthenticationResult reevaluateAuthenticationForOutgoingMessage(AuthenticationContext context,
                 String authorizationHeader, Principal existingPrincipal, long lastAuthenticatedMillis) {
             return reevaluateAuthentication(context, authorizationHeader, existingPrincipal);
         }

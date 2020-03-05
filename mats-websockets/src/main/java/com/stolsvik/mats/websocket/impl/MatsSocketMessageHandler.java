@@ -490,7 +490,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             // supplies a new Principal
             AuthenticationResult authenticationResult;
             try {
-                authenticationResult = _sessionAuthenticator.reevaluateAuthenticationOutgoingMessage(
+                authenticationResult = _sessionAuthenticator.reevaluateAuthenticationForOutgoingMessage(
                         _authenticationContext, _authorization, _principal, _lastAuthenticatedMillis);
             }
             catch (RuntimeException re) {

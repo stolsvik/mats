@@ -10,7 +10,7 @@
   "scripts": {
     "serve": "node pub/server.js",
     "test": "mocha test/unit.js",
-    "testAll": "mocha test/unit.js test/integration.js test/integration_push.js"
+    "testAll": "mocha test/unit.js test/integration_authentication.js test/integration.js test/integration_push.js"
   },
   "devDependencies": {
     "chai": "^4.2.0",
