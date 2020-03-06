@@ -277,6 +277,22 @@
             return _lastMessageEnqueuedMillis;
         };
 
+
+        /**
+         * Returns whether this MatsSocket <i>currently</i> have a WebSocket connection open. It can both go down
+         * by lost connection (driving through a tunnel), where it will start to do reconnection attempts, or because
+         * you (the Client) have closed this MatsSocketSession, or because the <i>Server</i> has closed the
+         * MatsSocketSession. In the latter cases, where the MatsSocketSession is closed, the WebSocket connection will
+         * stay down - until you open a new MatsSocketSession.
+         *
+         * @returns {boolean} whether MatsSocket <i>currently</i> have a WebSocket connection open.
+         */
+        this.isConnected = function() {
+            return _webSocket != null;
+        };
+
+        // ========== Terminator and Endpoint registration ==========
+
         /**
          * @param endpointId the id of this client side Terminator.
          * @param messageCallback receives an Event when everything went OK, containing the message on the "data" property.

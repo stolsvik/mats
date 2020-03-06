@@ -826,13 +826,26 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             return false;
         }
 
-        MatsSocketEndpointRegistration<?, ?, ?, ?> registration = _matsSocketServer
+        MatsSocketEnvelopeDto handledEnvelope = new MatsSocketEnvelopeDto();
+        // .. add common props on the received message
+        commonPropsOnReceived(envelope, handledEnvelope, clientMessageReceivedTimestamp);
+
+        Optional<MatsSocketEndpointRegistration<?, ?, ?, ?>> registrationO = _matsSocketServer
                 .getMatsSocketEndpointRegistration(eid);
+        // ?: Check if we found the endpoint
+        if (!registrationO.isPresent()) {
+            handledEnvelope.t = "RECEIVED";
+            handledEnvelope.st = "NACK";
+            handledEnvelope.desc = "An incoming REQUEST envelope targeted a non-existing MatsSocketEndpoint";
+            // Add RECEIVED message to "queue"
+            replyEnvelopes.add(handledEnvelope);
+            return true;
+        }
+        MatsSocketEndpointRegistration<?, ?, ?, ?> registration = registrationO.get();
         IncomingAuthorizationAndAdapter incomingAuthEval = registration.getIncomingAuthEval();
         log.info("MatsSocketEndpointHandler for [" + eid + "]: " + incomingAuthEval);
 
         Object msg = deserialize((String) envelope.msg, registration.getMsIncomingClass());
-        MatsSocketEnvelopeDto handledEnvelope = new MatsSocketEnvelopeDto();
 
         // :: Perform the entire handleIncoming(..) inside Mats initiate-lambda
         RequestCorrelation[] _correlationInfo_LambdaHack = new RequestCorrelation[1];
@@ -1009,9 +1022,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             handledEnvelope.st = "NACK";
             handledEnvelope.desc = t.getMessage();
         }
-
-        // .. add common props on the received message
-        commonPropsOnReceived(envelope, handledEnvelope, clientMessageReceivedTimestamp);
 
         // Add RECEIVED message to "queue"
         replyEnvelopes.add(handledEnvelope);

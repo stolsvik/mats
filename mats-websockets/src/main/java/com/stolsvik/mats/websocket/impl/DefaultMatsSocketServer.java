@@ -593,13 +593,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         });
     }
 
-    MatsSocketEndpointRegistration<?, ?, ?, ?> getMatsSocketEndpointRegistration(String eid) {
+    Optional<MatsSocketEndpointRegistration<?, ?, ?, ?>> getMatsSocketEndpointRegistration(String eid) {
         MatsSocketEndpointRegistration<?, ?, ?, ?> registration = _matsSocketEndpointsByMatsSocketEndpointId.get(eid);
         log.info("MatsSocketRegistration for [" + eid + "]: " + registration);
-        if (registration == null) {
-            throw new IllegalArgumentException("Cannot find MatsSocketRegistration for [" + escape(eid) + "]");
-        }
-        return registration;
+        return Optional.ofNullable(registration);
     }
 
     /**
@@ -728,7 +725,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                             || (MatsSocketCloseCodes.VIOLATED_POLICY.getCode() == closeReason.getCloseCode().getCode())
                             || (MatsSocketCloseCodes.CLOSE_SESSION.getCode() == closeReason.getCloseCode().getCode())
                             || (MatsSocketCloseCodes.SESSION_LOST.getCode() == closeReason.getCloseCode().getCode())
-                        // -> Yes, this was a one of the actual-close CloseCodes, or a "GOING AWAY" that was NOT
+                            // -> Yes, this was a one of the actual-close CloseCodes, or a "GOING AWAY" that was NOT
                             || goingAwayFromClientSide) {
                         // initiated from server side), which means that we should actually close this session
                         log.info("Explicitly Closed MatsSocketSession due to CloseCode ["
@@ -1041,7 +1038,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         long matsMessageReplyReceivedTimestamp = System.currentTimeMillis();
 
         // Find the MatsSocketEndpoint for this reply
-        MatsSocketEndpointRegistration registration = getMatsSocketEndpointRegistration(state.ms_eid);
+        Optional<MatsSocketEndpointRegistration<?, ?, ?, ?>> regO = getMatsSocketEndpointRegistration(state.ms_eid);
+        if (!regO.isPresent()) {
+            throw new AssertionError("The MatsSocketEndpoint has disappeared since this message was initiated."
+                    + " This can literally only happen if the server has been restarted with new code in between the"
+                    + " request and its reply");
+        }
+        MatsSocketEndpointRegistration registration = regO.get();
 
         Object matsReply = incomingMsg.toClass(registration._matsReplyClass);
 

@@ -63,7 +63,7 @@
             // TODO: Test two MatsSockets to same SessionId - the first one should be closed. Which close code?
         });
 
-        describe('send', function () {
+        describe('simple sends', function () {
             // Set a valid authorization before each request
             beforeEach(() => setAuth());
 
@@ -85,6 +85,17 @@
                     number: Math.PI
                 });
             });
+
+            it('Send to non-existing endpoint should NACK from Server and reject Promise', function (done) {
+                let promise = matsSocket.send("NON EXISTING!", "SEND_NonExisting" + matsSocket.id(6), {
+                    string: "The String",
+                    number: Math.PI
+                });
+                promise.catch(reason => {
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
+                    done();
+                });
+            });
         });
 
         describe("request", function () {
@@ -99,28 +110,32 @@
                 })
             });
 
-            it("Request should invoke both the ack callback and resolve Promise", function () {
-                // :: Need to make sure both the ack-callback, AND the reply-Promise resolves, otherwise the
-                // reply-Promise rejects due to matsSocket.close() happening earlier than the actual reply, which Node hates.
-
-                // This will hold the ordinary reply-Promise
-                let replyPromise;
-                // Create a new Promise for the ack-callback
-                let ackCallbackPromise = new Promise(function (resolve, reject) {
-                    replyPromise = matsSocket.request("Test.single", "REQUEST-with-Promise-and-receivedCallback_" + matsSocket.id(6), {
-                            string: "Request String",
-                            number: Math.E
-                        },
-                        // Resolve the ackCallbackPromise when ack-callback is invoked
-                        (e) => resolve(e));
+            it("Request should invoke both the ack callback and resolve Promise", function (done) {
+                let received = false;
+                let promise = matsSocket.request("Test.single", "REQUEST-with-Promise-and-receivedCallback_" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.then(reason => {
+                    chai.assert(received, "The received-callback should have been invoked.");
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
+                    done();
                 });
+            });
 
-                // Create a new Promise that is resolved when both the ack-callback-Promise and the reply Promise is resolved.
-                return ackCallbackPromise.then(function (result) {
-                    // console.log("Ack callback result: "+JSON.stringify(result));
-                    return replyPromise;
+            it('Request to non-existing endpoint should NACK from Server, invoking receivedCallback and reject Promise', function (done) {
+                let received = false;
+                let promise = matsSocket.request("NON EXISTING!", "REQUEST_NonExisting" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.catch(reason => {
+                    chai.assert(received, "The received-callback should have been invoked.");
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
+                    done();
                 });
-            })
+            });
+
         });
 
         describe("requestReplyTo", function () {
@@ -189,9 +204,9 @@
                         received = true;
                     });
                 promise.catch(function () {
-                    if (received) {
-                        done();
-                    }
+                    chai.assert(received, "The received-callback should have been invoked.");
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
+                    done();
                 })
             });
 
@@ -202,9 +217,9 @@
                         received = true;
                     });
                 promise.catch(function () {
-                    if (received) {
-                        done();
-                    }
+                    chai.assert(received, "The received-callback should have been invoked.");
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
+                    done();
                 })
             });
 
@@ -215,9 +230,9 @@
                         received = true;
                     });
                 promise.then(function () {
-                    if (received) {
-                        done();
-                    }
+                    chai.assert(received, "The received-callback should have been invoked.");
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
+                    done();
                 })
 
             });
@@ -229,9 +244,9 @@
                         received = true;
                     });
                 promise.catch(function () {
-                    if (received) {
-                        done();
-                    }
+                    chai.assert(received, "The received-callback should have been invoked.");
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
+                    done();
                 });
             });
 
@@ -242,9 +257,9 @@
                         received = true;
                     });
                 promise.catch(function () {
-                    if (received) {
-                        done();
-                    }
+                    chai.assert(received, "The received-callback should have been invoked.");
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
+                    done();
                 });
             });
         });
@@ -255,13 +270,18 @@
 
             // FOR ALL: Both the received callback should be invoked, and the Promise resolved/rejected
 
-            it("ignored (handler did nothing) should ACK when SEND (thus resolve Promise)", function () {
-                return matsSocket.send("Test.ignoreInIncomingHandler", "SEND_ignored_in_incomingHandler" + matsSocket.id(6), {});
+            it("ignored (handler did nothing) should ACK when SEND (thus resolve Promise)", function (done) {
+                let promise = matsSocket.send("Test.ignoreInIncomingHandler", "SEND_ignored_in_incomingHandler" + matsSocket.id(6), {});
+                promise.then(function () {
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
+                    done();
+                })
             });
 
             it("context.deny() should NACK (reject Promise)", function (done) {
                 let promise = matsSocket.send("Test.denyInIncomingHandler", "SEND_denied_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
                     done();
                 })
             });
@@ -269,6 +289,7 @@
             it("context.resolve(..) should NACK (reject Promise) since it is not allowed to resolve/reject a send", function (done) {
                 let promise = matsSocket.send("Test.resolveInIncomingHandler", "SEND_resolved_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
                     done();
                 })
 
@@ -277,6 +298,7 @@
             it("context.reject(..) should NACK (reject Promise) since it is not allowed to resolve/reject a send", function (done) {
                 let promise = matsSocket.send("Test.rejectInIncomingHandler", "SEND_rejected_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
             });
@@ -284,6 +306,7 @@
             it("Exception in incomingAdapter should NACK (reject Promise)", function (done) {
                 let promise = matsSocket.send("Test.throwsInIncomingHandler", "SEND_throws_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
+                    chai.assert(matsSocket.isConnected(), "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
             });
