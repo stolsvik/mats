@@ -83,7 +83,7 @@ public interface MatsSocketServer {
      */
     @FunctionalInterface
     interface IncomingAuthorizationAndAdapter<I, MI, R> {
-        void handleIncoming(MatsSocketEndpointRequestContext<I, MI, R> ctx, Principal principal, I msIncoming);
+        void handleIncoming(MatsSocketEndpointRequestContext<I, MI, R> ctx, Principal principal, I msg);
     }
 
     /**
@@ -207,6 +207,11 @@ public interface MatsSocketServer {
          *         {@link MatsSocketServer#send(String, String, String, Object)}.
          */
         String getMatsSocketSessionId();
+
+        /**
+         * @return the TraceId accompanying the incoming message.
+         */
+        String getTraceId();
 
         /**
          * @return the incoming MatsSocket Message.
@@ -421,10 +426,10 @@ public interface MatsSocketServer {
         CLOSE_SESSION(4000),
 
         /**
-         * 4001: From Server side, Client should REJECT all outstanding and should consider "rebooting" the application,
-         * in particular if if there was any outstanding requests as their state is now indeterminate: A HELLO:RECONNECT
-         * was attempted, but the session was gone. A new session was provided instead. The client application must get
-         * its state synchronized with the server side's view of the world, thus the suggestion of "reboot".
+         * 4001: From Server side, Client should REJECT all outstanding and "crash"/reboot application: A
+         * HELLO:RECONNECT was attempted, but the session was gone. A considerable amount of time has probably gone by
+         * since it last was connected. The client application must get its state synchronized with the server side's
+         * view of the world, thus the suggestion of "reboot".
          */
         SESSION_LOST(4001),
 

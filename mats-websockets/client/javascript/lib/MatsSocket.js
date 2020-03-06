@@ -72,10 +72,10 @@
         CLOSE_SESSION: 4000,
 
         /**
-         * 4001: From Server side, Client should REJECT all outstanding and should consider "rebooting" the application,
-         * in particular if if there was any outstanding requests as their state is now indeterminate: A HELLO:RECONNECT
-         * was attempted, but the session was gone. A new session was provided instead. The client application must get
-         * its state synchronized with the server side's view of the world, thus the suggestion of "reboot".
+         * 4001: From Server side, Client should REJECT all outstanding and "crash"/reboot application: A
+         * HELLO:RECONNECT was attempted, but the session was gone. A considerable amount of time has probably gone by
+         * since it last was connected. The client application must get its state synchronized with the server side's
+         * view of the world, thus the suggestion of "reboot".
          */
         SESSION_LOST: 4001,
 
@@ -553,6 +553,7 @@
         let _pipeline = [];
         let _terminators = Object.create(null);
         let _endpoints = Object.create(null);
+        let _inbox = Object.create(null);
 
         let _helloSent = false;
         let _reconnect_ForceSendHello = false;
@@ -564,7 +565,7 @@
         let _authorizationExpiredCallback = undefined;
         let _lastMessageEnqueuedMillis = Date.now(); // Start by assuming that it was just used.
 
-        let _messageSequenceId = 0; // Increases for each SEND or REQUEST
+        let _messageSequenceId = 0; // Increases for each SEND, REQUEST and REPLY
 
         // When we've informed the app that we need auth, we do not need to do it again until it has set it.
         let _authExpiredCallbackInvoked = false;
@@ -927,15 +928,15 @@
             _webSocket = undefined;
 
             // ?: Special codes, that signifies that we should close (terminate) the MatsSocketSession.
-            if ((event.code === MatsSocketCloseCodes.PROTOCOL_ERROR)
+            if ((event.code === MatsSocketCloseCodes.UNEXPECTED_CONDITION)
+                || (event.code === MatsSocketCloseCodes.PROTOCOL_ERROR)
                 || (event.code === MatsSocketCloseCodes.VIOLATED_POLICY)
-                || (event.code === MatsSocketCloseCodes.UNEXPECTED_CONDITION)
                 || (event.code === MatsSocketCloseCodes.CLOSE_SESSION)
                 || (event.code === MatsSocketCloseCodes.SESSION_LOST)) {
                 // -> One of the specific "Session is closed" CloseCodes -> Reject all outstanding, this MatsSocket is trashed.
-                log("We were closed with one of the MatsSocketCloseCode:[" + MatsSocketCloseCodes.nameFor(event.code) + "] that denotes that we should close the MatsSocketSession, reason:[" + event.reason + "].");
+                error("session closed from server", "The WebSocket was closed with a CloseCode [" + MatsSocketCloseCodes.nameFor(event.code) + "] signifying that our MatsSocketSession is closed, reason:[" + event.reason + "].", event);
                 clearStateAndPipelineAndFuturesAndOutstandingMessages(event.reason);
-                // TODO: Pingback application!
+                // TODO: Pingback application! (Session gone)
             } else {
                 // -> NOT one of the specific "Session is closed" CloseCodes -> Reconnect and Reissue all outstanding..
                 log("We were closed with a CloseCode [" + MatsSocketCloseCodes.nameFor(event.code) + "] that does not denote that we should close the session. Initiate reconnect and reissue all outstanding.");
@@ -950,6 +951,7 @@
                     // TODO: Implement reissue!
 
                 }, 200);
+                // TODO: Pingback application! (Reconnecting..)
             }
         }
 
@@ -1025,25 +1027,37 @@
                         }
                     } else if (envelope.t === "ACKACK") {
                         // -> ACKNOWLEDGE of the RECEIVED: We can delete from our inbox
-                        // NOTICE: Comes into play with Server-side SEND and REQUEST. Not yet.
+                        if (!envelope.smid) {
+                            // -> No, we do not have this. Programming error from app.
+                            error("ACKACK: missing smid", "The ACKACK envelope is missing 'smid'", envelope);
+                            return;
+                        }
+                        // Delete it from inbox - that is what ACKACK means: Other side has now deleted it from outbox,
+                        // and can thus not ever deliver it again (so we can delete the guard against double delivery).
+                        delete _inbox[envelope.smid];
+
                     } else if (envelope.t === "SEND") {
                         // -> SEND: Send message to terminator
+
+                        if (!envelope.smid) {
+                            // -> No, we do not have this. Programming error from app.
+                            error("SEND: missing smid", "The SEND envelope is missing 'smid'", envelope);
+                            return;
+                        }
+
                         // Find the (client) Terminator which the Send should go to
                         let terminator = _terminators[envelope.eid];
 
-                        // ?: Do server want receipt, indicated by the message having 'smid' property?
-                        if (envelope.smid) {
-                            // -> Yes, so send RECEIVED to server
-                            let ackEnvelope = {
-                                t: "RECEIVED",
-                                st: (terminator !== undefined ? "ACK" : "NACK"),
-                                smid: envelope.smid,
-                            };
-                            if (!terminator) {
-                                ackEnvelope.desc = "The Client Endpoint [" + envelope.eid + "] does not exist!"
-                            }
-                            that.addEnvelopeToPipeline(ackEnvelope);
+                        // :: Send receipt unconditionally
+                        let ackEnvelope = {
+                            t: "RECEIVED",
+                            st: (terminator !== undefined ? "ACK" : "NACK"),
+                            smid: envelope.smid,
+                        };
+                        if (!terminator) {
+                            ackEnvelope.desc = "The Client Terminator [" + envelope.eid + "] does not exist!"
                         }
+                        that.addEnvelopeToPipeline(ackEnvelope);
 
                         // ?: Do we have the desired Terminator?
                         if (terminator === undefined) {
@@ -1051,27 +1065,43 @@
                             error("missing client Terminator", "The Client Terminator [" + envelope.eid + "] does not exist!!", envelope);
                             return;
                         }
-                        // E-> We found the terminator to tell
+                        // E-> We found the Terminator to tell
+
+                        // ?: Have we already gotten this message? (Double delivery)
+                        if (_inbox[envelope.smid]) {
+                            // -> Yes, so this was a double delivery. Drop processing, we've already done it.
+                            log("Caught double delivery of SEND with smid:[" + envelope.smid + "], have sent RECEIVED, but won't process again.", envelope);
+                            return;
+                        }
+
+                        // Add the message to inbox
+                        _inbox[envelope.smid] = envelope;
+
+                        // Actually invoke the Terminator
                         terminator.resolve(eventFromEnvelope(envelope, receivedTimestamp));
 
                     } else if (envelope.t === "REQUEST") {
                         // -> REQUEST: Request a REPLY from an endpoint
+
+                        if (!envelope.smid) {
+                            // -> No, we do not have this. Programming error from app.
+                            error("REQUEST: missing smid", "The REQUEST envelope is missing 'smid'.", envelope);
+                            return;
+                        }
+
                         // Find the (client) Endpoint which the Request should go to
                         let endpoint = _endpoints[envelope.eid];
 
-                        // ?: Do server want receipt, indicated by the message having 'smid' property?
-                        if (envelope.smid) {
-                            // -> Yes, so send RECEIVED to server
-                            let ackEnvelope = {
-                                t: "RECEIVED",
-                                st: (endpoint !== undefined ? "ACK" : "NACK"),
-                                smid: envelope.smid,
-                            };
-                            if (!endpoint) {
-                                ackEnvelope.desc = "The Client Endpoint [" + envelope.eid + "] does not exist!"
-                            }
-                            that.addEnvelopeToPipeline(ackEnvelope);
+                        // :: Send receipt unconditionally
+                        let ackEnvelope = {
+                            t: "RECEIVED",
+                            st: (endpoint !== undefined ? "ACK" : "NACK"),
+                            smid: envelope.smid,
+                        };
+                        if (!endpoint) {
+                            ackEnvelope.desc = "The Client Endpoint [" + envelope.eid + "] does not exist!"
                         }
+                        that.addEnvelopeToPipeline(ackEnvelope);
 
                         // ?: Do we have the desired Terminator?
                         if (endpoint === undefined) {
@@ -1079,9 +1109,20 @@
                             error("missing client Endpoint", "The Client Endpoint [" + envelope.eid + "] does not exist!!", envelope);
                             return;
                         }
-                        // E-> We found the Endpoint to request, invoke it!
-                        let promise = endpoint(eventFromEnvelope(envelope, receivedTimestamp));
-                        let fulfilled = function(resolveReject, msg) {
+                        // E-> We found the Endpoint to request!
+
+                        // ?: Have we already gotten this message? (Double delivery)
+                        if (_inbox[envelope.smid]) {
+                            // -> Yes, so this was a double delivery. Drop processing, we've already done it.
+                            log("Caught double delivery of REQUEST with smid:[" + envelope.smid + "], have sent RECEIVED, but won't process again.", envelope);
+                            return;
+                        }
+
+                        // Add the message to inbox
+                        _inbox[envelope.smid] = envelope;
+
+                        // :: Create a Resolve and Reject handler
+                        let fulfilled = function (resolveReject, msg) {
                             // Update timestamp of last "information bearing message" sent.
                             _lastMessageEnqueuedMillis = Date.now();
                             // Create the Reply message
@@ -1097,10 +1138,15 @@
                             replyEnvelope.cmid = _messageSequenceId++;
                             that.addEnvelopeToPipeline(replyEnvelope);
                         };
-                        promise.then(function(resolveMessage) {
+
+                        // Invoke the Endpoint, getting a Promise back.
+                        let promise = endpoint(eventFromEnvelope(envelope, receivedTimestamp));
+
+                        // Finally attach the Resolve and Reject handler
+                        promise.then(function (resolveMessage) {
                             fulfilled("RESOLVE", resolveMessage);
                         });
-                        promise.catch(function(rejectMessage) {
+                        promise.catch(function (rejectMessage) {
                             fulfilled("REJECT", rejectMessage);
                         });
 

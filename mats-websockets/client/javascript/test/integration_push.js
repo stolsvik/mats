@@ -77,15 +77,13 @@
             // Set a valid authorization before each request
             beforeEach(() => setAuth());
 
-            it('Send a message to the Server, which responds by doing a Server-to-Client request (thus coming back here!), and when this returns, sends it back', function (done) {
+            function doTest(startEndpoint, done) {
                 let traceId = "MatsSocketServer.send_test_" + matsSocket.id(6);
 
                 let initialMessage = "Message_" + matsSocket.id(20);
 
                 // This endpoint will get a request from the Server, to which we respond - and the server will then send the reply back to the Terminator below.
                 matsSocket.endpoint("ClientSide.endpoint", function (messageEvent) {
-                    console.log("Got request!", messageEvent);
-
                     chai.assert.strictEqual(messageEvent.traceId, traceId);
 
                     return new Promise(function (resolve, reject) {
@@ -109,10 +107,18 @@
                 });
 
                 // Here we send the message that starts the cascade
-                matsSocket.send("Test.server.request.start", traceId, {
+                matsSocket.send(startEndpoint, traceId, {
                     string: initialMessage,
                     number: Math.E
                 })
+            }
+
+            it('Send a message to the Server, which responds by directly doing a Server-to-Client request (thus coming back here!), and when this returns to Server, sends it directly back', function (done) {
+                doTest("Test.server.request.direct", done);
+            });
+
+            it('Send a message to the Server, which responds by, in a Mats terminator, doing a Server-to-Client request (thus coming back here!), and when this returns to Server, sends it back in a Mats terminator', function (done) {
+                doTest("Test.server.request.direct", done);
             });
         });
     });

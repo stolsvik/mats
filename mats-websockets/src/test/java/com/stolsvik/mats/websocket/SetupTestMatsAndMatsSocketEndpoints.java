@@ -3,6 +3,7 @@ package com.stolsvik.mats.websocket;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
+import org.junit.Assert;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +37,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
         setup_ServerPush_Send(matsSocketServer, matsFactory);
 
-        setup_ServerPush_Request(matsSocketServer, matsFactory);
+        setup_ServerPush_Request_Via_Mats(matsSocketServer, matsFactory);
+        setup_ServerPush_Request_Direct(matsSocketServer, matsFactory);
     }
 
     // ===== "Standard Endpoint".
@@ -211,37 +213,72 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     }
 
-    private static void setup_ServerPush_Request(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
-        // Receives the "start", which starts the cascade - and forwards to the following Mats endpoint
-        matsSocketServer.matsSocketTerminator("Test.server.request.start",
+    private static void setup_ServerPush_Request_Direct(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
+        // Receives the "start", which starts the cascade - and performs a Server-to-Client Request to Client Endpoint,
+        // setting the replyTo to the following MatsSocket endpoint.
+        matsSocketServer.matsSocketTerminator("Test.server.request.direct",
                 MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(msIncoming.number,
-                        msIncoming.string), init -> init.to("Test.server.requestToClient")));
-
-        // .. which initiates a request to Client Endpoint, asking for reply to go to the following MatsSocket Endpoint
-        matsFactory.terminator("Test.server.requestToClient", Void.class, MatsDataTO.class,
-                (processContext, state, incomingDto) -> {
-                    String matsSocketSessionId = processContext.getString("matsSocketSessionId");
-                    matsSocketServer.request(matsSocketSessionId, processContext.getTraceId(),
-                            "ClientSide.endpoint",
-                            new MatsDataTO(incomingDto.number, incomingDto.string),
-                            "Test.server.request.replyReceiver",
+                (ctx, principal, msg) -> {
+                    // Send request Server-to-Client, passing the message directly on.
+                    // NOTE: Client side will add a bit to it!
+                    matsSocketServer.request(ctx.getMatsSocketSessionId(), ctx.getTraceId(),
+                            "ClientSide.endpoint", msg,
+                            "Test.server.request.replyReceiver.direct",
                             "CorrelationString", "CorrelationBinary".getBytes(StandardCharsets.UTF_8));
                 });
 
-        // .. which gets the Reply from Client, and forwards the it to the following Mats endpoint
-        matsSocketServer.matsSocketTerminator("Test.server.request.replyReceiver",
+        // .. which gets the Reply from Client, and forwards it to the following Mats endpoint
+        matsSocketServer.matsSocketTerminator("Test.server.request.replyReceiver.direct",
                 MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(msIncoming.number,
-                        msIncoming.string), init -> init.to("Test.server.sendReplyBackToClient")));
+                (ctx, principal, msg) -> {
+                    // Assert the Correlation information
+                    Assert.assertEquals("CorrelationString", ctx.getCorrelationString());
+                    Assert.assertArrayEquals("CorrelationBinary".getBytes(StandardCharsets.UTF_8),
+                            ctx.getCorrelationBinary());
+                    // Send the message to client, passing the message directly on.
+                    matsSocketServer.send(ctx.getMatsSocketSessionId(), ctx.getTraceId(),
+                            "ClientSide.terminator", msg);
+                });
+    }
 
-        // .. which finally sends the Reply back to the Client on a Terminator there.
-        matsFactory.terminator("Test.server.sendReplyBackToClient", Void.class, MatsDataTO.class,
-                (processContext, state, incomingDto) -> {
+    private static void setup_ServerPush_Request_Via_Mats(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
+        // Receives the "start", which starts the cascade - and forwards to the following Mats endpoint
+        matsSocketServer.matsSocketTerminator("Test.server.request.viaMats",
+                MatsDataTO.class, MatsDataTO.class,
+                // Pass the message directly on
+                (ctx, principal, msg) -> ctx.forwardCustom(msg,
+                        init -> init.to("Test.server.requestToClient.viaMats")));
+
+        // .. which initiates a request to Client Endpoint, asking for Reply to go to the following MatsSocket Endpoint
+        matsFactory.terminator("Test.server.requestToClient.viaMats", Void.class, MatsDataTO.class,
+                (processContext, state, msg) -> {
                     String matsSocketSessionId = processContext.getString("matsSocketSessionId");
+                    matsSocketServer.request(matsSocketSessionId, processContext.getTraceId(),
+                            "ClientSide.endpoint",
+                            msg, // Pass the message directly on. NOTE: Client side will add a bit to it!
+                            "Test.server.request.replyReceiver.viaMats",
+                            "CorrelationString", "CorrelationBinary".getBytes(StandardCharsets.UTF_8));
+                });
+
+        // .. which gets the Reply from Client, and forwards it to the following Mats endpoint
+        matsSocketServer.matsSocketTerminator("Test.server.request.replyReceiver.viaMats",
+                MatsDataTO.class, MatsDataTO.class,
+                (ctx, principal, msg) -> {
+                    // Assert the Correlation information
+                    Assert.assertEquals("CorrelationString", ctx.getCorrelationString());
+                    Assert.assertArrayEquals("CorrelationBinary".getBytes(StandardCharsets.UTF_8),
+                            ctx.getCorrelationBinary());
+                    // Forward to the Mats terminator that sends to Client. Pass message directly on.
+                    ctx.forwardCustom(msg, init -> init.to("Test.server.sendReplyBackToClient.viaMats"));
+                });
+
+        // .. which finally sends the Reply back to the Client Terminator.
+        matsFactory.terminator("Test.server.sendReplyBackToClient.viaMats", Void.class, MatsDataTO.class,
+                (processContext, state, msg) -> {
+                    String matsSocketSessionId = processContext.getString("matsSocketSessionId");
+                    // Send to Client. Pass message directly on.
                     matsSocketServer.send(matsSocketSessionId, processContext.getTraceId(),
-                            "ClientSide.terminator",
-                            new MatsDataTO(incomingDto.number, incomingDto.string));
+                            "ClientSide.terminator", msg);
                 });
     }
 
