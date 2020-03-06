@@ -153,42 +153,42 @@
         this.outofbandclose = undefined;
 
         /**
-         * Invoked when the server kicks us off the socket and the session is closed due to "policy violations", of which there is a multitude, most
-         * revolving about protocol not being followed, or the authentication is invalid when being evaluated on the server. No such policy violations
-         * should happen if this client is used properly - the only conceivable is that a pipeline took more time to send over to the server
-         * than there was left before the authorization expired (i.e. 'roomForLatency' is set too small, compared to the available bandwidth
-         * to send the messages in the pipeline).
+         * Invoked when the server kicks us off the socket and the session is closed due to a multitude of reasons,
+         * where most should never happen if you use the library correct (in particular, wrt. authentication).
+         * <ul>
+         *   <li>UNEXPECTED_CONDITION: Error on the Server side, typically that the data store (DB) was unavailable,
+         *   and the MatsSocketServer could not reliably recover from it.</li>
+         *   <li>PROTOCOL_ERROR: This client library has a bug!</li>
+         *   <li>VIOLATED_POLICY: Authorization was wrong. Always supply a correct and non-expired Authorization header,
+         *   that has sufficient "slack" wrt. expiry</li>
+         *   <li>CLOSE_SESSION: <code>MatsSocketServer.closeSession(sessionId)</code> was invoked Server side for this
+         *   MatsSocketSession</li>
+         *   <li>SESSION_LOST: A reconnect attempt was performed, but the MatsSocketSession was timed out on the Server.
+         *   The Session will never time out if the WebSocket connection is open. Only if the Client has lost connection,
+         *   the timer will start. The Session timeout is measured in hours or days. This could conceivably happen
+         *   if you close the lid of a laptop, and open it again days later - but one should think that the
+         *   Authentication session had timed out long before.</li>
+         * </ul>
+         * No such error should happen if this client is used properly - the only conceivable is that a pipeline took
+         * more time to send over to the server than there was left before the authorization expired (i.e.
+         * 'roomForLatency' is set too small, compared to the available bandwidth to send the messages in the pipeline).
          * <p/>
-         * Note that the MatsSocket session is as closed as if you
-         * invoked {@link MatsSocket#close()} on it: Before the supplied event listener function is invoked, all outstanding
-         * send/requests are rejected, all request Promises are rejected, and the MatsSocket object is as if just constructed and configured.
-         * You may "boot it up again" by sending a new message where you then will get a new MatsSocket Session. However, you should consider restarting the application if this happens, or otherwise "reboot" it
-         * by gathering data. Remember that any outstanding "addOrder" request's Promise will now have been rejected - and you don't really know whether
-         * the order was placed or not. On the received event, there will be a number detailing the number of outstanding send/requests and Promises that
-         * was rejected - if this is zero, you should actually be in sync, and can consider just "act as if nothing happened" - by sending
-         * a new message and thus get a new MatsSocket Session going.
+         * Note that when this event listener is invoked, the MatsSocket session is as closed as if you invoked
+         * {@link MatsSocket#close()} on it: All outstanding send/requests are rejected, all request Promises are
+         * rejected, and the MatsSocket object is as if just constructed and configured. You may "boot it up again" by
+         * sending a new message where you then will get a new MatsSocket Session. However, you should consider
+         * restarting the application if this happens, or otherwise "reboot" it as if it just started up (gather all
+         * required state and null out any other that uses lazy fetching). Realize that any outstanding "addOrder"
+         * request's Promise will now have been rejected - and you don't really know whether the order was placed or
+         * not, so you should get the entire order list. On the received event, there will be a number detailing the
+         * number of outstanding send/requests and Promises that was rejected: If this is zero, you should actually be
+         * in sync, and can consider just "act as if nothing happened" - by sending a new message and thus get a new
+         * MatsSocket Session going.
          *
          * @param authorizationRevokedCallback
          */
         this.addSessionClosedListener = function (authorizationRevokedCallback) {
             // TODO: implement;
-        };
-
-        /**
-         * If a re-connect results in a "NEW" Session - not "RECONNECTED" - the registered function will be invoked. This
-         * could happen if you e.g. close the lid of a laptop with a webapp running. When you wake it up again,
-         * it will start reconnecting to the MatsSocket. Depending on the time slept, you will then get a
-         * RECONNECTED if it was within the Session timeout on the server, or NEW if the Session has expired.
-         * If NEW, you might want to basically reload the entire webapp - or at least reset the state to as if just booted.
-         *
-         * TODO: Just special case of ConnectionEventListener?
-         *
-         * TODO: The SessionLost mechanism on the server side is wrong! We should not reject the NEW requests, only inform that the old ones are dead.
-         *
-         * @param {function} sessionLostCallback function that will be invoked if we lost session on server side.
-         */
-        this.addSessionLostListener = function (sessionLostListener) {
-            // TODO: Implement
         };
 
         /**
@@ -287,13 +287,17 @@
          *
          * @returns {boolean} whether MatsSocket <i>currently</i> have a WebSocket connection open.
          */
-        this.isConnected = function() {
+        this.isConnected = function () {
             return _webSocket != null;
         };
 
         // ========== Terminator and Endpoint registration ==========
 
         /**
+         * Registers a Terminator, on the specified terminatorId, and with the specified callbacks. A Terminator is
+         * the target for Server-to-Client SENDs, and the Server's REPLYs from invocations of
+         * <code>requestReplyTo(terminatorId ..)</code> where the terminatorId points to this Terminator.
+         *
          * @param endpointId the id of this client side Terminator.
          * @param messageCallback receives an Event when everything went OK, containing the message on the "data" property.
          * @param errorCallback is relevant if this endpoint is set as the replyTo-target on a requestReplyTo(..) invocation, and will
@@ -315,8 +319,10 @@
         };
 
         /**
-         * An Endpoint in MatsSocket.js is a function that takes a message event and produces a Promises, whose return
-         * (resolve or reject) is the return value of the endpoint.
+         * Registers an Endpoint, on the specified endpointId, with the specified "promiseProducer". An Endpoint is
+         * the target for Server-to-Client REQUESTs. The promiseProducer is a function that takes a message event
+         * (the incoming REQUEST) and produces a Promise, whose return (resolve or reject) is the return value of the
+         * endpoint.
          *
          * @param endpointId the id of this client side Endpoint.
          * @param {function} promiseProducer a function that takes a Message Event and returns a Promise which when
@@ -1161,8 +1167,7 @@
                         // Finally attach the Resolve and Reject handler
                         promise.then(function (resolveMessage) {
                             fulfilled("RESOLVE", resolveMessage);
-                        });
-                        promise.catch(function (rejectMessage) {
+                        }).catch(function (rejectMessage) {
                             fulfilled("REJECT", rejectMessage);
                         });
 

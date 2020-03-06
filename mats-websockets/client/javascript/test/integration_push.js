@@ -77,7 +77,7 @@
             // Set a valid authorization before each request
             beforeEach(() => setAuth());
 
-            function doTest(startEndpoint, done) {
+            function doTest(startEndpoint, resolveReject, done) {
                 let traceId = "MatsSocketServer.send_test_" + matsSocket.id(6);
 
                 let initialMessage = "Message_" + matsSocket.id(20);
@@ -90,10 +90,17 @@
                         // Resolve it a tad later, to "emulate" some kind of processing
                         setTimeout(function () {
                             let data = messageEvent.data;
-                            resolve({
+                            let msg = {
                                 string: data.string + ":From_IntegrationEndpointA",
                                 number: data.number + Math.PI
-                            });
+                            };
+                            // ?: Resolve or Reject based on param
+                            if (resolveReject) {
+                                resolve(msg);
+                            } else {
+                                reject(msg);
+                            }
+
                         }, 25);
                     });
                 });
@@ -101,7 +108,7 @@
                 // This terminator will get the final result from the Server
                 matsSocket.terminator("ClientSide.terminator", (msg) => {
                     chai.assert.strictEqual(msg.data.number, Math.E + Math.PI);
-                    chai.assert.strictEqual(msg.data.string, initialMessage + ":From_IntegrationEndpointA");
+                    chai.assert.strictEqual(msg.data.string, initialMessage + ":From_IntegrationEndpointA:" + (resolveReject ? "RESOLVE" : "REJECT"));
                     chai.assert.strictEqual(msg.traceId, traceId);
                     done()
                 });
@@ -110,15 +117,23 @@
                 matsSocket.send(startEndpoint, traceId, {
                     string: initialMessage,
                     number: Math.E
-                })
+                });
             }
 
-            it('Send a message to the Server, which responds by directly doing a Server-to-Client request (thus coming back here!), and when this returns to Server, sends it directly back', function (done) {
-                doTest("Test.server.request.direct", done);
+            it('Send a message to the Server, which responds by directly doing a Server-to-Client request (thus coming back here!), resolves, and when this returns to Server, sends it back', function (done) {
+                doTest("Test.server.request.direct", true, done);
             });
 
-            it('Send a message to the Server, which responds by, in a Mats terminator, doing a Server-to-Client request (thus coming back here!), and when this returns to Server, sends it back in a Mats terminator', function (done) {
-                doTest("Test.server.request.direct", done);
+            it('Send a message to the Server, which responds by directly doing a Server-to-Client request (thus coming back here!), rejects, and when this returns to Server, sends it back', function (done) {
+                doTest("Test.server.request.direct", false, done);
+            });
+
+            it('Send a message to the Server, which responds by - in a Mats terminator - doing a Server-to-Client request (thus coming back here!), resolve, and when this returns to Server, sends it back in a Mats terminator', function (done) {
+                doTest("Test.server.request.viaMats", true, done);
+            });
+
+            it('Send a message to the Server, which responds by - in a Mats terminator - doing a Server-to-Client request (thus coming back here!), rejects, and when this returns to Server, sends it back in a Mats terminator', function (done) {
+                doTest("Test.server.request.viaMats", false, done);
             });
         });
     });

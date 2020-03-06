@@ -214,9 +214,23 @@ public interface MatsSocketServer {
         String getTraceId();
 
         /**
+         * @return the {@link MessageType} of the message being processed - either SEND, REQUEST or REPLY.
+         */
+        MessageType getMessageType();
+
+        /**
          * @return the incoming MatsSocket Message.
          */
         I getMatsSocketIncomingMessage();
+
+        /**
+         * If this is a Client Reply from a Server-to-Client
+         * {@link MatsSocketServer#request(String, String, String, Object, String, String, byte[]) request}, and the
+         * Reply is a RESOLVE, this returns <code>true</code>, otherwise <code>false</code>.
+         *
+         * @return <code>true</code> if this message is a RESOLVE Reply from the Client, <code>false</code> otherwise.
+         */
+        boolean isReplyResolve();
 
         /**
          * If this is a Client Reply from a Server-to-Client
@@ -239,11 +253,6 @@ public interface MatsSocketServer {
          *         otherwise <code>null</code>.
          */
         byte[] getCorrelationBinary();
-
-        /**
-         * @return the {@link MessageType} of the message being processed - either SEND, REQUEST or REPLY.
-         */
-        MessageType getMessageType();
 
         /**
          * Invoke if you want to deny this message from being processed, e.g. your preliminary Authorization checks

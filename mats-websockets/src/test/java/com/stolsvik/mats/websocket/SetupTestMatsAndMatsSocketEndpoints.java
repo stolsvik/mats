@@ -235,9 +235,11 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                     Assert.assertEquals("CorrelationString", ctx.getCorrelationString());
                     Assert.assertArrayEquals("CorrelationBinary".getBytes(StandardCharsets.UTF_8),
                             ctx.getCorrelationBinary());
-                    // Send the message to client, passing the message directly on.
+                    // Send to Client, add whether it was a RESOLVE or REJECT in the message.
                     matsSocketServer.send(ctx.getMatsSocketSessionId(), ctx.getTraceId(),
-                            "ClientSide.terminator", msg);
+                            "ClientSide.terminator",
+                            new MatsDataTO(msg.number, msg.string + (ctx.isReplyResolve() ? ":RESOLVE" : ":REJECT"),
+                                    msg.sleepTime));
                 });
     }
 
@@ -269,16 +271,21 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                     Assert.assertArrayEquals("CorrelationBinary".getBytes(StandardCharsets.UTF_8),
                             ctx.getCorrelationBinary());
                     // Forward to the Mats terminator that sends to Client. Pass message directly on.
-                    ctx.forwardCustom(msg, init -> init.to("Test.server.sendReplyBackToClient.viaMats"));
+                    ctx.forwardCustom(msg, init -> {
+                        init.addString("resolveReject", ctx.isReplyResolve() ? "RESOLVE" : "REJECT");
+                        init.to("Test.server.sendReplyBackToClient.viaMats");
+                    });
                 });
 
         // .. which finally sends the Reply back to the Client Terminator.
         matsFactory.terminator("Test.server.sendReplyBackToClient.viaMats", Void.class, MatsDataTO.class,
-                (processContext, state, msg) -> {
-                    String matsSocketSessionId = processContext.getString("matsSocketSessionId");
-                    // Send to Client. Pass message directly on.
-                    matsSocketServer.send(matsSocketSessionId, processContext.getTraceId(),
-                            "ClientSide.terminator", msg);
+                (ctx, state, msg) -> {
+                    String matsSocketSessionId = ctx.getString("matsSocketSessionId");
+                    // Send to Client, add whether it was a RESOLVE or REJECT in the message.
+                    matsSocketServer.send(matsSocketSessionId, ctx.getTraceId(),
+                            "ClientSide.terminator",
+                            new MatsDataTO(msg.number, msg.string + ':' + ctx.getString("resolveReject"),
+                                    msg.sleepTime));
                 });
     }
 

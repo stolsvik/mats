@@ -1174,8 +1174,18 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
 
         @Override
+        public MessageType getMessageType() {
+            return _messageType;
+        }
+
+        @Override
         public I getMatsSocketIncomingMessage() {
             return _incomingMessage;
+        }
+
+        @Override
+        public boolean isReplyResolve() {
+            return _envelope.t.equals("REPLY") && _envelope.st.equals("RESOLVE");
         }
 
         @Override
@@ -1186,11 +1196,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         @Override
         public byte[] getCorrelationBinary() {
             return _correlationBinary;
-        }
-
-        @Override
-        public MessageType getMessageType() {
-            return _messageType;
         }
 
         @Override
