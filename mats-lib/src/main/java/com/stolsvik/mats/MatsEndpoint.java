@@ -69,7 +69,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      */
     @FunctionalInterface
     interface ProcessLambda<R, S, I> {
-        void process(ProcessContext<R> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
+        void process(ProcessContext<R> ctx, S state, I msg) throws MatsRefuseMessageException;
     }
 
     /**
@@ -79,7 +79,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      */
     @FunctionalInterface
     interface ProcessReturnLambda<R, S, I> {
-        R process(ProcessContext<R> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
+        R process(ProcessContext<R> ctx, S state, I msg) throws MatsRefuseMessageException;
     }
 
     /**
@@ -93,7 +93,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      */
     @FunctionalInterface
     interface ProcessSingleLambda<R, I> {
-        R process(ProcessContext<R> processContext, I incomingDto) throws MatsRefuseMessageException;
+        R process(ProcessContext<R> ctx, I msg) throws MatsRefuseMessageException;
     }
 
     /**
@@ -102,7 +102,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      */
     @FunctionalInterface
     interface ProcessTerminatorLambda<S, I> {
-        void process(ProcessContext<Void> processContext, S state, I incomingDto) throws MatsRefuseMessageException;
+        void process(ProcessContext<Void> ctx, S state, I msg) throws MatsRefuseMessageException;
     }
 
     /**
