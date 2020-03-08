@@ -219,8 +219,8 @@
         this.state = connectionState;
 
         /**
-         * For all of the events, except NO_SESSION, this holds the current URL we're either connected to, or
-         * trying to connect to.
+         * For all of the events this holds the current URL we're either connected to, was connected to, or trying to
+         * connect to.
          *
          * @type {string}
          */
@@ -687,8 +687,9 @@
         };
 
         /**
-         * Do not randomize the provided WebSocket URLs. Should only be used for testing, as you definitely want
-         * randomization of which URL to connect to - it will always go for the 0th element first.
+         * MatsSocket will always iterate through the URL array starting from 0th element. Therefore, the URL array is
+         * shuffled. Invoking this method disables this randomization. Must be invoked before MatsSocket connects.
+         * Should only be used for testing, as you in production definitely want randomization.
          */
         this.disableUrlRandomization = function () {
             // Just copy over the original array to the "_useUrls" var.
@@ -1052,7 +1053,7 @@
                     ts: Date.now(),
                     an: appName,
                     av: appVersion,
-                    auth: _authorization,
+                    auth: _authorization,  // This is guaranteed to be in place and valid, see above
                     cid: that.id(10),
                     tid: "MatsSocket_start_" + that.id(6)
                 };
@@ -1085,7 +1086,7 @@
             if (prePipeline) {
                 if (that.logging) log("Flushing prePipeline of [" + prePipeline.length + "] messages.");
                 _webSocket.send(JSON.stringify(prePipeline));
-                prePipeline.length = 0;
+                // NOTE: prePipeline is function scoped, so it "clears" when this function exits.
             }
             // :: Send any pipelined messages.
             if (_pipeline.length > 0) {
