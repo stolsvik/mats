@@ -2,6 +2,7 @@ package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
 
+import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -111,12 +111,12 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
      *
      * @return the MatsSocketSessionId that this {@link MatsSocketMessageHandler} instance refers to.
      */
-    String getId() {
+    String getMatsSocketSessionId() {
         return _matsSocketSessionId;
     }
 
     /**
-     * NOTE: Read JavaDoc of {@link #getId} to understand why this Id is of interest.
+     * NOTE: Read JavaDoc of {@link #getMatsSocketSessionId} to understand why this Id is of interest.
      */
     String getConnectionId() {
         return _connectionId;
@@ -1042,7 +1042,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
     @Override
     public String toString() {
-        return "MatsSocketSession{id='" + getId() + ",connId:'" + getConnectionId() + "'}";
+        return "MatsSocketSession{id='" + getMatsSocketSessionId() + ",connId:'" + getConnectionId() + "'}";
     }
 
     /**

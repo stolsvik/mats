@@ -369,7 +369,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     @Override
     public void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto) {
         // Create ServerMessageId
-        String serverMessageId = rnd(6);
+        String serverMessageId = serverMessageId();
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
         msReplyEnvelope.t = "SEND";
@@ -400,7 +400,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     public void request(String sessionId, String traceId, String clientEndpointId, Object requestDto,
             String replyToMatsSocketTerminatorId, String correlationString, byte[] correlationBinary) {
         // Create ServerMessageId
-        String serverMessageId = rnd(6);
+        String serverMessageId = serverMessageId();
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
         msReplyEnvelope.t = "REQUEST";
@@ -532,7 +532,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     void registerLocalMatsSocketSession(MatsSocketMessageHandler matsSocketMessageHandler) {
         synchronized (_activeSessionsByMatsSocketSessionId_x) {
-            _activeSessionsByMatsSocketSessionId_x.put(matsSocketMessageHandler.getId(), matsSocketMessageHandler);
+            _activeSessionsByMatsSocketSessionId_x.put(matsSocketMessageHandler.getMatsSocketSessionId(),
+                    matsSocketMessageHandler);
         }
     }
 
@@ -582,13 +583,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             closeWebSocket(msmh.getWebSocketSession(), MatsSocketCloseCodes.SERVICE_RESTART,
                     "From Server: Server instance is going down, please reconnect.");
             // Local deregister
-            deregisterLocalMatsSocketSession(msmh.getId(), msmh.getConnectionId());
+            deregisterLocalMatsSocketSession(msmh.getMatsSocketSessionId(), msmh.getConnectionId());
             // CSAF deregister
             try {
-                _clusterStoreAndForward.deregisterSessionFromThisNode(msmh.getId(), msmh.getConnectionId());
+                _clusterStoreAndForward.deregisterSessionFromThisNode(msmh.getMatsSocketSessionId(), msmh
+                        .getConnectionId());
             }
             catch (DataAccessException e) {
-                log.warn("Could not deregister MatsSocketSession [" + msmh.getId() + "] from CSAF, ignoring.", e);
+                log.warn("Could not deregister MatsSocketSession [" + msmh.getMatsSocketSessionId()
+                        + "] from CSAF, ignoring.", e);
             }
         });
     }
@@ -633,7 +636,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             log.info("WebSocket @OnOpen, WebSocket SessionId:" + session.getId()
                     + ", WebSocket Session:" + id(session) + ", this:" + id(this));
 
-            _connectionId = session.getId() + "_" + DefaultMatsSocketServer.rnd(6);
+            // Notice: On a particular server, the session.getId() is already unique. On Jetty: integer sequence.
+            _connectionId = session.getId() + "_" + rnd(6);
 
             // ?: If we are going down, then immediately close it.
             if (_matsSocketServer._stopped) {
@@ -684,7 +688,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 log.info("WebSocket @OnError: WebSocket server timed out the connection. MatsSocket SessionId: ["
                         + (_matsSocketMessageHandler == null
                                 ? "no MatsSocketSession"
-                                : _matsSocketMessageHandler.getId())
+                                : _matsSocketMessageHandler.getMatsSocketSessionId())
                         + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this));
             }
             else {
@@ -693,7 +697,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 log.warn("WebSocket @OnError, MatsSocket SessionId: ["
                         + (_matsSocketMessageHandler == null
                                 ? "no MatsSocketSession"
-                                : _matsSocketMessageHandler.getId())
+                                : _matsSocketMessageHandler.getMatsSocketSessionId())
                         + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this),
                         new Exception("MatsSocketServer's webSocket.onError(..) handler", thr));
             }
@@ -705,19 +709,18 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     .getCode()) + "] (timeout:[" + _timeoutException + "]), reason:[" + closeReason.getReasonPhrase()
                     + "], MatsSocket SessionId: [" + (_matsSocketMessageHandler == null
                             ? "no MatsSocketSession"
-                            : _matsSocketMessageHandler.getId())
+                            : _matsSocketMessageHandler.getMatsSocketSessionId())
                     + "], ConnectionId:" + _connectionId + ", this:" + id(this));
             // ?: Have we gotten MatsSocketSession yet? (In case "onOpen" has not been invoked yet. Can it happen?!).
             if (_matsSocketMessageHandler != null) {
                 // -> Yes, so either close session, or just deregister us from local and global views
                 // Either way (both for deregister and close session): Deregister session locally
-                _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketMessageHandler.getId(),
+                _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketMessageHandler.getMatsSocketSessionId(),
                         _matsSocketMessageHandler.getConnectionId());
                 try {
-                    // Is this a GOING_AWAY that is NOT from the server side?
+                    // Is this a GOING_AWAY that is NOT from the server side? (Jetty gives this on timeout)
                     boolean goingAwayFromClientSide = (MatsSocketCloseCodes.GOING_AWAY.getCode() == closeReason
-                            .getCloseCode().getCode())
-                            && (!_timeoutException);
+                            .getCloseCode().getCode()) && (!_timeoutException);
                     // ?: Did the client or Server want to actually Close Session?
                     // NOTE: Need to check by the 'code' integers, since no real enum (CloseCode is an interface).
                     if ((MatsSocketCloseCodes.UNEXPECTED_CONDITION.getCode() == closeReason.getCloseCode().getCode())
@@ -725,14 +728,19 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                             || (MatsSocketCloseCodes.VIOLATED_POLICY.getCode() == closeReason.getCloseCode().getCode())
                             || (MatsSocketCloseCodes.CLOSE_SESSION.getCode() == closeReason.getCloseCode().getCode())
                             || (MatsSocketCloseCodes.SESSION_LOST.getCode() == closeReason.getCloseCode().getCode())
-                            // -> Yes, this was a one of the actual-close CloseCodes, or a "GOING AWAY" that was NOT
                             || goingAwayFromClientSide) {
-                        // initiated from server side), which means that we should actually close this session
+                        // -> Yes, this was a one of the actual-close CloseCodes, or a "GOING AWAY" that was NOT
+                        // initiated from server side, which means that we should actually close this session
                         log.info("Explicitly Closed MatsSocketSession due to CloseCode ["
                                 + MatsSocketCloseCodes.getCloseCode(closeReason.getCloseCode().getCode())
                                 + "] (timeout:[" + _timeoutException + "]), actually closing (terminating) it.");
-                        // Close session in CSAF
-                        _matsSocketServer._clusterStoreAndForward.closeSession(_matsSocketMessageHandler.getId());
+                        // :: Close session in CSAF
+                        // ?: Have we gotten SessionId yet?
+                        if (_matsSocketMessageHandler.getMatsSocketSessionId() != null) {
+                            // -> Yes, so then we can closeSession.
+                            _matsSocketServer._clusterStoreAndForward.closeSession(
+                                    _matsSocketMessageHandler.getMatsSocketSessionId());
+                        }
                     }
                     else {
                         // -> No, this was a broken connection, or something else like an explicit disconnect w/o close
@@ -742,7 +750,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                                 + " MatsSocketSession from CSAF.");
                         // Deregister session from CSAF
                         _matsSocketServer._clusterStoreAndForward.deregisterSessionFromThisNode(
-                                _matsSocketMessageHandler.getId(), _matsSocketMessageHandler.getConnectionId());
+                                _matsSocketMessageHandler.getMatsSocketSessionId(),
+                                _matsSocketMessageHandler.getConnectionId());
                     }
                 }
                 catch (DataAccessException e) {
@@ -1079,7 +1088,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     + registration._msReplyClass.getName() + "].");
         }
 
-        String serverMessageId = rnd(6);
+        String serverMessageId = serverMessageId();
 
         // Create Envelope
         msReplyEnvelope.eid = state.ms_reid;
@@ -1211,9 +1220,37 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
     }
 
-    private static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    /**
+     * A-Z, a-z, 0-9, which is 62 chars.
+     */
+    public static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
     /**
+     * All chars from 20-7f, except:
+     * <ul>
+     * <li>Space (32, 0x20) - since spaces are always annoying to use in Ids</li>
+     * <li>" (34, 0x22) - since this is the start and end symbol of a String</li>
+     * <li>\ (92 0x5c) - since this is the escape char</li>
+     * <li>DEL (127, 0x7f) - since this is a control char</li>
+     * </ul>
+     * This is 92 chars.
+     */
+    public static final String ALPHABET_JSON_ID;
+    static {
+        StringBuilder buf = new StringBuilder();
+        // Just to make the point explicit..:
+        for (int c = 0x20; c <= 0x7f; c++) {
+            if (c == 0x20 || c == 0x22 || c == 0x5c || c == 0x7f) {
+                continue;
+            }
+            buf.append((char) c);
+        }
+        ALPHABET_JSON_ID = buf.toString();
+    }
+
+    /**
+     * The alphabet is A-Z, a-z, 0-9, which is 62 chars.
+     *
      * @param length
      *            the desired length of the returned random string.
      * @return a random string of the specified length.
@@ -1224,6 +1261,35 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         for (int i = 0; i < length; i++)
             buf.append(ALPHABET.charAt(tlr.nextInt(ALPHABET.length())));
         return buf.toString();
+    }
+
+    /**
+     * All visible and JSON non-quoted ASCII chars, i.e. from 0x20-0x7f, except 0x20, 0x22, 0x5c and 0x7f, which is 92
+     * chars.
+     *
+     * @param length
+     *            the desired length of the returned random string.
+     * @return a random string of the specified length.
+     */
+    static String rndJsonId(int length) {
+        StringBuilder buf = new StringBuilder(length);
+        ThreadLocalRandom tlr = ThreadLocalRandom.current();
+        for (int i = 0; i < length; i++)
+            buf.append(ALPHABET_JSON_ID.charAt(tlr.nextInt(ALPHABET_JSON_ID.length())));
+        return buf.toString();
+    }
+
+    /**
+     * 92^4 = 71.639.296. Notice that if we end up duplicating on the server side, this can be caught. The ONLY time
+     * span where this MUST be "globally unique", is after ACK, when we delete the id on server side (and another
+     * message conceivably can get the Id again) and then send ACK2, before the client receives the ACK2 and deletes the
+     * Id from its inbox. If a message from the server managed to pick the same Id in <i>that particular timespan</i>,
+     * the client would refuse it as a double delivery.
+     *
+     * @return a 4-char invocation of {@link #rndJsonId(int)}.
+     */
+    static String serverMessageId() {
+        return rndJsonId(4);
     }
 
     static String id(Object x) {

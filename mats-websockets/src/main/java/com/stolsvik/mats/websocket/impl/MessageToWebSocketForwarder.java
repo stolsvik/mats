@@ -79,9 +79,9 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
     }
 
     void newMessagesInCsafNotify(MatsSocketMessageHandler matsSocketMessageHandler) {
-        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketMessageHandler.getId() + "]");
+        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketMessageHandler.getMatsSocketSessionId() + "]");
         // :: Check if there is an existing handler for this MatsSocketSession
-        String uniqueId = matsSocketMessageHandler.getId() + matsSocketMessageHandler.getConnectionId();
+        String uniqueId = matsSocketMessageHandler.getMatsSocketSessionId() + matsSocketMessageHandler.getConnectionId();
         boolean[] fireOffNewHandler = new boolean[1];
 
         _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
@@ -105,7 +105,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
     }
 
     void handlerRunnable(MatsSocketMessageHandler matsSocketMessageHandler, String uniqueId) {
-        String matsSocketSessionId = matsSocketMessageHandler.getId();
+        String matsSocketSessionId = matsSocketMessageHandler.getMatsSocketSessionId();
 
         boolean removeOnExit = true;
 
