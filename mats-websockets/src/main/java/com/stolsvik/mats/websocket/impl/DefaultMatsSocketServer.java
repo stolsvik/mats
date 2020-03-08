@@ -1280,8 +1280,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     /**
-     * 92^4 = 71.639.296. Notice that if we end up duplicating on the server side, this can be caught. The ONLY time
-     * span where this MUST be "globally unique", is after ACK, when we delete the id on server side (and another
+     * Returns a string of 4 chars from a 92-char alphabet, consisting of all the visible and JSON-non-quoted ASCII
+     * chars. 92^4 = 71.639.296. Notice that if we end up duplicating on the server side, this can be caught. The ONLY
+     * time span where this MUST be "globally unique", is after ACK, when we delete the id on server side (and another
      * message conceivably can get the Id again) and then send ACK2, before the client receives the ACK2 and deletes the
      * Id from its inbox. If a message from the server managed to pick the same Id in <i>that particular timespan</i>,
      * the client would refuse it as a double delivery.

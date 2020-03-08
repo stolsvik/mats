@@ -74,7 +74,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
     private String _appNameAndVersion;
 
     private boolean _closed; // set true upon close. When closed, won't process any more messages.
-    private boolean _helloReceived; // set true when HELLO processed. HELLO only accepted once.
+    private boolean _helloProcessedOk; // set true when HELLO processed. HELLO only accepted once.
 
     MatsSocketMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession, String connectionId,
             HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
@@ -139,15 +139,16 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             if (_closed) {
                 // -> Yes, so ignore message.
                 log.info("WebSocket @OnMessage: WebSocket received message for CLOSED MatsSocketSessionId ["
-                        + _matsSocketSessionId + "], connectionId:[" + _connectionId + "], this:"
-                        + DefaultMatsSocketServer.id(this) + "], ignoring, msg: " + message);
+                        + _matsSocketSessionId + "], connectionId:[" + _connectionId + "], size:[" + message.length()
+                        + " cp] this:" + DefaultMatsSocketServer.id(this) + "], ignoring, msg: " + message);
                 return;
             }
 
             // E-> Not closed, process message (containing MatsSocket envelope(s)).
 
             log.info("WebSocket @OnMessage: WebSocket received message for MatsSocketSessionId [" + _matsSocketSessionId
-                    + "], connectionId:[" + _connectionId + "], this:" + DefaultMatsSocketServer.id(this));
+                    + "], connectionId:[" + _connectionId + "], size:[" + message.length()
+                    + " cp] this:" + DefaultMatsSocketServer.id(this));
 
             // :: Parse the message into MatsSocket envelopes
             List<MatsSocketEnvelopeDto> envelopes;
@@ -179,9 +180,60 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 }
             }
 
+            // :: 2. Handle any PING messages (send PONG asap).
+
+            for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketEnvelopeDto envelope = it.next();
+                // ?: Is this message a PING?
+                if ("PING".equals(envelope.t)) {
+                    // -> Yes, so handle it.
+                    // Remove it from the pipeline
+                    it.remove();
+                    // Assert that we've had HELLO already processed
+                    // NOTICE! We will handle PINGs without valid Authorization, but only if we've already established
+                    // Session, as checked by seeing if we've processed HELLO
+                    if (!_helloProcessedOk) {
+                        closeWithProtocolError("Cannot process PING before HELLO and session established");
+                        return;
+                    }
+                    // :: Create PONG message
+                    MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
+                    replyEnvelope.t = "PONG";
+                    replyEnvelope.cid = envelope.cid;
+
+                    // Pack the PONG over to client ASAP.
+                    // TODO: Consider doing this async, probably with MessageToWebSocketForwarder
+                    List<MatsSocketEnvelopeDto> replySingleton = Collections.singletonList(replyEnvelope);
+                    try {
+                        String json = _envelopeListObjectWriter.writeValueAsString(replySingleton);
+                        webSocketSendText(json);
+                    }
+                    catch (JsonProcessingException e) {
+                        throw new AssertionError("Huh, couldn't serialize message?!", e);
+                    }
+                    catch (IOException e) {
+                        // TODO: Handle!
+                        throw new AssertionError("Hot damn.", e);
+                    }
+                }
+            }
+
+            // ?: Do we have any more messages in pipeline, or have we gotten new Authorization?
+            if (envelopes.isEmpty() && (newAuthorization == null)) {
+                // -> No messages, and no new auth. Thus, all messages that were here was PING.
+                // Return, without considering valid existing authentication.
+                // Again: It is allowed to send PINGs, and thus keep connection open, without having current
+                // valid authorization. The rationale here is that otherwise we'd have to /continuously/ ask an
+                // OAuth/OIDC/token server about new tokens, which probably would keep that session open. With
+                // the present logic, the only thing you can do without authorization, is keeping the connection
+                // actually open. Once you try to send any information-bearing messages, authentication check will
+                // immediately kick in - and then you better have sent over valid auth, otherwise you're kicked off.
+                return;
+            }
+
             // AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
 
-            // :: 2. Evaluate Authentication by Authorization header
+            // :: 3. Evaluate Authentication by Authorization header
             boolean authenticationOk = doAuthentication(newAuthorization);
             // ?: Did this go OK?
             if (!authenticationOk) {
@@ -189,7 +241,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 return;
             }
 
-            // :: 3. Are we authenticated? (I.e. Authorization Header must sent along in the very first pipeline..)
+            // :: 4. Are we authenticated? (I.e. Authorization Header must sent along in the very first pipeline..)
             if (_authorization == null) {
                 log.error("We have not got Authorization header!");
                 closeWithPolicyViolation("Missing Authorization header");
@@ -206,7 +258,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 return;
             }
 
-            // :: 4. look for a HELLO message
+            // :: 5. look for a HELLO message
             // (should be first/alone, but we will reply to it immediately even if part of pipeline).
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeDto envelope = it.next();
@@ -216,7 +268,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                         // Remove this HELLO envelope from pipeline
                         it.remove();
                         // ?: Have we processed HELLO before?
-                        if (_helloReceived) {
+                        if (_helloProcessedOk) {
                             // -> Yes, and this is not according to protocol.
                             closeWithPolicyViolation("Shall only receive HELLO once for an entire MatsSocket Session.");
                             return;
@@ -237,7 +289,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 }
             }
 
-            // :: 5. Assert state: All present: SessionId, Authorization, Principal and UserId.
+            // :: 6. Assert state: All present: SessionId, Authorization, Principal and UserId.
             if ((_matsSocketSessionId == null)
                     || (_authorization == null)
                     || (_principal == null)
@@ -249,7 +301,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             List<String> clientHasReceived = null;
             List<String> ackAckFromClient = null;
 
-            // :: 6. Now go through and handle all the rest of the messages
+            // :: 7. Now go through and handle all the rest of the messages
             List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
             for (MatsSocketEnvelopeDto envelope : envelopes) {
                 try { // try-finally: MDC.remove..
@@ -258,25 +310,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                         MDC.put(MDC_TRACE_ID, envelope.tid);
                     }
 
-                    // TODO: Move ping to above auth-requirement (but below HELLO verification).
-
-                    if ("PING".equals(envelope.t)) {
-                        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
-                        replyEnvelope.t = "PONG";
-                        commonPropsOnReceived(envelope, replyEnvelope, clientMessageReceivedTimestamp);
-
-                        // Add PONG message to return-pipeline
-                        // (Note: To get accurate measurements of ping time, it should be sole message - not pipelined)
-                        replyEnvelopes.add(replyEnvelope);
-                        // The pong is handled, so go to next message
-                        continue;
-                    }
-
                     // :: These are the "information bearing messages" client-to-server, which we need to put in inbox
                     // so that we can catch double-deliveries of same message.
 
                     // ?: Is this a SEND or REQUEST to us?
-                    else if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t) || "REPLY".equals(envelope.t)) {
+                    if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t) || "REPLY".equals(envelope.t)) {
                         boolean ok = handleSendOrRequestOrReply(clientMessageReceivedTimestamp, replyEnvelopes,
                                 envelope);
                         if (!ok) {
@@ -323,18 +361,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // :: Unknown message..
 
                     else {
-                        // -> Not expected message
+                        // -> Unknown message: We're not very lenient her - CLOSE SESSION AND CONNECTION!
                         log.error("Got an unknown message type [" + envelope.t + (envelope.st != null ? ":"
                                 + envelope.st : "") + "] from client. Answering RECEIVED:ERROR.");
-                        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
-                        replyEnvelope.t = "RECEIVED";
-                        replyEnvelope.st = "ERROR";
-                        commonPropsOnReceived(envelope, replyEnvelope, clientMessageReceivedTimestamp);
-
-                        // Add error message to return-pipeline
-                        replyEnvelopes.add(replyEnvelope);
-                        // The message is handled, so go to next message.
-                        continue;
+                        closeWithProtocolError("Received unknown message type.");
+                        return;
                     }
                 }
                 finally {
@@ -640,7 +671,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             return false;
         }
         // We've received hello.
-        _helloReceived = true;
+        _helloProcessedOk = true;
 
         _clientLibAndVersion = envelope.clv;
         if (_clientLibAndVersion == null) {
@@ -788,6 +819,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         log.info("Sending WELCOME:" + replyEnvelope.st + ", MatsSocketSessionId:[" + _matsSocketSessionId + "]!");
 
         // Pack it over to client
+        // NOTICE: Since this is the first message ever, there will not be any currently-sending messages the other
+        // way (i.e. server-to-client, from the MessageToWebSocketForwarder). Therefore, it is perfectly OK to
+        // do this synchronously here.
         List<MatsSocketEnvelopeDto> replySingleton = Collections.singletonList(replyEnvelope);
         try {
             String json = _envelopeListObjectWriter.writeValueAsString(replySingleton);

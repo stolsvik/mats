@@ -313,6 +313,37 @@
     }
 
     /**
+     * A "holding struct" for pings - you may get the latest pings (with experienced latency) from the property
+     * {@link MatsSocket#pings}.
+     *
+     * @param {string} correlationId
+     * @param {number} sentTimestamp
+     * @constructor
+     */
+    function PingPong(correlationId, sentTimestamp) {
+        /**
+         * Pretty meaningless information, if logged server side, you can possibly correlate outliers.
+         *
+         * @type {string} the correlationId used by the client lib to correlate outstanding pings with incoming pongs.
+         */
+        this.correlationId = correlationId;
+
+        /**
+         * Millis-from-epoch when this ping was sent.
+         *
+         * @type {number} which this ping was sent, millis-from-epoch.
+         */
+        this.sentTimestamp = sentTimestamp;
+
+        /**
+         * The experienced latency for this ping-pong, remember that this is the time back-and-forth.
+         *
+         * @type {number} the number of milliseconds from ping sent to pong received.
+         */
+        this.latency = undefined;
+    }
+
+    /**
      * Creates a MatsSocket, supplying the using Application's name and version, and which URLs to connect to.
      *
      * Note: Public, Private and Privileged modelled after http://crockford.com/javascript/private.html
@@ -350,6 +381,7 @@
         }
 
         const that = this;
+        const userAgent = (typeof (self) === 'object' && typeof (self.navigator) === 'object') ? self.navigator.userAgent : "Unknown";
 
         // Ensure that 'urls' is an array or 1 or several URLs.
         urls = [].concat(urls);
@@ -575,6 +607,19 @@
             }
         });
 
+        /**
+         * Stats: Returns an array of the 100 latest {@link PingPong}s.
+         *
+         * @member {array} state
+         * @memberOf MatsSocket
+         * @readonly
+         */
+        Object.defineProperty(this, "pings", {
+            get: function () {
+                return _pings;
+            }
+        });
+
         // ========== Terminator and Endpoint registration ==========
 
         /**
@@ -623,6 +668,7 @@
             log("Registering Endpoint on id [" + endpointId + "]:\n #promiseProducer: " + promiseProducer);
             _endpoints[endpointId] = promiseProducer;
         };
+
 
         /**
          * <b>YOU SHOULD PROBABLY NOT USE THIS!</b>, instead using the specific prototype methods for generating messages.
@@ -718,18 +764,22 @@
             // Fetch properties we need before clearing state
             let currentWsUrl = _currentWebSocketUrl();
             let existingSessionId = _sessionId;
-            let webSocket = _webSocket;
             log("close(): Closing MatsSocketSession, id:[" + existingSessionId + "] due to [" + reason
                 + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
 
-            // :: Remove beforeunload eventlistener
-            _deregisterBeforeunload();
+            // :: Close WebSocket itself.
+            // ?: Do we have _webSocket?
+            if (_webSocket) {
+                // -> Yes, so close WebSocket with MatsSocket-specific CloseCode CLOSE_SESSION 4000.
+                log(" \\-> WebSocket is open, so we close it with MatsSocketCloseCode CLOSE_SESSION (4000).");
+                // Perform the close
+                _webSocket.close(MatsSocketCloseCodes.CLOSE_SESSION, "From client: " + reason);
+            }
 
-            // :: Close Session, Clear all state of this MatsSocket.
-            _closeSessionClearStateAndPipelineAndFuturesAndOutstandingMessages("client close session");
-
-            // :: In-band session close
-            _closeWebSocket(webSocket, existingSessionId, MatsSocketCloseCodes.CLOSE_SESSION, reason);
+            // Clear out WebSocket "infrastructure", i.e. state and "pinger thread".
+            _clearWebSocketStateAndInfrastructure();
+            // Clear Session and all state of this MatsSocket.
+            _clearSessionAndStateAndPipelineAndFuturesAndOutstandingMessages("From client: " + reason);
 
             // :: Out-of-band session close
             // ?: Do we have a sessionId?
@@ -766,20 +816,45 @@
         this.reconnect = function (reason) {
             log("reconnect(): Closing WebSocket with CloseCode 'RECONNECT (" + MatsSocketCloseCodes.RECONNECT
                 + ")', MatsSocketSessionId:[" + _sessionId + "] due to [" + reason + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
-            _closeWebSocket(_webSocket, _sessionId, MatsSocketCloseCodes.RECONNECT, "client close session");
+            if (!_webSocket) {
+                throw new Error("There is no live WebSocket to close with RECONNECT closeCode!");
+            }
+            _webSocket.close(MatsSocketCloseCodes.RECONNECT, reason);
         };
 
         /**
-         * Convenience method for making random strings for correlationIds (choose e.g. length=10) and
-         * "add-on to traceId to make it pretty unique" (choose length=6).
+         * Convenience method for making random strings meant for user reading, e.g. in TraceIds, since this
+         * alphabet only consists of lower and upper case letters, and digits. To make a traceId "unique enough" for
+         * finding it in a log system, a length of 6 should be plenty.
          *
-         * @param length how long the string should be: 10 for correlationId, 6 for "added to traceId".
-         * @returns {string} from digits, lower and upper case letters - 62 entries.
+         * @param {number} length how long the string should be. 6 should be enough to make a TraceId "unique enough"
+         * to uniquely find it in a log system. If you want "absolute certainty" that there never will be any collisions,
+         * go for 20.
+         * @returns {string} a random string consisting of characters from from digits, lower and upper case letters
+         * (62 chars).
          */
         this.id = function (length) {
             let result = '';
             for (let i = 0; i < length; i++) {
                 result += _alphabet[Math.floor(Math.random() * _alphabet.length)];
+            }
+            return result;
+        };
+
+        /**
+         * Convenience method for making random strings for correlationIds, not meant for human reading ever
+         * (choose e.g. length=8), as the alphabet consist of all visible ACSII chars that won't be quoted in a JSON
+         * string. Should you want to make free-standing SessionIds or similar, you would want to have a longer length,
+         * use e.g. length=16.
+         *
+         * @param {number} length how long the string should be, e.g. 8 chars for a pretty safe correlationId.
+         * @returns {string} a random string consisting of characters from all visible and non-JSON-quoted chars of
+         * ASCII (92 chars).
+         */
+        this.jid = function (length) {
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += _jsonAlphabet[Math.floor(Math.random() * _jsonAlphabet.length)];
             }
             return result;
         };
@@ -802,13 +877,15 @@
             }
         }
 
+        // alphabet length: 10 + 26 x 2 = 62 chars.
+        let _alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        // JSON-non-quoted and visible Alphabet: 92 chars.
+        let _jsonAlphabet = "!#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+
         // The URLs to use - will be shuffled. Can be reset to not randomized by this.disableUrlRandomize()
         let _useUrls = [].concat(urls);
         // Shuffle the URLs
         _shuffleArray(_useUrls);
-
-        // alphabet length: 10 + 26 x 2 = 62.
-        let _alphabet = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
         // fields
         let _sessionId = undefined;
@@ -841,43 +918,12 @@
         const _futures = Object.create(null);
         // Outstanding SEND and RECEIVE messages waiting for Received ACK/ERROR/NACK
         const _outstandingSendsAndRequests = Object.create(null);
+        // Outstanding Pings
+        const _outstandingPings = Object.create(null);
 
-        /**
-         * Unconditionally adds the supplied envelope to the pipeline, and then evaluates the pipeline,
-         * invokeLater-style so as to get "auth-pipelining". Use flush() to get sync send.
-         */
-        function _addEnvelopeToPipeline(envelope) {
-            _pipeline.push(envelope);
-            if (that.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
-            _evaluatePipelineLater()
-        }
-
-        let _evaluatePipelineLater_timeoutId = undefined;
-
-        function _evaluatePipelineLater() {
-            if (_evaluatePipelineLater_timeoutId) {
-                clearTimeout(_evaluatePipelineLater_timeoutId);
-            }
-            _evaluatePipelineLater_timeoutId = setTimeout(function () {
-                _evaluatePipelineSend();
-                _evaluatePipelineLater_timeoutId = undefined;
-            }, 2)
-        }
-
-        function _closeWebSocket(webSocket, sessionId, closeCodeNumber, reason) {
-            // ?: Do we have WebSocket?
-            let closeCodeName = MatsSocketCloseCodes.nameFor(closeCodeNumber);
-            if (webSocket) {
-                // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
-                log(" \\-> WebSocket is open, so we close it with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
-                // Perform the close
-                webSocket.close(closeCodeNumber, reason);
-            } else if (sessionId) {
-                log(" \\-> WebSocket NOT open, so CANNOT close in-band with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
-            } else {
-                log(" \\-> Missing both WebSocket and MatsSocketSessionId, so CANNOT close in-band with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
-            }
-        }
+        // :: STATS
+        // Last 100 PINGs
+        const _pings = [];
 
         function _invokeLater(that) {
             setTimeout(that, 0);
@@ -911,21 +957,29 @@
             }
         }
 
-        const userAgent = (typeof (self) === 'object' && typeof (self.navigator) === 'object') ? self.navigator.userAgent : "Unknown";
-
-        function _closeSessionClearStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
+        function _clearWebSocketStateAndInfrastructure() {
+            // Stop pinger
+            _stopPinger();
+            // Remove beforeunload eventlistener
+            _deregisterBeforeunload();
+            // Reset Reconnect state vars
+            _resetReconnectStateVars();
+            // :: Clear out _webSocket;
             if (_webSocket) {
                 // We don't want the onclose callback invoked from this event that we initiated ourselves.
                 _webSocket.onclose = undefined;
-                // We don't want any messages either, as we'll now be clearing out futures and outstanding messages ("acks")
+                // We don't want any messages either
                 _webSocket.onmessage = undefined;
                 // Also drop onerror for good measure.
                 _webSocket.onerror = undefined;
             }
             _webSocket = undefined;
+        }
+
+        function _clearSessionAndStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
+            // Clear state
             _sessionId = undefined;
             _state = ConnectionState.NO_SESSION;
-            _urlIndexCurrentlyConnecting = 0;
 
             // :: Clear pipeline
             _pipeline.length = 0;
@@ -965,6 +1019,28 @@
                     }
                 }
             }
+        }
+
+        /**
+         * Unconditionally adds the supplied envelope to the pipeline, and then evaluates the pipeline,
+         * invokeLater-style so as to get "auth-pipelining". Use flush() to get sync send.
+         */
+        function _addEnvelopeToPipeline(envelope) {
+            _pipeline.push(envelope);
+            if (that.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
+            _evaluatePipelineLater()
+        }
+
+        let _evaluatePipelineLater_timeoutId = undefined;
+
+        function _evaluatePipelineLater() {
+            if (_evaluatePipelineLater_timeoutId) {
+                clearTimeout(_evaluatePipelineLater_timeoutId);
+            }
+            _evaluatePipelineLater_timeoutId = setTimeout(function () {
+                _evaluatePipelineSend();
+                _evaluatePipelineLater_timeoutId = undefined;
+            }, 2)
         }
 
         /**
@@ -1077,7 +1153,7 @@
                 // We will now have sent the HELLO, so do not send it again.
                 _helloSent = true;
                 // .. and again, we will now have sent the HELLO - If this was a RECONNECT, we have now done the immediate reconnect HELLO.
-                // (As opposed to initial connection, where we do not send before having an actual message in pipeline)
+                // (As opposed to initial connection, where we do not send before having an actual information bearing message in pipeline)
                 _reconnect_ForceSendHello = false;
             }
 
@@ -1090,7 +1166,7 @@
             }
             // :: Send any pipelined messages.
             if (_pipeline.length > 0) {
-                if (that.logging) log("Flushing pipeline of [" + _pipeline.length + "] messages.");
+                if (that.logging) log("Flushing pipeline of [" + _pipeline.length + "] messages:" + JSON.stringify(_pipeline));
                 _webSocket.send(JSON.stringify(_pipeline));
                 // Clear pipeline
                 _pipeline.length = 0;
@@ -1118,7 +1194,7 @@
 
         function _secondsTenths(milliseconds) {
             // Rounds to tenth of second, e.g. 2730 -> 2.7.
-            return Math.round(((milliseconds) / 100)) / 10;
+            return Math.round(milliseconds / 100) / 10;
         }
 
         function _resetReconnectStateVars() {
@@ -1142,12 +1218,12 @@
                 _state = connectionEvent.state;
             }
 
-            // :: Notify all listeners.
+            // :: Notify all ConnectionEvent listeners.
             for (let i = 0; i < _connectionEventListeners.length; i++) {
                 try {
                     _connectionEventListeners[i](connectionEvent);
                 } catch (err) {
-                    error("notify [" + connectionEvent.type + "] ConnectionEvent listeners", "Caught error when notifying one of the [" + _connectionEventListeners.length + "] ConnectionEvent listeners.", err);
+                    error("notify ConnectionEvent listeners", "Caught error when notifying one of the [" + _connectionEventListeners.length + "] ConnectionEvent listeners about [" + connectionEvent.type + "].", err);
                 }
             }
         }
@@ -1296,10 +1372,11 @@
 
         function _onclose(closeEvent) {
             log("websocket.onclose", closeEvent);
-            // Ditch this WebSocket
-            _webSocket = undefined;
-            // Reset our reconnect state variables, so that we start on 0th URL and 0th round.
-            _resetReconnectStateVars();
+
+            // Note: here the WebSocket is already closed, so we don't have to close it..!
+
+            // Clear out WebSocket "infrastructure", i.e. state and "pinger thread".
+            _clearWebSocketStateAndInfrastructure();
 
             // ?: Special codes, that signifies that we should close (terminate) the MatsSocketSession.
             if ((closeEvent.code === MatsSocketCloseCodes.UNEXPECTED_CONDITION)
@@ -1311,7 +1388,7 @@
                 error("session closed from server", "The WebSocket was closed with a CloseCode [" + MatsSocketCloseCodes.nameFor(closeEvent.code) + "] signifying that our MatsSocketSession is closed, reason:[" + closeEvent.reason + "].", closeEvent);
 
                 // Close Session, Clear all state.
-                _closeSessionClearStateAndPipelineAndFuturesAndOutstandingMessages(closeEvent.reason);
+                _clearSessionAndStateAndPipelineAndFuturesAndOutstandingMessages("From Server: " + closeEvent.reason);
 
                 // :: Synchronously notify our SessionClosedEvent listeners
                 // NOTE: This shall only happen if Close Session is from ServerSide (that is, here), otherwise, if the app invoked matsSocket.close(), one would think the app knew about the close itself..!
@@ -1367,6 +1444,8 @@
                         _sessionId = envelope.sid;
                         // :: Synchronously notify our ConnectionEvent listeners.
                         _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.SESSION_ESTABLISHED, _currentWebSocketUrl(), undefined, undefined, undefined));
+                        // Start pinger
+                        _startPinger();
                         if (that.logging) log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
                     } else if (envelope.t === "RECEIVED") {
                         // -> RECEIVED-message-from-client (ack/nack/retry/error)
@@ -1420,6 +1499,12 @@
                         // Delete it from inbox - that is what ACKACK means: Other side has now deleted it from outbox,
                         // and can thus not ever deliver it again (so we can delete the guard against double delivery).
                         delete _inbox[envelope.smid];
+
+                    } else if (envelope.t === "PONG") {
+                        // -> Response to a PING
+                        let pingPong = _outstandingPings[envelope.cid];
+                        delete _outstandingPings[envelope.cid];
+                        pingPong.latency = receivedTimestamp - pingPong.sentTimestamp;
 
                     } else if (envelope.t === "SEND") {
                         // -> SEND: Send message to terminator
@@ -1629,6 +1714,36 @@
                     terminator.reject(_eventFromEnvelope(envelope, receivedTimestamp));
                 }
             }
+        }
+
+        function _startPinger() {
+            _pingLater();
+        }
+
+        function _stopPinger() {
+            if (_pinger_TimeoutId) {
+                clearTimeout(_pinger_TimeoutId);
+                _pinger_TimeoutId = undefined;
+            }
+        }
+
+        let _pinger_TimeoutId;
+
+        function _pingLater() {
+            _pinger_TimeoutId = setTimeout(function () {
+                if ((that.state === ConnectionState.SESSION_ESTABLISHED) && that.connected) {
+                    let correlationId = that.jid(3);
+                    if (that.logging) log("Sending PING! CorrelationId:" + correlationId);
+                    let pingPong = new PingPong(correlationId, Date.now());
+                    _pings.push(pingPong);
+                    if (_pings.length > 100) {
+                        _pings.shift();
+                    }
+                    _outstandingPings[correlationId] = pingPong;
+                    _webSocket.send("[{\"t\":\"PING\",\"cid\":\"" + correlationId + "\"}]");
+                    _pingLater();
+                }
+            }, 15000);
         }
     }
 

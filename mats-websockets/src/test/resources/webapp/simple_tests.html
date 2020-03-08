@@ -79,15 +79,14 @@ NOTE! You must open the browser's DevTool Console to get any effect of this!
             "ClientSide.testEndpoint", "pipeline_3_" + matsSocket.id(10));
     }, 300);
 
-    var ping = function () {
+    function printStats() {
         setTimeout(function () {
-            matsSocket.requestReplyTo("Test.single", "TraceId",
-                {string: "Periodic query", number: 100.001, requestTimestamp: Date.now()},
-                "ClientSide.testEndpoint", "TestTraceId_" + matsSocket.id(6));
-            ping();
-        }, 200);
-    };
-    // ping();
+            console.log("Pings!", matsSocket.pings);
+            printStats();
+        }, 31000);
+    }
+    printStats();
+
 </script>
 
 </body>

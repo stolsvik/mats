@@ -81,6 +81,8 @@
                 await matsSocket.send("Test.authCallback", "SEND_" + matsSocket.id(6), {});
 
                 chai.assert(authCallbackCalled);
+
+                matsSocket.close("Test done");
             });
 
             it('Should not invoke authorization callback if authorization present', async function () {
@@ -94,6 +96,7 @@
                 await matsSocket.send("Test.authCallback", "SEND_" + matsSocket.id(6), {});
 
                 chai.assert(!authCallbackCalled);
+                matsSocket.close("Test done");
             });
 
             it('Should invoke authorization callback when expired', async function () {
@@ -109,6 +112,7 @@
                 await matsSocket.send("Test.authCallback", "SEND_" + matsSocket.id(6), {});
 
                 chai.assert(authCallbackCalled);
+                matsSocket.close("Test done");
             });
 
             it('Should invoke authorization callback when room for latency expired', async function () {
@@ -124,6 +128,7 @@
                 await matsSocket.send("Test.authCallback", "SEND_" + matsSocket.id(6), {});
 
                 chai.assert(authCallbackCalled);
+                matsSocket.close("Test done");
             });
         });
     });
