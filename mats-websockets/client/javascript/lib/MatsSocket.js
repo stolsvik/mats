@@ -697,6 +697,7 @@
             outstandingSendOrRequest.nack = nack;
             outstandingSendOrRequest.requestResolve = requestResolve;
             outstandingSendOrRequest.requestReject = requestReject;
+            outstandingSendOrRequest.retransmitGuard = _outstandingSendAndRequest_RetransmitGuard;
 
             // Add the message Sequence Id
             let thisMessageSequenceId = _messageSequenceId++;
@@ -918,6 +919,10 @@
         const _futures = Object.create(null);
         // Outstanding SEND and RECEIVE messages waiting for Received ACK/ERROR/NACK
         const _outstandingSendsAndRequests = Object.create(null);
+        // .. a "guard object" to avoid having to retransmit messages sent /before/ the HELLO/WELCOME handshake
+        let _outstandingSendAndRequest_RetransmitGuard = this.jid(5);
+        // Outstanding REPLYs
+        const _outstandingReplies = Object.create(null);
         // Outstanding Pings
         const _outstandingPings = Object.create(null);
 
@@ -964,6 +969,8 @@
             _deregisterBeforeunload();
             // Reset Reconnect state vars
             _resetReconnectStateVars();
+            // Make new RetransmitGuard - so that any previously "guarded" messages now will be retransmitted.
+            _outstandingSendAndRequest_RetransmitGuard = that.jid(5);
             // :: Clear out _webSocket;
             if (_webSocket) {
                 // We don't want the onclose callback invoked from this event that we initiated ourselves.
@@ -1336,11 +1343,6 @@
                 // Cancel the "connection timeout" thingy
                 clearTimeout(countdownId);
 
-                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTED, _currentWebSocketUrl(), event, undefined, undefined));
-
-
-                // TODO: Implement reissue!
-
                 // Store our brand new, open-for-business WebSocket.
                 _webSocket = websocket;
                 // We're not /trying/ to connect anymore..
@@ -1356,9 +1358,11 @@
 
                 _registerBeforeunload();
 
+                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTED, _currentWebSocketUrl(), event, undefined, undefined));
+
                 // Fire off any waiting messages, next tick
                 _invokeLater(function () {
-                    log("Running evaluatePipelineSend()..");
+                    log("We're open for business! Running evaluatePipelineSend()..");
                     _evaluatePipelineSend();
                 });
             };
@@ -1446,7 +1450,42 @@
                         _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.SESSION_ESTABLISHED, _currentWebSocketUrl(), undefined, undefined, undefined));
                         // Start pinger
                         _startPinger();
-                        if (that.logging) log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
+                        if (that.logging) log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId + ", there are [" + Object.keys(_outstandingSendsAndRequests).length + "] outstanding sends-or-requests, and [" + Object.keys(_outstandingReplies).length + "] outstanding replies.");
+
+                        // TODO: Test this outstanding-stuff! Both that they are actually sent again, and that server handles the (quite possible) double-delivery.
+
+                        // ::: If we have stuff in our outboxes, we need to send them again
+
+                        // :: Outstanding Replies - these are just stored as the plain envelope
+                        // NOTICE: On initial connect: Since we cannot possibly have replied to anything BEFORE we get the WELCOME, we do not need RetransmitGuard for Replies
+                        // Loop over them
+                        for (let key in _outstandingReplies) {
+                            // noinspection JSUnfilteredForInLoop: Using Object.create(null)
+                            let replyEnvelope = _outstandingReplies[key];
+                            // NOTICE: Won't delete it here - that is done when we process the ACK from server
+                            _addEnvelopeToPipeline(replyEnvelope);
+                            // Flush for each message, in case the size of the message was of issue why we closed (maybe pipeline was too full).
+                            that.flush();
+                        }
+
+                        // :: Outstanding SENDs and REQUESTs - these are container objects, having the envelope as a key
+                        for (let key in _outstandingSendsAndRequests) {
+                            // noinspection JSUnfilteredForInLoop: Using Object.create(null)
+                            let outstandingSendOrRequest = _outstandingSendsAndRequests[key];
+                            let sendOrRequestEnvelope = outstandingSendOrRequest.envelope;
+                            // ?: Is the RetransmitGuard the same as we currently have?
+                            if (outstandingSendOrRequest.retransmitGuard === _outstandingSendAndRequest_RetransmitGuard) {
+                                // -> Yes, so it makes little sense in sending these messages again just yet.
+                                if (that.logging) log("The outstandingSendOrRequest with cmid:["+sendOrRequestEnvelope.cmid+"] and TraceId:["+sendOrRequestEnvelope.tid
+                                    +"] was created with the same RetransmitGuard as we currently have ["+_outstandingSendAndRequest_RetransmitGuard+"], thus we don't have to retransmit (at least not yet - not until broken connection).");
+                                continue;
+                            }
+                            // NOTICE: Won't delete it here - that is done when we process the ACK from server
+                            _addEnvelopeToPipeline(sendOrRequestEnvelope);
+                            // Flush for each message, in case the size of the message was of issue why we closed (maybe pipeline was too full).
+                            that.flush();
+                        }
+
                     } else if (envelope.t === "RECEIVED") {
                         // -> RECEIVED-message-from-client (ack/nack/retry/error)
 
@@ -1459,34 +1498,37 @@
                             });
                         }
 
+                        // If this was an ACK for a REPLY from us, delete the outbox:
+                        delete _outstandingReplies[envelope.cmid];
+
+                        // :: Handling if this was an ACK for outstanding SEND or REQUEST
                         let outstandingSendOrRequest = _outstandingSendsAndRequests[envelope.cmid];
                         // ?: Check that we found it.
-                        if (outstandingSendOrRequest === undefined) {
-                            // -> No, the OutstandingSendOrRequest was not present.
+                        if (outstandingSendOrRequest !== undefined) {
+                            // -> Yes, the OutstandingSendOrRequest was present
                             // (Either already handled by fast REPLY, or was an insta-settling in IncomingAuthorizationAndAdapter, which won't send RECEIVED)
-                            continue;
-                        }
-                        // E-> Yes, we had OutstandingSendOrRequest
-                        // Delete it, as we're handling it now
-                        delete _outstandingSendsAndRequests[envelope.cmid];
-                        // ?: Was it a "good" RECEIVED?
-                        if ((envelope.st === undefined) || (envelope.st === "ACK")) {
-                            // -> Yes, it was undefined or "ACK" - so Server was happy.
-                            if (outstandingSendOrRequest.ack) {
-                                outstandingSendOrRequest.ack(_eventFromEnvelope(envelope, receivedTimestamp));
-                            }
-                        } else {
-                            // -> No, it was "ERROR" or "NACK", so message has not been forwarded to Mats
-                            if (outstandingSendOrRequest.nack) {
-                                outstandingSendOrRequest.nack(_eventFromEnvelope(envelope, receivedTimestamp));
-                            }
-                            // ?: Check if it was a REQUEST
-                            if (outstandingSendOrRequest.envelope.t === "REQUEST") {
-                                // -> Yes, this was a REQUEST
-                                // Then we have to reject the REQUEST too - it was never sent to Mats, and will thus never get a Reply
-                                // (Note: This is either a reject for a Promise, or errorCallback on Endpoint).
-                                let requestEnvelope = outstandingSendOrRequest.envelope;
-                                _completeFuture(requestEnvelope.reid, "REJECT", envelope, receivedTimestamp);
+                            // E-> Yes, we had OutstandingSendOrRequest
+                            // Delete it, as we're handling it now
+                            delete _outstandingSendsAndRequests[envelope.cmid];
+                            // ?: Was it a "good" RECEIVED?
+                            if ((envelope.st === undefined) || (envelope.st === "ACK")) {
+                                // -> Yes, it was undefined or "ACK" - so Server was happy.
+                                if (outstandingSendOrRequest.ack) {
+                                    outstandingSendOrRequest.ack(_eventFromEnvelope(envelope, receivedTimestamp));
+                                }
+                            } else {
+                                // -> No, it was "ERROR" or "NACK", so message has not been forwarded to Mats
+                                if (outstandingSendOrRequest.nack) {
+                                    outstandingSendOrRequest.nack(_eventFromEnvelope(envelope, receivedTimestamp));
+                                }
+                                // ?: Check if it was a REQUEST
+                                if (outstandingSendOrRequest.envelope.t === "REQUEST") {
+                                    // -> Yes, this was a REQUEST
+                                    // Then we have to reject the REQUEST too - it was never sent to Mats, and will thus never get a Reply
+                                    // (Note: This is either a reject for a Promise, or errorCallback on Endpoint).
+                                    let requestEnvelope = outstandingSendOrRequest.envelope;
+                                    _completeFuture(requestEnvelope.reid, "REJECT", envelope, receivedTimestamp);
+                                }
                             }
                         }
                     } else if (envelope.t === "ACKACK") {
@@ -1494,7 +1536,7 @@
                         if (!envelope.smid) {
                             // -> No, we do not have this. Programming error from app.
                             error("ACKACK: missing smid", "The ACKACK envelope is missing 'smid'", envelope);
-                            return;
+                            continue;
                         }
                         // Delete it from inbox - that is what ACKACK means: Other side has now deleted it from outbox,
                         // and can thus not ever deliver it again (so we can delete the guard against double delivery).
@@ -1512,7 +1554,7 @@
                         if (!envelope.smid) {
                             // -> No, we do not have this. Programming error from app.
                             error("SEND: missing smid", "The SEND envelope is missing 'smid'", envelope);
-                            return;
+                            continue;
                         }
 
                         // Find the (client) Terminator which the Send should go to
@@ -1533,7 +1575,7 @@
                         if (terminator === undefined) {
                             // -> No, we do not have this. Programming error from app.
                             error("missing client Terminator", "The Client Terminator [" + envelope.eid + "] does not exist!!", envelope);
-                            return;
+                            continue;
                         }
                         // E-> We found the Terminator to tell
 
@@ -1541,7 +1583,7 @@
                         if (_inbox[envelope.smid]) {
                             // -> Yes, so this was a double delivery. Drop processing, we've already done it.
                             log("Caught double delivery of SEND with smid:[" + envelope.smid + "], have sent RECEIVED, but won't process again.", envelope);
-                            return;
+                            continue;
                         }
 
                         // Add the message to inbox
@@ -1556,7 +1598,7 @@
                         if (!envelope.smid) {
                             // -> No, we do not have this. Programming error from app.
                             error("REQUEST: missing smid", "The REQUEST envelope is missing 'smid'.", envelope);
-                            return;
+                            continue;
                         }
 
                         // Find the (client) Endpoint which the Request should go to
@@ -1577,7 +1619,7 @@
                         if (endpoint === undefined) {
                             // -> No, we do not have this. Programming error from app.
                             error("missing client Endpoint", "The Client Endpoint [" + envelope.eid + "] does not exist!!", envelope);
-                            return;
+                            continue;
                         }
                         // E-> We found the Endpoint to request!
 
@@ -1585,7 +1627,7 @@
                         if (_inbox[envelope.smid]) {
                             // -> Yes, so this was a double delivery. Drop processing, we've already done it.
                             log("Caught double delivery of REQUEST with smid:[" + envelope.smid + "], have sent RECEIVED, but won't process again.", envelope);
-                            return;
+                            continue;
                         }
 
                         // Add the message to inbox
@@ -1606,6 +1648,9 @@
                             };
                             // Add the message Sequence Id
                             replyEnvelope.cmid = _messageSequenceId++;
+                            // Add it to outbox
+                            _outstandingReplies[replyEnvelope.cmid] = replyEnvelope;
+                            // Send it over the wire
                             _addEnvelopeToPipeline(replyEnvelope);
                         };
 
