@@ -312,6 +312,9 @@
             });
         });
 
+        // TODO: Check ConnectionEventListeners, including matsSocket.state
+        // TODO: Check SessionClosedEventListener
+
 
         describe("requests handled in replyAdapter", function () {
             // Set a valid authorization before each request

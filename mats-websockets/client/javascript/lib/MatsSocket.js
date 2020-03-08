@@ -469,7 +469,7 @@
 
             // Evaluate whether there are stuff in the pipeline that should be sent now.
             // (Not-yet-sent HELLO does not count..)
-            evaluatePipelineSend();
+            _evaluatePipelineSend();
         };
 
         /**
@@ -512,7 +512,7 @@
 
             // Evaluate whether there are stuff in the pipeline that should be sent now.
             // (Not-yet-sent HELLO does not count..)
-            evaluatePipelineSend();
+            _evaluatePipelineSend();
         };
 
         /**
@@ -670,7 +670,7 @@
                 };
             }
 
-            addEnvelopeToPipeline(envelope);
+            _addEnvelopeToPipeline(envelope);
         };
 
         /**
@@ -683,7 +683,7 @@
                 clearTimeout(_evaluatePipelineLater_timeoutId);
                 _evaluatePipelineLater_timeoutId = undefined;
             }
-            evaluatePipelineSend();
+            _evaluatePipelineSend();
         };
 
         /**
@@ -715,20 +715,20 @@
          */
         this.close = function (reason) {
             // Fetch properties we need before clearing state
-            let currentWsUrl = currentWebSocketUrl();
+            let currentWsUrl = _currentWebSocketUrl();
             let existingSessionId = _sessionId;
             let webSocket = _webSocket;
             log("close(): Closing MatsSocketSession, id:[" + existingSessionId + "] due to [" + reason
                 + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
 
             // :: Remove beforeunload eventlistener
-            deregisterBeforeunload();
+            _deregisterBeforeunload();
 
             // :: Close Session, Clear all state of this MatsSocket.
-            closeSessionClearStateAndPipelineAndFuturesAndOutstandingMessages("client close session");
+            _closeSessionClearStateAndPipelineAndFuturesAndOutstandingMessages("client close session");
 
             // :: In-band session close
-            closeWebSocket(webSocket, existingSessionId, MatsSocketCloseCodes.CLOSE_SESSION, reason);
+            _closeWebSocket(webSocket, existingSessionId, MatsSocketCloseCodes.CLOSE_SESSION, reason);
 
             // :: Out-of-band session close
             // ?: Do we have a sessionId?
@@ -765,7 +765,7 @@
         this.reconnect = function (reason) {
             log("reconnect(): Closing WebSocket with CloseCode 'RECONNECT (" + MatsSocketCloseCodes.RECONNECT
                 + ")', MatsSocketSessionId:[" + _sessionId + "] due to [" + reason + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
-            closeWebSocket(_webSocket, _sessionId, MatsSocketCloseCodes.RECONNECT, "client close session");
+            _closeWebSocket(_webSocket, _sessionId, MatsSocketCloseCodes.RECONNECT, "client close session");
         };
 
         /**
@@ -787,41 +787,9 @@
         // PRIVATE
         // ==============================================================================================
 
-        /**
-         * <b>YOU SHOULD PROBABLY NOT USE THIS!</b>, instead using the specific prototype methods for generating messages.
-         * Add a message to the outgoing pipeline, evaluates whether to send the pipeline afterwards (i.e. if pipelining
-         * is active or not).
-         */
-        function addEnvelopeToPipeline(envelope) {
-            _pipeline.push(envelope);
-            if (that.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
-            evaluatePipelineLater()
-        }
-
-        let _evaluatePipelineLater_timeoutId = undefined;
-
-        function evaluatePipelineLater() {
-            if (_evaluatePipelineLater_timeoutId) {
-                clearTimeout(_evaluatePipelineLater_timeoutId);
-            }
-            _evaluatePipelineLater_timeoutId = setTimeout(function () {
-                evaluatePipelineSend();
-                _evaluatePipelineLater_timeoutId = undefined;
-            }, 2)
-        }
-
-        function closeWebSocket(webSocket, sessionId, closeCodeNumber, reason) {
-            // ?: Do we have WebSocket?
-            let closeCodeName = MatsSocketCloseCodes.nameFor(closeCodeNumber);
-            if (webSocket) {
-                // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
-                log(" \\-> WebSocket is open, so we close it with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
-                // Perform the close
-                webSocket.close(closeCodeNumber, reason);
-            } else if (sessionId) {
-                log(" \\-> WebSocket NOT open, so CANNOT close in-band with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
-            } else {
-                log(" \\-> Missing both WebSocket and MatsSocketSessionId, so CANNOT close in-band with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
+        function log() {
+            if (that.logging) {
+                console.log.apply(console, arguments);
             }
         }
 
@@ -833,30 +801,10 @@
             }
         }
 
-        function log() {
-            if (that.logging) {
-                console.log.apply(console, arguments);
-            }
-        }
-
-        function invokeLater(that) {
-            setTimeout(that, 0);
-        }
-
-        // https://stackoverflow.com/a/12646864/39334
-        function shuffleArray(array) {
-            for (let i = array.length - 1; i > 0; i--) {
-                let j = Math.floor(Math.random() * (i + 1));
-                let temp = array[i];
-                array[i] = array[j];
-                array[j] = temp;
-            }
-        }
-
         // The URLs to use - will be shuffled. Can be reset to not randomized by this.disableUrlRandomize()
         let _useUrls = [].concat(urls);
         // Shuffle the URLs
-        shuffleArray(_useUrls);
+        _shuffleArray(_useUrls);
 
         // alphabet length: 10 + 26 x 2 = 62.
         let _alphabet = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -893,27 +841,78 @@
         // Outstanding SEND and RECEIVE messages waiting for Received ACK/ERROR/NACK
         const _outstandingSendsAndRequests = Object.create(null);
 
-        function beforeunloadHandler() {
-            that.close(clientLibNameAndVersion + " window.onbeforeunload close");
+        /**
+         * Unconditionally adds the supplied envelope to the pipeline, and then evaluates the pipeline,
+         * invokeLater-style so as to get "auth-pipelining". Use flush() to get sync send.
+         */
+        function _addEnvelopeToPipeline(envelope) {
+            _pipeline.push(envelope);
+            if (that.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
+            _evaluatePipelineLater()
         }
 
-        function registerBeforeunload() {
-            // ?: Is the self object an EventTarget (ie. window in a Browser context)
-            if (typeof (self) === 'object' && typeof (self.addEventListener) === 'function') {
-                // Yes -> Add "onbeforeunload" event listener to shut down the MatsSocket cleanly (closing session) when user navigates away from page.
-                self.addEventListener("beforeunload", beforeunloadHandler);
+        let _evaluatePipelineLater_timeoutId = undefined;
+
+        function _evaluatePipelineLater() {
+            if (_evaluatePipelineLater_timeoutId) {
+                clearTimeout(_evaluatePipelineLater_timeoutId);
+            }
+            _evaluatePipelineLater_timeoutId = setTimeout(function () {
+                _evaluatePipelineSend();
+                _evaluatePipelineLater_timeoutId = undefined;
+            }, 2)
+        }
+
+        function _closeWebSocket(webSocket, sessionId, closeCodeNumber, reason) {
+            // ?: Do we have WebSocket?
+            let closeCodeName = MatsSocketCloseCodes.nameFor(closeCodeNumber);
+            if (webSocket) {
+                // -> Yes, so close WebSocket with MatsSocket-specific CloseCode 4000.
+                log(" \\-> WebSocket is open, so we close it with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
+                // Perform the close
+                webSocket.close(closeCodeNumber, reason);
+            } else if (sessionId) {
+                log(" \\-> WebSocket NOT open, so CANNOT close in-band with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
+            } else {
+                log(" \\-> Missing both WebSocket and MatsSocketSessionId, so CANNOT close in-band with MatsSocketCloseCode " + closeCodeName + "(" + closeCodeNumber + ").");
             }
         }
 
-        function deregisterBeforeunload() {
+        function _invokeLater(that) {
+            setTimeout(that, 0);
+        }
+
+        // https://stackoverflow.com/a/12646864/39334
+        function _shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                let j = Math.floor(Math.random() * (i + 1));
+                let temp = array[i];
+                array[i] = array[j];
+                array[j] = temp;
+            }
+        }
+
+        function _beforeunloadHandler() {
+            that.close(clientLibNameAndVersion + " window.onbeforeunload close");
+        }
+
+        function _registerBeforeunload() {
+            // ?: Is the self object an EventTarget (ie. window in a Browser context)
             if (typeof (self) === 'object' && typeof (self.addEventListener) === 'function') {
-                self.removeEventListener("beforeunload", beforeunloadHandler);
+                // Yes -> Add "onbeforeunload" event listener to shut down the MatsSocket cleanly (closing session) when user navigates away from page.
+                self.addEventListener("beforeunload", _beforeunloadHandler);
+            }
+        }
+
+        function _deregisterBeforeunload() {
+            if (typeof (self) === 'object' && typeof (self.addEventListener) === 'function') {
+                self.removeEventListener("beforeunload", _beforeunloadHandler);
             }
         }
 
         const userAgent = (typeof (self) === 'object' && typeof (self.navigator) === 'object') ? self.navigator.userAgent : "Unknown";
 
-        function closeSessionClearStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
+        function _closeSessionClearStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
             if (_webSocket) {
                 // We don't want the onclose callback invoked from this event that we initiated ourselves.
                 _webSocket.onclose = undefined;
@@ -970,7 +969,7 @@
         /**
          * Sends pipelined messages if pipelining is not engaged.
          */
-        function evaluatePipelineSend() {
+        function _evaluatePipelineSend() {
             // ?: Are there any messages in pipeline, or should we force processing to get HELLO due to reconnect.
             if ((_pipeline.length === 0) && !_reconnect_ForceSendHello) {
                 // -> No, no message in pipeline, and we should not force processing to get HELLO
@@ -1034,7 +1033,7 @@
             if (_webSocket === undefined) {
                 log("evaluatePipelineSend(): WebSocket is not present, so initiate creation. Cannot send yet.");
                 // -> No, so go get it.
-                initiateWebSocketCreation();
+                _initiateWebSocketCreation();
                 // Returning now, as opening is async. When the socket opens, it will re-run 'evaluatePipelineSend()'.
                 return;
             }
@@ -1111,17 +1110,17 @@
         let _connectionTimeoutMin = _useUrls.length > 1 ? _connectionTimeoutBase : _connectionTimeoutMinIfSingleUrl;
         let _connectionTimeoutMax = 15000; // Milliseconds max between connection attempts.
 
-        function currentWebSocketUrl() {
+        function _currentWebSocketUrl() {
             log("## Using urlIndexCurrentlyConnecting [" + _urlIndexCurrentlyConnecting + "]: " + _useUrls[_urlIndexCurrentlyConnecting] + ", round:" + _connectionAttemptRound);
             return _useUrls[_urlIndexCurrentlyConnecting];
         }
 
-        function secondsTenths(milliseconds) {
+        function _secondsTenths(milliseconds) {
             // Rounds to tenth of second, e.g. 2730 -> 2.7.
             return Math.round(((milliseconds) / 100)) / 10;
         }
 
-        function resetReconnectStateVars() {
+        function _resetReconnectStateVars() {
             _urlIndexCurrentlyConnecting = 0;
             _connectionAttemptRound = 0;
         }
@@ -1152,7 +1151,7 @@
             }
         }
 
-        function initiateWebSocketCreation() {
+        function _initiateWebSocketCreation() {
             // ?: Assert that we do not have the WebSocket already
             if (_webSocket !== undefined) {
                 // -> Damn, we did have a WebSocket. Why are we here?!
@@ -1175,10 +1174,10 @@
             };
 
             // About to create WebSocket, so notify our listeners about this.
-            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTING, currentWebSocketUrl(), undefined, secondsTenths(timeout), secondsLeft()));
+            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTING, _currentWebSocketUrl(), undefined, _secondsTenths(timeout), secondsLeft()));
 
             // Create the WebSocket
-            let websocket = socketFactory(currentWebSocketUrl(), "matssocket");
+            let websocket = socketFactory(_currentWebSocketUrl(), "matssocket");
 
             let increaseReconnectStateVars = function () {
                 _urlIndexCurrentlyConnecting++;
@@ -1201,22 +1200,22 @@
                 if (currentCountdownTargetTimestamp >= targetTimeoutTimestamp) {
                     // -> Yes, we've hit target, so this did not work out.
                     // :: Bad attempt, clear this WebSocket out
-                    log("Create WebSocket: Timeout exceeded [" + timeout + "], URL [" + currentWebSocketUrl() + "] is bad so ditch it.");
+                    log("Create WebSocket: Timeout exceeded [" + timeout + "], URL [" + _currentWebSocketUrl() + "] is bad so ditch it.");
                     // Clear out the handlers
                     websocket.onopen = undefined;
                     websocket.onerror = undefined;
                     websocket.onclose = undefined;
                     // Close the current WebSocket connection attempt (i.e. abort connect if still trying).
                     websocket.close(4999, "WebSocket connect timeout");
-                    // Invoke after a small random number of millis: Bump reconnect state vars, re-run initiateWebSocketCreation
+                    // Invoke after a small random number of millis: Bump reconnect state vars, re-run _initiateWebSocketCreation
                     setTimeout(function () {
                         increaseReconnectStateVars();
-                        initiateWebSocketCreation()
+                        _initiateWebSocketCreation()
                     }, Math.round(Math.random() * 200));
                 } else {
                     // -> No, we've NOT hit target, so sleep till next countdown target, where we re-invoke ourselves (this countDownTimer())
                     // Notify ConnectionEvent listeners about this COUNTDOWN event.
-                    _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.COUNTDOWN, currentWebSocketUrl(), undefined, secondsTenths(timeout), secondsLeft()));
+                    _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.COUNTDOWN, _currentWebSocketUrl(), undefined, _secondsTenths(timeout), secondsLeft()));
                     let sleep = Math.max(5, currentCountdownTargetTimestamp - Date.now());
                     countdownId = setTimeout(function () {
                         countDownTimer();
@@ -1236,7 +1235,7 @@
             // Close: Log + IF this is the first "round" AND there is multiple URLs, then immediately try the next URL. (Close may happen way before the Connection Timeout)
             websocket.onclose = function (closeEvent) {
                 log("Create WebSocket: close. Code:" + closeEvent.code + ", Reason:" + closeEvent.reason, closeEvent);
-                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.WAITING, currentWebSocketUrl(), closeEvent, secondsTenths(timeout), secondsLeft()));
+                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.WAITING, _currentWebSocketUrl(), closeEvent, _secondsTenths(timeout), secondsLeft()));
 
                 // ?: If we are on the FIRST (0th) round of trying out the different URLs, then immediately try the next
                 // .. But only if there are multiple URLs configured.
@@ -1244,10 +1243,10 @@
                     // -> YES, we are on the 0th round of connection attempts, and there are multiple URLs, so immediately try the next.
                     // Cancel the "connection timeout" thingy
                     clearTimeout(countdownId);
-                    // Invoke on next tick: Bump state vars, re-run initiateWebSocketCreation
-                    invokeLater(function () {
+                    // Invoke on next tick: Bump state vars, re-run _initiateWebSocketCreation
+                    _invokeLater(function () {
                         increaseReconnectStateVars();
-                        initiateWebSocketCreation()
+                        _initiateWebSocketCreation()
                     });
                 }
                 // E-> NO, we are either not on the 0th round of attempts, OR there is just a single URL.
@@ -1260,7 +1259,7 @@
                 // Cancel the "connection timeout" thingy
                 clearTimeout(countdownId);
 
-                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTED, currentWebSocketUrl(), event, undefined, undefined));
+                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTED, _currentWebSocketUrl(), event, undefined, undefined));
 
 
                 // TODO: Implement reissue!
@@ -1278,12 +1277,12 @@
                 websocket.onclose = _onclose;
                 websocket.onmessage = _onmessage;
 
-                registerBeforeunload();
+                _registerBeforeunload();
 
                 // Fire off any waiting messages, next tick
-                invokeLater(function () {
+                _invokeLater(function () {
                     log("Running evaluatePipelineSend()..");
-                    evaluatePipelineSend();
+                    _evaluatePipelineSend();
                 });
             };
         }
@@ -1291,7 +1290,7 @@
         function _onerror(event) {
             error("websocket.onerror", "Got 'onerror' error", event);
             // :: Synchronously notify our ConnectionEvent listeners.
-            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTION_ERROR, currentWebSocketUrl(), event, undefined, undefined));
+            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTION_ERROR, _currentWebSocketUrl(), event, undefined, undefined));
         }
 
         function _onclose(closeEvent) {
@@ -1299,7 +1298,7 @@
             // Ditch this WebSocket
             _webSocket = undefined;
             // Reset our reconnect state variables, so that we start on 0th URL and 0th round.
-            resetReconnectStateVars();
+            _resetReconnectStateVars();
 
             // ?: Special codes, that signifies that we should close (terminate) the MatsSocketSession.
             if ((closeEvent.code === MatsSocketCloseCodes.UNEXPECTED_CONDITION)
@@ -1311,7 +1310,7 @@
                 error("session closed from server", "The WebSocket was closed with a CloseCode [" + MatsSocketCloseCodes.nameFor(closeEvent.code) + "] signifying that our MatsSocketSession is closed, reason:[" + closeEvent.reason + "].", closeEvent);
 
                 // Close Session, Clear all state.
-                closeSessionClearStateAndPipelineAndFuturesAndOutstandingMessages(closeEvent.reason);
+                _closeSessionClearStateAndPipelineAndFuturesAndOutstandingMessages(closeEvent.reason);
 
                 // :: Synchronously notify our SessionClosedEvent listeners
                 // NOTE: This shall only happen if Close Session is from ServerSide (that is, here), otherwise, if the app invoked matsSocket.close(), one would think the app knew about the close itself..!
@@ -1330,11 +1329,11 @@
                 _reconnect_ForceSendHello = true;
 
                 // :: Synchronously notify our ConnectionEvent listeners.
-                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.LOST_CONNECTION, currentWebSocketUrl(), closeEvent, undefined, undefined));
+                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.LOST_CONNECTION, _currentWebSocketUrl(), closeEvent, undefined, undefined));
 
                 // :: Start reconnecting, but give the server a little time to settle
                 setTimeout(function () {
-                    initiateWebSocketCreation();
+                    _initiateWebSocketCreation();
                 }, 200 + Math.round(Math.random() * 200));
             }
         }
@@ -1366,7 +1365,7 @@
                     if (envelope.t === "WELCOME") {
                         _sessionId = envelope.sid;
                         // :: Synchronously notify our ConnectionEvent listeners.
-                        _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.SESSION_ESTABLISHED, currentWebSocketUrl(), undefined, undefined, undefined));
+                        _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.SESSION_ESTABLISHED, _currentWebSocketUrl(), undefined, undefined, undefined));
                         if (that.logging) log("We're WELCOME! Session:" + envelope.st + ", SessionId:" + _sessionId);
                     } else if (envelope.t === "RECEIVED") {
                         // -> RECEIVED-message-from-client (ack/nack/retry/error)
@@ -1374,7 +1373,7 @@
                         // ?: Do server want receipt of the RECEIVED-from-client, indicated by the message having 'cmid' property?
                         if (envelope.cmid && (envelope.st !== "ERROR")) {
                             // -> Yes, so send RECEIVED to server
-                            addEnvelopeToPipeline({
+                            _addEnvelopeToPipeline({
                                 t: "ACKACK",
                                 cmid: envelope.cmid,
                             });
@@ -1442,7 +1441,7 @@
                         if (!terminator) {
                             ackEnvelope.desc = "The Client Terminator [" + envelope.eid + "] does not exist!"
                         }
-                        addEnvelopeToPipeline(ackEnvelope);
+                        _addEnvelopeToPipeline(ackEnvelope);
 
                         // ?: Do we have the desired Terminator?
                         if (terminator === undefined) {
@@ -1486,7 +1485,7 @@
                         if (!endpoint) {
                             ackEnvelope.desc = "The Client Endpoint [" + envelope.eid + "] does not exist!"
                         }
-                        addEnvelopeToPipeline(ackEnvelope);
+                        _addEnvelopeToPipeline(ackEnvelope);
 
                         // ?: Do we have the desired Terminator?
                         if (endpoint === undefined) {
@@ -1521,7 +1520,7 @@
                             };
                             // Add the message Sequence Id
                             replyEnvelope.cmid = _messageSequenceId++;
-                            addEnvelopeToPipeline(replyEnvelope);
+                            _addEnvelopeToPipeline(replyEnvelope);
                         };
 
                         // Invoke the Endpoint, getting a Promise back.
@@ -1539,7 +1538,7 @@
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
                         if (envelope.smid) {
                             // -> Yes, so send RECEIVED to server
-                            addEnvelopeToPipeline({
+                            _addEnvelopeToPipeline({
                                 t: "RECEIVED",
                                 st: "ACK",
                                 smid: envelope.smid
