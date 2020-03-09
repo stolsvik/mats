@@ -49,25 +49,25 @@ task dartTest(dependsOn: startMatsTestWebsocketServer) {
             args = ['get']
         }
 
-        exec {
-            def os = org.gradle.internal.os.OperatingSystem.current();
-            executable os.getScriptName("$dartSdkPath/bin/pub")
-            workingDir "$projectDir/client/dart"
-            environment("MATS_SOCKET_URLS", startMatsTestWebsocketServer.wsUrls.join(","))
-
-            // logging.level returns null, so we need to check which log level is enabled to pass
-            // on to the tests, so that they log if needed.
-            if (logger.isEnabled(LogLevel.DEBUG)) {
-                environment("LOG_LEVEL", "DEBUG")
-            }
-            else if (logger.isEnabled(LogLevel.INFO)) {
-                environment("LOG_LEVEL", "INFO")
-            }
-            else {
-                environment("LOG_LEVEL", "SEVERE")
-            }
-            args = ['run', 'test', 'test/integration.dart', 'test/unit.dart']
-        }
+//        exec {
+//            def os = org.gradle.internal.os.OperatingSystem.current();
+//            executable os.getScriptName("$dartSdkPath/bin/pub")
+//            workingDir "$projectDir/client/dart"
+//            environment("MATS_SOCKET_URLS", startMatsTestWebsocketServer.wsUrls.join(","))
+//
+//            // logging.level returns null, so we need to check which log level is enabled to pass
+//            // on to the tests, so that they log if needed.
+//            if (logger.isEnabled(LogLevel.DEBUG)) {
+//                environment("LOG_LEVEL", "DEBUG")
+//            }
+//            else if (logger.isEnabled(LogLevel.INFO)) {
+//                environment("LOG_LEVEL", "INFO")
+//            }
+//            else {
+//                environment("LOG_LEVEL", "SEVERE")
+//            }
+//            args = ['run', 'test', 'test/integration.dart', 'test/unit.dart']
+//        }
 
     }
 }
