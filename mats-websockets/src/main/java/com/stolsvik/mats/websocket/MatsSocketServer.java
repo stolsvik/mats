@@ -214,7 +214,9 @@ public interface MatsSocketServer {
         String getTraceId();
 
         /**
-         * @return the {@link MessageType} of the message being processed - either SEND, REQUEST or REPLY.
+         * @return the {@link MessageType} of the message being processed - either {@link MessageType#SEND SEND},
+         *         {@link MessageType#REQUEST REQUEST}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT
+         *         REJECT} (the two latter are Reply-types to a previous REQUEST).
          */
         MessageType getMessageType();
 
@@ -222,15 +224,6 @@ public interface MatsSocketServer {
          * @return the incoming MatsSocket Message.
          */
         I getMatsSocketIncomingMessage();
-
-        /**
-         * If this is a Client Reply from a Server-to-Client
-         * {@link MatsSocketServer#request(String, String, String, Object, String, String, byte[]) request}, and the
-         * Reply is a RESOLVE, this returns <code>true</code>, otherwise <code>false</code>.
-         *
-         * @return <code>true</code> if this message is a RESOLVE Reply from the Client, <code>false</code> otherwise.
-         */
-        boolean isReplyResolve();
 
         /**
          * If this is a Client Reply from a Server-to-Client
@@ -270,7 +263,8 @@ public interface MatsSocketServer {
          * <p/>
          * If the {@link #getMessageType() MessageType} of the incoming message from the Client is
          * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
-         * {@link MessageType#SEND SEND} or {@link MessageType#REPLY REPLY}, it will be a Mats send(..) message.
+         * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
+         * will be a Mats send(..) message.
          *
          * TODO: What about timeout? Must be implemented client side.
          */
@@ -284,7 +278,8 @@ public interface MatsSocketServer {
          * <p/>
          * If the {@link #getMessageType() MessageType} of the incoming message from the Client is
          * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
-         * {@link MessageType#SEND SEND} or {@link MessageType#REPLY REPLY}, it will be a Mats send(..) message.
+         * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
+         * will be a Mats send(..) message.
          */
         void forwardInteractivePersistent(MI matsMessage);
 
@@ -297,7 +292,8 @@ public interface MatsSocketServer {
          * <p/>
          * If the {@link #getMessageType() MessageType} of the incoming message from the Client is
          * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
-         * {@link MessageType#SEND SEND} or {@link MessageType#REPLY REPLY}, it will be a Mats send(..) message.
+         * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
+         * will be a Mats send(..) message.
          *
          * @param matsMessage
          *            the message to send to the Mats Endpoint.
@@ -329,24 +325,6 @@ public interface MatsSocketServer {
         void reject(R matsSocketRejectMessage);
     }
 
-    enum MessageType {
-        /**
-         * The sender sends a "fire and forget" style message.
-         */
-        SEND,
-
-        /**
-         * The sender initiates a request, to which a {@link #REPLY} message is expected.
-         */
-        REQUEST,
-
-        /**
-         * A reply to a previous {@link #REQUEST} - if the Client did the {@code REQUEST}, the Server will answer with a
-         * {@code REPLY}.
-         */
-        REPLY
-    }
-
     interface MatsSocketEndpointReplyContext<MR, R> extends MatsSocketEndpointContext {
         /**
          * @return the {@link DetachedProcessContext} of the Mats incoming handler.
@@ -373,8 +351,103 @@ public interface MatsSocketServer {
         void reject(R matsSocketRejectMessage);
     }
 
+    enum MessageType {
+        /**
+         * A HELLO message must be part of the first Pipeline of messages, preferably alone. One of the messages in the
+         * first Pipeline must have the "auth" field set, and it might as well be the HELLO.
+         */
+        HELLO,
+
+        /**
+         * The reply to a {@link #HELLO}, where the MatsSocketSession is established, and the MatsSocketSessionId is
+         * returned. If you included a MatsSocketSessionId in the HELLO, signifying that you want to reconnect to an
+         * existing session, and you actually get a WELCOME back, it will be the same as what you provided - otherwise
+         * the connection is closed with {@link MatsSocketCloseCodes#SESSION_LOST}.
+         */
+        WELCOME,
+
+        /**
+         * The sender sends a "fire and forget" style message.
+         */
+        SEND,
+
+        /**
+         * The sender initiates a request, to which a {@link #RESOLVE} or {@link #REJECT} message is expected.
+         */
+        REQUEST,
+
+        /**
+         * The sender should retry the message (the receiver could not handle it right now, but a Retry might fix it).
+         */
+        RETRY,
+
+        /**
+         * The message was Received, and acknowledged positively - i.e. it has acted on it.
+         * <p/>
+         * The sender has now taken over responsibility of this message, put it (at least the reference ClientMessageId)
+         * in its Inbox, and possibly acted on it. The reason for the Inbox is so that if it Receives the message again,
+         * it may just insta-ACK/NACK it and toss this copy out the window (since it has already handled it).
+         * <p/>
+         * When the receive gets this, it may safely delete the message from its Outbox.
+         */
+        ACK,
+
+        /**
+         * The message was Received, but it did not acknowledge it - i.e. it has NOT acted on it.
+         * <p/>
+         * The sender has now taken over responsibility of this message, put it (at least the reference ClientMessageId)
+         * in its Inbox, and possibly acted on it. The reason for the Inbox is so that if it Receives the message again,
+         * it may just insta-ACK/NACK it and toss this copy out the window (since it has already handled it).
+         * <p/>
+         * When the receive gets this, it may safely delete the message from its Outbox.
+         */
+        NACK,
+
+        /**
+         * A RESOLVE-reply to a previous {@link #REQUEST} - if the Client did the {@code REQUEST}, the Server will
+         * answer with either a RESOLVE or {@link #REJECT}.
+         */
+        RESOLVE,
+
+        /**
+         * A REJECT-reply to a previous {@link #REQUEST} - if the Client did the {@code REQUEST}, the Server will answer
+         * with either a REJECT or {@link #RESOLVE}.
+         */
+        REJECT,
+
+        /**
+         * An "Acknowledge ^ 2", i.e. an acknowledge of the {@link #ACK} or {@link #NACK}. When the receiver gets this,
+         * it may safely delete the entry it has for this message from its Inbox.
+         */
+        ACK2,
+
+        /**
+         * The server requests that the client re-authenticates, where the client should immediately get a fresh
+         * authentication and back using either any message it has pending, or in a separate {@link #AUTH} message.
+         */
+        REAUTH,
+
+        /**
+         * From Client: The client can use a separate AUTH message to send over the requested {@link #REAUTH} (it could
+         * just as well put the 'auth' in a PING or any other message it had pending).
+         */
+        AUTH,
+
+        /**
+         * A PING, to which a {@link #PONG} is expected.
+         */
+        PING,
+
+        /**
+         * A Reply to a {@link #PING}.
+         */
+        PONG,
+    }
+
     /**
      * WebSocket CloseCodes used in MatsSocket, and for what. Using both standard codes, and app-specific/defined codes.
+     * <p/>
+     * Note: Plural "Codes" since that is what the JSR 356 Java WebSocket API does..!
      */
     enum MatsSocketCloseCodes implements CloseCode {
         /**

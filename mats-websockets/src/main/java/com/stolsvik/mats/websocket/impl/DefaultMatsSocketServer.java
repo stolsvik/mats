@@ -1,5 +1,10 @@
 package com.stolsvik.mats.websocket.impl;
 
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.REJECT;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.REQUEST;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RESOLVE;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.SEND;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -372,7 +377,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         String serverMessageId = serverMessageId();
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
-        msReplyEnvelope.t = "SEND";
+        msReplyEnvelope.t = SEND;
         msReplyEnvelope.eid = clientTerminatorId;
         msReplyEnvelope.smid = serverMessageId;
         msReplyEnvelope.tid = traceId;
@@ -403,7 +408,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         String serverMessageId = serverMessageId();
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
-        msReplyEnvelope.t = "REQUEST";
+        msReplyEnvelope.t = REQUEST;
         msReplyEnvelope.eid = clientEndpointId;
         msReplyEnvelope.reid = replyToMatsSocketTerminatorId;
         msReplyEnvelope.smid = serverMessageId;
@@ -1058,7 +1063,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         Object matsReply = incomingMsg.toClass(registration._matsReplyClass);
 
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
-        msReplyEnvelope.t = "REPLY";
         Object msReply;
         if (registration._replyAdapter != null) {
             MatsSocketEndpointReplyContextImpl replyContext = new MatsSocketEndpointReplyContextImpl(
@@ -1066,21 +1070,21 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             try {
                 registration._replyAdapter.adaptReply(replyContext, matsReply);
                 msReply = replyContext._matsSocketReplyMessage;
-                msReplyEnvelope.st = replyContext._resolved ? "RESOLVE" : "REJECT";
-                log.info("ReplyAdapter resolved with [" + msReplyEnvelope.st + "]");
+                msReplyEnvelope.t = replyContext._resolved ? RESOLVE : REJECT;
+                log.info("ReplyAdapter replied with [" + msReplyEnvelope.t + "]");
             }
             catch (RuntimeException rte) {
                 log.warn("ReplyAdapter raised [" + rte.getClass().getSimpleName() + "], settling with REJECT", rte);
                 msReply = null;
                 // TODO: If debug enabled for authenticated user, set description to full stacktrace.
-                msReplyEnvelope.st = "REJECT";
+                msReplyEnvelope.t = REJECT;
             }
         }
         else if (registration._matsReplyClass == registration._msReplyClass) {
             // -> Return same class
             msReply = matsReply;
-            log.info("No ReplyAdapter, so settling with RESOLVE.");
-            msReplyEnvelope.st = "RESOLVE";
+            log.info("No ReplyAdapter, so replying with RESOLVE.");
+            msReplyEnvelope.t = RESOLVE;
         }
         else {
             throw new AssertionError("No adapter present, but the class from Mats ["

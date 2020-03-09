@@ -13,6 +13,7 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -285,7 +286,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
-            String clientMessageId, String traceId, String type, String message) throws DataAccessException {
+            String clientMessageId, String traceId, MessageType type, String message) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("INSERT INTO " + outboxTableName(matsSocketSessionId)
                     + "(session_id, smid, cmid, stored_timestamp,"
@@ -297,7 +298,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             insert.setLong(4, _clock.millis());
             insert.setInt(5, 0);
             insert.setString(6, traceId);
-            insert.setString(7, type);
+            insert.setString(7, type.name());
             insert.setString(8, message);
             insert.execute();
 

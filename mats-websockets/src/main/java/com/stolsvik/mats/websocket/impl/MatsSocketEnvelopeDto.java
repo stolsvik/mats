@@ -9,6 +9,7 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -33,10 +34,9 @@ class MatsSocketEnvelopeDto {
     String eid; // target MatsSocketEndpointId: Which MatsSocket Endpoint (server/client) this message is for
     String reid; // reply MatsSocketEndpointId: Which MatsSocket Endpoint (client/server) to target reply to
 
-    String t; // Type
-    String st; // "SubType": AUTH_FAIL:"enum", EXCEPTION:Classname, MSGERROR:"enum"
-    String desc; // Description of "st" of failure, exception message, multiline, may include stacktrace if authz.
-    String inMsg; // On MSGERROR: Incoming Message, BASE64 encoded.
+    MessageType t; // Type
+    String desc; // Description when failure (NACK or others), exception message, multiline, may include stacktrace if
+                 // authz.
 
     @JsonDeserialize(using = MessageToStringDeserializer.class)
     Object msg; // Message, JSON
@@ -58,9 +58,14 @@ class MatsSocketEnvelopeDto {
 
     @Override
     public String toString() {
-        return "[" + t + (st == null ? "" : ":" + st) + "]->"
-                + eid + (reid == null ? "" : ",reid:" + reid)
-                + ",tid:" + tid + ",cid:" + cid;
+        return "{" + t
+                + (eid == null ? "" : "->" + eid)
+                + (reid == null ? "" : " " + reid + "<-")
+                + (tid == null ? "" : " tid:" + cmid)
+                + (cid == null ? "" : " cid:" + cmid)
+                + (cmid == null ? "" : " cmid:" + cmid)
+                + (smid == null ? "" : " smid:" + cmid)
+                + "}";
     }
 
     static class DebugDto {

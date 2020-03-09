@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredMessage;
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 
 /**
  * Gets a ping from the node-specific Topic, or when the client reconnects.
@@ -79,9 +80,11 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
     }
 
     void newMessagesInCsafNotify(MatsSocketMessageHandler matsSocketMessageHandler) {
-        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketMessageHandler.getMatsSocketSessionId() + "]");
+        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketMessageHandler.getMatsSocketSessionId()
+                + "]");
         // :: Check if there is an existing handler for this MatsSocketSession
-        String uniqueId = matsSocketMessageHandler.getMatsSocketSessionId() + matsSocketMessageHandler.getConnectionId();
+        String uniqueId = matsSocketMessageHandler.getMatsSocketSessionId() + matsSocketMessageHandler
+                .getConnectionId();
         boolean[] fireOffNewHandler = new boolean[1];
 
         _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
@@ -112,7 +115,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         try { // try-catchAll: Log heavily.
 
             RENOTIFY: while (true) { // LOOP: "Re-notifications"
-                // ?: Should we hold outgoing messages? (Waiting for answer to "REAUTH" from Client)
+                // ?: Should we hold outgoing messages? (Waiting for "AUTH" answer from Client to our "REAUTH" request)
                 if (matsSocketMessageHandler.isHoldOutgoingMessages()) {
                     // -> Yes, so bail out
                     return;
@@ -172,9 +175,9 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     boolean authOk = matsSocketMessageHandler.reevaluateAuthenticationForOutgoingMessage();
                     if (!authOk) {
                         // Send "REAUTH" message, to get Client to send us new auth
-                        matsSocketMessageHandler.webSocketSendText("[{t:\"REAUTH\"}]");
+                        matsSocketMessageHandler.webSocketSendText("[{t:\"" + MessageType.REAUTH + "\"}]");
                         // Bail out and wait for new auth to come in, which will re-start sending.
-                        // NOTICE: The nok-ok return will also have set "holdOutgoingMessages".
+                        // NOTICE: The nok-ok return above will also have set "holdOutgoingMessages".
                         return;
                     }
 

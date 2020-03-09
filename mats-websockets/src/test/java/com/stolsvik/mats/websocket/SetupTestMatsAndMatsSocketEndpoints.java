@@ -238,7 +238,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                     // Send to Client, add whether it was a RESOLVE or REJECT in the message.
                     matsSocketServer.send(ctx.getMatsSocketSessionId(), ctx.getTraceId(),
                             "ClientSide.terminator",
-                            new MatsDataTO(msg.number, msg.string + (ctx.isReplyResolve() ? ":RESOLVE" : ":REJECT"),
+                            new MatsDataTO(msg.number, msg.string + ':' + ctx.getMessageType().name(),
                                     msg.sleepTime));
                 });
     }
@@ -272,7 +272,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                             ctx.getCorrelationBinary());
                     // Forward to the Mats terminator that sends to Client. Pass message directly on.
                     ctx.forwardCustom(msg, init -> {
-                        init.addString("resolveReject", ctx.isReplyResolve() ? "RESOLVE" : "REJECT");
+                        init.addString("resolveReject", ctx.getMessageType().name());
                         init.to("Test.server.sendReplyBackToClient.viaMats");
                     });
                 });

@@ -1,5 +1,7 @@
 package com.stolsvik.mats.websocket;
 
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
+
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -170,7 +172,7 @@ public interface ClusterStoreAndForward {
      * @return the current node holding MatsSocket Session, or empty if none.
      */
     Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
-            String clientMessageId, String traceId, String type, String message) throws DataAccessException;
+            String clientMessageId, String traceId, MessageType type, String message) throws DataAccessException;
 
     /**
      * Fetch a set of messages, up to 'maxNumberOfMessages'.

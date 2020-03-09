@@ -52,7 +52,7 @@
                     }
                     if (cmid !== undefined) {
                         setTimeout(() => {
-                            webSocket.onmessage({data: JSON.stringify([{t: "RECEIVED", cmid: cmid, st: "ACK"}])});
+                            webSocket.onmessage({data: JSON.stringify([{t: "ACK", cmid: cmid}])});
                         }, idx);
                     }
                 });

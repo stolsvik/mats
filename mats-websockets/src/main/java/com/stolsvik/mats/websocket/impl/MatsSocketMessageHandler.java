@@ -1,5 +1,19 @@
 package com.stolsvik.mats.websocket.impl;
 
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.ACK;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.ACK2;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.AUTH;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.HELLO;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.NACK;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.PING;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.PONG;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.REJECT;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.REQUEST;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RESOLVE;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RETRY;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.SEND;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.WELCOME;
+
 import java.io.IOException;
 import java.security.Principal;
 import java.util.ArrayList;
@@ -172,20 +186,21 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 if (envelope.auth != null) {
                     // -> Yes, there was an authorization header sent along with this message
                     newAuthorization = envelope.auth;
-                    log.info("Found authorization header in message of type [" + (envelope.st != null ? envelope.t + ':'
-                            + envelope.st : envelope.t) + "]");
+                    log.info("Found authorization header in message of type [" + envelope.t + "]");
                     // Notify client about "new" (as in existing) messages, just in case there are any.
                     shouldNotifyAboutExistingMessages = true;
                     // Notice: No 'break', as we want to go through all messages and find the latest auth header.
                 }
             }
+            // :: 1b. Remove any specific AUTH message (it ONLY contains the 'auth' property, handled above).
+            envelopes.removeIf(envelope -> envelope.t == AUTH);
 
             // :: 2. Handle any PING messages (send PONG asap).
 
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeDto envelope = it.next();
                 // ?: Is this message a PING?
-                if ("PING".equals(envelope.t)) {
+                if (envelope.t == PING) {
                     // -> Yes, so handle it.
                     // Remove it from the pipeline
                     it.remove();
@@ -198,7 +213,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     }
                     // :: Create PONG message
                     MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
-                    replyEnvelope.t = "PONG";
+                    replyEnvelope.t = PONG;
                     replyEnvelope.cid = envelope.cid;
 
                     // Pack the PONG over to client ASAP.
@@ -262,9 +277,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             // (should be first/alone, but we will reply to it immediately even if part of pipeline).
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeDto envelope = it.next();
-                if ("HELLO".equals(envelope.t)) {
+                if (envelope.t == HELLO) {
                     try { // try-finally: MDC.remove(..)
-                        MDC.put(MDC_MESSAGE_TYPE, (envelope.st != null ? envelope.t + ':' + envelope.st : envelope.t));
+                        MDC.put(MDC_MESSAGE_TYPE, envelope.t.name());
                         // Remove this HELLO envelope from pipeline
                         it.remove();
                         // ?: Have we processed HELLO before?
@@ -298,14 +313,14 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 return;
             }
 
-            List<String> clientHasReceived = null;
-            List<String> ackAckFromClient = null;
+            List<String> clientAcks = null;
+            List<String> clientAck2s = null;
 
             // :: 7. Now go through and handle all the rest of the messages
             List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
             for (MatsSocketEnvelopeDto envelope : envelopes) {
                 try { // try-finally: MDC.remove..
-                    MDC.put(MDC_MESSAGE_TYPE, (envelope.st != null ? envelope.t + ':' + envelope.st : envelope.t));
+                    MDC.put(MDC_MESSAGE_TYPE, envelope.t.name());
                     if (envelope.tid != null) {
                         MDC.put(MDC_TRACE_ID, envelope.tid);
                     }
@@ -313,8 +328,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // :: These are the "information bearing messages" client-to-server, which we need to put in inbox
                     // so that we can catch double-deliveries of same message.
 
-                    // ?: Is this a SEND or REQUEST to us?
-                    if ("SEND".equals(envelope.t) || "REQUEST".equals(envelope.t) || "REPLY".equals(envelope.t)) {
+                    // ?: Is this a incoming SEND or REQUEST, or Reply RESOLVE or REJECT to us?
+                    if ((envelope.t == SEND) || (envelope.t == REQUEST)
+                            || (envelope.t == RESOLVE) || (envelope.t == REJECT)) {
                         boolean ok = handleSendOrRequestOrReply(clientMessageReceivedTimestamp, replyEnvelopes,
                                 envelope);
                         if (!ok) {
@@ -327,16 +343,16 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // :: This is the "client has received an information-bearing message"-message, denoting
                     // that we can delete it from outbox on our side.
 
-                    // ?: Is this a RECEIVED for a message from us?
-                    else if ("RECEIVED".equals(envelope.t)) {
+                    // ?: Is this a ACK or NACK for a message from us?
+                    else if ((envelope.t == ACK) || (envelope.t == NACK)) {
                         if (envelope.smid == null) {
-                            closeWithProtocolError("Received RECEIVED message with missing 'smid.");
+                            closeWithProtocolError("Received " + envelope.t + " message with missing 'smid.");
                             return;
                         }
-                        if (clientHasReceived == null) {
-                            clientHasReceived = new ArrayList<>();
+                        if (clientAcks == null) {
+                            clientAcks = new ArrayList<>();
                         }
-                        clientHasReceived.add(envelope.smid);
+                        clientAcks.add(envelope.smid);
                         // The message is handled, so go to next message.
                         continue;
                     }
@@ -344,16 +360,16 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // :: This is the "client has deleted an information-bearing message from his outbox"-message,
                     // denoting that we can delete it from inbox on our side
 
-                    // ?: Is this a ACKACK for a RECEIVED from us?
-                    else if ("ACKACK".equals(envelope.t)) {
+                    // ?: Is this a ACK2 for a ACK/NACK from us?
+                    else if (envelope.t == ACK2) {
                         if (envelope.cmid == null) {
-                            closeWithProtocolError("Received ACKACK message with missing 'cmid.");
+                            closeWithProtocolError("Received ACK2 message with missing 'cmid.");
                             return;
                         }
-                        if (ackAckFromClient == null) {
-                            ackAckFromClient = new ArrayList<>();
+                        if (clientAck2s == null) {
+                            clientAck2s = new ArrayList<>();
                         }
-                        ackAckFromClient.add(envelope.cmid);
+                        clientAck2s.add(envelope.cmid);
                         // The message is handled, so go to next message.
                         continue;
                     }
@@ -362,8 +378,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
                     else {
                         // -> Unknown message: We're not very lenient her - CLOSE SESSION AND CONNECTION!
-                        log.error("Got an unknown message type [" + envelope.t + (envelope.st != null ? ":"
-                                + envelope.st : "") + "] from client. Answering RECEIVED:ERROR.");
+                        log.error("Got an unknown message type [" + envelope.t
+                                + "] from client. Answering by closing connection with PROTOCOL_ERROR.");
                         closeWithProtocolError("Received unknown message type.");
                         return;
                     }
@@ -397,23 +413,23 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
             // ?: Did we get any RECEIVED?
             // TODO: Make this a bit more nifty, putting such Ids on a queue of sorts, finishing async
-            if (clientHasReceived != null) {
-                log.debug("Got RECEIVED for messages " + clientHasReceived + ".");
+            if (clientAcks != null) {
+                log.debug("Got ACK/NACK for messages " + clientAcks + ".");
                 try {
                     _matsSocketServer.getClusterStoreAndForward().outboxMessagesComplete(_matsSocketSessionId,
-                            clientHasReceived);
+                            clientAcks);
                 }
                 catch (DataAccessException e) {
                     // TODO: Make self-healer thingy.
                     log.warn("Got problems when trying to mark messages as complete. Ignoring, hoping for miracles.");
                 }
 
-                // Send "ACKACK", i.e. "I've now deleted these Ids from my outbox".
+                // Send "ACK2", i.e. "I've now deleted these Ids from my outbox".
                 // TODO: Use the MessageToWebSocketForwarder for this.
-                List<MatsSocketEnvelopeDto> ackAckEnvelopes = new ArrayList<>(clientHasReceived.size());
-                for (String ackSmid : clientHasReceived) {
+                List<MatsSocketEnvelopeDto> ackAckEnvelopes = new ArrayList<>(clientAcks.size());
+                for (String ackSmid : clientAcks) {
                     MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
-                    replyEnvelope.t = "ACKACK";
+                    replyEnvelope.t = ACK2;
                     replyEnvelope.smid = ackSmid;
                     ackAckEnvelopes.add(replyEnvelope);
                 }
@@ -433,11 +449,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
             // ?: Did we get any ACKACK?
             // TODO: Make this a bit more nifty, putting such Ids on a queue of sorts, finishing async
-            if (ackAckFromClient != null) {
-                log.debug("Got ACKACK for messages " + ackAckFromClient + ".");
+            if (clientAck2s != null) {
+                log.debug("Got ACK2 for messages " + clientAck2s + ".");
                 try {
                     _matsSocketServer.getClusterStoreAndForward().deleteMessageIdsFromInbox(_matsSocketSessionId,
-                            ackAckFromClient);
+                            clientAck2s);
                 }
                 catch (DataAccessException e) {
                     // TODO: Make self-healer thingy.
@@ -662,7 +678,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
     }
 
     private boolean handleHello(long clientMessageReceivedTimestamp, MatsSocketEnvelopeDto envelope) {
-        log.info("Handling HELLO:" + envelope.st + "!");
+        log.info("Handling HELLO!");
         // ?: Auth is required - should already have been processed
         if ((_principal == null) || (_authorization == null) || (_userId == null)) {
             // NOTE: This shall really never happen, as the implicit state machine should not have put us in this
@@ -694,12 +710,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         // ----- HELLO was good (and authentication is already performed, earlier in process)
 
         // ?: Do the client want to reconnecting using existing MatsSocketSessionId
-        if ("RECONNECT".equals(envelope.st)) {
-            if (envelope.sid == null) {
-                closeWithProtocolError("Got HELLO:RECONNECT, but missing MatsSocketSessionId"
-                        + " (sid) in HELLO envelope.");
-                return false;
-            }
+        if (envelope.sid != null) {
             log.info("MatsSocketSession Reconnect requested to MatsSocketSessionId [" + envelope.sid + "]");
             // -> Yes, try to find it
 
@@ -806,8 +817,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
         MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
         // Stack it up with props
-        replyEnvelope.t = "WELCOME";
-        replyEnvelope.st = ("RECONNECT".equals(envelope.st) ? "RECONNECTED" : "NEW");
+        replyEnvelope.t = WELCOME;
         replyEnvelope.sid = _matsSocketSessionId;
         replyEnvelope.cid = envelope.cid;
         replyEnvelope.tid = envelope.tid;
@@ -816,7 +826,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         replyEnvelope.mscts = System.currentTimeMillis();
         replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
 
-        log.info("Sending WELCOME:" + replyEnvelope.st + ", MatsSocketSessionId:[" + _matsSocketSessionId + "]!");
+        log.info("Sending WELCOME! MatsSocketSessionId:[" + _matsSocketSessionId + "]!");
 
         // Pack it over to client
         // NOTICE: Since this is the first message ever, there will not be any currently-sending messages the other
@@ -841,7 +851,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
     private boolean handleSendOrRequestOrReply(long clientMessageReceivedTimestamp,
             List<MatsSocketEnvelopeDto> replyEnvelopes, MatsSocketEnvelopeDto envelope) {
         String eid = envelope.eid;
-        MessageType messageType = MessageType.valueOf(envelope.t);
+        MessageType messageType = envelope.t;
 
         log.info("  \\- " + messageType + " to:[" + eid + "], reply:[" + envelope.reid + "], msg:["
                 + envelope.msg + "].");
@@ -855,7 +865,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             closeWithProtocolError("Missing 'tid' (TraceId) on " + envelope.t + ", cmid:[" + envelope.cmid + "].");
             return false;
         }
-        if ((messageType == MessageType.REPLY) && (envelope.smid == null)) {
+        if (((messageType == RESOLVE) || (messageType == REJECT)) && (envelope.smid == null)) {
             closeWithProtocolError("Missing 'smid' on a REPLY from Client, cmid:[" + envelope.cmid + "].");
             return false;
         }
@@ -868,9 +878,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 .getMatsSocketEndpointRegistration(eid);
         // ?: Check if we found the endpoint
         if (!registrationO.isPresent()) {
-            handledEnvelope.t = "RECEIVED";
-            handledEnvelope.st = "NACK";
-            handledEnvelope.desc = "An incoming REQUEST envelope targeted a non-existing MatsSocketEndpoint";
+            handledEnvelope.t = NACK;
+            handledEnvelope.desc = "An incoming " + envelope.t + " envelope targeted a non-existing MatsSocketEndpoint";
             // Add RECEIVED message to "queue"
             replyEnvelopes.add(handledEnvelope);
             return true;
@@ -888,8 +897,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
                 String correlationString = null;
                 byte[] correlationBinary = null;
-                // ?: If this is a REPLY, we'll get-and-delete the Correlation information.
-                if (messageType == MessageType.REPLY) {
+                // ?: If this is a RESOLVE or REJECT, we'll get-and-delete the Correlation information.
+                if ((messageType == RESOLVE) || (messageType == REJECT)) {
                     try {
                         Optional<RequestCorrelation> correlationInfoO = _matsSocketServer.getClusterStoreAndForward()
                                 .getAndDeleteRequestCorrelation(_matsSocketSessionId, envelope.smid);
@@ -922,23 +931,23 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 // ?: If we insta-settled the request, then do a REPLY
                 switch (requestContext._handled) {
                     case IGNORED:
-                        if (messageType == MessageType.REQUEST) {
-                            handledEnvelope.t = "RECEIVED";
-                            handledEnvelope.st = "NACK";
+                        // ?: Is this a REQUEST?
+                        if (messageType == REQUEST) {
+                            // -> Yes, REQUEST, so then it is not allowed to Ignore it.
+                            handledEnvelope.t = NACK;
                             handledEnvelope.desc = "An incoming REQUEST envelope was ignored by the MatsSocket incoming handler.";
                             log.warn("handleIncoming(..) ignored an incoming REQUEST, i.e. not answered at all."
                                     + " Replying with [RECEIVED:NACK] to reject the outstanding request promise");
                         }
                         else {
-                            handledEnvelope.t = "RECEIVED";
-                            handledEnvelope.st = "ACK";
+                            // -> No, not REQUEST, i.e. either SEND, RESOLVE or REJECT, and then Ignore is OK.
+                            handledEnvelope.t = ACK;
                             log.info("handleIncoming(..) evidently ignored the incoming SEND envelope. Responding"
                                     + " [RECEIVED:ACK], since that is OK.");
                         }
                         break;
                     case DENIED:
-                        handledEnvelope.t = "RECEIVED";
-                        handledEnvelope.st = "NACK";
+                        handledEnvelope.t = NACK;
                         log.info("handleIncoming(..) denied the incoming message. Replying with"
                                 + " [RECEIVED:NACK]");
                         break;
@@ -946,21 +955,19 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     case SETTLED_REJECT:
                         // -> Yes, the handleIncoming insta-settled the incoming message, so we insta-reply
                         // NOTICE: We thus elide the "RECEIVED", as the client will handle the missing RECEIVED
-                        handledEnvelope.t = MessageType.REPLY.name();
-                        handledEnvelope.st = requestContext._handled == Processed.SETTLED_RESOLVE
-                                ? "RESOLVE"
-                                : "REJECT";
+                        handledEnvelope.t = requestContext._handled == Processed.SETTLED_RESOLVE
+                                ? RESOLVE
+                                : REJECT;
                         handledEnvelope.msg = requestContext._matsSocketReplyMessage;
                         log.info("handleIncoming(..) insta-settled the incoming message with"
-                                + " [REPLY:" + handledEnvelope.st + "]");
+                                + " [" + envelope.t + "]");
                         break;
                     case FORWARDED:
-                        handledEnvelope.t = "RECEIVED";
-                        handledEnvelope.st = "ACK";
+                        handledEnvelope.t = ACK;
                         // TODO: Debug
                         handledEnvelope.mmsts = System.currentTimeMillis();
                         log.info("handleIncoming(..) forwarded the incoming message. Replying with"
-                                + " [RECEIVED:" + handledEnvelope.st + "]");
+                                + " [" + envelope.t + "]");
                         break;
                 }
             });
@@ -968,24 +975,22 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         catch (DuplicateDeliveryException e) {
             // Double delivery: Simply say "yes, yes, good, good" to client, as we have already processed this one.
             log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
-                    + "] of type [" + envelope.t + (envelope.st != null ? ':' + envelope.st : "")
-                    + "], fixing by RECEIVED:ACK it again (it's already processed).");
-            handledEnvelope.t = "RECEIVED";
-            handledEnvelope.st = "ACK";
+                    + "] of type [" + envelope.t + "], fixing by RECEIVED:ACK it again (it's already processed).");
+            handledEnvelope.t = ACK;
             handledEnvelope.mmsts = System.currentTimeMillis();
         }
         catch (DatabaseRuntimeException e) {
             // Problems adding the ClientMessageId to outbox. Ask client to RETRY.
             log.warn("Got problems storing incoming ClientMessageId in inbox - replying RECEIVED:RETRY to client.",
                     e);
-            handledEnvelope.t = "RETRY";
+            handledEnvelope.t = RETRY;
             handledEnvelope.desc = e.getMessage();
         }
         catch (MatsBackendRuntimeException e) {
             // Evidently got problems talking to Mats backend, probably DB commit fail. Ask client to RETRY.
             log.warn("Got problems running handleIncoming(..), probably due to DB - replying RECEIVED:RETRY to client.",
                     e);
-            handledEnvelope.t = "RETRY";
+            handledEnvelope.t = RETRY;
             handledEnvelope.desc = e.getMessage();
         }
         catch (MatsMessageSendRuntimeException e) {
@@ -1045,15 +1050,14 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
             // ----- Compensating transaction worked, now ask client to go for retrying.
 
-            handledEnvelope.t = "RETRY";
+            handledEnvelope.t = RETRY;
             handledEnvelope.desc = e.getMessage();
         }
         catch (Throwable t) {
             // Evidently the handleIncoming didn't handle this message. This is a NACK.
             log.warn("handleIncoming(..) raised exception, assuming that it didn't like the incoming message"
                     + " - replying RECEIVED:NACK to client.", t);
-            handledEnvelope.t = "RECEIVED";
-            handledEnvelope.st = "NACK";
+            handledEnvelope.t = NACK;
             handledEnvelope.desc = t.getMessage();
         }
 
@@ -1218,11 +1222,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
 
         @Override
-        public boolean isReplyResolve() {
-            return _envelope.t.equals("REPLY") && _envelope.st.equals("RESOLVE");
-        }
-
-        @Override
         public String getCorrelationString() {
             return _correlationString;
         }
@@ -1265,7 +1264,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             _handled = Processed.FORWARDED;
 
             // ?: Is this a REQUEST or SEND, meaning that we do not have a Correlation entry in the CSAF?
-            if ((getMessageType() == MessageType.REQUEST) || (getMessageType() == MessageType.SEND)) {
+            if ((getMessageType() == REQUEST) || (getMessageType() == SEND)) {
                 // -> Yes, REQUEST or SEND: Store the ClientMessageId in the Inbox, to catch double deliveries.
                 /*
                  * This shall throw UniqueConstraintException if we've already processed this before.
@@ -1295,7 +1294,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             // Add a small extra side-load - the MatsSocketSessionId - since it seems nice.
             init.addString("matsSocketSessionId", _matsSocketSessionId);
             // -> Is this a REQUEST?
-            if (getMessageType() == MessageType.REQUEST) {
+            if (getMessageType() == REQUEST) {
                 // -> Yes, this is a REQUEST, so we should forward as Mats .request(..)
                 // Need to make state so that receiving terminator know what to do.
                 ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
@@ -1320,7 +1319,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
         @Override
         public void resolve(R matsSocketResolveMessage) {
-            if (getMessageType() != MessageType.REQUEST) {
+            if (getMessageType() != REQUEST) {
                 throw new IllegalStateException("This is not a Request, thus you cannot resolve nor reject it."
                         + " For a SEND, your options is to deny() it, forward it to Mats, or ignore it (and just return).");
             }
@@ -1333,7 +1332,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
         @Override
         public void reject(R matsSocketRejectMessage) {
-            if (getMessageType() != MessageType.REQUEST) {
+            if (getMessageType() != REQUEST) {
                 throw new IllegalStateException("This is not a Request, thus you cannot resolve nor reject it."
                         + " For a SEND, your options is to deny() it, forward it to Mats, or ignore it (and just return).");
             }
