@@ -13,11 +13,11 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
-import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 
 /**
  * An implementation of CSAF relying on a shared SQL database to store the necessary information in a cluster setting.
@@ -250,10 +250,11 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             String clientMessageId) throws ClientMessageIdAlreadyExistsException, DataAccessException {
         try (Connection con = _dataSource.getConnection()) {
             PreparedStatement insert = con.prepareStatement("INSERT INTO " + inboxTableName(matsSocketSessionId)
-                    + " (session_id, cmid)"
-                    + " VALUES (?, ?)");
+                    + " (session_id, cmid, stored_timestamp)"
+                    + " VALUES (?, ?, ?)");
             insert.setString(1, matsSocketSessionId);
             insert.setString(2, clientMessageId);
+            insert.setLong(3, System.currentTimeMillis());
             insert.execute();
             insert.close();
         }
@@ -264,6 +265,50 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         catch (SQLException e) {
             throw new DataAccessException("Got '" + e.getClass().getSimpleName() + "' accessing DataSource.", e);
         }
+    }
+
+    @Override
+    public void updateMessageInInbox(String matsSocketSessionId, String clientMessageId, String messageJson,
+            byte[] messageBinary) throws DataAccessException {
+        withConnectionVoid(con -> {
+            PreparedStatement updateMsg = con.prepareStatement("UPDATE " + inboxTableName(matsSocketSessionId)
+                    + " SET message_text = ?, message_binary = ?"
+                    + " WHERE session_id = ?"
+                    + "   AND cmid = ?");
+            updateMsg.setString(1, messageJson);
+            updateMsg.setBytes(2, messageBinary);
+            updateMsg.setString(3, matsSocketSessionId);
+            updateMsg.setString(4, clientMessageId);
+            updateMsg.execute();
+            updateMsg.close();
+        });
+    }
+
+    @Override
+    public StoredMessage getMessageFromInbox(String matsSocketSessionId,
+            String clientMessageId) throws DataAccessException {
+        return withConnectionReturn(con -> {
+            PreparedStatement select = con.prepareStatement("SELECT stored_timestamp, message_text, message_binary"
+                    + "  FROM " + inboxTableName(matsSocketSessionId)
+                    + " WHERE session_id = ?"
+                    + "   AND cmid = ?");
+            select.setString(1, matsSocketSessionId);
+            select.setString(2, clientMessageId);
+            ResultSet rs = select.executeQuery();
+            rs.next();
+            SimpleStoredMessage msg = new SimpleStoredMessage(matsSocketSessionId,
+                    null,
+                    clientMessageId,
+                    rs.getLong(1),
+                    null,
+                    0,
+                    null,
+                    null,
+                    rs.getString(2),
+                    rs.getBytes(3));
+            select.close();
+            return msg;
+        });
     }
 
     @Override
@@ -286,12 +331,13 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
-            String clientMessageId, String traceId, MessageType type, String message) throws DataAccessException {
+            String clientMessageId, String traceId, MessageType type, String messageJson, byte[] messageBinary)
+            throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("INSERT INTO " + outboxTableName(matsSocketSessionId)
                     + "(session_id, smid, cmid, stored_timestamp,"
-                    + " delivery_count, trace_id, type, message_text)"
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                    + " delivery_count, trace_id, type, message_text, message_binary)"
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
             insert.setString(1, matsSocketSessionId);
             insert.setString(2, serverMessageId);
             insert.setString(3, clientMessageId);
@@ -299,7 +345,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             insert.setInt(5, 0);
             insert.setString(6, traceId);
             insert.setString(7, type.name());
-            insert.setString(8, message);
+            insert.setString(8, messageJson);
+            insert.setBytes(9, messageBinary);
             insert.execute();
 
             return _getCurrentNode(matsSocketSessionId, con, true);
@@ -314,7 +361,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             // The old MS JDBC Driver 'jtds' don't handle parameter insertion for 'TOP' statement.
             PreparedStatement insert = con.prepareStatement("SELECT TOP " + maxNumberOfMessages
                     + "          smid, cmid, stored_timestamp, attempt_timestamp,"
-                    + "          delivery_count, trace_id, type, message_text"
+                    + "          delivery_count, trace_id, type, message_text, message_binary"
                     + "  FROM " + outboxTableName(matsSocketSessionId)
                     + " WHERE session_id = ?"
                     + (takeAlreadyAttempted
@@ -327,7 +374,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 SimpleStoredMessage sm = new SimpleStoredMessage(matsSocketSessionId, rs.getString(1),
                         rs.getString(2), rs.getLong(3), (Long) rs.getObject(4),
                         rs.getInt(5), rs.getString(6), rs.getString(7),
-                        rs.getString(8));
+                        rs.getString(8), rs.getBytes(9));
                 list.add(sm);
             }
             return list;

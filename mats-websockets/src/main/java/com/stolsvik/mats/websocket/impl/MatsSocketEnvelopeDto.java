@@ -5,10 +5,14 @@ import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.JsonSerializer;
+import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 
 /**
@@ -39,6 +43,7 @@ class MatsSocketEnvelopeDto {
                  // authz.
 
     @JsonDeserialize(using = MessageToStringDeserializer.class)
+    @JsonSerialize(using = DirectJsonMessageHandlingDeserializer.class)
     Object msg; // Message, JSON
 
     // ::: Debug info
@@ -88,7 +93,7 @@ class MatsSocketEnvelopeDto {
     }
 
     /**
-     * A {@link MatsSocketEnvelopeDto} will be <i>deserialized</i> (made into object) with the "msg" field directly to
+     * A {@link MatsSocketEnvelopeDto} will be <i>Deserialized</i> (made into object) with the "msg" field directly to
      * the JSON that is present there (i.e. a String, containing JSON), using this class. However, upon
      * <i>serialization</i>, any object there will be serialized to a JSON String. The rationale is that upon reception,
      * we do not (yet) know which type (DTO class) this message has, which will be resolved later - and then this JSON
@@ -100,6 +105,42 @@ class MatsSocketEnvelopeDto {
             // TODO / OPTIMIZE: Find faster way to get as String, avoiding tons of JsonNode objects.
             // TODO: Trick must be to just consume from the START_OBJECT to the /corresponding/ END_OBJECT.
             return p.readValueAsTree().toString();
+        }
+    }
+
+    /**
+     * A {@link MatsSocketEnvelopeDto} will be <i>Serialized</i> (made into object) with the "msg" field handled
+     * specially: If it is any other class than {@link DirectJsonMessage}, default handling ensues (JSON object
+     * serialization) - but if it this particular class, it will output the (JSON) String it contains directly.
+     */
+    private static class DirectJsonMessageHandlingDeserializer extends JsonSerializer<Object> {
+        @Override
+        public void serialize(Object value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
+            // ?: Is it our special magic String-wrapper that will contain direct JSON?
+            if (value instanceof DirectJsonMessage) {
+                // -> Yes, special magic String-wrapper, so dump it directly.
+                gen.writeRawValue(((DirectJsonMessage) value).getJson());
+            }
+            else {
+                // -> No, not magic, so serialize it normally.
+                gen.writeObject(value);
+            }
+        }
+    }
+
+    /**
+     * If the {@link MatsSocketEnvelopeDto#msg}-field is of this magic type, the String it contains - which then needs
+     * to be proper JSON - will be output directly. Otherwise, it will be JSON serialized.
+     */
+    static class DirectJsonMessage {
+        private final String _json;
+
+        public DirectJsonMessage(String json) {
+            _json = json;
+        }
+
+        public String getJson() {
+            return _json;
         }
     }
 }

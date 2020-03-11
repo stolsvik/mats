@@ -250,9 +250,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private final MatsFactory _matsFactory;
     private final ClusterStoreAndForward _clusterStoreAndForward;
     private final ObjectMapper _jackson;
+    private final ObjectReader _envelopeObjectReader;
+    private final ObjectWriter _envelopeObjectWriter;
     private final ObjectReader _envelopeListObjectReader;
     private final ObjectWriter _envelopeListObjectWriter;
-    private final ObjectWriter _envelopeObjectWriter;
     private final String _terminatorId_ReplyHandler;
     private final String _terminatorId_NewMessage_NodePrefix;
     private final String _terminatorId_NodeControl_NodePrefix;
@@ -269,9 +270,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         _clusterStoreAndForward = clusterStoreAndForward;
         _jackson = jacksonMapper();
         _authenticationPlugin = authenticationPlugin;
+        _envelopeObjectReader = _jackson.readerFor(MatsSocketEnvelopeDto.class);
+        _envelopeObjectWriter = _jackson.writerFor(MatsSocketEnvelopeDto.class);
         _envelopeListObjectReader = _jackson.readerFor(TYPE_LIST_OF_MSG);
         _envelopeListObjectWriter = _jackson.writerFor(TYPE_LIST_OF_MSG);
-        _envelopeObjectWriter = _jackson.writerFor(MatsSocketEnvelopeDto.class);
         // TODO: "Escape" the instanceName.
         _terminatorId_ReplyHandler = MATS_EP_PREFIX + '.' + instanceName + '.' + MATS_EP_POSTFIX_REPLY_HANDLER;
         // TODO: "Escape" the instanceName.
@@ -315,16 +317,20 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         return _jackson;
     }
 
+    ObjectReader getEnvelopeObjectReader() {
+        return _envelopeObjectReader;
+    }
+
+    ObjectWriter getEnvelopeObjectWriter() {
+        return _envelopeObjectWriter;
+    }
+
     ObjectReader getEnvelopeListObjectReader() {
         return _envelopeListObjectReader;
     }
 
     ObjectWriter getEnvelopeListObjectWriter() {
         return _envelopeListObjectWriter;
-    }
-
-    ObjectWriter getEnvelopeObjectWriter() {
-        return _envelopeObjectWriter;
     }
 
     MessageToWebSocketForwarder getMessageToWebSocketForwarder() {
@@ -391,7 +397,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         Optional<CurrentNode> nodeNameHoldingWebSocket;
         try {
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
-                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope);
+                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope, null);
         }
         catch (DataAccessException e) {
             // TODO: Fix
@@ -428,7 +434,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     correlationString, correlationBinary);
             // Stick the message in Outbox
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
-                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope);
+                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope, null);
         }
         catch (DataAccessException e) {
             // TODO: Fix
@@ -1117,7 +1123,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         try {
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
                     state.sid, serverMessageId, msReplyEnvelope.cmid, processContext.getTraceId(), msReplyEnvelope.t,
-                    serializedEnvelope);
+                    serializedEnvelope, null);
         }
         catch (DataAccessException e) {
             // TODO: Fix

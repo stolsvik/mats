@@ -22,7 +22,7 @@ CREATE TABLE mats_socket_session
 
 -- == The INBOX ==
 -- To recognize a client-to-server redelivery of an already processed messages, i.e. "double delivery catcher".
--- All SEND, REQUEST and REPLYs from Client-to-Server get an entry here (information bearing messages).
+-- All SENDs and REQUESTs from Client-to-Server get an entry here (information bearing messages).
 -- NOTICE: Going for some good ol' premature optimization:
 --   Create 7 outbox tables, hoping that this will reduce contention on the table approximately exactly 7-fold.
 --   (7 was chosen based on one finger in the air, and another in the ear, and listening for answers from the ancient ones.)
@@ -31,6 +31,9 @@ CREATE TABLE mats_socket_inbox_00
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_00 PRIMARY KEY (session_id, cmid)
 );
@@ -39,6 +42,9 @@ CREATE TABLE mats_socket_inbox_01
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_01 PRIMARY KEY (session_id, cmid)
 );
@@ -47,6 +53,9 @@ CREATE TABLE mats_socket_inbox_02
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_02 PRIMARY KEY (session_id, cmid)
 );
@@ -55,6 +64,9 @@ CREATE TABLE mats_socket_inbox_03
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_03 PRIMARY KEY (session_id, cmid)
 );
@@ -63,6 +75,9 @@ CREATE TABLE mats_socket_inbox_04
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_04 PRIMARY KEY (session_id, cmid)
 );
@@ -71,6 +86,9 @@ CREATE TABLE mats_socket_inbox_05
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_05 PRIMARY KEY (session_id, cmid)
 );
@@ -79,6 +97,9 @@ CREATE TABLE mats_socket_inbox_06
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
+    stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
+    message_text      ${texttype},
+    message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_06 PRIMARY KEY (session_id, cmid)
 );
@@ -200,7 +221,7 @@ CREATE TABLE mats_socket_outbox_06
 );
 
 -- == The "REQUEST BOX" ==
--- Storage for outgoing requests Server-to-Client, to store the CorrelationString and CorrelationBinary, and timestamp.
+-- Storage for outgoing REQUESTs Server-to-Client, to store the CorrelationString and CorrelationBinary, and timestamp.
 -- Also using good'ol premature optimizations (even though this might be overkill for Server-to-Client requests due to less use..)
 CREATE TABLE mats_socket_request_out_00
 (

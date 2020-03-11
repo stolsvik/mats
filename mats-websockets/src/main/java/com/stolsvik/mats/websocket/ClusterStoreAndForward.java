@@ -1,10 +1,10 @@
 package com.stolsvik.mats.websocket;
 
-import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
-
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 
 /**
  * MatsSockets forwards requests from WebSocket-connected clients to a Mats Endpoint, and must get the reply back to the
@@ -133,6 +133,11 @@ public interface ClusterStoreAndForward {
     void storeMessageIdInInbox(String matsSocketSessionId, String clientMessageId)
             throws ClientMessageIdAlreadyExistsException, DataAccessException;
 
+    void updateMessageInInbox(String matsSocketSessionId, String clientMessageId, String messageJson,
+            byte[] messageBinary) throws DataAccessException;
+
+    StoredMessage getMessageFromInbox(String matsSocketSessionId, String clientMessageId) throws DataAccessException;
+
     /**
      * Deletes the incoming message Ids, as we've established that the client will never try to send this particular
      * message again.
@@ -167,12 +172,15 @@ public interface ClusterStoreAndForward {
      *            the server-side traceId for this message.
      * @param type
      *            the type of the reply, currently "REPLY".
-     * @param message
+     * @param messageJson
      *            the JSON-serialized MatsSocket <b>Envelope</b>.
+     * @param messageBinary
+     *            the binary part of an outgoing message.
      * @return the current node holding MatsSocket Session, or empty if none.
      */
     Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
-            String clientMessageId, String traceId, MessageType type, String message) throws DataAccessException;
+            String clientMessageId, String traceId, MessageType type, String messageJson, byte[] messageBinary)
+            throws DataAccessException;
 
     /**
      * Fetch a set of messages, up to 'maxNumberOfMessages'.
@@ -426,6 +434,8 @@ public interface ClusterStoreAndForward {
         String getType();
 
         String getEnvelopeJson();
+
+        byte[] getBinary();
     }
 
     class SimpleStoredMessage implements StoredMessage {
@@ -439,11 +449,12 @@ public interface ClusterStoreAndForward {
         private final String _traceId;
         private final String _type;
         private final String _envelopeJson;
+        private final byte[] _binary;
 
         public SimpleStoredMessage(String matsSocketSessionId, String serverMessageId,
                 String clientMessageId,
                 long storedTimestamp, Long attemptTimestamp, int deliveryCount, String traceId, String type,
-                String envelopeJson) {
+                String envelopeJson, byte[] binary) {
             _matsSocketSessionId = matsSocketSessionId;
             _serverMessageId = serverMessageId;
             _clientMessageId = clientMessageId;
@@ -453,6 +464,7 @@ public interface ClusterStoreAndForward {
             _traceId = traceId;
             _type = type;
             _envelopeJson = envelopeJson;
+            _binary = binary;
         }
 
         @Override
@@ -498,6 +510,11 @@ public interface ClusterStoreAndForward {
         @Override
         public String getEnvelopeJson() {
             return _envelopeJson;
+        }
+
+        @Override
+        public byte[] getBinary() {
+            return _binary;
         }
     }
 }

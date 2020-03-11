@@ -769,6 +769,9 @@
          * is active or not).
          */
         this.addSendOrRequestEnvelopeToPipeline = function (envelope, ack, nack, requestResolve, requestReject) {
+            // This is an information-bearing message, so now we are not closed!
+            _sessionClosed = false;
+
             let type = envelope.t;
 
             if ((type !== MessageType.SEND) && (type !== MessageType.REQUEST)) {
@@ -874,7 +877,7 @@
             // Clear out WebSocket "infrastructure", i.e. state and "pinger thread".
             _clearWebSocketStateAndInfrastructure();
             // Clear Session and all state of this MatsSocket.
-            _clearSessionAndStateAndPipelineAndFuturesAndOutstandingMessages("From client: " + reason);
+            _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages("From Client: " + reason);
 
             // :: Out-of-band session close
             // ?: Do we have a sessionId?
@@ -896,8 +899,6 @@
                         log("  \\- Send an out-of-band (i.e. HTTP) close_session, using navigator.sendBeacon('" + closeSesionUrl + "').");
                         let success = window.navigator.sendBeacon(closeSesionUrl);
                         log("    \\- Result: " + (success ? "Enqueued POST, but do not know whether anyone received it - check Network tab of Dev Tools." : "Did NOT manage to enqueue a POST."));
-                    } else {
-                        log("  \\- Was about to do out-of-band (i.e. HTTP) close_session, but we had no sessionId (HELLO/WELCOME not yet performed).");
                     }
                 }
             }
@@ -914,6 +915,19 @@
             if (!_webSocket) {
                 throw new Error("There is no live WebSocket to close with RECONNECT closeCode!");
             }
+            // Hack for Node: Node is too fast wrt. handling the reply message, so on one of the integration tests fails.
+            // This tests reconnect in face of having the test RESOLVE in the incomingHandler, which exercises the
+            // double-delivery catching with something else than an ACK from the server.
+            // However, the following RECONNECT-close is handled /after/ the RESOLVE message comes in, and ok's the test.
+            // So then, MatsSocket dutifully starts reconnecting - after the test is finished. Thus, Node sees the
+            // outstanding timeout "thread" which pings, and never exits. To better emulate an actual lost connection,
+            // we FIRST unset the 'onmessage' handler (so that any pending messages surely will be lost), before we
+            // close the socket. Notice that we now also have a "_sessionClosed" guard, so that it shall stop such
+            // reconnecting in face of actual SessionClose.
+
+            // First unset message handler so that we do not receive any more WebSocket messages (but NOT unset 'onclose', nor 'onerror')
+            _webSocket.onmessage = undefined;
+            // Now closing the WebSocket (thus getting the 'onclose' handler invoked - just as if we'd lost connection, or got this RECONNECT close from Server).
             _webSocket.close(MatsSocketCloseCodes.RECONNECT, reason);
         };
 
@@ -983,7 +997,16 @@
         _shuffleArray(_useUrls);
 
         // fields
+
+        // If true, we're currently already trying to get a WebSocket
+        let _webSocketConnecting = false;
+        // If not undefined, we have an open WebSocket available.
+        let _webSocket = undefined;
+        // If true, we should not accidentally try to reconnect or similar
+        let _sessionClosed = true; // NOTE: Set to false upon enqueuing of information-bearing message.
+        // Set when we get the SessionId from WELCOME, cleared upon SessionClose (along with _sessionClosed = true)
         let _sessionId = undefined;
+
         let _pipeline = [];
         let _terminators = Object.create(null);
         let _endpoints = Object.create(null);
@@ -1057,6 +1080,7 @@
         }
 
         function _clearWebSocketStateAndInfrastructure() {
+            log("clearWebSocketStateAndInfrastructure(). Current WebSocket:" + _webSocket);
             // Stop pinger
             _stopPinger();
             // Remove beforeunload eventlistener
@@ -1077,13 +1101,16 @@
             _webSocket = undefined;
         }
 
-        function _clearSessionAndStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
+        function _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
             // Clear state
             _sessionId = undefined;
             _state = ConnectionState.NO_SESSION;
 
             // :: Clear pipeline
             _pipeline.length = 0;
+
+            // Were now also closed - until a new message is enqueued.
+            _sessionClosed = true;
 
             // :: Reject all outstanding messages
             for (let cmid in _outstandingInitiations) {
@@ -1272,12 +1299,6 @@
             }
         }
 
-        // Two variables for state of socket opening, used by 'evaluatePipelineSend()'
-        // If true, we're currently already trying to get a WebSocket
-        let _webSocketConnecting = false;
-        // If not undefined, we have an open WebSocket available.
-        let _webSocket = undefined;
-
         let _urlIndexCurrentlyConnecting = 0; // Cycles through the URLs
         let _connectionAttemptRound = 0; // When cycled one time through URLs, increases.
         let _connectionTimeoutBase = 500; // Base timout, milliseconds. Doubles, up to max defined below.
@@ -1333,10 +1354,15 @@
                 // -> Damn, we did have a WebSocket. Why are we here?!
                 throw (new Error("Should not be here, as WebSocket is already in place, or we're trying to connect"));
             }
+            // E-> No, WebSocket ain't open..
 
-            // E-> No, WebSocket ain't open, so fire it up
+            // ?: Assert that we aren't actually closed (could conceivably have happened async)
+            if (_sessionClosed) {
+                // -> We've been asynchronously closed - bail out from opening WebSocket
+                throw (new Error("We're closed, so we should not open WebSocket"));
+            }
 
-            // We are trying to connect
+            // :: We are currently trying to connect!
             _webSocketConnecting = true;
 
             // Timeout: LESSER of "max" and "timeoutBase * (2^round)", which should lead to timeoutBase x1, x2, x4, x8 - but capped at max.
@@ -1484,7 +1510,7 @@
                 error("session closed from server", "The WebSocket was closed with a CloseCode [" + MatsSocketCloseCodes.nameFor(closeEvent.code) + "] signifying that our MatsSocketSession is closed, reason:[" + closeEvent.reason + "].", closeEvent);
 
                 // Close Session, Clear all state.
-                _clearSessionAndStateAndPipelineAndFuturesAndOutstandingMessages("From Server: " + closeEvent.reason);
+                _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages("From Server: " + closeEvent.reason);
 
                 // :: Synchronously notify our SessionClosedEvent listeners
                 // NOTE: This shall only happen if Close Session is from ServerSide (that is, here), otherwise, if the app invoked matsSocket.close(), one would think the app knew about the close itself..!
@@ -1527,40 +1553,40 @@
 
                     if (envelope.t === MessageType.WELCOME) {
                         _sessionId = envelope.sid;
+                        if (that.logging) log("We're WELCOME! SessionId:" + _sessionId + ", there are [" + Object.keys(_outstandingInitiations).length + "] outstanding sends-or-requests, and [" + Object.keys(_outstandingReplies).length + "] outstanding replies.");
                         // :: Synchronously notify our ConnectionEvent listeners.
                         _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.SESSION_ESTABLISHED, _currentWebSocketUrl(), undefined, undefined, undefined));
                         // Start pinger
                         _startPinger();
-                        if (that.logging) log("We're WELCOME! SessionId:" + _sessionId + ", there are [" + Object.keys(_outstandingInitiations).length + "] outstanding sends-or-requests, and [" + Object.keys(_outstandingReplies).length + "] outstanding replies.");
 
                         // TODO: Test this outstanding-stuff! Both that they are actually sent again, and that server handles the (quite possible) double-delivery.
 
                         // ::: If we have stuff in our outboxes, we need to send them again
 
-                        // :: Outstanding SENDs and REQUESTs - these are container objects, having the envelope as a key
+                        // :: Outstanding SENDs and REQUESTs
                         for (let key in _outstandingInitiations) {
                             // noinspection JSUnfilteredForInLoop: Using Object.create(null)
-                            let outstandingInitiation = _outstandingInitiations[key];
-                            let sendOrRequestEnvelope = outstandingInitiation.envelope;
+                            let initiation = _outstandingInitiations[key];
+                            let initiationEnvelope = initiation.envelope;
                             // ?: Is the RetransmitGuard the same as we currently have?
-                            if (outstandingInitiation.retransmitGuard === _outstandingSendAndRequest_RetransmitGuard) {
+                            if (initiation.retransmitGuard === _outstandingSendAndRequest_RetransmitGuard) {
                                 // -> Yes, so it makes little sense in sending these messages again just yet.
-                                if (that.logging) log("The outstandingInitiation with cmid:[" + sendOrRequestEnvelope.cmid + "] and TraceId:[" + sendOrRequestEnvelope.tid
-                                    + "] was created with the same RetransmitGuard as we currently have [" + _outstandingSendAndRequest_RetransmitGuard + "], thus we don't have to retransmit (at least not yet - not until broken connection).");
+                                if (that.logging) log("RetransmitGuard: The outstandingInitiation with cmid:[" + initiationEnvelope.cmid + "] and TraceId:[" + initiationEnvelope.tid
+                                    + "] was created with the same RetransmitGuard as we currently have [" + _outstandingSendAndRequest_RetransmitGuard + "] - they were sent directly trailing HELLO, before WELCOME came back in. No use in sending again.");
                                 continue;
                             }
-                            sendOrRequestEnvelope.attempt++;
-                            if (sendOrRequestEnvelope.attempt > 10) {
-                                error("toomanyretries", "Upon reconnect: Too many attempts at sending [" + sendOrRequestEnvelope.t + "] with cmid:[" + sendOrRequestEnvelope.cmid + "], TraceId[" + sendOrRequestEnvelope.tid + "], size:[" + JSON.stringify(sendOrRequestEnvelope).length + "].");
+                            initiation.attempt++;
+                            if (initiation.attempt > 10) {
+                                error("toomanyretries", "Upon reconnect: Too many attempts at sending [" + initiationEnvelope.t + "] with cmid:[" + initiationEnvelope.cmid + "], TraceId[" + initiationEnvelope.tid + "], size:[" + JSON.stringify(initiationEnvelope).length + "].");
                                 continue;
                             }
                             // NOTICE: Won't delete it here - that is done when we process the ACK from server
-                            _addEnvelopeToPipeline(sendOrRequestEnvelope);
+                            _addEnvelopeToPipeline(initiationEnvelope);
                             // Flush for each message, in case the size of the message was of issue why we closed (maybe pipeline was too full).
                             that.flush();
                         }
 
-                        // :: Outstanding Replies - these are just stored as the plain envelope
+                        // :: Outstanding Replies
                         // NOTICE: On initial connect: Since we cannot possibly have replied to anything BEFORE we get the WELCOME, we do not need RetransmitGuard for Replies
                         // Loop over them
                         for (let key in _outstandingReplies) {
@@ -1582,16 +1608,16 @@
                         // -> Server asks us to RETRY the information-bearing-message
 
                         // ?: Is it an outstanding Send or Request
-                        let outstandingInitiation = _outstandingInitiations[envelope.cmid];
-                        if (outstandingInitiation) {
-                            let initiationEnvelope = outstandingInitiation.envelope;
-                            initiationEnvelope.attempt++;
-                            if (initiationEnvelope.attempt > 10) {
+                        let initiation = _outstandingInitiations[envelope.cmid];
+                        if (initiation) {
+                            let initiationEnvelope = initiation.envelope;
+                            initiation.attempt++;
+                            if (initiation.attempt > 10) {
                                 error("toomanyretries", "Upon RETRY-request: Too many attempts at sending [" + initiationEnvelope.t + "] with cmid:[" + initiationEnvelope.cmid + "], TraceId[" + initiationEnvelope.tid + "], size:[" + JSON.stringify(initiationEnvelope).length + "].");
                                 continue;
                             }
                             // Note: the retry-cycles will start at attempt=2, since we initialize it with 1, and have already increased it by now.
-                            let retryDelay = Math.pow(2, (outstandingInitiation.attempt-2)) * 500 + Math.round(Math.random() * 1000);
+                            let retryDelay = Math.pow(2, (initiation.attempt - 2)) * 500 + Math.round(Math.random() * 1000);
                             setTimeout(function () {
                                 _addEnvelopeToPipeline(initiationEnvelope);
                             }, retryDelay);
@@ -1608,7 +1634,7 @@
                                 continue;
                             }
                             // Note: the retry-cycles will start at attempt=2, since we initialize it with 1, and have already increased it by now.
-                            let retryDelay = Math.pow(2, (outstandingInitiation.attempt-2)) * 500 + Math.round(Math.random() * 1000);
+                            let retryDelay = Math.pow(2, (initiation.attempt - 2)) * 500 + Math.round(Math.random() * 1000);
                             setTimeout(function () {
                                 _addEnvelopeToPipeline(replyEnvelope);
                             }, retryDelay);
@@ -1903,6 +1929,7 @@
         }
 
         function _stopPinger() {
+            log("Cancelling/stopping PINGer");
             if (_pinger_TimeoutId) {
                 clearTimeout(_pinger_TimeoutId);
                 _pinger_TimeoutId = undefined;
@@ -1913,6 +1940,7 @@
 
         function _pingLater() {
             _pinger_TimeoutId = setTimeout(function () {
+                log("Ping-'thread': About to send ping. ConnectionState:[" + that.state + "], connected:[" + that.connected + "]");
                 if ((that.state === ConnectionState.SESSION_ESTABLISHED) && that.connected) {
                     let correlationId = that.jid(3);
                     if (that.logging) log("Sending PING! CorrelationId:" + correlationId);
@@ -1923,8 +1951,10 @@
                     }
                     _outstandingPings[correlationId] = pingPong;
                     _webSocket.send("[{\"t\":\"" + MessageType.PING + "\",\"cid\":\"" + correlationId + "\"}]");
+                    _pingLater();
+                } else {
+                    log("Ping-'thread': NOT Rescheduling due to wrong state or not connected, 'exiting thread'.");
                 }
-                _pingLater();
             }, 15000);
         }
     }

@@ -43,16 +43,18 @@
         });
 
         describe('reconnect', function () {
-            it('reconnects and completes outstanding request when invoking reconnect()', function (done) {
+            it('request to "slow endpoint", then immediate reconnect() upon SESSION_ESTABLISHED. Tests that we get the RESOLVE when we reconnect.', function (done) {
                 setAuth();
 
                 let firstTime = true;
 
-                let killSocket = function(connectionEvent) {
-                   if (firstTime && (connectionEvent.state === mats.ConnectionState.SESSION_ESTABLISHED)) {
-                       matsSocket.reconnect("Integration-test, testing reconnects");
-                       firstTime = false;
-                   }
+                let killSocket = function (connectionEvent) {
+                    // Waiting for state. "CONNECTED" is too early, as it doesn't get to send any messages at all
+                    // but with SESSION_ESTABLISHED, it is pretty spot on.
+                    if (firstTime && (connectionEvent.state === mats.ConnectionState.SESSION_ESTABLISHED)) {
+                        matsSocket.reconnect("Integration-test, testing reconnects");
+                        firstTime = false;
+                    }
                 };
 
                 matsSocket.addConnectionEventListener(killSocket);
@@ -64,6 +66,33 @@
                     done();
                 });
             });
+
+            it('request that resolves in handleIncoming(..), then immediate reconnect() upon SESSION_ESTABLISHED. Tests that we get the RESOLVE when we reconnect..', function (done) {
+                setAuth();
+
+                let firstTime = true;
+
+                let killSocket = function (connectionEvent) {
+                    // Waiting for state. "CONNECTED" is too early, as it doesn't get to send any messages at all
+                    // but with SESSION_ESTABLISHED, it is pretty spot on.
+                    if (firstTime && (connectionEvent.state === mats.ConnectionState.SESSION_ESTABLISHED)) {
+                        matsSocket.reconnect("Integration-test, testing reconnects");
+                        firstTime = false;
+                    }
+                };
+
+                matsSocket.addConnectionEventListener(killSocket);
+
+                // Request to a service that WILL reply immediately.
+                matsSocket.request("Test.resolveInIncomingHandler", "REQUEST_reconnect1_" + matsSocket.id(6), {
+                    string: "test",
+                    number: 15,
+                    sleepTime: -1
+                }).then(reply => {
+                    done();
+                });
+            });
+
 
 
             // TODO: Test reconnect with different userId.
