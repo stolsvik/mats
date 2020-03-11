@@ -52,8 +52,8 @@ public interface MatsSocketServer {
 
     /**
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Terminator (no reply), specifically for
-     * "SEND" and "REPLY" (reply to a Server-to-Client {@link #request(String, String, String, Object, String, String)
-     * request}) operations from the Client.
+     * "SEND" and "REPLY" (reply to a Server-to-Client
+     * {@link #request(String, String, String, Object, String, String, byte[])} request}) operations from the Client.
      */
     default <I, MI> MatsSocketEndpoint<I, MI, Void, Void> matsSocketTerminator(String matsSocketEndpointId,
             Class<I> msIncomingClass, Class<MI> matsIncomingClass,

@@ -100,10 +100,10 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setupSocket_ResolveInIncoming(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketDirectReplyEndpoint("Test.resolveInIncomingHandler",
-                MatsSocketRequestDto.class, MatsSocketReplyDto.class,
+                MatsDataTO.class, MatsDataTO.class,
                 // RESOLVE
-                (ctx, principal, msIncoming) -> ctx.resolve(
-                        new MatsSocketReplyDto(1, 2, msIncoming.requestTimestamp)));
+                (ctx, principal, msg) -> ctx.resolve(
+                        new MatsDataTO(msg.number, msg.string + ":From_resolveInIncomingHandler", msg.sleepTime)));
     }
 
     private static void setupSocket_RejectInIncoming(MatsSocketServer matsSocketServer) {
@@ -159,8 +159,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setup_TestSlow(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
         // :: Forwards directly to Mats, no replyAdapter
-        matsSocketServer.matsSocketTerminator("Test.slow",
-                MatsDataTO.class, MatsDataTO.class,
+        matsSocketServer.matsSocketEndpoint("Test.slow",
+                MatsDataTO.class, MatsDataTO.class, MatsDataTO.class,
                 (ctx, principal, msIncoming) -> ctx.forwardInteractivePersistent(msIncoming));
 
         // :: Simple endpoint that just sleeps a tad, to simulate "long(er) running process".
@@ -176,7 +176,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                         }
                     }
                     return new MatsDataTO(incomingDto.number,
-                            incomingDto.string + ":FromSimple",
+                            incomingDto.string + ":FromSlow",
                             incomingDto.sleepTime);
                 });
     }

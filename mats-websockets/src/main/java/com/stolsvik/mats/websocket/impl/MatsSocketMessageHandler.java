@@ -1058,6 +1058,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
                 // NOW, if we got anything else than an ACK out of this, we must store the reply in the inbox
                 if (handledEnvelope[0].t != MessageType.ACK) {
+                    log.debug("Got handledEnvelope of type ["+handledEnvelope[0].t+"], so storing it.");
                     try {
                         String envelopeJson = _envelopeObjectWriter.writeValueAsString(handledEnvelope[0]);
                         _matsSocketServer.getClusterStoreAndForward().updateMessageInInbox(_matsSocketSessionId,

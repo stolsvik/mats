@@ -18,7 +18,7 @@
 }(typeof self !== 'undefined' ? self : this, function (chai, sinon, ws, mats) {
     const MatsSocket = mats.MatsSocket;
 
-    describe('MatsSocket unit-tests', function () {
+    describe('MatsSocket unit tests', function () {
         describe('constructor', function () {
             it('Should fail on no arg invocation', function () {
                 chai.assert.throws(() => new MatsSocket());
