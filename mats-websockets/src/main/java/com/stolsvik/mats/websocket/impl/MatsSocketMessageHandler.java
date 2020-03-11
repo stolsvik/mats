@@ -964,9 +964,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                                         messageFromInbox.getEnvelopeJson());
                                 // Doctor the deserialized envelope (by magic JSON-holder DirectJsonMessage)
                                 // (The 'msg' field is currently a proper JSON String, we want it directly as-is)
-                                lastTimeEnvelope.msg = lastTimeEnvelope.msg == null
-                                        ? null
-                                        : new DirectJsonMessage((String) lastTimeEnvelope.msg);
+                                lastTimeEnvelope.msg = DirectJsonMessage.of((String) lastTimeEnvelope.msg);
                                 // REPLACE the existing handledEnvelope - use "magic" to NOT re-serialize the JSON.
                                 handledEnvelope[0] = lastTimeEnvelope;
                                 handledEnvelope[0].desc = "dupe " + envelope.t + " stored";

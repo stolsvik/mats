@@ -1891,7 +1891,7 @@
                 // ?: Did we have a future?
                 if (future === undefined) {
                     // -> No, missing future, no Promise. Pretty strange, really (error in this code..)
-                    error("missing future", "When getting a reply to a Promise, we did not find the future for message sequence [" + webSocketEvent.messageSequenceId + "].", webSocketEvent);
+                    error("missing future", "When getting a reply to a Promise, we did not find the future for message sequence [" + envelope.messageSequenceId + "].", envelope);
                     return;
                 }
                 // E-> We found the future

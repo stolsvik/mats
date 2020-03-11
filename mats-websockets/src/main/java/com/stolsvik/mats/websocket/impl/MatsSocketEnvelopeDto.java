@@ -135,6 +135,13 @@ class MatsSocketEnvelopeDto {
     static class DirectJsonMessage {
         private final String _json;
 
+        public static DirectJsonMessage of(String msg) {
+            if (msg == null) {
+                return null;
+            }
+            return new DirectJsonMessage(msg);
+        }
+
         public DirectJsonMessage(String json) {
             _json = json;
         }
