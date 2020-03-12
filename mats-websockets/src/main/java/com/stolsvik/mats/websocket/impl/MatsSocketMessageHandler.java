@@ -201,7 +201,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             // :: 1b. Remove any specific AUTH message (it ONLY contains the 'auth' property, handled above).
             envelopes.removeIf(envelope -> envelope.t == AUTH);
 
-            // :: 2. Handle any PING messages (send PONG asap).
+            // :: 2a. Handle any PING messages (send PONG asap).
 
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeDto envelope = it.next();
@@ -220,7 +220,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // :: Create PONG message
                     MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
                     replyEnvelope.t = PONG;
-                    replyEnvelope.cid = envelope.cid;
+                    replyEnvelope.x = envelope.x;
 
                     // Pack the PONG over to client ASAP.
                     // TODO: Consider doing this async, probably with MessageToWebSocketForwarder
@@ -236,6 +236,27 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                         // TODO: Handle!
                         throw new AssertionError("Hot damn.", e);
                     }
+                }
+            }
+
+            // :: 2b. Handle any PONG messages
+
+            for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketEnvelopeDto envelope = it.next();
+                // ?: Is this message a PING?
+                if (envelope.t == PONG) {
+                    // -> Yes, so handle it.
+                    // Remove it from the pipeline
+                    it.remove();
+                    // Assert that we've had HELLO already processed
+                    // NOTICE! We will handle PINGs without valid Authorization, but only if we've already established
+                    // Session, as checked by seeing if we've processed HELLO
+                    if (!_helloProcessedOk) {
+                        closeWithProtocolError("Cannot process PING before HELLO and session established");
+                        return;
+                    }
+
+                    // TODO: Handle PONGs (well, first the server actually needs to send PINGs..!)
                 }
             }
 
@@ -394,6 +415,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     MDC.remove(MDC_MESSAGE_TYPE);
                 }
             }
+
+            // ----- All messages handled.
 
             // Send all replies
             if (replyEnvelopes.size() > 0) {
@@ -812,8 +835,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         // Stack it up with props
         replyEnvelope.t = WELCOME;
         replyEnvelope.sid = _matsSocketSessionId;
-        replyEnvelope.cid = envelope.cid;
         replyEnvelope.tid = envelope.tid;
+
+        // TODO: DEBUG
         replyEnvelope.cmcts = envelope.cmcts;
         replyEnvelope.cmrts = clientMessageReceivedTimestamp;
         replyEnvelope.mscts = System.currentTimeMillis();
@@ -843,11 +867,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
     private boolean handleSendOrRequestOrReply(long clientMessageReceivedTimestamp,
             List<MatsSocketEnvelopeDto> replyEnvelopes, MatsSocketEnvelopeDto envelope) {
-        String eid = envelope.eid;
-        MessageType messageType = envelope.t;
+        MessageType type = envelope.t;
 
-        log.info("  \\- " + messageType + " to:[" + eid + "], reply:[" + envelope.reid + "], msg:["
-                + envelope.msg + "].");
+        log.info("  \\- " + envelope + ", msg:[" + envelope.msg + "].");
 
         // :: Assert some props.
         if (envelope.cmid == null) {
@@ -858,7 +880,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             closeWithProtocolError("Missing 'tid' (TraceId) on " + envelope.t + ", cmid:[" + envelope.cmid + "].");
             return false;
         }
-        if (((messageType == RESOLVE) || (messageType == REJECT)) && (envelope.smid == null)) {
+        if (((type == RESOLVE) || (type == REJECT)) && (envelope.smid == null)) {
             closeWithProtocolError("Missing 'smid' on a REPLY from Client, cmid:[" + envelope.cmid + "].");
             return false;
         }
@@ -866,32 +888,18 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         MatsSocketEnvelopeDto[] handledEnvelope = new MatsSocketEnvelopeDto[] { new MatsSocketEnvelopeDto() };
         handledEnvelope[0].cmid = envelope.cmid; // Client MessageId.
 
-        Optional<MatsSocketEndpointRegistration<?, ?, ?, ?>> registrationO = _matsSocketServer
-                .getMatsSocketEndpointRegistration(eid);
-        // ?: Check if we found the endpoint
-        if (!registrationO.isPresent()) {
-            handledEnvelope[0].t = NACK;
-            handledEnvelope[0].desc = "An incoming " + envelope.t
-                    + " envelope targeted a non-existing MatsSocketEndpoint";
-            // Add RECEIVED message to "queue"
-            replyEnvelopes.add(handledEnvelope[0]);
-            return true;
-        }
-        MatsSocketEndpointRegistration<?, ?, ?, ?> registration = registrationO.get();
-        IncomingAuthorizationAndAdapter incomingAuthEval = registration.getIncomingAuthEval();
-        log.info("MatsSocketEndpointHandler for [" + eid + "]: " + incomingAuthEval);
-
-        Object msg = deserialize((String) envelope.msg, registration.getMsIncomingClass());
 
         // :: Perform the entire handleIncoming(..) inside Mats initiate-lambda
         RequestCorrelation[] _correlationInfo_LambdaHack = new RequestCorrelation[1];
         try {
             _matsSocketServer.getMatsFactory().getDefaultInitiator().initiateUnchecked(init -> {
 
+                String targetEndpointId;
+
                 String correlationString = null;
                 byte[] correlationBinary = null;
                 // ?: Is this a Reply (RESOLVE or REJECT)?
-                if ((messageType == RESOLVE) || (messageType == REJECT)) {
+                if ((type == RESOLVE) || (type == REJECT)) {
                     // -> Yes, Reply (RESOLVE or REJECT), so we'll get-and-delete the Correlation information.
 
                     // Find the CorrelationInformation - or NOT, if this is a duplicate delivery.
@@ -919,6 +927,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                                         .getRequestTimestamp()) + " ms].");
                         correlationString = correlationInfo.getCorrelationString();
                         correlationBinary = correlationInfo.getCorrelationBinary();
+                        // With a reply to a message initiated on the Server, the targetEID is in the correlation
+                        targetEndpointId = correlationInfo.getReplyTerminatorId();
                     }
                     catch (DataAccessException e) {
                         throw new DatabaseRuntimeException(
@@ -928,6 +938,10 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 }
                 else {
                     // -> No, so this is a REQUEST or SEND:
+
+                    // With a message initiated on the client, the targetEndpointId is embedded in the message
+                    targetEndpointId = envelope.eid;
+
                     // Store the ClientMessageId in the Inbox to catch double deliveries.
                     /*
                      * This shall throw ClientMessageIdAlreadyExistsException if we've already processed this before.
@@ -979,7 +993,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                                 log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
                                         + "] of type [" + envelope.t + "] - it was NOT stored, thus it was an ACK.");
                             }
-                            // return from Mats-initiate-lambda
+                            // We're done here - return from Mats-initiate-lambda
                             return;
                         }
                         catch (DataAccessException ex) {
@@ -993,11 +1007,29 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     }
                 }
 
-                // :: Now actually invoke the IncomingAuthorizationAndAdapter.handleIncoming(..)
+
+                // Go get the Endpoint registration.
+                Optional<MatsSocketEndpointRegistration<?, ?, ?, ?>> registrationO = _matsSocketServer
+                        .getMatsSocketEndpointRegistration(targetEndpointId);
+                // ?: Check if we found the endpoint
+                if (!registrationO.isPresent()) {
+                    handledEnvelope[0].t = NACK;
+                    handledEnvelope[0].desc = "An incoming " + envelope.t
+                            + " envelope targeted a non-existing MatsSocketEndpoint";
+                    // We're done here - return from Mats-initiate-lambda
+                    return;
+                }
+                MatsSocketEndpointRegistration<?, ?, ?, ?> registration = registrationO.get();
+                IncomingAuthorizationAndAdapter incomingAuthEval = registration.getIncomingAuthEval();
+
+                // Deserialize the message with the info from the registration
+                Object msg = deserialize((String) envelope.msg, registration.getMsIncomingClass());
+
+                // :: Actually invoke the IncomingAuthorizationAndAdapter.handleIncoming(..)
                 // Create the Context
                 MatsSocketEndpointRequestContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointRequestContextImpl(
                         _matsSocketServer, registration, _matsSocketSessionId, init, envelope,
-                        clientMessageReceivedTimestamp, _authorization, _principal, _userId, messageType,
+                        clientMessageReceivedTimestamp, _authorization, _principal, _userId, type,
                         correlationString, correlationBinary, msg);
 
                 // Invoke the incoming handler
@@ -1007,7 +1039,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 switch (requestContext._handled) {
                     case IGNORED:
                         // ?: Is this a REQUEST?
-                        if (messageType == REQUEST) {
+                        if (type == REQUEST) {
                             // -> Yes, REQUEST, so then it is not allowed to Ignore it.
                             handledEnvelope[0].t = NACK;
                             handledEnvelope[0].desc = "An incoming REQUEST envelope was ignored by the MatsSocket incoming handler.";
@@ -1034,9 +1066,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                                 ? RESOLVE
                                 : REJECT;
                         // Add standard Reply message properties, since this is no longer just an ACK/NACK
-                        // TODO: Debug
                         handledEnvelope[0].tid = envelope.tid; // TraceId
-                        handledEnvelope[0].cid = envelope.cid; // CorrelationId
+
+                        // TODO: Debug
                         handledEnvelope[0].cmcts = envelope.cmcts; // Set by client..
                         handledEnvelope[0].cmrts = clientMessageReceivedTimestamp;
                         handledEnvelope[0].cmrnn = _matsSocketServer.getMyNodename();
@@ -1056,7 +1088,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
                 // NOW, if we got anything else than an ACK out of this, we must store the reply in the inbox
                 if (handledEnvelope[0].t != MessageType.ACK) {
-                    log.debug("Got handledEnvelope of type ["+handledEnvelope[0].t+"], so storing it.");
+                    log.debug("Got handledEnvelope of type [" + handledEnvelope[0].t + "], so storing it.");
                     try {
                         String envelopeJson = _envelopeObjectWriter.writeValueAsString(handledEnvelope[0]);
                         _matsSocketServer.getClusterStoreAndForward().updateMessageInInbox(_matsSocketSessionId,
@@ -1113,7 +1145,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                         RequestCorrelation c = _correlationInfo_LambdaHack[0];
                         _matsSocketServer.getClusterStoreAndForward()
                                 .storeRequestCorrelation(_matsSocketSessionId, envelope.smid,
-                                        c.getRequestTimestamp(), c.getCorrelationString(), c.getCorrelationBinary());
+                                        c.getRequestTimestamp(), c.getReplyTerminatorId(),
+                                        c.getCorrelationString(), c.getCorrelationBinary());
                     }
                     else {
                         // -> No, this was SEND or REQUEST, so try to delete the entry in the inbox since we did not
@@ -1211,7 +1244,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
     }
 
-    private enum Processed {
+    enum Processed {
         /**
          * If none of the deny, forward or settle methods was invoked. The "state machine" starts here, and can only go
          * to one of the other values - and then it cannot be changed.
@@ -1374,8 +1407,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 // -> Yes, this is a REQUEST, so we should forward as Mats .request(..)
                 // Need to make state so that receiving terminator know what to do.
                 ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
-                        _matsSocketEndpointRegistration.getMatsSocketEndpointId(), _envelope.reid,
-                        _envelope.cid, _envelope.cmid, _envelope.cmcts, _clientMessageReceivedTimestamp,
+                        _matsSocketEndpointRegistration.getMatsSocketEndpointId(),
+                        _envelope.cmid, _envelope.cmcts, _clientMessageReceivedTimestamp,
                         System.currentTimeMillis(), _matsSocketServer.getMyNodename());
                 // Set ReplyTo parameter
                 init.replyTo(_matsSocketServer.getReplyTerminatorId(), sto);

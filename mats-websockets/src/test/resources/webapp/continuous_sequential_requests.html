@@ -78,7 +78,7 @@ Tools.<br>
             })
             .then(function (event) {
                 // Setting data in Table's cell
-                var timeTakenMs = Date.now() - event.clientMessageCreated;
+                var timeTakenMs = event.roundTripMillis;
                 sumTimeMillis += timeTakenMs;
                 requestCell.innerText = timeTakenMs + " ms";
 

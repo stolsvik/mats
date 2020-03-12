@@ -30,13 +30,14 @@ class MatsSocketEnvelopeDto {
 
     String auth; // Authorization header
 
-    String tid; // TraceId
     String sid; // SessionId
-    String cid; // CorrelationId
-    String smid; // ServerMessageId, messageId from Server. String, since JavaScript bad on Long.
-    String cmid; // ClientMessageId, messageId from Client - this is for SEND and REQUEST messages.
+
     String eid; // target MatsSocketEndpointId: Which MatsSocket Endpoint (server/client) this message is for
-    String reid; // reply MatsSocketEndpointId: Which MatsSocket Endpoint (client/server) to target reply to
+
+    String tid; // TraceId
+    String smid; // ServerMessageId, messageId from Server.
+    String cmid; // ClientMessageId, messageId from Client.
+    String x; // PingId - "correlationId" for pings. Small, so as to use little space.
 
     MessageType t; // Type
     String desc; // Description when failure (NACK or others), exception message, multiline, may include stacktrace if
@@ -65,9 +66,7 @@ class MatsSocketEnvelopeDto {
     public String toString() {
         return "{" + t
                 + (eid == null ? "" : "->" + eid)
-                + (reid == null ? "" : " " + reid + "<-")
                 + (tid == null ? "" : " tid:" + cmid)
-                + (cid == null ? "" : " cid:" + cmid)
                 + (cmid == null ? "" : " cmid:" + cmid)
                 + (smid == null ? "" : " smid:" + cmid)
                 + "}";
@@ -95,7 +94,8 @@ class MatsSocketEnvelopeDto {
     /**
      * A {@link MatsSocketEnvelopeDto} will be <i>Deserialized</i> (made into object) with the "msg" field directly to
      * the JSON that is present there (i.e. a String, containing JSON), using this class. However, upon
-     * <i>serialization</i>, any object there will be serialized to a JSON String. The rationale is that upon reception,
+     * <i>serialization</i>, any object there will be serialized to a JSON String (UNLESS it is a
+     * {@link DirectJsonMessage}, in which case its value is copied in verbatim). The rationale is that upon reception,
      * we do not (yet) know which type (DTO class) this message has, which will be resolved later - and then this JSON
      * String will be deserialized into that specific DTO class.
      */

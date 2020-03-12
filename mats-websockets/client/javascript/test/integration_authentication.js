@@ -101,6 +101,8 @@
             });
         });
 
+        // TODO: Check for auth coming from server
+
         describe('authorization serverside', function () {
             it('Should invoke authorization callback before making calls', function (done) {
                 let authCallbackCalled = false;

@@ -429,16 +429,17 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public void storeRequestCorrelation(String matsSocketSessionId, String serverMessageId, long requestTimestamp,
-            String correlationString, byte[] correlationBinary) throws DataAccessException {
+            String replyTerminatorId, String correlationString, byte[] correlationBinary) throws DataAccessException {
         withConnectionVoid(con -> {
             PreparedStatement insert = con.prepareStatement("INSERT INTO " + requestOutTableName(matsSocketSessionId)
-                    + " (session_id, smid, request_timestamp, correlation_text, correlation_binary)"
-                    + " VALUES (?, ?, ?, ?, ?)");
+                    + " (session_id, smid, request_timestamp, reply_terminator_id, correlation_text, correlation_binary)"
+                    + " VALUES (?, ?, ?, ?, ?, ?)");
             insert.setString(1, matsSocketSessionId);
             insert.setString(2, serverMessageId);
             insert.setLong(3, requestTimestamp);
-            insert.setString(4, correlationString);
-            insert.setBytes(5, correlationBinary);
+            insert.setString(4, replyTerminatorId);
+            insert.setString(5, correlationString);
+            insert.setBytes(6, correlationBinary);
             insert.execute();
             insert.close();
         });
@@ -449,7 +450,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             String serverMessageId) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("SELECT "
-                    + " request_timestamp, correlation_text, correlation_binary"
+                    + " request_timestamp, reply_terminator_id, correlation_text, correlation_binary"
                     + "  FROM " + requestOutTableName(matsSocketSessionId)
                     + " WHERE session_id = ?"
                     + " AND smid = ?");
@@ -461,7 +462,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 // -> Yes, we have the row!
                 // Get the data
                 RequestCorrelation requestCorrelation = new SimpleRequestCorrelation(matsSocketSessionId,
-                        serverMessageId, rs.getLong(1), rs.getString(2), rs.getBytes(3));
+                        serverMessageId, rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBytes(4));
                 // Delete the Correlation
                 PreparedStatement deleteCorrelation = con.prepareStatement("DELETE FROM " + requestOutTableName(
                         matsSocketSessionId)

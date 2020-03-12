@@ -232,7 +232,7 @@ public interface ClusterStoreAndForward {
     // ---------- "Request box" ----------
 
     void storeRequestCorrelation(String matsSocketSessionId, String serverMessageId, long requestTimestamp,
-            String correlationString, byte[] correlationBinary) throws DataAccessException;
+            String replyTerminatorId, String correlationString, byte[] correlationBinary) throws DataAccessException;
 
     Optional<RequestCorrelation> getAndDeleteRequestCorrelation(String matsSocketSessionId, String serverMessageId)
             throws DataAccessException;
@@ -279,6 +279,8 @@ public interface ClusterStoreAndForward {
 
         long getRequestTimestamp();
 
+        String getReplyTerminatorId();
+
         String getCorrelationString();
 
         byte[] getCorrelationBinary();
@@ -288,16 +290,18 @@ public interface ClusterStoreAndForward {
         private final String _matsSocketSessionId;
         private final String _serverMessageId;
         private final long _requestTimestamp;
+        private final String _replyTerminatorId;
         private final String _correlationString;
         private final byte[] _correlationBinary;
 
         public SimpleRequestCorrelation(String matsSocketSessionId, String serverMessageId, long requestTimestamp,
-                String correlationString, byte[] correlationBinary) {
+                String replyTerminatorId, String correlationString, byte[] correlationBinary) {
             _matsSocketSessionId = matsSocketSessionId;
             _serverMessageId = serverMessageId;
             _requestTimestamp = requestTimestamp;
             _correlationString = correlationString;
             _correlationBinary = correlationBinary;
+            _replyTerminatorId = replyTerminatorId;
         }
 
         @Override
@@ -313,6 +317,9 @@ public interface ClusterStoreAndForward {
         public long getRequestTimestamp() {
             return _requestTimestamp;
         }
+
+        @Override
+        public String getReplyTerminatorId() { return _replyTerminatorId; }
 
         @Override
         public String getCorrelationString() {

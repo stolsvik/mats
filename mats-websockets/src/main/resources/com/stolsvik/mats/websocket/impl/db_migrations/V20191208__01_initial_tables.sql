@@ -225,77 +225,84 @@ CREATE TABLE mats_socket_outbox_06
 -- Also using good'ol premature optimizations (even though this might be overkill for Server-to-Client requests due to less use..)
 CREATE TABLE mats_socket_request_out_00
 (
-    session_id         VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid               VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
-    request_timestamp  BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
-    correlation_text   ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
-    correlation_binary ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    session_id          VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smid                VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
+    request_timestamp   BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
+    reply_terminator_id VARCHAR(255),          -- If this is a request, then this is where the reply should go.
+    correlation_text    ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    correlation_binary  ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
 
     CONSTRAINT PK_mats_socket_request_out_00 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_request_out_01
 (
-    session_id         VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid               VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
-    request_timestamp  BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
-    correlation_text   ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
-    correlation_binary ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    session_id          VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smid                VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
+    request_timestamp   BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
+    reply_terminator_id VARCHAR(255),          -- If this is a request, then this is where the reply should go.
+    correlation_text    ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    correlation_binary  ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
 
     CONSTRAINT PK_mats_socket_request_out_01 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_request_out_02
 (
-    session_id         VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid               VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
-    request_timestamp  BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
-    correlation_text   ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
-    correlation_binary ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    session_id          VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smid                VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
+    request_timestamp   BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
+    reply_terminator_id VARCHAR(255),          -- If this is a request, then this is where the reply should go.
+    correlation_text    ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    correlation_binary  ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
 
     CONSTRAINT PK_mats_socket_request_out_02 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_request_out_03
 (
-    session_id         VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid               VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
-    request_timestamp  BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
-    correlation_text   ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
-    correlation_binary ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    session_id          VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smid                VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
+    request_timestamp   BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
+    reply_terminator_id VARCHAR(255),          -- If this is a request, then this is where the reply should go.
+    correlation_text    ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    correlation_binary  ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
 
     CONSTRAINT PK_mats_socket_request_out_03 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_request_out_04
 (
-    session_id         VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid               VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
-    request_timestamp  BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
-    correlation_text   ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
-    correlation_binary ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    session_id          VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smid                VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
+    request_timestamp   BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
+    reply_terminator_id VARCHAR(255),          -- If this is a request, then this is where the reply should go.
+    correlation_text    ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    correlation_binary  ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
 
     CONSTRAINT PK_mats_socket_request_out_04 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_request_out_05
 (
-    session_id         VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid               VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
-    request_timestamp  BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
-    correlation_text   ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
-    correlation_binary ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    session_id          VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smid                VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
+    request_timestamp   BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
+    reply_terminator_id VARCHAR(255),          -- If this is a request, then this is where the reply should go.
+    correlation_text    ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    correlation_binary  ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
 
     CONSTRAINT PK_mats_socket_request_out_05 PRIMARY KEY (session_id, smid)
 );
 
 CREATE TABLE mats_socket_request_out_06
 (
-    session_id         VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
-    smid               VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
-    request_timestamp  BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
-    correlation_text   ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
-    correlation_binary ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    session_id          VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
+    smid                VARCHAR(255) NOT NULL, -- Server Message Id of the outgoing REQUEST, 'envelope.smid'
+    request_timestamp   BIGINT       NOT NULL, -- millis since epoch. When this REQUEST was originally done.
+    reply_terminator_id VARCHAR(255),          -- If this is a request, then this is where the reply should go.
+    correlation_text    ${texttype},           -- 'correlationSpecifier' in MatsSocketServer.request(...)
+    correlation_binary  ${binarytype},         -- 'correlationSpecifier' in MatsSocketServer.request(...)
 
     CONSTRAINT PK_mats_socket_request_out_06 PRIMARY KEY (session_id, smid)
 );

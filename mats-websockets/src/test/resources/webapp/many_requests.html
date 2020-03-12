@@ -82,7 +82,7 @@ the specific cell with its timing information.<br>
                     })
                     .then(function (event) {
                         // Setting data in Table's cell
-                        var timeTakenMs = Date.now() - event.clientMessageCreated;
+                        var timeTakenMs = event.roundTripMillis;
                         sumTimeMillis += timeTakenMs;
                         requestCell.innerHTML = "<b>" + timeTakenMs + " ms</b>";
                         receivedCount++;
@@ -99,7 +99,7 @@ the specific cell with its timing information.<br>
                                 + " ms, throughput: " + throughputPerSecond + " msg/sec";
                         }
                     });
-                if (i % 400 === 0) {
+                if (i % 200 === 0) {
                     matsSocket.flush();
                 }
 

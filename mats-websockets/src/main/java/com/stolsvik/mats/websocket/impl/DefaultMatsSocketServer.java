@@ -61,6 +61,7 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.MatsSocketServer;
+import com.stolsvik.mats.websocket.impl.MatsSocketMessageHandler.Processed;
 
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -416,7 +417,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
         msReplyEnvelope.t = REQUEST;
         msReplyEnvelope.eid = clientEndpointId;
-        msReplyEnvelope.reid = replyToMatsSocketTerminatorId;
         msReplyEnvelope.smid = serverMessageId;
         msReplyEnvelope.tid = traceId;
         // TODO: Add "message sent from server timestamp and nodename"
@@ -431,7 +431,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         try {
             // Store Correlation information
             _clusterStoreAndForward.storeRequestCorrelation(sessionId, serverMessageId, System.currentTimeMillis(),
-                    correlationString, correlationBinary);
+                    replyToMatsSocketTerminatorId, correlationString, correlationBinary);
             // Stick the message in Outbox
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
                     sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope, null);
@@ -607,9 +607,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         });
     }
 
-    Optional<MatsSocketEndpointRegistration<?, ?, ?, ?>> getMatsSocketEndpointRegistration(String eid) {
-        MatsSocketEndpointRegistration<?, ?, ?, ?> registration = _matsSocketEndpointsByMatsSocketEndpointId.get(eid);
-        log.info("MatsSocketRegistration for [" + eid + "]: " + registration);
+    Optional<MatsSocketEndpointRegistration<?, ?, ?, ?>> getMatsSocketEndpointRegistration(String endpointId) {
+        if (endpointId == null) {
+            throw new NullPointerException("endpointId");
+        }
+        MatsSocketEndpointRegistration<?, ?, ?, ?> registration = _matsSocketEndpointsByMatsSocketEndpointId.get(
+                endpointId);
         return Optional.ofNullable(registration);
     }
 
@@ -848,8 +851,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
 
         private R _matsSocketReplyMessage;
-        private boolean _settled;
-        private boolean _resolved = true; // If neither resolve() nor reject() is invoked, it is a resolve.
+        private Processed _handled = Processed.IGNORED;
 
         @Override
         public String getMatsSocketEndpointId() {
@@ -863,22 +865,20 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         @Override
         public void resolve(R matsSocketResolveMessage) {
-            if (_settled) {
-                throw new IllegalStateException("Already settled.");
+            if (_handled != Processed.IGNORED) {
+                throw new IllegalStateException("Already handled.");
             }
             _matsSocketReplyMessage = matsSocketResolveMessage;
-            _settled = true;
-            _resolved = true;
+            _handled = Processed.SETTLED_RESOLVE;
         }
 
         @Override
         public void reject(R matsSocketRejectMessage) {
-            if (_settled) {
-                throw new IllegalStateException("Already settled.");
+            if (_handled != Processed.IGNORED) {
+                throw new IllegalStateException("Already handled.");
             }
             _matsSocketReplyMessage = matsSocketRejectMessage;
-            _settled = true;
-            _resolved = false;
+            _handled = Processed.SETTLED_REJECT;
         }
     }
 
@@ -992,10 +992,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     static class ReplyHandleStateDto {
         private final String sid;
-        private final String cid;
         private final String cmid;
         private final String ms_eid;
-        private final String ms_reid;
 
         private final Long cmcts; // Client Message Created TimeStamp (Client timestamp)
         private final Long cmrts; // Client Message Received Timestamp (Server timestamp)
@@ -1007,25 +1005,21 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         private ReplyHandleStateDto() {
             /* no-args constructor for Jackson */
             sid = null;
-            cid = null;
             cmid = null;
             ms_eid = null;
-            ms_reid = null;
             cmcts = 0L;
             cmrts = 0L;
             mmsts = 0L;
             recnn = null;
         }
 
-        ReplyHandleStateDto(String matsSocketSessionId, String matsSocketEndpointId, String replyEndpointId,
-                String correlationId, String messageSequence, Long clientMessageCreatedTimestamp,
+        ReplyHandleStateDto(String matsSocketSessionId, String matsSocketEndpointId,
+                String messageSequence, Long clientMessageCreatedTimestamp,
                 Long clientMessageReceivedTimestamp, Long matsMessageSentTimestamp,
                 String receivedNodename) {
             sid = matsSocketSessionId;
-            cid = correlationId;
             cmid = messageSequence;
             ms_eid = matsSocketEndpointId;
-            ms_reid = replyEndpointId;
             cmcts = clientMessageCreatedTimestamp;
             cmrts = clientMessageReceivedTimestamp;
             mmsts = matsMessageSentTimestamp;
@@ -1075,12 +1069,29 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     registration._matsSocketEndpointId, processContext);
             try {
                 registration._replyAdapter.adaptReply(replyContext, matsReply);
-                msReply = replyContext._matsSocketReplyMessage;
-                msReplyEnvelope.t = replyContext._resolved ? RESOLVE : REJECT;
-                log.info("ReplyAdapter replied with [" + msReplyEnvelope.t + "]");
+
+                switch (replyContext._handled) {
+                    case IGNORED:
+                        // -> The user did not invoke neither .resolve() nor .reject().
+                        msReplyEnvelope.t = REJECT;
+                        msReply = null;
+                        log.info("adaptReply(..) evidently ignored the Mats message. Responding [REJECT].");
+                        break;
+                    case SETTLED_RESOLVE:
+                    case SETTLED_REJECT:
+                        // -> The user settled with .resolve() or .reject()
+                        msReplyEnvelope.t = replyContext._handled == Processed.SETTLED_RESOLVE
+                                ? RESOLVE
+                                : REJECT;
+                        msReply = replyContext._matsSocketReplyMessage;
+                        log.info("adaptReply(..) settled the reply with [" + msReplyEnvelope.t + "]");
+                        break;
+                    default:
+                        throw new AssertionError("Unhandled enum value [" + replyContext._handled + "]");
+                }
             }
             catch (RuntimeException rte) {
-                log.warn("ReplyAdapter raised [" + rte.getClass().getSimpleName() + "], settling with REJECT", rte);
+                log.warn("adaptReply(..)  raised [" + rte.getClass().getSimpleName() + "], settling with REJECT", rte);
                 msReply = null;
                 // TODO: If debug enabled for authenticated user, set description to full stacktrace.
                 msReplyEnvelope.t = REJECT;
@@ -1101,11 +1112,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         String serverMessageId = serverMessageId();
 
         // Create Envelope
-        msReplyEnvelope.eid = state.ms_reid;
-        msReplyEnvelope.cid = state.cid;
         msReplyEnvelope.smid = serverMessageId;
         msReplyEnvelope.cmid = state.cmid;
         msReplyEnvelope.tid = processContext.getTraceId(); // TODO: Chop off last ":xyz", as that is added serverside.
+        msReplyEnvelope.msg = msReply; // This object will be serialized.
+
+        // TODO: DEBUG
         msReplyEnvelope.cmcts = state.cmcts;
         msReplyEnvelope.cmrts = state.cmrts;
         msReplyEnvelope.cmrnn = state.recnn; // The receiving nodename
@@ -1114,7 +1126,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         msReplyEnvelope.mmrrnn = getMyNodename(); // The Mats-receiving nodename (this processing)
         msReplyEnvelope.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
         msReplyEnvelope.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
-        msReplyEnvelope.msg = msReply; // This object will be serialized.
 
         // Create ServerMessageId
         // Serialize and store the message for forward ("StoreAndForward")

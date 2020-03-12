@@ -18,7 +18,7 @@
 }(typeof self !== 'undefined' ? self : this, function (chai, sinon, ws, mats, env) {
     const MatsSocket = mats.MatsSocket;
 
-    describe('MatsSocket integration tests of Server-side send/request', function () {
+    describe('MatsSocket integration tests of Server-side send/request ("push")', function () {
         let matsSocket;
 
         function setAuth(userId = "standard", duration = 20000, roomForLatencyMillis = 10000) {
