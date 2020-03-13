@@ -18,7 +18,7 @@
 }(typeof self !== 'undefined' ? self : this, function (exports, WebSocket) {
 
     /**
-     * MatsSocketCloseCodes enum, directly from MatsSocketServer.java
+     * <b>Copied directly from MatsSocketServer.java</b>: All WebSocket close codes used in the MatsSocket protocol.
      *
      * @type {Readonly<{VIOLATED_POLICY: number, SERVICE_RESTART: number, CLOSE_SESSION: number, GOING_AWAY: number, SESSION_LOST: number, RECONNECT: number, nameFor: nameFor, PROTOCOL_ERROR: number, UNEXPECTED_CONDITION: number}>}
      */
@@ -335,11 +335,11 @@
         this.sentTimestamp = sentTimestamp;
 
         /**
-         * The experienced latency for this ping-pong, remember that this is the time back-and-forth.
+         * The experienced round-trip time for this ping-pong - this is the time back-and-forth.
          *
          * @type {number} the number of milliseconds from ping sent to pong received.
          */
-        this.latency = undefined;
+        this.roundTripTime = undefined;
     }
 
     const MessageType = Object.freeze({
@@ -1080,16 +1080,16 @@
         // When we've informed the app that we need auth, we do not need to do it again until it has set it.
         let _authExpiredCallbackInvoked = false;
 
-        // Outstanding Futures resolving the Promises
-        const _outstandingRequests = Object.create(null);
-        // Outstanding SEND and RECEIVE messages waiting for Received ACK/ERROR/NACK
-        const _outboxInitiations = Object.create(null);
-        // .. a "guard object" to avoid having to retransmit messages sent /before/ the HELLO/WELCOME handshake
-        let _outstandingSendAndRequest_RetransmitGuard = this.jid(5);
-        // Outstanding REPLYs
-        const _outboxReplies = Object.create(null);
         // Outstanding Pings
         const _outstandingPings = Object.create(null);
+        // Outstanding Request "futures", i.e. the resolve() and reject() functions of the returned Promise.
+        const _outstandingRequests = Object.create(null);
+        // Outbox for SEND and REQUEST messages waiting for Received ACK/NACK
+        const _outboxInitiations = Object.create(null);
+        // .. a "guard object" to avoid having to retransmit messages sent /before/ the HELLO/WELCOME handshake
+        let _outboxInitiations_RetransmitGuard = this.jid(5);
+        // Outbox for REPLYs
+        const _outboxReplies = Object.create(null);
 
         // :: STATS
         // Last 100 PINGs
@@ -1136,7 +1136,7 @@
             // Reset Reconnect state vars
             _resetReconnectStateVars();
             // Make new RetransmitGuard - so that any previously "guarded" messages now will be retransmitted.
-            _outstandingSendAndRequest_RetransmitGuard = that.jid(5);
+            _outboxInitiations_RetransmitGuard = that.jid(5);
             // :: Clear out _webSocket;
             if (_webSocket) {
                 // We don't want the onclose callback invoked from this event that we initiated ourselves.
@@ -1178,20 +1178,20 @@
                 }
             }
 
-            // :: Reject all futures
+            // :: Reject all Requests
             for (let cmid in _outstandingRequests) {
                 // noinspection JSUnfilteredForInLoop: Using Object.create(null)
-                let future = _outstandingRequests[cmid];
+                let request = _outstandingRequests[cmid];
                 // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                 delete _outstandingRequests[cmid];
 
-                log("Clearing REQUEST future [" + future.envelope.t + "] to [" + future.envelope.eid + "] with traceId [" + future.envelope.tid + "].");
-                if (future.reject) {
+                log("Clearing REQUEST future [" + request.envelope.t + "] to [" + request.envelope.eid + "] with traceId [" + request.envelope.tid + "].");
+                if (request.reject) {
                     try {
                         // TODO: Make better event object
-                        future.reject({type: "CLEARED", description: reason});
+                        request.reject({type: "CLEARED", description: reason});
                     } catch (err) {
-                        error("Got error while clearing REQUEST future to [" + future.envelope.eid + "].", err);
+                        error("Got error while clearing REQUEST future to [" + request.envelope.eid + "].", err);
                     }
                 }
             }
@@ -1206,13 +1206,13 @@
             // This is an information-bearing message, so now we are not closed!
             _sessionClosed = false;
             let now = Date.now();
+            let performanceNow = performance.now();
 
             // Add the traceId to the message
             envelope.tid = traceId;
             // Add the message Sequence Id
             let thisMessageSequenceId = _messageSequenceId++;
             envelope.cmid = thisMessageSequenceId;
-
 
             // Update timestamp of last "information bearing message" sent.
             _lastMessageEnqueuedTimestamp = now;
@@ -1221,13 +1221,15 @@
             // Store the outgoing envelope
             outstandingInitiation.envelope = envelope;
             // Store which "retransmitGuard" we were at when sending this (look up usage for why)
-            outstandingInitiation.retransmitGuard = _outstandingSendAndRequest_RetransmitGuard;
+            outstandingInitiation.retransmitGuard = _outboxInitiations_RetransmitGuard;
             // Start the attempt counter. We start at 1, as we immediately will enqueue this envelope..
             outstandingInitiation.attempt = 1;
             // Store the sent timestamp.
             outstandingInitiation.sentTimestamp = now;
             // Store TraceId
             outstandingInitiation.traceId = traceId;
+            // Store performance.now for round-trip timing
+            outstandingInitiation.performanceNow = performanceNow;
 
             // Then - store the outstanding Send or Request
             _outboxInitiations[thisMessageSequenceId] = outstandingInitiation;
@@ -1240,6 +1242,8 @@
                 outstandingRequest.sentTimestamp = now;
                 // Store TraceId
                 outstandingRequest.traceId = traceId;
+                // Store performance.now for round-trip timing
+                outstandingRequest.performanceNow = performanceNow;
 
                 // Then - store this outstanding Request.
                 _outstandingRequests[thisMessageSequenceId] = outstandingRequest;
@@ -1668,10 +1672,10 @@
                             let initiation = _outboxInitiations[key];
                             let initiationEnvelope = initiation.envelope;
                             // ?: Is the RetransmitGuard the same as we currently have?
-                            if (initiation.retransmitGuard === _outstandingSendAndRequest_RetransmitGuard) {
+                            if (initiation.retransmitGuard === _outboxInitiations_RetransmitGuard) {
                                 // -> Yes, so it makes little sense in sending these messages again just yet.
                                 if (that.logging) log("RetransmitGuard: The outstandingInitiation with cmid:[" + initiationEnvelope.cmid + "] and TraceId:[" + initiationEnvelope.tid
-                                    + "] was created with the same RetransmitGuard as we currently have [" + _outstandingSendAndRequest_RetransmitGuard + "] - they were sent directly trailing HELLO, before WELCOME came back in. No use in sending again.");
+                                    + "] was created with the same RetransmitGuard as we currently have [" + _outboxInitiations_RetransmitGuard + "] - they were sent directly trailing HELLO, before WELCOME came back in. No use in sending again.");
                                 continue;
                             }
                             initiation.attempt++;
@@ -1766,12 +1770,12 @@
                         if (envelope.t === MessageType.ACK) {
                             // -> Yes, it was undefined or "ACK" - so Server was happy.
                             if (initiation.ack) {
-                                initiation.ack(_eventFromEnvelope(envelope, initiation.traceId, initiation.sentTimestamp, receivedTimestamp));
+                                initiation.ack(_eventFromEnvelope(envelope, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
                             }
                         } else {
                             // -> No, it was "NACK", so message has not been forwarded to Mats
                             if (initiation.nack) {
-                                initiation.nack(_eventFromEnvelope(envelope, initiation.traceId, initiation.sentTimestamp, receivedTimestamp));
+                                initiation.nack(_eventFromEnvelope(envelope, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
                             }
                             // ?: ALSO check if it was a REQUEST?
                             let request = _outstandingRequests[envelope.cmid];
@@ -1834,7 +1838,7 @@
                         _inbox[envelope.smid] = envelope;
 
                         // Actually invoke the Terminator
-                        terminator.resolve(_eventFromEnvelope(envelope, envelope.tid, undefined, receivedTimestamp));
+                        terminator.resolve(_eventFromEnvelope(envelope, envelope.tid, undefined, receivedTimestamp, undefined));
 
                     } else if (envelope.t === MessageType.REQUEST) {
                         // -> REQUEST: Request a REPLY from an endpoint
@@ -1900,7 +1904,7 @@
                         };
 
                         // Invoke the Endpoint, getting a Promise back.
-                        let promise = endpoint(_eventFromEnvelope(envelope, envelope.tid, undefined, receivedTimestamp));
+                        let promise = endpoint(_eventFromEnvelope(envelope, envelope.tid, undefined, receivedTimestamp, undefined));
 
                         // Finally attach the Resolve and Reject handler
                         promise.then(function (resolveMessage) {
@@ -1929,7 +1933,7 @@
                             // -> Yes, still present - so we delete and resolve it
                             delete _outboxInitiations[envelope.cmid];
                             if (initiation.ack) {
-                                initiation.ack(_eventFromEnvelope(envelope, initiation.traceId, initiation.sentTimestamp, receivedTimestamp));
+                                initiation.ack(_eventFromEnvelope(envelope, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
                             }
                         }
 
@@ -1963,7 +1967,7 @@
             }
         }
 
-        function _eventFromEnvelope(envelope, traceId, sentTimestamp, receivedTimestamp) {
+        function _eventFromEnvelope(envelope, traceId, sentTimestamp, receivedTimestamp, roundTripMillis) {
             return {
                 type: envelope.t,  // Informational - do not use programmatically!
                 data: envelope.msg, // The data received for a Request's RESOLVE or REJECT, or with incoming SENDs and REQEUSTs - maybe be null, or undefined or other type of events.
@@ -1971,7 +1975,7 @@
                 messageId: (envelope.cmid ? envelope.cmid : envelope.smid),
                 sentTimestamp: (sentTimestamp ? sentTimestamp : undefined),
                 receivedTimestamp: receivedTimestamp,
-                roundTripMillis: (sentTimestamp ? (receivedTimestamp - sentTimestamp) : undefined),
+                roundTripMillis: roundTripMillis,
 
                 // DEBUG INFO: Timestamps and handling node names.
                 debug: {
@@ -1983,7 +1987,7 @@
                     matsMessageReplyReceivedNodename: envelope.mmrrnn,
                     replyMessageToClient: envelope.mscts,
                     replyMessageToClientNodename: envelope.mscnn,
-                    messageReceivedOnClient: receivedTimestamp
+                    replyMessageReceived: receivedTimestamp
                 }
             };
         }
@@ -1995,7 +1999,7 @@
                 // Find the (client) Terminator which the Reply should go to
                 let terminator = _terminators[request.replyToEndpointId];
                 // Create the event
-                let event = _eventFromEnvelope(envelope, request.traceId, request.sentTimestamp, receivedTimestamp);
+                let event = _eventFromEnvelope(envelope, request.traceId, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow);
                 // .. add CorrelationInformation from request
                 event.correlationInformation = request.correlationInformation;
                 if (envelope.t === MessageType.RESOLVE) {
@@ -2012,7 +2016,7 @@
                 // Delete the outstanding request, as we will complete it now.
                 delete _outstandingRequests[envelope.cmid];
                 // Create the event
-                let event = _eventFromEnvelope(envelope, request.traceId, request.sentTimestamp, receivedTimestamp);
+                let event = _eventFromEnvelope(envelope, request.traceId, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow);
                 // Was it RESOLVE or REJECT?
                 if (envelope.t === MessageType.RESOLVE) {
                     request.resolve(event);

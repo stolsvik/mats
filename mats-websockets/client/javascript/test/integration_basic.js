@@ -301,6 +301,19 @@
 
             // FOR ALL: Both the received callback should be invoked, and the Promise resolved/rejected
 
+            it("ignored (handler did nothing) should NACK when Request handled in adaptReply(..) (thus nack receivedCallback, and reject Promise)", function (done) {
+                let received = false;
+                let promise = matsSocket.request("Test.ignoreInReplyAdapter", "REQUEST_ignored_in_replyAdapter" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.catch(function () {
+                    if (received) {
+                        done();
+                    }
+                });
+            });
+
             it("context.resolve(..)", function (done) {
                 let received = false;
                 let promise = matsSocket.request("Test.resolveInReplyAdapter", "REQUEST_resolved_in_replyAdapter" + matsSocket.id(6), {},

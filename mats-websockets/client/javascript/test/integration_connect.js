@@ -106,6 +106,8 @@
             });
 
             it('reconnect with a different resolved userId should fail', function (done) {
+                // MatsSocket emits an error upon SessionClose. Annoying when testing this, so send to /dev/null.
+                // (Restored right before done())
                 let originalConsoleError = console.error;
                 console.error = function(msg, obj) { /* ignore */ };
                 // First authorize with 'Endre' as userId - in the ConnectionEvent listener we change this.
@@ -141,6 +143,7 @@
                     .catch(reply => {
                         chai.assert(receivedCallbackInvoked, "ReceivedCallback should have been invoked.");
                         chai.assert(sessionClosed, "SessionClosedEvent listener should have been invoked.");
+                        // Restore console's error.
                         console.error = originalConsoleError;
                         done();
                     });

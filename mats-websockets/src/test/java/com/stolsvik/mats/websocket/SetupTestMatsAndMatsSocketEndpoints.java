@@ -29,6 +29,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         setupSocket_ResolveInIncoming(matsSocketServer);
         setupSocket_RejectInIncoming(matsSocketServer);
         setupSocket_ThrowsInIncoming(matsSocketServer);
+
+        setupSocket_IgnoreInReplyAdapter(matsSocketServer);
         setupSocket_ResolveInReplyAdapter(matsSocketServer);
         setupSocket_RejectInReplyAdapter(matsSocketServer);
         setupSocket_ThrowsInReplyAdapter(matsSocketServer);
@@ -124,7 +126,16 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     }
 
     // ===== ReplyAdapter
-    // TODO: Make, and handle, "IGNORE" in replyAdapter. Should reject.
+
+    private static void setupSocket_IgnoreInReplyAdapter(MatsSocketServer matsSocketServer) {
+        matsSocketServer.matsSocketEndpoint("Test.ignoreInReplyAdapter",
+                MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
+                        msg -> msg.to(STANDARD_ENDPOINT)),
+                // IGNORE - i.e. do nothing
+                (ctx, matsReply) -> {
+                });
+    }
 
     private static void setupSocket_ResolveInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.resolveInReplyAdapter",
