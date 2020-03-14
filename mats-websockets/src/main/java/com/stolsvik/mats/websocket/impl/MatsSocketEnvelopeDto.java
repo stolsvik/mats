@@ -18,7 +18,7 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
  */
-@JsonPropertyOrder({ "t", "st", "smid", "cmid", "tid" })
+@JsonPropertyOrder({ "t", "smid", "cmid", "tid" })
 class MatsSocketEnvelopeDto {
     String clv; // Client Lib and Versions, informative, e.g.
     // "MatsSockLibCsharp,v2.0.3; iOS,v13.2"
@@ -28,9 +28,13 @@ class MatsSocketEnvelopeDto {
     String an; // AppName
     String av; // AppVersion
 
+    MessageType t; // Type
+
     String auth; // Authorization header
 
     String sid; // SessionId
+
+    Integer rd; // Requested debug info (currently only Client-to-Server)
 
     String eid; // target MatsSocketEndpointId: Which MatsSocket Endpoint (server/client) this message is for
 
@@ -39,7 +43,6 @@ class MatsSocketEnvelopeDto {
     String cmid; // ClientMessageId, messageId from Client.
     String x; // PingId - "correlationId" for pings. Small, so as to use little space.
 
-    MessageType t; // Type
     String desc; // Description when failure (NACK or others), exception message, multiline, may include stacktrace if
                  // authz.
 
@@ -49,18 +52,7 @@ class MatsSocketEnvelopeDto {
 
     // ::: Debug info
 
-    // :: Timings and Nodenames
-    Long cmcts; // Client Message Created TimeStamp (when message was created on Client side, Client timestamp)
-    Long cmrts; // Client Message Received Timestamp (when message was received on Server side, Server timestamp)
-    String cmrnn; // Client Message Received on NodeName (and Mats message is also sent from this)
-    Long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server timestamp)
-    Long mmrrts; // Mats Message Reply Received Timestamp (when the message was received from Mats, Server
-    // timestamp)
-    String mmrrnn; // Mats Message Reply Received on NodeName
-    Long mscts; // Message Sent to Client Timestamp (when the message was replied to Client side, Server timestamp)
-    String mscnn; // Message Sent to Client from NodeName (typically same as cmrnn, unless reconnect in between)
-
-    DebugDto dbg; // Debug info object - enabled if requested and principal is allowed. (Not Yet Impl)
+    DebugDto debug; // Debug info object - enabled if requested ('rd') and principal is allowed.
 
     @Override
     public String toString() {
@@ -74,6 +66,25 @@ class MatsSocketEnvelopeDto {
 
     static class DebugDto {
         String d; // Description
+
+        int resd; // Resolved DebugOptions
+
+        // :: Timings and Nodenames
+//        Long cmcts; // Client Message Created TimeStamp (when message was created on Client side, Client timestamp)
+        Long cmrts; // Client Message Received Timestamp (when message was received on Server side, Server timestamp)
+        String cmrnn; // Client Message Received on NodeName (and Mats message is also sent from this)
+
+        Long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server timestamp)
+        Long mmrrts; // Mats Message Reply Received Timestamp (when the message was received from Mats, Server ts)
+        String mmrrnn; // Mats Message Reply Received on NodeName
+
+        Long smcts; // Server Message Created Timestamp (when message was created on Server side)
+        String smcnn; // Server Message Created NodeName (when message was created on Server side)
+
+        Long mscts; // Message Sent to Client Timestamp (when the message was replied to Client side, Server timestamp)
+        String mscnn; // Message Sent to Client from NodeName (typically same as cmrnn, unless reconnect in between)
+
+        // The log
         List<LogLineDto> l; // Log - this will be appended to if debugging is active.
     }
 

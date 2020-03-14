@@ -268,27 +268,30 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void updateMessageInInbox(String matsSocketSessionId, String clientMessageId, String messageJson,
+    public void updateMessageInInbox(String matsSocketSessionId, String clientMessageId, String envelopeWithMessage,
             byte[] messageBinary) throws DataAccessException {
         withConnectionVoid(con -> {
             PreparedStatement updateMsg = con.prepareStatement("UPDATE " + inboxTableName(matsSocketSessionId)
-                    + " SET message_text = ?, message_binary = ?"
+                    + " SET full_envelope = ?, message_binary = ?"
                     + " WHERE session_id = ?"
                     + "   AND cmid = ?");
-            updateMsg.setString(1, messageJson);
+            updateMsg.setString(1, envelopeWithMessage);
             updateMsg.setBytes(2, messageBinary);
             updateMsg.setString(3, matsSocketSessionId);
             updateMsg.setString(4, clientMessageId);
             updateMsg.execute();
             updateMsg.close();
         });
+
+        // TODO: Change to "envelope_with_message" and own type for StoredInMessage
     }
 
     @Override
     public StoredMessage getMessageFromInbox(String matsSocketSessionId,
             String clientMessageId) throws DataAccessException {
         return withConnectionReturn(con -> {
-            PreparedStatement select = con.prepareStatement("SELECT stored_timestamp, message_text, message_binary"
+            PreparedStatement select = con.prepareStatement("SELECT"
+                    + " stored_timestamp, full_envelope, message_binary"
                     + "  FROM " + inboxTableName(matsSocketSessionId)
                     + " WHERE session_id = ?"
                     + "   AND cmid = ?");
@@ -304,7 +307,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                     0,
                     null,
                     null,
-                    rs.getString(2),
+                    rs.getString(2),  // Store the envelope WITH the message in 'envelope'
+                    null,
                     rs.getBytes(3));
             select.close();
             return msg;
@@ -331,13 +335,13 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
-            String clientMessageId, String traceId, MessageType type, String messageJson, byte[] messageBinary)
-            throws DataAccessException {
+            String clientMessageId, String traceId, MessageType type, String envelope, String messageJson,
+            byte[] messageBinary) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("INSERT INTO " + outboxTableName(matsSocketSessionId)
                     + "(session_id, smid, cmid, stored_timestamp,"
-                    + " delivery_count, trace_id, type, message_text, message_binary)"
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    + " delivery_count, trace_id, type, envelope, message_text, message_binary)"
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             insert.setString(1, matsSocketSessionId);
             insert.setString(2, serverMessageId);
             insert.setString(3, clientMessageId);
@@ -345,8 +349,9 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             insert.setInt(5, 0);
             insert.setString(6, traceId);
             insert.setString(7, type.name());
-            insert.setString(8, messageJson);
-            insert.setBytes(9, messageBinary);
+            insert.setString(8, envelope);
+            insert.setString(9, messageJson);
+            insert.setBytes(10, messageBinary);
             insert.execute();
 
             return _getCurrentNode(matsSocketSessionId, con, true);
@@ -361,7 +366,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             // The old MS JDBC Driver 'jtds' don't handle parameter insertion for 'TOP' statement.
             PreparedStatement insert = con.prepareStatement("SELECT TOP " + maxNumberOfMessages
                     + "          smid, cmid, stored_timestamp, attempt_timestamp,"
-                    + "          delivery_count, trace_id, type, message_text, message_binary"
+                    + "          delivery_count, trace_id, type, envelope, message_text, message_binary"
                     + "  FROM " + outboxTableName(matsSocketSessionId)
                     + " WHERE session_id = ?"
                     + (takeAlreadyAttempted
@@ -371,10 +376,11 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             ResultSet rs = insert.executeQuery();
             List<StoredMessage> list = new ArrayList<>();
             while (rs.next()) {
+                MessageType type = MessageType.valueOf(rs.getString(7));
                 SimpleStoredMessage sm = new SimpleStoredMessage(matsSocketSessionId, rs.getString(1),
                         rs.getString(2), rs.getLong(3), (Long) rs.getObject(4),
-                        rs.getInt(5), rs.getString(6), rs.getString(7),
-                        rs.getString(8), rs.getBytes(9));
+                        rs.getInt(5), rs.getString(6), type,
+                        rs.getString(8), rs.getString(9), rs.getBytes(10));
                 list.add(sm);
             }
             return list;

@@ -2,6 +2,7 @@ package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedTransferQueue;
@@ -13,10 +14,13 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredMessage;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
+import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
 
 /**
  * Gets a ping from the node-specific Topic, or when the client reconnects.
@@ -200,39 +204,87 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                             .map(StoredMessage::getServerMessageId)
                             .collect(Collectors.toList());
                     String messageTypesAndTraceIds = messagesToDeliver.stream()
-                            .map(msg -> msg.getType() + ':' + msg.getTraceId())
+                            .map(msg -> "{" + msg.getType() + "} " + msg.getTraceId())
                             .collect(Collectors.joining(", "));
+
+                    long now = System.currentTimeMillis();
+
+                    // Deserialize envelopes back to DTO, and stick in the message
+                    List<MatsSocketEnvelopeDto> envelopeList = messagesToDeliver.stream().map(storedMessage -> {
+                        MatsSocketEnvelopeDto envelope;
+                        try {
+                            envelope = _matsSocketServer.getEnvelopeObjectReader().readValue(storedMessage
+                                    .getEnvelope());
+                        }
+                        catch (JsonProcessingException e) {
+                            throw new AssertionError("Could not deserialize Envelope DTO.");
+                        }
+                        // Set the message onto the envelope, in "raw" mode (it is already json)
+                        envelope.msg = new DirectJsonMessage(storedMessage.getMessageText());
+                        // Handle debug
+                        if (envelope.debug != null) {
+                            /*
+                             * Now, for Client-initiated, things have already been resolved - if we have a DebugDto,
+                             * then it is because the user both requests to query for /something/, and are allowed to
+                             * query for this.
+                             *
+                             * However, for Server-initiated, we do not know until now, and thus the initiation always
+                             * adds it. We thus need to check with the AuthenticationPlugin's resolved auth vs. what the
+                             * client has asked for wrt. Server-initiated.
+                             */
+                            // ?: Is this a Reply to a Client-to-Server REQUEST? (RESOLVE or REJECT)?
+                            if ((MessageType.RESOLVE == storedMessage.getType())
+                                    || MessageType.REJECT == storedMessage.getType()) {
+                                // -> Yes, Reply (RESOLVE or REJECT)
+                                // Find which resolved DebugOptions are in effect for this message
+                                EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(envelope.debug.resd);
+                                // Add timestamp and nodename depending on options
+                                if (debugOptions.contains(DebugOption.TIMINGS)) {
+                                    envelope.debug.mscts = now;
+                                }
+                                if (debugOptions.contains(DebugOption.NODES)) {
+                                    envelope.debug.mscnn = _matsSocketServer.getMyNodename();
+                                }
+                            }
+                            // ?: Is this a Server-initiated message (SEND or REQUEST)?
+                            if ((MessageType.SEND == storedMessage.getType())
+                                    || MessageType.REJECT == storedMessage.getType()) {
+                                // -> Yes, Server-to-Client (SEND or REJECT)
+                                // Find what the client requests along with what authentication allows
+                                EnumSet<DebugOption> debugOptions = matsSocketMessageHandler
+                                        .getCurrentResolvedServerToClientDebugOptions();
+                                // ?: How's the standing wrt. DebugOptions?
+                                if (debugOptions.isEmpty()) {
+                                    // -> Client either do not request anything, or server does not allow anything for
+                                    // this user.
+                                    // Null out the already existing DebugDto
+                                    envelope.debug = null;
+                                }
+                                else {
+                                    // -> Client requests, and is user is allowed, to query for something.
+                                    // Set which flags are resolved
+                                    envelope.debug.resd = DebugOption.flags(debugOptions);
+                                    // Add timestamp and nodename depending on options
+                                    if (debugOptions.contains(DebugOption.TIMINGS)) {
+                                        envelope.debug.mscts = now;
+                                    }
+                                    if (debugOptions.contains(DebugOption.NODES)) {
+                                        envelope.debug.mscnn = _matsSocketServer.getMyNodename();
+                                    }
+                                }
+                            }
+                        }
+                        return envelope;
+                    }).collect(Collectors.toList());
+
+                    // Serialize the list of Envelopes
+                    String msg = _matsSocketServer.getEnvelopeListObjectWriter().writeValueAsString(envelopeList);
 
                     // :: Forward message(s) over WebSocket
                     try {
-                        long nanos_start_SendMessage = System.nanoTime();
-                        String nowString = Long.toString(System.currentTimeMillis());
-                        // :: Feed the JSONs over, manually piecing together a JSON Array.
-                        // NOTE: It was tempting to fetch the Basic.getSendWriter() and feed the pieces in there, but
-                        // that produced (for some godforsaken reason) an awful performance, at least on Jetty 9.
-                        StringBuilder buf = new StringBuilder();
-                        // Create the JSON Array
-                        buf.append('[');
-                        boolean first = true;
-                        for (StoredMessage storedMessage : messagesToDeliver) {
-                            if (first) {
-                                first = false;
-                            }
-                            else {
-                                buf.append(',');
-                            }
-                            String json = storedMessage.getEnvelopeJson();
-                            // :: Replace in sent timestamp and this node's nodename.
-                            json = DefaultMatsSocketServer.REPLACE_VALUE_TIMESTAMP_REGEX.matcher(json)
-                                    .replaceFirst(nowString);
-                            json = DefaultMatsSocketServer.REPLACE_VALUE_REPLY_NODENAME_REGEX.matcher(json)
-                                    .replaceFirst(_matsSocketServer.getMyNodename());
-                            buf.append(json);
-                        }
-                        buf.append(']');
-
                         // :: Actually send message(s) over WebSocket.
-                        matsSocketMessageHandler.webSocketSendText(buf.toString());
+                        long nanos_start_SendMessage = System.nanoTime();
+                        matsSocketMessageHandler.webSocketSendText(msg);
                         float millisSendMessages = msSince(nanos_start_SendMessage);
 
                         // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)

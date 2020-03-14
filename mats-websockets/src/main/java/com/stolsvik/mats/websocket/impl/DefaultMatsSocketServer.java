@@ -8,6 +8,7 @@ import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.SEND;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Builder;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
+import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,6 +63,7 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.MatsSocketServer;
+import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DebugDto;
 import com.stolsvik.mats.websocket.impl.MatsSocketMessageHandler.Processed;
 
 /**
@@ -382,23 +385,32 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     public void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto) {
         // Create ServerMessageId
         String serverMessageId = serverMessageId();
+        // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants.
+        DebugDto debug = new DebugDto();
+        debug.smcts = System.currentTimeMillis();
+        debug.smcnn = getMyNodename();
+        // TODO move these:
+        debug.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
+        debug.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
+
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
         msReplyEnvelope.t = SEND;
         msReplyEnvelope.eid = clientTerminatorId;
         msReplyEnvelope.smid = serverMessageId;
         msReplyEnvelope.tid = traceId;
-        // TODO: Add "message sent from server timestamp and nodename"
-        msReplyEnvelope.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
-        msReplyEnvelope.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
-        msReplyEnvelope.msg = messageDto; // This object will be serialized.
+        msReplyEnvelope.debug = debug;
 
-        // Serialize and store the message for forward ("StoreAndForward")
+        // Serialize and store the envelope for forward ("StoreAndForward")
         String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
+        // Serialize the actual message
+        String serializedMessage = serializeMessageObject(messageDto);
+
         Optional<CurrentNode> nodeNameHoldingWebSocket;
         try {
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
-                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope, null);
+                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope, serializedMessage,
+                    null);
         }
         catch (DataAccessException e) {
             // TODO: Fix
@@ -413,20 +425,27 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             String replyToMatsSocketTerminatorId, String correlationString, byte[] correlationBinary) {
         // Create ServerMessageId
         String serverMessageId = serverMessageId();
+        // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants.
+        DebugDto debug = new DebugDto();
+        debug.smcts = System.currentTimeMillis();
+        debug.smcnn = getMyNodename();
+        // TODO move these:
+        debug.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
+        debug.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
+
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
         msReplyEnvelope.t = REQUEST;
         msReplyEnvelope.eid = clientEndpointId;
         msReplyEnvelope.smid = serverMessageId;
         msReplyEnvelope.tid = traceId;
-        // TODO: Add "message sent from server timestamp and nodename"
-        msReplyEnvelope.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
-        msReplyEnvelope.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
-        msReplyEnvelope.msg = requestDto; // This object will be serialized.
+        msReplyEnvelope.debug = debug;
 
-        // Serialize and store the message for forward ("StoreAndForward")
-        // .. and store Correlation information
+        // Serialize and store the envelope for forward ("StoreAndForward")
         String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
+        // Serialize the actual message
+        String serializedMessage = serializeMessageObject(requestDto);
+
         Optional<CurrentNode> nodeNameHoldingWebSocket;
         try {
             // Store Correlation information
@@ -434,7 +453,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     replyToMatsSocketTerminatorId, correlationString, correlationBinary);
             // Stick the message in Outbox
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
-                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope, null);
+                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope, serializedMessage,
+                    null);
         }
         catch (DataAccessException e) {
             // TODO: Fix
@@ -995,35 +1015,42 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         private final String cmid;
         private final String ms_eid;
 
-        private final Long cmcts; // Client Message Created TimeStamp (Client timestamp)
+        private final Integer resd; // Resolved (Requested & Allowed) DebugOptions - CAN BE NULL
+
         private final Long cmrts; // Client Message Received Timestamp (Server timestamp)
+        private final String cmrnn; // Received Nodeanme
+
         private final Long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server
                                   // timestamp)
-
-        private final String recnn; // Received Nodeanme
 
         private ReplyHandleStateDto() {
             /* no-args constructor for Jackson */
             sid = null;
             cmid = null;
             ms_eid = null;
-            cmcts = 0L;
-            cmrts = 0L;
-            mmsts = 0L;
-            recnn = null;
+
+            resd = null;
+
+            cmrts = null;
+            cmrnn = null;
+
+            mmsts = null;
         }
 
         ReplyHandleStateDto(String matsSocketSessionId, String matsSocketEndpointId,
-                String messageSequence, Long clientMessageCreatedTimestamp,
-                Long clientMessageReceivedTimestamp, Long matsMessageSentTimestamp,
-                String receivedNodename) {
+                String clientMessageId, Integer resolvedDebugFlags,
+                Long clientMessageReceivedTimestamp, String clientMessageReceivedNodeName,
+                Long matsMessageSentTimestamp) {
             sid = matsSocketSessionId;
-            cmid = messageSequence;
+            cmid = clientMessageId;
             ms_eid = matsSocketEndpointId;
-            cmcts = clientMessageCreatedTimestamp;
+
+            resd = resolvedDebugFlags;
+
             cmrts = clientMessageReceivedTimestamp;
+            cmrnn = clientMessageReceivedNodeName; // Also where MatsMessage is Sent.
+
             mmsts = matsMessageSentTimestamp;
-            recnn = receivedNodename;
         }
     }
 
@@ -1115,26 +1142,42 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         msReplyEnvelope.smid = serverMessageId;
         msReplyEnvelope.cmid = state.cmid;
         msReplyEnvelope.tid = processContext.getTraceId(); // TODO: Chop off last ":xyz", as that is added serverside.
-        msReplyEnvelope.msg = msReply; // This object will be serialized.
 
-        // TODO: DEBUG
-        msReplyEnvelope.cmcts = state.cmcts;
-        msReplyEnvelope.cmrts = state.cmrts;
-        msReplyEnvelope.cmrnn = state.recnn; // The receiving nodename
-        msReplyEnvelope.mmsts = state.mmsts;
-        msReplyEnvelope.mmrrts = matsMessageReplyReceivedTimestamp;
-        msReplyEnvelope.mmrrnn = getMyNodename(); // The Mats-receiving nodename (this processing)
-        msReplyEnvelope.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
-        msReplyEnvelope.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
+        EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(state.resd);
 
-        // Create ServerMessageId
-        // Serialize and store the message for forward ("StoreAndForward")
+        if (!debugOptions.isEmpty()) {
+            // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants.
+            DebugDto debug = new DebugDto();
+            // As long as there is ANY DebugOptions, we store the resolved debug options in the DebugDto
+            debug.resd = state.resd;
+            // :: Timestamps
+            if (debugOptions.contains(DebugOption.TIMINGS)) {
+                debug.cmrts = state.cmrts;
+                debug.mmsts = state.mmsts;
+                debug.mmrrts = matsMessageReplyReceivedTimestamp;
+            }
+            // :: Node names
+            if (debugOptions.contains(DebugOption.NODES)) {
+                debug.cmrnn = state.cmrnn; // The receiving nodename
+                debug.mmrrnn = getMyNodename(); // The Mats-receiving nodename (this processing)
+            }
+            // TODO: Move these
+            debug.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
+            debug.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
+
+            msReplyEnvelope.debug = debug;
+        }
+
+        // Serialize and store the envelope for forward ("StoreAndForward")
         String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
+        // Serialize the actual message
+        String serializedMessage = serializeMessageObject(msReply);
+
         Optional<CurrentNode> nodeNameHoldingWebSocket;
         try {
             nodeNameHoldingWebSocket = _clusterStoreAndForward.storeMessageInOutbox(
                     state.sid, serverMessageId, msReplyEnvelope.cmid, processContext.getTraceId(), msReplyEnvelope.t,
-                    serializedEnvelope, null);
+                    serializedEnvelope, serializedMessage, null);
         }
         catch (DataAccessException e) {
             // TODO: Fix
@@ -1232,12 +1275,21 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         if (msReplyEnvelope.t == null) {
             throw new IllegalStateException("Type ('t') cannot be null.");
         }
-        // JSONify the MatsSocket Reply.
         try {
-            return _jackson.writeValueAsString(msReplyEnvelope);
+            return _envelopeObjectWriter.writeValueAsString(msReplyEnvelope);
         }
         catch (JsonProcessingException e) {
-            throw new AssertionError("Huh, couldn't serialize message?!");
+            throw new AssertionError("Huh, couldn't serialize envelope?!");
+        }
+    }
+
+    String serializeMessageObject(Object message) {
+        try {
+            return _jackson.writeValueAsString(message);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Could not serialize message of type [" + message.getClass().getName()
+                    + "].");
         }
     }
 

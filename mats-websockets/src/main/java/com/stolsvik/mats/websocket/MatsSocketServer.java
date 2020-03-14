@@ -10,6 +10,7 @@ import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 
 /**
  * @author Endre Stølsvik 2019-11-28 16:15 - http://stolsvik.com/, endre@stolsvik.com
@@ -201,6 +202,19 @@ public interface MatsSocketServer {
          * @return the resolved UserId for the {@link #getAuthorizationHeader() Authorization header}.
          */
         String getUserId();
+
+        /**
+         * @return the set of {@link DebugOption} the the active {@link AuthenticationPlugin} allows the
+         *         {@link #getPrincipal() current Principal} to request.
+         */
+        EnumSet<DebugOption> getAllowedDebugOptions();
+
+        /**
+         * @return the set of {@link DebugOption} the the current message tells that us the Client requests, intersected
+         *         with what active {@link AuthenticationPlugin} allows the {@link #getPrincipal() current Principal} to
+         *         request.
+         */
+        EnumSet<DebugOption> getResolvedDebugOptions();
 
         /**
          * @return the MatsSocketSession Id. This can be useful when wanting to do a

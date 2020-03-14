@@ -32,7 +32,7 @@ CREATE TABLE mats_socket_inbox_00
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    message_text      ${texttype},
+    full_envelope     ${texttype},           -- Envelope including 'msg' field set.
     message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_00 PRIMARY KEY (session_id, cmid)
@@ -43,7 +43,7 @@ CREATE TABLE mats_socket_inbox_01
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    message_text      ${texttype},
+    full_envelope     ${texttype},           -- Envelope including 'msg' field set.
     message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_01 PRIMARY KEY (session_id, cmid)
@@ -54,7 +54,7 @@ CREATE TABLE mats_socket_inbox_02
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    message_text      ${texttype},
+    full_envelope     ${texttype},           -- Envelope including 'msg' field set.
     message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_02 PRIMARY KEY (session_id, cmid)
@@ -65,7 +65,7 @@ CREATE TABLE mats_socket_inbox_03
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    message_text      ${texttype},
+    full_envelope     ${texttype},           -- Envelope including 'msg' field set.
     message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_03 PRIMARY KEY (session_id, cmid)
@@ -76,7 +76,7 @@ CREATE TABLE mats_socket_inbox_04
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    message_text      ${texttype},
+    full_envelope     ${texttype},           -- Envelope including 'msg' field set.
     message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_04 PRIMARY KEY (session_id, cmid)
@@ -87,7 +87,7 @@ CREATE TABLE mats_socket_inbox_05
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    message_text      ${texttype},
+    full_envelope     ${texttype},           -- Envelope including 'msg' field set.
     message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_05 PRIMARY KEY (session_id, cmid)
@@ -98,7 +98,7 @@ CREATE TABLE mats_socket_inbox_06
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     cmid              VARCHAR(255) NOT NULL, -- Client Message Id, 'envelope.cmid'
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    message_text      ${texttype},
+    full_envelope     ${texttype},           -- Envelope including 'msg' field set.
     message_binary    ${binarytype},
 
     CONSTRAINT PK_mats_socket_inbox_06 PRIMARY KEY (session_id, cmid)
@@ -117,6 +117,7 @@ CREATE TABLE mats_socket_outbox_00
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
     message_binary    ${binarytype},
 
@@ -133,6 +134,7 @@ CREATE TABLE mats_socket_outbox_01
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
     message_binary    ${binarytype},
 
@@ -150,6 +152,7 @@ CREATE TABLE mats_socket_outbox_02
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
     message_binary    ${binarytype},
 
@@ -166,6 +169,7 @@ CREATE TABLE mats_socket_outbox_03
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
     message_binary    ${binarytype},
 
@@ -182,6 +186,7 @@ CREATE TABLE mats_socket_outbox_04
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
     message_binary    ${binarytype},
 
@@ -198,6 +203,7 @@ CREATE TABLE mats_socket_outbox_05
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
     message_binary    ${binarytype},
 
@@ -214,6 +220,7 @@ CREATE TABLE mats_socket_outbox_06
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
+    envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
     message_binary    ${binarytype},
 

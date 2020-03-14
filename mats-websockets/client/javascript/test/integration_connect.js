@@ -95,7 +95,7 @@
                     sleepTime: -1
                 };
                 // Request to a service that will reply immediately (in handleIncoming)
-                matsSocket.request("Test.resolveInIncomingHandler", "REQUEST_reconnect1_" + matsSocket.id(6), req)
+                matsSocket.request("Test.resolveInIncomingHandler", "REQUEST_reconnectB_" + matsSocket.id(6), req)
                     .then(reply => {
                         let data = reply.data;
                         chai.assert.strictEqual(data.string, req.string + ":From_resolveInIncomingHandler");
@@ -109,7 +109,8 @@
                 // MatsSocket emits an error upon SessionClose. Annoying when testing this, so send to /dev/null.
                 // (Restored right before done())
                 let originalConsoleError = console.error;
-                console.error = function(msg, obj) { /* ignore */ };
+                console.error = function (msg, obj) { /* ignore */
+                };
                 // First authorize with 'Endre' as userId - in the ConnectionEvent listener we change this.
                 setAuth("Endre");
 

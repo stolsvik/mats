@@ -8,7 +8,7 @@ import javax.websocket.server.HandshakeRequest;
 
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
-import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOptions;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 
 /**
  * @author Endre Stølsvik 2020-01-10 10:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -35,7 +35,7 @@ class AuthenticationContextImpl implements AuthenticationContext {
 
     @Override
     public AuthenticationResult invalidAuthentication(String reason) {
-        return new AuthenticationResult_NotAuthenticated(reason);
+        return new AuthenticationResult_InvalidAuthentication(reason);
     }
 
     @Override
@@ -45,7 +45,7 @@ class AuthenticationContextImpl implements AuthenticationContext {
 
     @Override
     public AuthenticationResult authenticated(Principal principal, String userId,
-            EnumSet<DebugOptions> allowedDebugOptions) {
+            EnumSet<DebugOption> allowedDebugOptions) {
         return new AuthenticationResult_Authenticated(principal, userId, allowedDebugOptions);
     }
 
@@ -57,16 +57,16 @@ class AuthenticationContextImpl implements AuthenticationContext {
     static class AuthenticationResult_Authenticated implements AuthenticationResult {
         final Principal _principal;
         final String _userId;
-        final EnumSet<DebugOptions> _debugOptions;
+        final EnumSet<DebugOption> _debugOptions;
 
         public AuthenticationResult_Authenticated(Principal principal, String userId) {
             _principal = principal;
             _userId = userId;
-            _debugOptions = EnumSet.noneOf(DebugOptions.class);
+            _debugOptions = EnumSet.noneOf(DebugOption.class);
         }
 
         public AuthenticationResult_Authenticated(Principal principal, String userId,
-                EnumSet<DebugOptions> debugOptions) {
+                EnumSet<DebugOption> debugOptions) {
             _principal = principal;
             _userId = userId;
             _debugOptions = debugOptions;
@@ -77,10 +77,10 @@ class AuthenticationContextImpl implements AuthenticationContext {
 
     }
 
-    static class AuthenticationResult_NotAuthenticated implements AuthenticationResult {
+    static class AuthenticationResult_InvalidAuthentication implements AuthenticationResult {
         private final String _reason;
 
-        public AuthenticationResult_NotAuthenticated(String reason) {
+        public AuthenticationResult_InvalidAuthentication(String reason) {
             _reason = reason;
         }
 

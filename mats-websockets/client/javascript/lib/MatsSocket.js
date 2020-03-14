@@ -99,7 +99,7 @@
 
         nameFor: function (closeCode) {
             let keys = Object.keys(MatsSocketCloseCodes).filter(function (key) {
-                return MatsSocketCloseCodes[key] === closeCode
+                return MatsSocketCloseCodes[key] === closeCode;
             });
             if (keys.length === 1) {
                 return keys[0];
@@ -109,7 +109,105 @@
     });
 
     /**
-     * State and Event names for {@link MatsSocket#state} and {@link MatsSocket#addConnectionEventListener(function)}.
+     * <b>Copied directly from MatsSocketServer.java</b>: All MessageTypes used in the wire-protocol of MatsSocket.
+     *
+     * @type {Readonly<{REJECT: string, REAUTH: string, HELLO: string, WELCOME: string, ACK: string, RETRY: string, SEND: string, REQUEST: string, AUTH: string, ACK2: string, PING: string, RESOLVE: string, PONG: string, NACK: string}>}
+     */
+    const MessageType = Object.freeze({
+        /**
+         * A HELLO message must be part of the first Pipeline of messages, preferably alone. One of the messages in the
+         * first Pipeline must have the "auth" field set, and it might as well be the HELLO.
+         */
+        HELLO: "HELLO",
+
+        /**
+         * The reply to a {@link #HELLO}, where the MatsSocketSession is established, and the MatsSocketSessionId is
+         * returned. If you included a MatsSocketSessionId in the HELLO, signifying that you want to reconnect to an
+         * existing session, and you actually get a WELCOME back, it will be the same as what you provided - otherwise
+         * the connection is closed with {@link MatsSocketCloseCodes#SESSION_LOST}.
+         */
+        WELCOME: "WELCOME",
+
+        /**
+         * The sender sends a "fire and forget" style message.
+         */
+        SEND: "SEND",
+
+        /**
+         * The sender initiates a request, to which a {@link #RESOLVE} or {@link #REJECT} message is expected.
+         */
+        REQUEST: "REQUEST",
+
+        /**
+         * The sender should retry the message (the receiver could not handle it right now, but a Retry might fix it).
+         */
+        RETRY: "RETRY",
+
+        /**
+         * The message was Received, and acknowledged positively - i.e. it has acted on it.
+         * <p/>
+         * The sender has now taken over responsibility of this message, put it (at least the reference ClientMessageId)
+         * in its Inbox, and possibly acted on it. The reason for the Inbox is so that if it Receives the message again,
+         * it may just insta-ACK/NACK it and toss this copy out the window (since it has already handled it).
+         * <p/>
+         * When the receive gets this, it may safely delete the message from its Outbox.
+         */
+        ACK: "ACK",
+
+        /**
+         * The message was Received, but it did not acknowledge it - i.e. it has not acted on it.
+         * <p/>
+         * The sender has now taken over responsibility of this message, put it (at least the reference ClientMessageId)
+         * in its Inbox, and possibly acted on it. The reason for the Inbox is so that if it Receives the message again,
+         * it may just insta-ACK/NACK it and toss this copy out the window (since it has already handled it).
+         * <p/>
+         * When the receive gets this, it may safely delete the message from its Outbox.
+         */
+        NACK: "NACK",
+
+        /**
+         * A RESOLVE-reply to a previous {@link #REQUEST} - if the Client did the {@code REQUEST}, the Server will
+         * answer with either a RESOLVE or {@link #REJECT}.
+         */
+        RESOLVE: "RESOLVE",
+
+        /**
+         * A REJECT-reply to a previous {@link #REQUEST} - if the Client did the {@code REQUEST}, the Server will answer
+         * with either a REJECT or {@link #RESOLVE}.
+         */
+        REJECT: "REJECT",
+
+        /**
+         * An "Acknowledge ^ 2", i.e. an acknowledge of the {@link #ACK} or {@link #NACK}. When the receiver gets this,
+         * it may safely delete the entry it has for this message from its Inbox.
+         */
+        ACK2: "ACK2",
+
+        /**
+         * The server requests that the client re-authenticates, where the client should immediately get a fresh
+         * authentication and back using either any message it has pending, or in a separate {@link #AUTH} message.
+         */
+        REAUTH: "REAUTH",
+
+        /**
+         * From Client: The client can use a separate AUTH message to send over the requested {@link #REAUTH} (it could
+         * just as well put the 'auth' in a PING or any other message it had pending).
+         */
+        AUTH: "AUTH",
+
+        /**
+         * A PING, to which a {@link #PONG} is expected.
+         */
+        PING: "PING",
+
+        /**
+         * A Reply to a {@link #PING}.
+         */
+        PONG: "PONG"
+    });
+
+    /**
+     * State and Event names for MatsSocket's {@link MatsSocket#state state} and {@link MatsSocket#addConnectionEventListener(function) events}.
      *
      * @type {Readonly<{COUNTDOWN: string, NO_SESSION: string, CONNECTING: string, WAITING: string, CONNECTION_ERROR: string, CONNECTED: string, SESSION_ESTABLISHED: string, LOST_CONNECTION: string}>}
      */
@@ -312,8 +410,197 @@
     }
 
     /**
-     * A "holding struct" for pings - you may get the latest pings (with experienced latency) from the property
-     * {@link MatsSocket#pings}.
+     * Message Event - the event emitted for a Requests's Promise resolve() and reject() (i.e. then() and catch()), and
+     * to a {@link MatsSocket#terminator terminator} resolveCallback and rejectCallback functions for replies due to
+     * requestReplyTo, and for Server initiated sends, and for the event to a {@link MatsSocket#endpoint endpoint} upon
+     * a Server initiated request.
+     */
+    function MessageEvent(messageType, data, traceId, messageId, receivedTimestamp) {
+
+        /**
+         * Either {@link MessageType#SEND SEND} (for a Terminator when targeted for a Server initiated Send);
+         * {@link MessageType#REQUEST} (for an Endpoint when targeted for a Server initiated Request); or
+         * {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT} (for settling of Request-Promises,
+         * and for a Terminator when targeted as the reply-endpoint for a Client initiated Request).
+         *
+         * @type {string}
+         */
+        this.messageType = messageType;
+
+        /**
+         * Lowercase of {@link #messageType}, just to look a little more like a JavaScript event.
+         *
+         * @type {string}
+         */
+        this.type = messageType.toLowerCase();
+
+        /**
+         * The actual data from the other peer.
+         *
+         * @type {object}
+         */
+        this.data = data;
+
+        /**
+         * When a Terminator gets invoked to handle a Reply due to a Client initiated {@link MatsSocket#requestReplyTo},
+         * this holds the 'correlationInformation' object that was supplied in the requestReplyTo(..) invocation.
+         *
+         * @type {object}
+         */
+        this.correlationInformation = undefined;
+
+        /**
+         * The TraceId for this call / message.
+         *
+         * @type {string}
+         */
+        this.traceId = traceId;
+
+        /**
+         * Either the ClientMessageId if this message is a Reply to a Client-initiated Request (i.e. this message is a
+         * RESOLVE or REJECT), or ServerMessageId if this originated from the Server (i.e. SEND or REQUEST);
+         *
+         * @type {string}
+         */
+        this.messageId = messageId;
+
+        /**
+         * millis-since-epoch when the Request, for which this message is a Reply, was sent from the
+         * Client. If this message is not a Reply to a Client-initiated Request, it is undefined.
+         *
+         * @type {number}
+         */
+        this.clientRequestTimestamp = undefined;
+
+        /**
+         * When the message was received on the Client, millis-since-epoch.
+         *
+         * @type {number}
+         */
+        this.receivedTimestamp = receivedTimestamp;
+
+        /**
+         * Round-trip time in milliseconds, basically <code>{@link #receivedTimestamp} -
+         * {@link #clientSentTimestamp}</code>, but depending on the browser/runtime, you might get higher resolution
+         * than integer milliseconds (i.e. fractions of milliseconds, a floating point number) - it depends on
+         * the resolution of <code>performance.now()</code>.
+         *
+         * @type {number}
+         *
+         */
+        this.roundTripMillis = undefined;
+
+
+        /**
+         * An instance of {@link DebugInformation}, potentially containing interesting meta-information about the
+         * call.
+         */
+        this.debug = undefined;
+    }
+
+    const MessageEventType = Object.freeze({
+        RESOLVE: "resolve",
+
+        REJECT: "reject",
+
+        SEND: "send",
+
+        REQUEST: "request",
+
+        /**
+         * "Synthetic" event in that it only happens if the MatsSocketSession is closed with outstanding Initiations
+         * not yet Received on Server.
+         */
+        SESSION_CLOSED: "sessionclosed"
+    });
+
+
+    /**
+     * Meta-information for the call, availability depends on the allowed debug options for the authenticated user,
+     * and which information is requested in client.
+     *
+     * @constructor
+     */
+    function DebugInformation(sentTimestamp, envelope, receivedTimestamp) {
+        this.clientMessageSent = sentTimestamp;
+
+        if (envelope.debug) {
+            this.clientMessageReceived = envelope.debug.cmrts;
+            this.clientMessageReceivedNodename = envelope.debug.cmrnn;
+
+            this.matsMessageSent = envelope.debug.mmsts;
+            this.matsMessageReplyReceived = envelope.debug.mmrrts;
+            this.matsMessageReplyReceivedNodename = envelope.debug.mmrrnn;
+
+            this.messageSentToClient = envelope.debug.mscts;
+            this.messageSentToClientNodename = envelope.debug.mscnn;
+        }
+
+        this.messageReceived = receivedTimestamp;
+    }
+
+    /**
+     * Received (Negative) Acknowledge Event - the one emitted for a Send's resolve() and reject() (i.e. then() and
+     * catch()), and to a {@link MatsSocket#request request}'s receivedCallback function.
+     */
+    function ReceivedEvent(type, traceId, sentTimestamp, receivedTimestamp, roundTripMillis) {
+        /**
+         * Type of message, either "ack" or "nack".
+         *
+         * @type {string}
+         */
+        this.type = type;
+
+        /**
+         * TraceId for this call / message.
+         *
+         * @type {string}
+         */
+        this.traceId = traceId;
+
+        /**
+         * Millis-since-epoch when the message was sent from the Client.
+         *
+         * @type {number}
+         */
+        this.sentTimestamp = sentTimestamp;
+
+        /**
+         * Millis-since-epoch when the ACK or NACK was received on the Client, millis-since-epoch.
+         *
+         * @type {number}
+         */
+        this.receivedTimestamp = receivedTimestamp;
+
+        /**
+         * Round-trip time in milliseconds, basically <code>{@link #receivedTimestamp} -
+         * {@link #sentTimestamp}</code>, but depending on the browser/runtime, you might get higher resolution
+         * than integer milliseconds (i.e. fractions of milliseconds, a floating point number) - it depends on
+         * the resolution of <code>performance.now()</code>.
+         * <p/>
+         * Notice that Received-events might be de-prioritized on the Server side (batched up, with micro-delays
+         * to get multiple into the same batch), so this number should not be taken as the "ping time".
+         *
+         * @type {number}
+         */
+        this.roundTripMillis = roundTripMillis;
+    }
+
+    const ReceivedEventType = Object.freeze({
+        ACK: "ack",
+
+        NACK: "nack",
+
+        /**
+         * "Synthetic" event in that it only happens if the MatsSocketSession is closed with outstanding Initiations
+         * not yet Received on Server.
+         */
+        SESSION_CLOSED: "sessionclosed"
+    });
+
+    /**
+     * Stats: A "holding struct" for pings - you may get the latest pings (with experienced round-trip times) from the
+     * property {@link MatsSocket#pings}.
      *
      * @param {string} correlationId
      * @param {number} sentTimestamp
@@ -321,7 +608,7 @@
      */
     function PingPong(correlationId, sentTimestamp) {
         /**
-         * Pretty meaningless information, if logged server side, you can possibly correlate outliers.
+         * Pretty meaningless information, but if logged server side, you can possibly correlate outliers.
          *
          * @type {string} the correlationId used by the client lib to correlate outstanding pings with incoming pongs.
          */
@@ -341,100 +628,6 @@
          */
         this.roundTripTime = undefined;
     }
-
-    const MessageType = Object.freeze({
-        /**
-         * A HELLO message must be part of the first Pipeline of messages, preferably alone. One of the messages in the
-         * first Pipeline must have the "auth" field set, and it might as well be the HELLO.
-         */
-        HELLO: "HELLO",
-
-        /**
-         * The reply to a {@link #HELLO}, where the MatsSocketSession is established, and the MatsSocketSessionId is
-         * returned. If you included a MatsSocketSessionId in the HELLO, signifying that you want to reconnect to an
-         * existing session, and you actually get a WELCOME back, it will be the same as what you provided - otherwise
-         * the connection is closed with {@link MatsSocketCloseCodes#SESSION_LOST}.
-         */
-        WELCOME: "WELCOME",
-
-        /**
-         * The sender sends a "fire and forget" style message.
-         */
-        SEND: "SEND",
-
-        /**
-         * The sender initiates a request, to which a {@link #RESOLVE} or {@link #REJECT} message is expected.
-         */
-        REQUEST: "REQUEST",
-
-        /**
-         * The sender should retry the message (the receiver could not handle it right now, but a Retry might fix it).
-         */
-        RETRY: "RETRY",
-
-        /**
-         * The message was Received, and acknowledged positively - i.e. it has acted on it.
-         * <p/>
-         * The sender has now taken over responsibility of this message, put it (at least the reference ClientMessageId)
-         * in its Inbox, and possibly acted on it. The reason for the Inbox is so that if it Receives the message again,
-         * it may just insta-ACK/NACK it and toss this copy out the window (since it has already handled it).
-         * <p/>
-         * When the receive gets this, it may safely delete the message from its Outbox.
-         */
-        ACK: "ACK",
-
-        /**
-         * The message was Received, but it did not acknowledge it - i.e. it has not acted on it.
-         * <p/>
-         * The sender has now taken over responsibility of this message, put it (at least the reference ClientMessageId)
-         * in its Inbox, and possibly acted on it. The reason for the Inbox is so that if it Receives the message again,
-         * it may just insta-ACK/NACK it and toss this copy out the window (since it has already handled it).
-         * <p/>
-         * When the receive gets this, it may safely delete the message from its Outbox.
-         */
-        NACK: "NACK",
-
-        /**
-         * A RESOLVE-reply to a previous {@link #REQUEST} - if the Client did the {@code REQUEST}, the Server will
-         * answer with either a RESOLVE or {@link #REJECT}.
-         */
-        RESOLVE: "RESOLVE",
-
-        /**
-         * A REJECT-reply to a previous {@link #REQUEST} - if the Client did the {@code REQUEST}, the Server will answer
-         * with either a REJECT or {@link #RESOLVE}.
-         */
-        REJECT: "REJECT",
-
-        /**
-         * An "Acknowledge ^ 2", i.e. an acknowledge of the {@link #ACK} or {@link #NACK}. When the receiver gets this,
-         * it may safely delete the entry it has for this message from its Inbox.
-         */
-        ACK2: "ACK2",
-
-        /**
-         * The server requests that the client re-authenticates, where the client should immediately get a fresh
-         * authentication and back using either any message it has pending, or in a separate {@link #AUTH} message.
-         */
-        REAUTH: "REAUTH",
-
-        /**
-         * From Client: The client can use a separate AUTH message to send over the requested {@link #REAUTH} (it could
-         * just as well put the 'auth' in a PING or any other message it had pending).
-         */
-        AUTH: "AUTH",
-
-        /**
-         * A PING, to which a {@link #PONG} is expected.
-         */
-        PING: "PING",
-
-        /**
-         * A Reply to a {@link #PING}.
-         */
-        PONG: "PONG"
-    });
-
 
     /**
      * Creates a MatsSocket, supplying the using Application's name and version, and which URLs to connect to.
@@ -467,11 +660,18 @@
         if (socketFactory === undefined) {
             socketFactory = function (url, protocol) {
                 return new WebSocket(url, protocol);
-            }
+            };
         }
         if (typeof socketFactory !== "function") {
             throw new Error("socketFactory should be a function, instead got [" + socketFactory + "]");
         }
+
+        // Polyfill performance.now() for node.
+        let performance = ((typeof(window) === "object" && window.performance) || {
+            now: function now() {
+                return Date.now();
+            }
+        });
 
         const that = this;
         const userAgent = (typeof (self) === 'object' && typeof (self.navigator) === 'object') ? self.navigator.userAgent : "Unknown";
@@ -484,11 +684,16 @@
         // PUBLIC:
         // ==============================================================================================
 
-        this.logging = false; // Whether to log via console.log
+        /**
+         * Whether to log via console.log. The logging is quite extensive.
+         *
+         * @type {boolean}
+         */
+        this.logging = false;
 
         /**
          * If this is set to a function, it will be invoked if close(..) is invoked and sessionId is present, the
-         * argument being a object with two keys:
+         * single parameter being a object with two keys:
          * <ol>
          *     <li>'currentWsUrl' is the current WebSocket url (the one that the WebSocket was last connected to, and
          *       would have connected to again, e.g. "wss://example.com/matssocket").</li>
@@ -503,8 +708,31 @@
         this.outofbandclose = undefined;
 
         /**
-         * <b>Note: You <i>should</i> register a SessionClosedEvent listener, as it means that you've lost sync with the
-         * server, and you should crash or "reboot" the application employing to library to regain sync.</b>
+         * A bit field requesting different types of debug information - it is read each time an information bearing
+         * message is added to the pipeline, and if not 'unhandled' or 0, the debug options flags is added to the
+         * message.
+         * <p/>
+         * The debug options on the outgoing Client-to-Server requests are tied to that particular request flow -
+         * but to facilitate debug information also on Server-initiated messages, the <i>last set</i> debug options is
+         * also stored on the server and used when messages originate there (i.e. Server-to-Client SENDs and REQUESTs).
+         * <p/>
+         * If you only want debug information on a particular Client-to-Server request, you'll need to first set the
+         * debug flags, then do the request (adding the message to the pipeline), and then reset the debug flags back.
+         * <p/>
+         * The value is a bit field, so you bitwise-or (or add) together the different things you want. Undefined, or 0,
+         * means "no debug info".
+         * <p/>
+         * The value from the client is bitwise-and'ed together with the debug capabilities the authenticated user has
+         * gotten by the AuthenticationPlugin on the Server side.
+         *
+         * @type {number}
+         */
+        this.debug = undefined;
+
+        /**
+         * <b>Note: You <i>should</i> register a SessionClosedEvent listener, as any invocation of this listener by this
+         * client library means that you've lost sync with the server, and you should crash or "reboot" the application
+         * employing the library to regain sync.</b>
          * <p/>
          * The registered event listener functions are called when the server kicks us off the socket and the session is
          * closed due to a multitude of reasons, where most should never happen if you use the library correctly, in
@@ -924,7 +1152,7 @@
 
             // Clear out WebSocket "infrastructure", i.e. state and "pinger thread".
             _clearWebSocketStateAndInfrastructure();
-            // Clear Session and all state of this MatsSocket.
+            // Close Session and clear all state of this MatsSocket.
             _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages("From Client: " + reason);
 
             // :: Out-of-band session close
@@ -963,15 +1191,15 @@
             if (!_webSocket) {
                 throw new Error("There is no live WebSocket to close with RECONNECT closeCode!");
             }
-            // Hack for Node: Node is too fast wrt. handling the reply message, so on one of the integration tests fails.
+            // Hack for Node: Node is too fast wrt. handling the reply message, so one of the integration tests fails.
             // This tests reconnect in face of having the test RESOLVE in the incomingHandler, which exercises the
-            // double-delivery catching with something else than an ACK from the server.
+            // double-delivery catching when getting a direct RESOLVE instead of an ACK from the server.
             // However, the following RECONNECT-close is handled /after/ the RESOLVE message comes in, and ok's the test.
-            // So then, MatsSocket dutifully starts reconnecting - after the test is finished. Thus, Node sees the
+            // So then, MatsSocket dutifully starts reconnecting - /after/ the test is finished. Thus, Node sees the
             // outstanding timeout "thread" which pings, and never exits. To better emulate an actual lost connection,
-            // we FIRST unset the 'onmessage' handler (so that any pending messages surely will be lost), before we
-            // close the socket. Notice that we now also have a "_sessionClosed" guard, so that it shall stop such
-            // reconnecting in face of actual SessionClose.
+            // we /first/ unset the 'onmessage' handler (so that any pending messages surely will be lost), before we
+            // close the socket. Notice that a "_sessionClosed" guard was also added, so that it shall explicitly stop
+            // such reconnecting in face of an actual .close(..) invocation.
 
             // First unset message handler so that we do not receive any more WebSocket messages (but NOT unset 'onclose', nor 'onerror')
             _webSocket.onmessage = undefined;
@@ -1034,9 +1262,9 @@
             }
         }
 
-        // alphabet length: 10 + 26 x 2 = 62 chars.
+        // Simple Alphabet: All digits, lower and upper ASCII chars: 10 + 26 x 2 = 62 chars.
         let _alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        // JSON-non-quoted and visible Alphabet: 92 chars.
+        // Alphabet of JSON-non-quoted and visible chars: 92 chars.
         let _jsonAlphabet = "!#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 
         // The URLs to use - will be shuffled. Can be reset to not randomized by this.disableUrlRandomize()
@@ -1163,17 +1391,18 @@
             // :: Reject all outstanding messages
             for (let cmid in _outboxInitiations) {
                 // noinspection JSUnfilteredForInLoop: Using Object.create(null)
-                let outstandingMessage = _outboxInitiations[cmid];
+                let initiation = _outboxInitiations[cmid];
                 // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                 delete _outboxInitiations[cmid];
 
-                log("Clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "] with traceId [" + outstandingMessage.envelope.tid + "].");
-                if (outstandingMessage.nack) {
+                if (that.logging) log("Close Session: Clearing outstanding Initiation [" + initiation.envelope.t + "] to [" + initiation.envelope.eid + "], cmid:[" + initiation.envelope.cmid + "], TraceId:[" + initiation.envelope.tid + "].");
+                if (initiation.nack) {
                     try {
-                        // TODO: Make better event object
-                        outstandingMessage.nack({type: "CLEARED", description: reason});
+                        let nackEvent = _receivedEventFromEnvelope(ReceivedEventType.SESSION_CLOSED, initiation.envelope.tid, initiation.sentTimestamp, Date.now(), performance.now() - initiation.performanceNow);
+                        nackEvent.desc = "Session Closed: Session was closed due to [" + reason + "]";
+                        initiation.nack(nackEvent);
                     } catch (err) {
-                        error("Got error while clearing outstanding [" + outstandingMessage.envelope.t + "] to [" + outstandingMessage.envelope.eid + "].", err);
+                        error("Got error while clearing outstanding Initiation [" + initiation.envelope.t + "] to [" + initiation.envelope.eid + "], cmid:[" + initiation.envelope.cmid + "], TraceId:[" + initiation.envelope.tid + "].", err);
                     }
                 }
             }
@@ -1185,13 +1414,14 @@
                 // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                 delete _outstandingRequests[cmid];
 
-                log("Clearing REQUEST future [" + request.envelope.t + "] to [" + request.envelope.eid + "] with traceId [" + request.envelope.tid + "].");
+                if (that.logging) log("Close Session: Clearing outstanding REQUEST to [" + request.envelope.eid + "], cmid:[" + request.envelope.cmid + "], TraceId:[" + request.envelope.tid + "].", request);
                 if (request.reject) {
                     try {
-                        // TODO: Make better event object
-                        request.reject({type: "CLEARED", description: reason});
+                        let rejectEvent = _messageEventFromEnvelope({}, MessageType.REJECT, request.envelope.cmid, request.envelope.tid, request.sentTimestamp, Date.now(), performance.now() - request.performanceNow, {});
+                        rejectEvent.desc = "Session Closed: Session was closed due to [" + reason + "]";
+                        request.reject(rejectEvent);
                     } catch (err) {
-                        error("Got error while clearing REQUEST future to [" + request.envelope.eid + "].", err);
+                        error("Got error while clearing outstanding REQUEST to [" + request.envelope.eid + "], cmid:[" + request.envelope.cmid + "], TraceId:[" + request.envelope.tid + "].", err);
                     }
                 }
             }
@@ -1210,9 +1440,14 @@
 
             // Add the traceId to the message
             envelope.tid = traceId;
-            // Add the message Sequence Id
+            // Add next message Sequence Id
             let thisMessageSequenceId = _messageSequenceId++;
             envelope.cmid = thisMessageSequenceId;
+
+            // If debug != undefined || 0, then store it in envelope
+            if (that.debug && (that.debug !== 0)) {
+                envelope.rd = debug;
+            }
 
             // Update timestamp of last "information bearing message" sent.
             _lastMessageEnqueuedTimestamp = now;
@@ -1238,10 +1473,10 @@
             if (outstandingRequest) {
                 // Store the outgoing envelope
                 outstandingRequest.envelope = envelope;
-                // Store the sent timestamp.
-                outstandingRequest.sentTimestamp = now;
                 // Store TraceId
                 outstandingRequest.traceId = traceId;
+                // Store the sent timestamp.
+                outstandingRequest.sentTimestamp = now;
                 // Store performance.now for round-trip timing
                 outstandingRequest.performanceNow = performanceNow;
 
@@ -1259,7 +1494,7 @@
         function _addEnvelopeToPipeline(envelope) {
             _pipeline.push(envelope);
             if (that.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
-            _evaluatePipelineLater()
+            _evaluatePipelineLater();
         }
 
         let _evaluatePipelineLater_timeoutId = undefined;
@@ -1271,7 +1506,7 @@
             _evaluatePipelineLater_timeoutId = setTimeout(function () {
                 _evaluatePipelineSend();
                 _evaluatePipelineLater_timeoutId = undefined;
-            }, 2)
+            }, 2);
         }
 
         /**
@@ -1515,7 +1750,7 @@
                     // Invoke after a small random number of millis: Bump reconnect state vars, re-run _initiateWebSocketCreation
                     setTimeout(function () {
                         increaseReconnectStateVars();
-                        _initiateWebSocketCreation()
+                        _initiateWebSocketCreation();
                     }, Math.round(Math.random() * 200));
                 } else {
                     // -> No, we've NOT hit target, so sleep till next countdown target, where we re-invoke ourselves (this countDownTimer())
@@ -1551,7 +1786,7 @@
                     // Invoke on next tick: Bump state vars, re-run _initiateWebSocketCreation
                     _invokeLater(function () {
                         increaseReconnectStateVars();
-                        _initiateWebSocketCreation()
+                        _initiateWebSocketCreation();
                     });
                 }
                 // E-> NO, we are either not on the 0th round of attempts, OR there is just a single URL.
@@ -1664,7 +1899,7 @@
 
                         // TODO: Test this outstanding-stuff! Both that they are actually sent again, and that server handles the (quite possible) double-delivery.
 
-                        // ::: If we have stuff in our outboxes, we need to send them again
+                        // ::: RETRANSMIT: If we have stuff in our outboxes, we might have to send them again (we send unless "RetransmitGuard" tells otherwise).
 
                         // :: Outstanding SENDs and REQUESTs
                         for (let key in _outboxInitiations) {
@@ -1674,7 +1909,7 @@
                             // ?: Is the RetransmitGuard the same as we currently have?
                             if (initiation.retransmitGuard === _outboxInitiations_RetransmitGuard) {
                                 // -> Yes, so it makes little sense in sending these messages again just yet.
-                                if (that.logging) log("RetransmitGuard: The outstandingInitiation with cmid:[" + initiationEnvelope.cmid + "] and TraceId:[" + initiationEnvelope.tid
+                                if (that.logging) log("RetransmitGuard: The outstanding Initiation with cmid:[" + initiationEnvelope.cmid + "] and TraceId:[" + initiationEnvelope.tid
                                     + "] was created with the same RetransmitGuard as we currently have [" + _outboxInitiations_RetransmitGuard + "] - they were sent directly trailing HELLO, before WELCOME came back in. No use in sending again.");
                                 continue;
                             }
@@ -1690,8 +1925,10 @@
                         }
 
                         // :: Outstanding Replies
-                        // NOTICE: On initial connect: Since we cannot possibly have replied to anything BEFORE we get the WELCOME, we do not need RetransmitGuard for Replies
-                        // Loop over them
+                        // NOTICE: Since we cannot possibly have replied to a Server Request BEFORE we get the WELCOME, we do not need RetransmitGuard for Replies
+                        // (Point is that the RetransmitGuard guards against sending again messages that we sent "along with" the HELLO, before we got the WELCOME.
+                        // A Request from the Server cannot possibly come in before WELCOME (as that is by protcol definition the first message we get from the Server),
+                        // so there will "axiomatically" not be any outstanding Replies with the same RetransmitGuard as we currently have).
                         for (let key in _outboxReplies) {
                             // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                             let reply = _outboxReplies[key];
@@ -1724,6 +1961,7 @@
                             setTimeout(function () {
                                 _addEnvelopeToPipeline(initiationEnvelope);
                             }, retryDelay);
+                            continue;
                         }
                         // E-> Was not outstanding Send or Request
 
@@ -1750,7 +1988,7 @@
                             // -> Yes, so send RECEIVED to server
                             _addEnvelopeToPipeline({
                                 t: MessageType.ACK2,
-                                cmid: envelope.cmid,
+                                cmid: envelope.cmid
                             });
                         }
 
@@ -1770,12 +2008,12 @@
                         if (envelope.t === MessageType.ACK) {
                             // -> Yes, it was undefined or "ACK" - so Server was happy.
                             if (initiation.ack) {
-                                initiation.ack(_eventFromEnvelope(envelope, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
+                                initiation.ack(_receivedEventFromEnvelope(ReceivedEventType.ACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
                             }
                         } else {
                             // -> No, it was "NACK", so message has not been forwarded to Mats
                             if (initiation.nack) {
-                                initiation.nack(_eventFromEnvelope(envelope, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
+                                initiation.nack(_receivedEventFromEnvelope(ReceivedEventType.NACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
                             }
                             // ?: ALSO check if it was a REQUEST?
                             let request = _outstandingRequests[envelope.cmid];
@@ -1798,7 +2036,7 @@
                         delete _inbox[envelope.smid];
 
                     } else if (envelope.t === MessageType.SEND) {
-                        // -> SEND: Send message to terminator
+                        // -> SEND: Sever-to-Client Send a message to client terminator
 
                         if (!envelope.smid) {
                             // -> No, we do not have this. Programming error from app.
@@ -1812,10 +2050,10 @@
                         // :: Send receipt unconditionally
                         let ackEnvelope = {
                             t: (terminator ? MessageType.ACK : MessageType.NACK),
-                            smid: envelope.smid,
+                            smid: envelope.smid
                         };
                         if (!terminator) {
-                            ackEnvelope.desc = "The Client Terminator [" + envelope.eid + "] does not exist!"
+                            ackEnvelope.desc = "The Client Terminator [" + envelope.eid + "] does not exist!";
                         }
                         _addEnvelopeToPipeline(ackEnvelope);
 
@@ -1838,10 +2076,10 @@
                         _inbox[envelope.smid] = envelope;
 
                         // Actually invoke the Terminator
-                        terminator.resolve(_eventFromEnvelope(envelope, envelope.tid, undefined, receivedTimestamp, undefined));
+                        terminator.resolve(_messageEventFromEnvelope(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined, envelope.msg));
 
                     } else if (envelope.t === MessageType.REQUEST) {
-                        // -> REQUEST: Request a REPLY from an endpoint
+                        // -> REQUEST: Server-to-Client Request a REPLY from a client endpoint
 
                         if (!envelope.smid) {
                             // -> No, we do not have this. Programming error from app.
@@ -1855,10 +2093,10 @@
                         // :: Send receipt unconditionally
                         let ackEnvelope = {
                             t: (endpoint ? MessageType.ACK : MessageType.NACK),
-                            smid: envelope.smid,
+                            smid: envelope.smid
                         };
                         if (!endpoint) {
-                            ackEnvelope.desc = "The Client Endpoint [" + envelope.eid + "] does not exist!"
+                            ackEnvelope.desc = "The Client Endpoint [" + envelope.eid + "] does not exist!";
                         }
                         _addEnvelopeToPipeline(ackEnvelope);
 
@@ -1904,7 +2142,7 @@
                         };
 
                         // Invoke the Endpoint, getting a Promise back.
-                        let promise = endpoint(_eventFromEnvelope(envelope, envelope.tid, undefined, receivedTimestamp, undefined));
+                        let promise = endpoint(_messageEventFromEnvelope(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined, envelope.msg));
 
                         // Finally attach the Resolve and Reject handler
                         promise.then(function (resolveMessage) {
@@ -1933,7 +2171,7 @@
                             // -> Yes, still present - so we delete and resolve it
                             delete _outboxInitiations[envelope.cmid];
                             if (initiation.ack) {
-                                initiation.ack(_eventFromEnvelope(envelope, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
+                                initiation.ack(_receivedEventFromEnvelope(ReceivedEventType.ACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
                             }
                         }
 
@@ -1950,7 +2188,7 @@
                         // Add the PONG reply to pipeline
                         _addEnvelopeToPipeline({
                             t: MessageType.PONG,
-                            x: envelope.x,
+                            x: envelope.x
                         });
                         // Send it immediately
                         that.flush();
@@ -1962,34 +2200,24 @@
                         pingPong.roundTripMillis = receivedTimestamp - pingPong.sentTimestamp;
                     }
                 } catch (err) {
-                    error("message", "Got error while handling incoming envelope.cmid [" + envelope.cmid + "], type '" + envelope.t + (envelope.st ? ":" + envelope.st : "") + ": " + JSON.stringify(envelope), err);
+                    error("message", "Got error while handling incoming envelope.cmid [" + envelope.cmid + "], type '" + envelope.t + "': " + JSON.stringify(envelope), err);
                 }
             }
         }
 
-        function _eventFromEnvelope(envelope, traceId, sentTimestamp, receivedTimestamp, roundTripMillis) {
-            return {
-                type: envelope.t,  // Informational - do not use programmatically!
-                data: envelope.msg, // The data received for a Request's RESOLVE or REJECT, or with incoming SENDs and REQEUSTs - maybe be null, or undefined or other type of events.
-                traceId: traceId,
-                messageId: (envelope.cmid ? envelope.cmid : envelope.smid),
-                sentTimestamp: (sentTimestamp ? sentTimestamp : undefined),
-                receivedTimestamp: receivedTimestamp,
-                roundTripMillis: roundTripMillis,
+        function _messageEventFromEnvelope(incomingEnvelope, type, messageId, traceId, sentTimestamp, receivedTimestamp, roundTripMillis, msg) {
+            let debug = new DebugInformation(sentTimestamp, incomingEnvelope, receivedTimestamp);
 
-                // DEBUG INFO: Timestamps and handling node names.
-                debug: {
-                    clientMessageSent: sentTimestamp,
-                    clientMessageReceived: envelope.cmrts,
-                    clientMessageReceivedNodename: envelope.cmrnn,
-                    matsMessageSent: envelope.mmsts,
-                    matsMessageReplyReceived: envelope.mmrrts,
-                    matsMessageReplyReceivedNodename: envelope.mmrrnn,
-                    replyMessageToClient: envelope.mscts,
-                    replyMessageToClientNodename: envelope.mscnn,
-                    replyMessageReceived: receivedTimestamp
-                }
-            };
+            let messageEvent = new MessageEvent(type.toLowerCase(), msg, traceId, messageId, receivedTimestamp);
+            messageEvent.clientRequestTimestamp = sentTimestamp;
+            messageEvent.roundTripMillis = roundTripMillis;
+            messageEvent.debug = debug;
+
+            return messageEvent;
+        }
+
+        function _receivedEventFromEnvelope(type, traceId, sentTimestamp, receivedTimestamp, roundTripMillis) {
+            return new ReceivedEvent(type, traceId, sentTimestamp, receivedTimestamp, roundTripMillis);
         }
 
         function _completeFuture(request, envelope, receivedTimestamp) {
@@ -1999,7 +2227,7 @@
                 // Find the (client) Terminator which the Reply should go to
                 let terminator = _terminators[request.replyToEndpointId];
                 // Create the event
-                let event = _eventFromEnvelope(envelope, request.traceId, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow);
+                let event = _messageEventFromEnvelope(envelope, envelope.t, envelope.cmid, request.envelope.tid, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow, envelope.msg);
                 // .. add CorrelationInformation from request
                 event.correlationInformation = request.correlationInformation;
                 if (envelope.t === MessageType.RESOLVE) {
@@ -2016,7 +2244,7 @@
                 // Delete the outstanding request, as we will complete it now.
                 delete _outstandingRequests[envelope.cmid];
                 // Create the event
-                let event = _eventFromEnvelope(envelope, request.traceId, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow);
+                let event = _messageEventFromEnvelope(envelope, envelope.t, envelope.cmid, request.envelope.tid, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow, envelope.msg);
                 // Was it RESOLVE or REJECT?
                 if (envelope.t === MessageType.RESOLVE) {
                     request.resolve(event);
@@ -2043,7 +2271,7 @@
 
         function _pingLater() {
             _pinger_TimeoutId = setTimeout(function () {
-                log("Ping-'thread': About to send ping. ConnectionState:[" + that.state + "], connected:[" + that.connected + "]");
+                if (that.logging) log("Ping-'thread': About to send ping. ConnectionState:[" + that.state + "], connected:[" + that.connected + "]");
                 if ((that.state === ConnectionState.SESSION_ESTABLISHED) && that.connected) {
                     let pingId = that.jid(3);
                     if (that.logging) log("Sending PING! PingId:" + pingId);
@@ -2054,6 +2282,7 @@
                     }
                     _outstandingPings[pingId] = pingPong;
                     _webSocket.send("[{\"t\":\"" + MessageType.PING + "\",\"x\":\"" + pingId + "\"}]");
+                    // Reschedule
                     _pingLater();
                 } else {
                     log("Ping-'thread': NOT Rescheduling due to wrong state or not connected, 'exiting thread'.");

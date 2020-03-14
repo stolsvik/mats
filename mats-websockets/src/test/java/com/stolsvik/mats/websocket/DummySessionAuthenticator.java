@@ -91,10 +91,10 @@ class DummySessionAuthenticator implements SessionAuthenticator {
 
     @Override
     public AuthenticationResult reevaluateAuthenticationForOutgoingMessage(AuthenticationContext context,
-            String authorizationHeader, Principal existingPrincipal, long lastAuthenticatedMillis) {
+            String authorizationHeader, Principal existingPrincipal, long lastAuthenticatedTimestamp) {
         // NOTICE! DO NOT LOG AUTHORIZATION HEADER IN PRODUCTION!!
         log.info("reevaluateAuthenticationForOutgoingMessage(..): Authorization Header [" + authorizationHeader
-                + "], lastAuthenticatedMillis:[" + lastAuthenticatedMillis + "]");
+                + "], lastAuthenticatedMillis:[" + lastAuthenticatedTimestamp + "]");
         // ?: Is it a special auth string that wants to fail upon reevaluateAuthenticationForOutgoingMessage?
         if (authorizationHeader.contains(":fail_reevaluateAuthenticationForOutgoingMessage:")) {
             // -> Yes, special auth string

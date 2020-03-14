@@ -184,10 +184,12 @@ public interface AuthenticationPlugin {
         /**
          * This method is invoked each time the server wants to send a message to the client - either a REPLY to a
          * request from the Client, or a {@link MatsSocketServer#send(String, String, String, Object) SEND} or
-         * {@link MatsSocketServer#request(String, String, String, Object, String, String) REQUEST} from the server. If
-         * the method returns {@link AuthenticationContext#invalidAuthentication(String) invalidAuthentication()}, the
-         * server will now hold this delivery, and instead ask the client for re-auth, and when this comes in and is
-         * valid, the delivery will ensue.
+         * {@link MatsSocketServer#request(String, String, String, Object, String, String, byte[])} REQUEST} from the
+         * server. If the method returns {@link AuthenticationContext#invalidAuthentication(String)
+         * invalidAuthentication()}, the server will now hold this delivery, and instead ask the client for re-auth, and
+         * when this comes in and is valid, the delivery will ensue. <b>Notice: As opposed to the other methods,
+         * replying invalidAuthentication() does NOT immediately close the WebSocket</b>, but only implies that the
+         * client needs to supply a new authorization headers before getting the outbound messages.
          * <p/>
          * It is default-implemented to invoke
          * {@link #reevaluateAuthentication(AuthenticationContext, String, Principal) reevaluateAuthentication(..)}, but
@@ -197,23 +199,30 @@ public interface AuthenticationPlugin {
          * imagine that this request takes 11 seconds to complete. If you do not override the default implementation,
          * the default implementation will forward to {@code reevaluateAuthentication}, get
          * {@link AuthenticationContext#invalidAuthentication(String) invalidAuthentication()} as answer, and thus
-         * initiate a full round-trip to the client and to the auth-server to get a new token. Considering that this
-         * {@link SessionAuthenticator SessionAuthenticator} was OK with the authentication when the request came it,
-         * and that by the situation's definition the WebSocket connection has not gone done in the mean time (otherwise
-         * it would have to do full initial auth), one could argue that a Reply should have some extra room wrt. expiry.
-         * For Server-to-Client messages SEND and REQUEST, the same mechanism is employed, and I'd argue that the same
-         * arguments hold: This {@code SessionAuthenticator} was happy with the authentication some X minutes ago and
-         * the connection has never gone down, so you should work pretty hard to set up a situation where a REQUEST from
-         * the Server or some data using SEND from the Server would be a large security consideration.
+         * initiate a full round-trip to the client and to the auth-server to get a new token. However, considering that
+         * this {@link SessionAuthenticator SessionAuthenticator} was OK with the authentication when the request came
+         * it, and that by the situation's definition the WebSocket connection has not gone done in the mean time
+         * (otherwise it would have had to do full initial auth), one could argue that a Reply should have some extra
+         * room wrt. expiry. For Server-to-Client messages SEND and REQUEST, the same mechanism is employed, and I'd
+         * argue that the same arguments hold: This {@code SessionAuthenticator} was happy with the authentication some
+         * X minutes ago and the connection has not broken in the meantime, so you should work pretty hard to set up a
+         * situation where a REQUEST from the Server or some data using SEND from the Server would be a large security
+         * consideration.
          * <p/>
          * You get provided the last time this {@code SessionAuthenticator} was happy with this exact Authorization
-         * Header as parameter 'lastAuthenticatedMillis'. An ok implementation is to simply answer
-         * {@link AuthenticationContext#stillValid() stillValid()} if this is less than X minutes ago, otherwise answer
-         * {@link AuthenticationContext#invalidAuthentication(String) invalidAuthentication()}. Another slightly more
-         * elaborate implementation is to store the token and the actual expiry time of the token in
-         * {@link #reevaluateAuthentication(AuthenticationContext, String, Principal) reevaluateAuthentication(..)}, and
-         * if the token is the same with this invocation, just evaluate the expiry time against current time, but add X
-         * minutes slack to this evaluation.
+         * Header as parameter 'lastAuthenticatedTimestamp' - that is, this timestamp is reset each time
+         * {@link #initialAuthentication(AuthenticationContext, String) initialAuthentication(..)} and
+         * {@link #reevaluateAuthentication(AuthenticationContext, String, Principal) reevaluateAuthentication} answers
+         * any of the {@link AuthenticationContext#authenticated(Principal, String) authenticated} or
+         * {@link AuthenticationContext#stillValid()}.
+         * <p/>
+         * An ok implementation is therefore to simply answer {@link AuthenticationContext#stillValid() stillValid()} if
+         * the 'lastAuthenticatedTimestamp' parameter is less than X minutes ago, otherwise answer
+         * {@link AuthenticationContext#invalidAuthentication(String) invalidAuthentication()} (and thus the client will
+         * be asked to supply new auth). Another slightly more elaborate implementation is to store the token and the
+         * actual expiry time of the token in {@link #reevaluateAuthentication(AuthenticationContext, String, Principal)
+         * reevaluateAuthentication(..)}, and if the token is the same with this invocation, just evaluate the expiry
+         * time against current time, but add X minutes slack to this evaluation.
          *
          * @param context
          *            were you may get additional information (the {@link HandshakeRequest} and the WebSocket
@@ -225,7 +234,7 @@ public interface AuthenticationPlugin {
          * @param existingPrincipal
          *            The {@link Principal} that was returned with the last authentication (either initial or
          *            reevaluate).
-         * @param lastAuthenticatedMillis
+         * @param lastAuthenticatedTimestamp
          *            the millis-since-epoch of when this exact 'authorizationHeader' was deemed OK by this same
          *            {@code SessionAuthenticator}.
          * @return an {@link AuthenticationResult}, which you get from any of the method on the
@@ -235,7 +244,7 @@ public interface AuthenticationPlugin {
          *         before getting the message.
          */
         default AuthenticationResult reevaluateAuthenticationForOutgoingMessage(AuthenticationContext context,
-                String authorizationHeader, Principal existingPrincipal, long lastAuthenticatedMillis) {
+                String authorizationHeader, Principal existingPrincipal, long lastAuthenticatedTimestamp) {
             return reevaluateAuthentication(context, authorizationHeader, existingPrincipal);
         }
     }
@@ -255,7 +264,7 @@ public interface AuthenticationPlugin {
         Session getWebSocketSession();
 
         /**
-         * Return the result from this method from
+         * <b>Bad Authentication!</b> Return the result from this method from
          * {@link SessionAuthenticator#initialAuthentication(AuthenticationContext, String)
          * SessionAuthenticator.initialAuthentication(..)} or
          * {@link SessionAuthenticator#reevaluateAuthentication(AuthenticationContext, String, Principal)}
@@ -269,7 +278,7 @@ public interface AuthenticationPlugin {
         AuthenticationResult invalidAuthentication(String reason);
 
         /**
-         * Return the result from this method from
+         * <b>Good Authentication!</b> Return the result from this method from
          * {@link SessionAuthenticator#initialAuthentication(AuthenticationContext, String)
          * SessionAuthenticator.initialAuthentication(..)} to denote good authentication, supplying a Principal
          * representing the accessing user, and the UserId of this user. You can also return the result from this method
@@ -292,8 +301,8 @@ public interface AuthenticationPlugin {
         AuthenticationResult authenticated(Principal principal, String userId);
 
         /**
-         * Variant of {@link #authenticated(Principal, String)} that grants the authenticated user special abilities to
-         * ask for debug info of the performed call.
+         * <b>Good Authentication!</b> Variant of {@link #authenticated(Principal, String)} that grants the
+         * authenticated user special abilities to ask for debug info of the performed call.
          *
          * @param principal
          *            the Principal that will be supplied to all
@@ -310,12 +319,12 @@ public interface AuthenticationPlugin {
          * @return an {@link AuthenticationResult} that can be returned by the methods of {@link SessionAuthenticator}.
          */
         AuthenticationResult authenticated(Principal principal, String userId,
-                EnumSet<DebugOptions> allowedDebugOptions);
+                EnumSet<DebugOption> allowedDebugOptions);
 
         /**
-         * Return the result from this method from
+         * <b>Existing Authentication is still good!</b> Return the result from this method from
          * {@link SessionAuthenticator#reevaluateAuthentication(AuthenticationContext, String, Principal)} if the
-         * 'existingPrincipal' still is good to go.
+         * 'existingPrincipal' (and implicitly the userId) is still good to go.
          *
          * @return an {@link AuthenticationResult} that can be returned by the method
          *         {@link SessionAuthenticator#reevaluateAuthentication(AuthenticationContext, String, Principal)},
@@ -324,21 +333,79 @@ public interface AuthenticationPlugin {
         AuthenticationResult stillValid();
     }
 
-    enum DebugOptions {
+    /**
+     * These bit-field enums (bit-field) is used by the Client to request different types of debug/meta information from
+     * Server-side, and used by the {@link AuthenticationPlugin} to tell the {@link MatsSocketServer} which types of
+     * information the specific user is allowed to request - the resulting debug/meta information provided is the
+     * intersection of the requested + allowed.
+     * <p/>
+     * In addition to the functionality from the MatsSocket system, there is two "Custom Options" ({@link #CUSTOM_A} and
+     * {@link #CUSTOM_B}) that are not employed by the MatsSocket system, but instead can be utilized and given meaning
+     * by the MatsSocket employing service/application. Notice, however: You might be just as well off by implementing
+     * such functionality on the {@link Principal} returned by the {@link AuthenticationPlugin} ("this user is allowed
+     * to request these things") - and on the request DTOs from the Client ("I would like to request these things").
+     */
+    enum DebugOption {
         /**
-         * Timing info of the separate phases. Note that time-skewing between hosts must be taken into account.
+         * Timing info of the separate phases. Note that time-skew between different nodes must be taken into account.
          */
-        TIMINGS(0b1),
+        TIMINGS(0b0000_0001),
 
         /**
-         * Node-name of the handling node of the separate phases.
+         * Node-name of the handling nodes of the separate phases.
          */
-        NODES(0b10);
+        NODES(0b0000_0010),
 
-        final int bitconstant;
+        /**
+         * {@link AuthenticationPlugin}-specific "Option A" - this is not used by MatsSocket itself, but can be employed
+         * and given a meaning by the {@link AuthenticationPlugin}.
+         * <p/>
+         * Notice: You might be just as well off by implementing such functionality on the {@link Principal} returned by
+         * the {@link AuthenticationPlugin} ("this user is allowed to request these things") - and on the request DTOs
+         * from the Client ("I would like to request these things").
+         */
+        CUSTOM_A(0b0100_0000),
 
-        DebugOptions(int bitconstant) {
+        /**
+         * {@link AuthenticationPlugin}-specific "Option B" - this is not used by MatsSocket itself, but can be employed
+         * and given a meaning by the {@link AuthenticationPlugin}.
+         * <p/>
+         * Notice: You might be just as well off by implementing such functionality on the {@link Principal} returned by
+         * the {@link AuthenticationPlugin} ("this user is allowed to request these things") - and on the request DTOs
+         * from the Client ("I would like to request these things").
+         */
+        CUSTOM_B(0b1000_0000);
+
+        private final int bitconstant;
+
+        DebugOption(int bitconstant) {
             this.bitconstant = bitconstant;
+        }
+
+        static public EnumSet<DebugOption> enumSetOf(int flags) {
+            EnumSet<DebugOption> debugOptions = EnumSet.noneOf(DebugOption.class);
+            for (DebugOption value : DebugOption.values()) {
+                if ((flags & value.bitconstant) > 0) {
+                    debugOptions.add(value);
+                }
+            }
+            return debugOptions;
+        }
+
+        static public EnumSet<DebugOption> enumSetOf(Integer flags) {
+            if (flags == null) {
+                return EnumSet.noneOf(DebugOption.class);
+            }
+            // E-> had value
+            return enumSetOf(flags.intValue());
+        }
+
+        static public int flags(EnumSet<DebugOption> debugOptions) {
+            int bitfield = 0;
+            for (DebugOption debugOption : debugOptions) {
+                bitfield |= debugOption.bitconstant;
+            }
+            return bitfield;
         }
     }
 

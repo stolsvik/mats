@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
@@ -38,8 +39,10 @@ import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsBackendRuntimeException;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendRuntimeException;
+import com.stolsvik.mats.websocket.AuthenticationPlugin;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.ClientMessageIdAlreadyExistsException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
@@ -52,10 +55,11 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_Authenticated;
-import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_NotAuthenticated;
+import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_InvalidAuthentication;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_StillValid;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.MatsSocketEndpointRegistration;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleStateDto;
+import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DebugDto;
 import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
 
 /**
@@ -86,7 +90,10 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
     private String _authorization; // nulled upon close
     private Principal _principal; // nulled upon close
     private String _userId; // nulled upon close
-    private long _lastAuthenticatedMillis; // set to System.currentTimeMillis() each time (re)evaluated OK.
+    private EnumSet<DebugOption> _authAllowedDebugOptions;
+    private EnumSet<DebugOption> _currentResolvedServerToClientDebugOptions = EnumSet.noneOf(DebugOption.class);
+    private long _lastAuthenticatedTimestamp; // set to System.currentTimeMillis() each time (re)evaluated OK.
+    private volatile boolean _holdOutgoingMessages;
 
     private String _clientLibAndVersion;
     private String _appNameAndVersion;
@@ -114,10 +121,10 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         return _webSocketSession;
     }
 
-    private final Object _webSocketSendSync = new Object();
+    private final Object _webSocketSendSyncObject = new Object();
 
     void webSocketSendText(String text) throws IOException {
-        synchronized (_webSocketSendSync) {
+        synchronized (_webSocketSendSyncObject) {
             _webSocketBasicRemote.sendText(text);
         }
     }
@@ -140,6 +147,22 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
      */
     String getConnectionId() {
         return _connectionId;
+    }
+
+    /**
+     * @return the {@link DebugOption}s that the {@link AuthenticationPlugin} told us was allowed for this user to
+     *         request.
+     */
+    public EnumSet<DebugOption> getAuthAllowedDebugOptions() {
+        return _authAllowedDebugOptions;
+    }
+
+    /**
+     * @return the {@link DebugOption}s requested by client intersected with what is allowed for this user ("resolved"),
+     *         for Server-initiated messages (Server-to-Client SEND and REQUEST).
+     */
+    public EnumSet<DebugOption> getCurrentResolvedServerToClientDebugOptions() {
+        return _currentResolvedServerToClientDebugOptions;
     }
 
     @Override
@@ -183,6 +206,19 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
             if (log.isDebugEnabled()) log.debug("Messages: " + envelopes);
             boolean shouldNotifyAboutExistingMessages = false;
+
+            // :: 0. Look for request-debug in any of the messages
+            for (MatsSocketEnvelopeDto envelope : envelopes) {
+                // ?: Pick out any "Request Debug" flags
+                if (envelope.rd != null) {
+                    // -> Yes, there was an authorization header sent along with this message
+                    EnumSet<DebugOption> requestedDebugOptions = DebugOption.enumSetOf(envelope.rd);
+                    // Intersect this with allowed DebugOptions
+                    requestedDebugOptions.retainAll(_authAllowedDebugOptions);
+                    // Store the result as new Server-to-Client DebugOptions
+                    _currentResolvedServerToClientDebugOptions = requestedDebugOptions;
+                }
+            }
 
             // :: 1. Look for Authorization header in any of the messages
             // NOTE! Authorization header can come with ANY message!
@@ -514,7 +550,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         _authorization = null;
         _principal = null;
         _userId = null;
-        _lastAuthenticatedMillis = -1;
+        _lastAuthenticatedTimestamp = -1;
         // :: Also nulling out our references to the WebSocket, to ensure that it is impossible to send anything more
         _webSocketSession = null;
         _webSocketBasicRemote = null;
@@ -540,6 +576,10 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         DefaultMatsSocketServer.closeWebSocket(webSocketSession, closeCode, reason);
     }
 
+    boolean isHoldOutgoingMessages() {
+        return _holdOutgoingMessages;
+    }
+
     boolean reevaluateAuthenticationForOutgoingMessage() {
         /*
          * Any evaluation implication SessionAuthenticator, and setting of _authorization, _principal and _userId, is
@@ -551,7 +591,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             AuthenticationResult authenticationResult;
             try {
                 authenticationResult = _sessionAuthenticator.reevaluateAuthenticationForOutgoingMessage(
-                        _authenticationContext, _authorization, _principal, _lastAuthenticatedMillis);
+                        _authenticationContext, _authorization, _principal, _lastAuthenticatedTimestamp);
             }
             catch (RuntimeException re) {
                 log.error("Got Exception when invoking SessionAuthenticator"
@@ -571,12 +611,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
     }
 
-    private volatile boolean _holdOutgoingMessages;
-
-    boolean isHoldOutgoingMessages() {
-        return _holdOutgoingMessages;
-    }
-
     private boolean doAuthentication(String newAuthorization) {
         /*
          * Any evaluation implication SessionAuthenticator, and setting of _authorization, _principal and _userId, is
@@ -585,42 +619,47 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         synchronized (_sessionAuthenticator) {
             // ?: Do we have an existing Principal?
             if (_principal == null) {
-                // -> No, we do not have an existing Principal
-                // Assert that we then have a new Authorization
-                String authorizationToEvaluate = newAuthorization;
-                if (authorizationToEvaluate == null) {
+                // -> No, we do not have an existing Principal -> Initial Authentication
+                // ::: Ask SessionAuthenticator if it is happy with this initial Authorization header
+
+                // Assert that we then have a new Authorization header
+                if (newAuthorization == null) {
                     throw new AssertionError("We have not got Principal, and a new Authorization header is"
                             + " not provided either.");
                 }
-                // Ask SessionAuthenticator if it likes this Authorization header
                 AuthenticationResult authenticationResult;
                 try {
                     authenticationResult = _sessionAuthenticator.initialAuthentication(_authenticationContext,
-                            authorizationToEvaluate);
+                            newAuthorization);
                 }
-                catch (RuntimeException re) {
+                catch (RuntimeException e) {
+                    // -> SessionAuthenticator threw - bad
                     log.error("Got Exception when invoking SessionAuthenticator.initialAuthentication(..),"
-                            + " Authorization header: " + authorizationToEvaluate, re);
+                            + " Authorization header: " + newAuthorization, e);
                     closeWithPolicyViolation("Initial Auth-eval: Got Exception");
                     return false;
                 }
                 if (authenticationResult instanceof AuthenticationResult_Authenticated) {
                     // -> Authenticated!
-                    goodAuthentication(authorizationToEvaluate,
+                    goodAuthentication(newAuthorization,
                             (AuthenticationResult_Authenticated) authenticationResult, "Authenticated");
                     return true;
                 }
                 else {
                     // -> InvalidAuthentication, null, or any other result.
-                    badAuthentication(authorizationToEvaluate, authenticationResult, "Initial Auth-eval");
+                    badAuthentication(newAuthorization, authenticationResult, "Initial Auth-eval");
                     return false;
                 }
             }
             else {
-                // -> Yes, we already have Principal
-                // Ask SessionAuthenticator whether he still is happy with this Principal being authenticated, or
+                // -> Yes, we already have Principal -> Reevaluation of existing Authentication
+                // ::: Ask SessionAuthenticator whether he still is happy with this Principal being authenticated, or
                 // supplies a new Principal
+
+                // If newAuthorization is provided, use that - otherwise use existing
                 String authorizationToEvaluate = (newAuthorization != null ? newAuthorization : _authorization);
+
+                // Assert that we actually have an Authorization header to evaluate
                 if (authorizationToEvaluate == null) {
                     throw new AssertionError("We have not gotten neither an existing or a new"
                             + " Authorization Header.");
@@ -630,9 +669,10 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     authenticationResult = _sessionAuthenticator.reevaluateAuthentication(_authenticationContext,
                             authorizationToEvaluate, _principal);
                 }
-                catch (RuntimeException re) {
+                catch (RuntimeException e) {
+                    // -> SessionAuthenticator threw - bad
                     log.error("Got Exception when invoking SessionAuthenticator.reevaluateAuthentication(..),"
-                            + " Authorization header: " + authorizationToEvaluate, re);
+                            + " Authorization header: " + authorizationToEvaluate, e);
                     closeWithPolicyViolation("Auth re-eval: Got Exception.");
                     return false;
                 }
@@ -649,7 +689,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // Update Authorization, in case it changed (strange that it didn't return "Authenticated" instead?)
                     _authorization = authorizationToEvaluate;
                     // Update lastAuthenticatedMillis, since it was still happy with it.
-                    _lastAuthenticatedMillis = System.currentTimeMillis();
+                    _lastAuthenticatedTimestamp = System.currentTimeMillis();
                     return true;
                 }
                 else {
@@ -662,16 +702,20 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
           // NOTE! There should NOT be a default return here!
     }
 
-    private void goodAuthentication(String authorizationToEvaluate,
+    private void goodAuthentication(String authorization,
             AuthenticationResult_Authenticated authenticationResult,
             String what) {
-        AuthenticationResult_Authenticated result = authenticationResult;
-        _authorization = authorizationToEvaluate;
-        _principal = result._principal;
-        _userId = result._userId;
-        _lastAuthenticatedMillis = System.currentTimeMillis();
+        // Store the new values
+        _authorization = authorization;
+        _principal = authenticationResult._principal;
+        _userId = authenticationResult._userId;
+        _authAllowedDebugOptions = authenticationResult._debugOptions;
         // We can now send outgoing messages
         _holdOutgoingMessages = false;
+        // Update the timestamp of when the SessionAuthenticator last time was happy with the authentication.
+        _lastAuthenticatedTimestamp = System.currentTimeMillis();
+
+        // Update MDCs before logging.
         MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
         MDC.put(MDC_USER_ID, _userId);
         log.info(what + " with UserId: [" + _userId + "] and Principal [" + _principal + "]");
@@ -682,9 +726,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         log.error("SessionAuthenticator replied " + authenticationResult + ", Authorization header: "
                 + authorizationToEvaluate);
         // ?: Is it NotAuthenticated?
-        if (authenticationResult instanceof AuthenticationResult_NotAuthenticated) {
+        if (authenticationResult instanceof AuthenticationResult_InvalidAuthentication) {
             // -> Yes, explicit NotAuthenticated
-            AuthenticationResult_NotAuthenticated invalidAuthentication = (AuthenticationResult_NotAuthenticated) authenticationResult;
+            AuthenticationResult_InvalidAuthentication invalidAuthentication = (AuthenticationResult_InvalidAuthentication) authenticationResult;
             closeWithPolicyViolation(what + ": " + invalidAuthentication.getReason());
         }
         else {
@@ -837,18 +881,12 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         replyEnvelope.sid = _matsSocketSessionId;
         replyEnvelope.tid = envelope.tid;
 
-        // TODO: DEBUG
-        replyEnvelope.cmcts = envelope.cmcts;
-        replyEnvelope.cmrts = clientMessageReceivedTimestamp;
-        replyEnvelope.mscts = System.currentTimeMillis();
-        replyEnvelope.mscnn = _matsSocketServer.getMyNodename();
-
         log.info("Sending WELCOME! MatsSocketSessionId:[" + _matsSocketSessionId + "]!");
 
         // Pack it over to client
         // NOTICE: Since this is the first message ever, there will not be any currently-sending messages the other
         // way (i.e. server-to-client, from the MessageToWebSocketForwarder). Therefore, it is perfectly OK to
-        // do this synchronously here.
+        // do this synchronously right here.
         List<MatsSocketEnvelopeDto> replySingleton = Collections.singletonList(replyEnvelope);
         try {
             String json = _envelopeListObjectWriter.writeValueAsString(replySingleton);
@@ -887,7 +925,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
         MatsSocketEnvelopeDto[] handledEnvelope = new MatsSocketEnvelopeDto[] { new MatsSocketEnvelopeDto() };
         handledEnvelope[0].cmid = envelope.cmid; // Client MessageId.
-
 
         // :: Perform the entire handleIncoming(..) inside Mats initiate-lambda
         RequestCorrelation[] _correlationInfo_LambdaHack = new RequestCorrelation[1];
@@ -971,11 +1008,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                             StoredMessage messageFromInbox = _matsSocketServer.getClusterStoreAndForward()
                                     .getMessageFromInbox(_matsSocketSessionId, envelope.cmid);
                             // ?: Did we have a serialized message here?
-                            if (messageFromInbox.getEnvelopeJson() != null) {
+                            if (messageFromInbox.getEnvelope() != null) {
                                 // -> Yes, we had the JSON from last processing stored!
-                                log.info("We had an envelope from last time! " + messageFromInbox.getEnvelopeJson());
+                                log.info("We had an envelope from last time! " + messageFromInbox.getMessageText());
                                 MatsSocketEnvelopeDto lastTimeEnvelope = _envelopeObjectReader.readValue(
-                                        messageFromInbox.getEnvelopeJson());
+                                        messageFromInbox.getEnvelope());
                                 // Doctor the deserialized envelope (by magic JSON-holder DirectJsonMessage)
                                 // (The 'msg' field is currently a proper JSON String, we want it directly as-is)
                                 lastTimeEnvelope.msg = DirectJsonMessage.of((String) lastTimeEnvelope.msg);
@@ -998,15 +1035,14 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                         }
                         catch (DataAccessException ex) {
                             // TODO: Do something with these exceptions - more types?
-                            throw new DatabaseRuntimeException(e);
+                            throw new DatabaseRuntimeException(ex);
                         }
                         catch (JsonProcessingException ex) {
                             // TODO: Fix
-                            throw new AssertionError("Hot damn!");
+                            throw new AssertionError("Hot damn!", ex);
                         }
                     }
                 }
-
 
                 // Go get the Endpoint registration.
                 Optional<MatsSocketEndpointRegistration<?, ?, ?, ?>> registrationO = _matsSocketServer
@@ -1029,8 +1065,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 // Create the Context
                 MatsSocketEndpointRequestContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointRequestContextImpl(
                         _matsSocketServer, registration, _matsSocketSessionId, init, envelope,
-                        clientMessageReceivedTimestamp, _authorization, _principal, _userId, type,
-                        correlationString, correlationBinary, msg);
+                        clientMessageReceivedTimestamp, _authorization, _principal, _userId, _authAllowedDebugOptions,
+                        type, correlationString, correlationBinary, msg);
 
                 // Invoke the incoming handler
                 incomingAuthEval.handleIncoming(requestContext, _principal, msg);
@@ -1068,12 +1104,21 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                         // Add standard Reply message properties, since this is no longer just an ACK/NACK
                         handledEnvelope[0].tid = envelope.tid; // TraceId
 
-                        // TODO: Debug
-                        handledEnvelope[0].cmcts = envelope.cmcts; // Set by client..
-                        handledEnvelope[0].cmrts = clientMessageReceivedTimestamp;
-                        handledEnvelope[0].cmrnn = _matsSocketServer.getMyNodename();
-                        handledEnvelope[0].mscts = System.currentTimeMillis();
-                        handledEnvelope[0].mscnn = _matsSocketServer.getMyNodename();
+                        // Handle DebugOptions
+                        EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(envelope.rd);
+                        debugOptions.retainAll(_authAllowedDebugOptions);
+                        if (!debugOptions.isEmpty()) {
+                            DebugDto debug = new DebugDto();
+                            if (debugOptions.contains(DebugOption.TIMINGS)) {
+                                debug.cmrts = clientMessageReceivedTimestamp;
+                                debug.mscts = System.currentTimeMillis();
+                            }
+                            if (debugOptions.contains(DebugOption.NODES)) {
+                                debug.cmrnn = _matsSocketServer.getMyNodename();
+                                debug.mscnn = _matsSocketServer.getMyNodename();
+                            }
+                            handledEnvelope[0].debug = debug;
+                        }
 
                         handledEnvelope[0].msg = requestContext._matsSocketReplyMessage;
                         log.info("handleIncoming(..) insta-settled the incoming message with"
@@ -1283,6 +1328,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         private final String _authorization;
         private final Principal _principal;
         private final String _userId;
+        private final EnumSet<DebugOption> _allowedDebugOptions;
 
         private final String _correlationString;
         private final byte[] _correlationBinary;
@@ -1294,7 +1340,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 MatsSocketEndpointRegistration matsSocketEndpointRegistration, String matsSocketSessionId,
                 MatsInitiate matsInitiate,
                 MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp, String authorization,
-                Principal principal, String userId, MessageType messageType,
+                Principal principal, String userId, EnumSet<DebugOption> allowedDebugOptions,
+                MessageType messageType,
                 String correlationString, byte[] correlationBinary, I incomingMessage) {
             _matsSocketServer = matsSocketServer;
             _matsSocketEndpointRegistration = matsSocketEndpointRegistration;
@@ -1302,9 +1349,12 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             _matsInitiate = matsInitiate;
             _envelope = envelope;
             _clientMessageReceivedTimestamp = clientMessageReceivedTimestamp;
+
             _authorization = authorization;
             _principal = principal;
             _userId = userId;
+            _allowedDebugOptions = allowedDebugOptions;
+
             _messageType = messageType;
 
             _correlationString = correlationString;
@@ -1333,6 +1383,19 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         @Override
         public String getUserId() {
             return _userId;
+        }
+
+        @Override
+        public EnumSet<DebugOption> getAllowedDebugOptions() {
+            return _allowedDebugOptions;
+        }
+
+        @Override
+        public EnumSet<DebugOption> getResolvedDebugOptions() {
+            // Resolve which DebugOptions are requested and allowed
+            EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(_envelope.rd);
+            debugOptions.retainAll(getAllowedDebugOptions());
+            return debugOptions;
         }
 
         @Override
@@ -1405,11 +1468,19 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             // -> Is this a REQUEST?
             if (getMessageType() == REQUEST) {
                 // -> Yes, this is a REQUEST, so we should forward as Mats .request(..)
-                // Need to make state so that receiving terminator know what to do.
+                // :: Need to make state so that receiving terminator know what to do.
+
+                EnumSet<DebugOption> resolvedDebugOptions = getResolvedDebugOptions();
+                Integer debugFlags = DebugOption.flags(resolvedDebugOptions);
+                // Hack to save a tiny bit of space for this that mostly will be 0
+                if (debugFlags == 0) {
+                    debugFlags = null;
+                }
+
                 ReplyHandleStateDto sto = new ReplyHandleStateDto(_matsSocketSessionId,
                         _matsSocketEndpointRegistration.getMatsSocketEndpointId(),
-                        _envelope.cmid, _envelope.cmcts, _clientMessageReceivedTimestamp,
-                        System.currentTimeMillis(), _matsSocketServer.getMyNodename());
+                        _envelope.cmid, debugFlags, _clientMessageReceivedTimestamp,
+                        _matsSocketServer.getMyNodename(), System.currentTimeMillis());
                 // Set ReplyTo parameter
                 init.replyTo(_matsSocketServer.getReplyTerminatorId(), sto);
                 // Invoke the customizer

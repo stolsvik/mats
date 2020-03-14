@@ -172,14 +172,17 @@ public interface ClusterStoreAndForward {
      *            the server-side traceId for this message.
      * @param type
      *            the type of the reply, currently "REPLY".
+     * @param envelope
+     *            the JSON-serialized MatsSocket Envelope <b>- without the 'msg' field set</b>.
      * @param messageJson
-     *            the JSON-serialized MatsSocket <b>Envelope</b>.
+     *            the JSON-serialized message - the piece that sits in the 'msg' field of the Envelope.
      * @param messageBinary
      *            the binary part of an outgoing message.
      * @return the current node holding MatsSocket Session, or empty if none.
      */
     Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
-            String clientMessageId, String traceId, MessageType type, String messageJson, byte[] messageBinary)
+            String clientMessageId, String traceId,
+            MessageType type, String envelope, String messageJson, byte[] messageBinary)
             throws DataAccessException;
 
     /**
@@ -319,7 +322,9 @@ public interface ClusterStoreAndForward {
         }
 
         @Override
-        public String getReplyTerminatorId() { return _replyTerminatorId; }
+        public String getReplyTerminatorId() {
+            return _replyTerminatorId;
+        }
 
         @Override
         public String getCorrelationString() {
@@ -438,11 +443,13 @@ public interface ClusterStoreAndForward {
 
         String getTraceId();
 
-        String getType();
+        MessageType getType();
 
-        String getEnvelopeJson();
+        String getEnvelope();
 
-        byte[] getBinary();
+        String getMessageText();
+
+        byte[] getMessageBinary();
     }
 
     class SimpleStoredMessage implements StoredMessage {
@@ -454,14 +461,16 @@ public interface ClusterStoreAndForward {
         private final int _deliveryCount;
 
         private final String _traceId;
-        private final String _type;
-        private final String _envelopeJson;
-        private final byte[] _binary;
+
+        private final MessageType _type;
+        private final String _envelope;
+        private final String _messageText;
+        private final byte[] _messageBinary;
 
         public SimpleStoredMessage(String matsSocketSessionId, String serverMessageId,
                 String clientMessageId,
-                long storedTimestamp, Long attemptTimestamp, int deliveryCount, String traceId, String type,
-                String envelopeJson, byte[] binary) {
+                long storedTimestamp, Long attemptTimestamp, int deliveryCount, String traceId,
+                MessageType type, String envelope, String messageText, byte[] messageBinary) {
             _matsSocketSessionId = matsSocketSessionId;
             _serverMessageId = serverMessageId;
             _clientMessageId = clientMessageId;
@@ -469,9 +478,11 @@ public interface ClusterStoreAndForward {
             _attemptTimestamp = attemptTimestamp;
             _deliveryCount = deliveryCount;
             _traceId = traceId;
+
             _type = type;
-            _envelopeJson = envelopeJson;
-            _binary = binary;
+            _envelope = envelope;
+            _messageText = messageText;
+            _messageBinary = messageBinary;
         }
 
         @Override
@@ -510,18 +521,23 @@ public interface ClusterStoreAndForward {
         }
 
         @Override
-        public String getType() {
+        public MessageType getType() {
             return _type;
         }
 
         @Override
-        public String getEnvelopeJson() {
-            return _envelopeJson;
+        public String getEnvelope() {
+            return _envelope;
         }
 
         @Override
-        public byte[] getBinary() {
-            return _binary;
+        public String getMessageText() {
+            return _messageText;
+        }
+
+        @Override
+        public byte[] getMessageBinary() {
+            return _messageBinary;
         }
     }
 }
