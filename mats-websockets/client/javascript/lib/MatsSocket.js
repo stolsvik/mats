@@ -11,9 +11,20 @@
         factory((root.mats = {}), root.WebSocket);
         // Also export these directly (without "mats." prefix)
         root.MatsSocket = root.mats.MatsSocket;
+
         root.MatsSocketCloseCodes = root.mats.MatsSocketCloseCodes;
+        // Not exporting MessageType directly, as that is pretty internal.
+
         root.ConnectionState = root.mats.ConnectionState;
+
         root.ConnectionEvent = root.mats.ConnectionEvent;
+        root.ConnectionEventType = root.mats.ConnectionEventType;
+
+        root.ReceivedEvent = root.mats.ReceivedEvent;
+        root.ReceivedEventType = root.mats.ReceivedEventType;
+
+        root.MessageEvent = root.mats.MessageEvent;
+        root.MessageEventType = root.mats.MessageEventType;
     }
 }(typeof self !== 'undefined' ? self : this, function (exports, WebSocket) {
 
@@ -96,6 +107,15 @@
          * integration tests.
          */
         RECONNECT: 4002,
+
+        /**
+         * 4003: From Server side: Currently used in the specific situation where a MatsSocket client connects with
+         * the same MatsSocketSessionId as an existing WebSocket connection. This could happen if the client has
+         * realized that a connection is wonky and wants to ditch it, but the server has not realized the same yet.
+         * When the server then gets the new connect, it'll see that there is an active WebSocket already. It needs
+         * to close that. But the client "must not do anything" other than what it already is doing - reconnecting.
+         */
+        DISCONNECT: 4003,
 
         nameFor: function (closeCode) {
             let keys = Object.keys(MatsSocketCloseCodes).filter(function (key) {
@@ -207,33 +227,38 @@
     });
 
     /**
-     * State and Event names for MatsSocket's {@link MatsSocket#state state} and {@link MatsSocket#addConnectionEventListener(function) events}.
+     * States for MatsSocket's {@link MatsSocket#state state}.
      *
-     * @type {Readonly<{COUNTDOWN: string, NO_SESSION: string, CONNECTING: string, WAITING: string, CONNECTION_ERROR: string, CONNECTED: string, SESSION_ESTABLISHED: string, LOST_CONNECTION: string}>}
+     * @type {Readonly<{NO_SESSION: string, CONNECTING: string, WAITING: string, CONNECTED: string, SESSION_ESTABLISHED: string}>}
      */
     const ConnectionState = Object.freeze({
         /**
-         * State only - this is the initial state, unless we've gotten a CloseSession situation (which is communicated
-         * via listeners registered with {@link MatsSocket#addSessionClosedEventListener(listener)}), where the state
-         * is reset back to NO_SESSION.
+         * State only - this is the initial State of a MatsSocket. Also, the MatsSocket is re-set back to this State in a
+         * Session-Closed-from-Server situation (which is communicated via listeners registered with
+         * {@link MatsSocket#addSessionClosedEventListener(listener)}), OR if you have explicitly performed a
+         * matsSocket.close().
          * <p/>
          * Only transition out of this state is into {@link #CONNECTING}.
          */
-        NO_SESSION: "Not Connected",
+        NO_SESSION: "nosession",
 
         /**
          * State, and fires as ConnectionEvent when we transition into this state, which is when the WebSocket is literally trying to connect.
          * This is between <code>new WebSocket(url)</code> and either webSocket.onopen or webSocket.onclose is
-         * fired. If webSocket.onopen, we transition into {@link #CONNECTED}, if webSocket.onclose, we transition into
-         * {@link #WAITING}.
+         * fired, or countdown reaches 0. If webSocket.onopen, we transition into {@link #CONNECTED}, if webSocket.onclose, we transition into
+         * {@link #WAITING}. If we reach countdown 0 while in CONNECTING, we will "re-transition" to the same state, and
+         * thus get one more event of CONNECTING.
          * <p/>
-         * User Info Tip: Show a info-box, stating "Connecting..", and you may show the countdown number if "grayed out". Each time it transitions into CONNECTING, it will
-         * start a new countdown, from say 4 seconds. If the connection attempt fails after 1 second, it will transition
-         * into WAITING and continue the countdown with 3 seconds reminging.
+         * User Info Tip: Show a info-box, stating "Connecting..", and you may show the countdown number in "grayed out".
+         * Each time it transitions into CONNECTING, it will start a new countdown. Let's say it starts from say 4
+         * seconds: If this connection attempt fails after 1 second, it will transition into WAITING and continue the
+         * countdown with 3 seconds remaining.
          * <p/>
-         * User Info Tip: Show a info-box, stating "Connecting! <4 seconds..>", countdown in "grayed out" style, box is some neutral color, e.g. yellow (fading over to this color if already red or orange due to {@link #CONNECTION_ERROR} or {@link #LOST_CONNECTION}).
+         * User Info Tip: Show a info-box, stating "Connecting! <4 seconds..>", countdown in "grayed out" style, box is
+         * some neutral information color, e.g. yellow (fading over to this color if already red or orange due to
+         * {@link #CONNECTION_ERROR} or {@link #LOST_CONNECTION}).
          */
-        CONNECTING: "Connecting",
+        CONNECTING: "connecting",
 
         /**
          * State, and fires as ConnectionEvent when we transition into this state, which is when {@link #CONNECTING} fails.
@@ -245,75 +270,110 @@
          * and have the time remaining from the initial countdown. So if the attempt countdown started from 4 seconds,
          * and it took 1 second before the connection attempt failed, then there will be 3 seconds left in WAITING state.
          * <p/>
-         * User Info Tip: Show a info-box, stating "Waiting! <2.9 seconds..>", countdown in normal visibility, box is some neutral color, e.g. yellow (keeping the box color fading if in progress).
+         * User Info Tip: Show a info-box, stating "Waiting! <2.9 seconds..>", countdown in normal visibility, box is
+         * some neutral information color, e.g. yellow (keeping the box color fading if in progress).
          */
-        WAITING: "Waiting",
+        WAITING: "waiting",
 
         /**
          * State, and fires as ConnectionEvent when we transition into this state, which is when WebSocket.onopen is fired.
+         * Notice that the MatsSocket is still not fully established, as we have not yet exchanged HELLO and WELCOME -
+         * the MatsSocket is fully established at {@link #SESSION_ESTABLISHED}.
          * <p/>
-         * Notice that the {@link ConnectionEvent} contains the {@link Event} that came with webSocket.open.
-         * <p/>
-         * User Info Tip: Show a info-box, stating "Connected!", happy-color, e.g. green, with no countdown. Notice that the {@link ConnectionEvent} contains the WebSocket 'onopen' {@link Event} that was issued when
+         * Notice that the {@link ConnectionEvent} contains the WebSocket 'onopen' {@link Event} that was issued when
          * the WebSocket opened.
+         * <p/>
+         * User Info Tip: Show a info-box, stating "Connected!", happy-color, e.g. green, with no countdown.
          */
-        CONNECTED: "Connected",
+        CONNECTED: "connected",
 
         /**
          * State, and fires as ConnectionEvent when we transition into this state, which is when when the WELCOME MatsSocket message comes
-         * from the Server, also implying that it has been authenticated - now actual messages can be exchanged.
+         * from the Server, also implying that it has been authenticated: The MatsSocket is now fully established, and
+         * actual messages can be exchanged.
          * <p/>
-         * User Info Tip: Show a info-box, stating "Session OK!", happy-color, e.g. green, with no countdown - and the info-box fades out fast after 1 second.
+         * User Info Tip: Show a info-box, stating "Session OK!", happy-color, e.g. green, with no countdown - and the
+         * entire info-box fades away fast, e.g. after 1 second.
          */
-        SESSION_ESTABLISHED: "Session Established",
+        SESSION_ESTABLISHED: "sessionestablished"
+    });
+
+    /**
+     * The event types of {@link ConnectionEvent} - four of the event types are state-transitions into different states
+     * of {@link ConnectionState}.
+     *
+     * @type {Readonly<{COUNTDOWN: string, CONNECTING: string, WAITING: string, CONNECTION_ERROR: string, CONNECTED: string, SESSION_ESTABLISHED: string, LOST_CONNECTION: string}>}
+     */
+    const ConnectionEventType = Object.freeze({
+        /**
+         * Read doc at {@link ConnectionState#CONNECTING}.
+         */
+        CONNECTING: ConnectionState.CONNECTING,
 
         /**
-         * Event only. This is a pretty worthless event. It comes from WebSocket.onerror. It will <i>always</i> be trailed by a
-         * WebSocket.onclose, which for MatsSocket ends up as {@link #LOST_CONNECTION}.
+         * Read doc at {@link ConnectionState#WAITING}.
+         */
+        WAITING: ConnectionState.WAITING,
+
+        /**
+         * Read doc at {@link ConnectionState#CONNECTED}.
+         */
+        CONNECTED: ConnectionState.CONNECTED,
+
+        /**
+         * Read doc at {@link ConnectionState#SESSION_ESTABLISHED}.
+         */
+        SESSION_ESTABLISHED: ConnectionState.SESSION_ESTABLISHED,
+
+        /**
+         * This is a pretty worthless event. It comes from WebSocket.onerror. It will <i>always</i> be trailed by a
+         * WebSocket.onclose, which gives the event {@link #LOST_CONNECTION}.
          * <p/>
          * Notice that the {@link ConnectionEvent} contains the {@link Event} that caused the error.
          * <p/>
          * User Info Tip: Show a info-box, which is some reddish color (no need for text since next event {@link #LOST_CONNECTION}) comes immediately).
          */
-        CONNECTION_ERROR: "Connection Error",
+        CONNECTION_ERROR: "connectionerror",
 
         /**
-         * Event only. This comes when WebSocket.onclose is fired - <b>and it is NOT a SessionClosed Event</b>. The latter will
+         * This comes when WebSocket.onclose is fired "unexpectedly", <b>and the reason for this close is NOT a SessionClosed Event</b>. The latter will
          * instead invoke the listeners registered with {@link MatsSocket#addSessionClosedEventListener(listener)}.
+         * A LOST_CONNECTION will start a reconnection attempt after a very brief delay (couple of hundred milliseconds), and the next state transition and thus event is {@link #CONNECTING}.
          * <p/>
          * Notice that the {@link ConnectionEvent} contains the {@link CloseEvent} that caused the lost connection.
          * <p/>
          * User Info Tip: Show a info-box, stating "Connection broken!", which is some orange color (unless it already is red due to {@link #CONNECTION_ERROR}), fading over to the next color when next event ({@link #CONNECTING} comes in.
          */
-        LOST_CONNECTION: "Lost Connection",
+        LOST_CONNECTION: "lostconnection",
 
         /**
-         * Event only. Notice that you will most probably not get an event with 0 seconds, as that is when we transition into
+         * Notice that you will most probably not get an event with 0 seconds left, as that is when we (re-)transition to
          * {@link #CONNECTING} and the countdown starts over (possibly with a larger timeout). Read more at {@link ConnectionEvent#countdownSeconds}.
          * <p/>
          * User Info Tip: Read more at {@link #CONNECTING} and {@linl #WAITING}.
          */
-        COUNTDOWN: "Countdown"
-    });
+        COUNTDOWN: "countdown"
 
+    });
 
     /**
      * Event object for {@link MatsSocket#addConnectionEventListener(function)}.
      *
-     * @param {string} connectionState
+     * @param {string} type
      * @param {string} webSocketUrl
      * @param {Event} webSocketEvent
      * @param {number} timeoutSeconds
      * @param {number} countdownSeconds
      * @constructor
      */
-    function ConnectionEvent(connectionState, webSocketUrl, webSocketEvent, timeoutSeconds, countdownSeconds) {
+    function ConnectionEvent(type, webSocketUrl, webSocketEvent, timeoutSeconds, countdownSeconds) {
         /**
-         * Return the enum value of {@link ConnectionState}.
+         * Return the enum value of {@link ConnectionEventType} - also available as the enum <i>key</i> string on the
+         * property {@link ConnectionEvent#eventName}.
          *
          * @type {string}
          */
-        this.state = connectionState;
+        this.type = type;
 
         /**
          * For all of the events this holds the current URL we're either connected to, was connected to, or trying to
@@ -324,13 +384,13 @@
         this.webSocketUrl = webSocketUrl;
 
         /**
-         * For several of the types (enumerated in {@link ConnectionState}), there is an underlying WebSocket event
+         * For several of the events (enumerated in {@link ConnectionEventType}), there is an underlying WebSocket event
          * that caused it. This field holds that.
          * <ul>
-         *     <li>{@link ConnectionState#WAITING}: WebSocket {@link CloseEvent} that caused this transition.</li>
-         *     <li>{@link ConnectionState#CONNECTED}: WebSocket {@link Event} that caused this transition.</li>
-         *     <li>{@link ConnectionState#CONNECTION_ERROR}: WebSocket {@link Event} that caused this transition.</li>
-         *     <li>{@link ConnectionState#LOST_CONNECTION}: WebSocket {@link CloseEvent} that caused it.</li>
+         *     <li>{@link ConnectionEventType#WAITING}: WebSocket {@link CloseEvent} that caused this transition.</li>
+         *     <li>{@link ConnectionEventType#CONNECTED}: WebSocket {@link Event} that caused this transition.</li>
+         *     <li>{@link ConnectionEventType#CONNECTION_ERROR}: WebSocket {@link Event} that caused this transition.</li>
+         *     <li>{@link ConnectionEventType#LOST_CONNECTION}: WebSocket {@link CloseEvent} that caused it.</li>
          * </ul>
          *
          * @type {Event}
@@ -338,7 +398,7 @@
         this.webSocketEvent = webSocketEvent;
 
         /**
-         * For {@link ConnectionState#CONNECTING}, {@link ConnectionState#WAITING} and {@link ConnectionState#COUNTDOWN},
+         * For {@link ConnectionEventType#CONNECTING}, {@link ConnectionEventType#WAITING} and {@link ConnectionEventType#COUNTDOWN},
          * tells how long the timeout for this attempt is, i.e. what the COUNTDOWN events start out with. Together with
          * {@link #countdownSeconds} of the COUNTDOWN events, this can be used to calculate a fraction if you want to
          * make a "progress bar" of sorts.
@@ -351,19 +411,19 @@
         this.timeoutSeconds = timeoutSeconds;
 
         /**
-         * For {@link ConnectionState#CONNECTING}, {@link ConnectionState#WAITING} and {@link ConnectionState#COUNTDOWN},
+         * For {@link ConnectionEventType#CONNECTING}, {@link ConnectionEventType#WAITING} and {@link ConnectionEventType#COUNTDOWN},
          * tells how many seconds there are left for this attempt (of the {@link #timeoutSeconds} it started with),
          * with a tenth of a second as precision. With the COUNTDOWN events, these come in each 100 ms (1/10 second),
          * and show how long time there is left before trying again (if MatsSocket is configured with multiple URLs,
          * the next attempt will be a different URL).
          * <p/>
-         * The countdown is started when the state transitions to {@link ConnectionState#CONNECTING}, and
-         * stops either when {@link ConnectionState#CONNECTED} or the timeout reaches zero. If the
+         * The countdown is started when the state transitions to {@link ConnectionEventType#CONNECTING}, and
+         * stops either when {@link ConnectionEventType#CONNECTED} or the timeout reaches zero. If the
          * state is still CONNECTING when the countdown reaches zero, implying that the "new WebSocket(..)" call still
          * has not either opened or closed, the connection attempt is aborted by calling webSocket.close(). It then
          * tries again, possibly with a different URL - and the countdown starts over.
          * <p/>
-         * Notice that the countdown is not affected by any state transition into {@link ConnectionState#WAITING} -
+         * Notice that the countdown is not affected by any state transition into {@link ConnectionEventType#WAITING} -
          * such transition only means that the "new WebSocket(..)" call failed and emitted a close-event, but we will
          * still wait out the countdown before trying again.
          * <p/>
@@ -379,29 +439,37 @@
     }
 
     /**
-     * Synonym for {@link ConnectionEvent#state}, to kinda adhere to the "Event" contract. Returns the enum value of
-     * {@link ConnectionState}.
+     * TODO
      *
      * @member {string} codeName
      * @memberOf ConnectionEvent
      * @readonly
      */
-    Object.defineProperty(ConnectionEvent.prototype, "type", {
+    Object.defineProperty(ConnectionEvent.prototype, "eventName", {
         get: function () {
-            return this.state;
+            let keys = Object.keys(ConnectionEventType).filter(function (key) {
+                return ConnectionState[key] === this.type;
+            });
+            if (keys.length === 1) {
+                return keys[0];
+            }
+            return "UNKNOWN(" + this.type + ")";
         }
     });
 
     /**
      * Hack the built-in CloseEvent to include a "codeName" property resolving to the MatsSocket-relevant close codes.
-     * Return the name of the CloseCode, e.g. "SESSION_LOST".
+     * Return the name of the CloseCode, e.g. "SESSION_LOST". Relevant for quick human introspection (i.e. debugger
+     * or logging) - programmatically you should use the numeric 'code' property, possibly comparing to the values of
+     * the {@link MatsSocketCloseCodes} enum keys, e.g. "<code>if (closeEvent.code ===
+     * MatsSocketCloseCodes.SESSION_LOST) {..}</code>".
      *
      * @member {string} codeName
      * @memberOf CloseEvent
      * @readonly
      */
     if (typeof CloseEvent !== 'undefined') {
-        // ^ guard against node, which evidently does not have CloseEvent..
+        // ^ guard against Node.js, which evidently does not have CloseEvent..
         Object.defineProperty(CloseEvent.prototype, "codeName", {
             get: function () {
                 return MatsSocketCloseCodes.nameFor(this.code);
@@ -410,29 +478,107 @@
     }
 
     /**
+     * Message Received on Server event: "acknowledge" or "negative acknowledge" - these are the events which the
+     * returned Promise of a send(..) is settled with (i.e. then() and catch()), and to a {@link MatsSocket#request request}'s receivedCallback function.
+     */
+    function ReceivedEvent(type, traceId, sentTimestamp, receivedTimestamp, roundTripMillis) {
+        /**
+         * Values are from {@link ReceivedEventType}: Type of received event, either {@link ReceivedEventType#ACK "ack"},
+         * {@link ReceivedEventType#NACK "nack"} - <b>or {@link ReceivedEventType#SESSION_CLOSED "sessionclosed"} if the
+         * session was closed with outstanding initiations and MatsSocket therefore "clears out" these initiations.</b>
+         *s
+         * @type {string}
+         */
+        this.type = type;
+
+        /**
+         * TraceId for this call / message.
+         *
+         * @type {string}
+         */
+        this.traceId = traceId;
+
+        /**
+         * Millis-since-epoch when the message was sent from the Client.
+         *
+         * @type {number}
+         */
+        this.sentTimestamp = sentTimestamp;
+
+        /**
+         * Millis-since-epoch when the ACK or NACK was received on the Client, millis-since-epoch.
+         *
+         * @type {number}
+         */
+        this.receivedTimestamp = receivedTimestamp;
+
+        /**
+         * Round-trip time in milliseconds, basically <code>{@link #receivedTimestamp} -
+         * {@link #sentTimestamp}</code>, but depending on the browser/runtime, you might get higher resolution
+         * than integer milliseconds (i.e. fractions of milliseconds, a floating point number) - it depends on
+         * the resolution of <code>performance.now()</code>.
+         * <p/>
+         * Notice that Received-events might be de-prioritized on the Server side (batched up, with micro-delays
+         * to get multiple into the same batch), so this number should not be taken as the "ping time".
+         *
+         * @type {number}
+         */
+        this.roundTripMillis = roundTripMillis;
+    }
+
+    const ReceivedEventType = Object.freeze({
+        /**
+         * If the Server-side MatsSocketEndpoint/Terminator accepted the message for handling (and if relevant,
+         * forwarded it to the Mats fabric). The returned Promise of send() is <i>resolved</i> with this type of event.
+         * The 'receivedCallback' of a request() will get both "ack" and {@link #NACK "nack"}, thus must check on
+         * the type if it makes a difference.
+         */
+        ACK: "ack",
+
+        /**
+         * If the Server-side MatsSocketEndpoint/Terminator dit NOT accept the message, either explicitly with
+         * context.deny(), or by failing with Exception. The returned Promise of send() is <i>rejected</i> with this
+         * type of event. The 'receivedCallback' of a request() will get both "nack" and {@link #ACK "ack"}, thus must
+         * check on the type if it makes a difference.
+         * <p/>
+         * Notice that a for a Client-initiated Request which is insta-rejected in the incomingHandler by invocation of
+         * context.reject(..), this implies <i>acknowledge</i> of the <i>reception</i> of the message, but <i>reject</i>
+         * as with regard to the </i>reply</i> (the Promise returned from request(..)).
+         */
+        NACK: "nack",
+
+        /**
+         * "Synthetic" event in that it only happens if the MatsSocketSession is closed with outstanding Initiations
+         * not yet Received on Server.
+         */
+        SESSION_CLOSED: "sessionclosed"
+    });
+
+    /**
      * Message Event - the event emitted for a Requests's Promise resolve() and reject() (i.e. then() and catch()), and
      * to a {@link MatsSocket#terminator terminator} resolveCallback and rejectCallback functions for replies due to
      * requestReplyTo, and for Server initiated sends, and for the event to a {@link MatsSocket#endpoint endpoint} upon
      * a Server initiated request.
      */
-    function MessageEvent(messageType, data, traceId, messageId, receivedTimestamp) {
+    function MessageEvent(type, data, traceId, messageId, receivedTimestamp) {
 
         /**
-         * Either {@link MessageType#SEND SEND} (for a Terminator when targeted for a Server initiated Send);
-         * {@link MessageType#REQUEST} (for an Endpoint when targeted for a Server initiated Request); or
-         * {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT} (for settling of Request-Promises,
-         * and for a Terminator when targeted as the reply-endpoint for a Client initiated Request).
+         * Values are from {@link MessageEventType}: Either {@link MessageEventType#SEND "send"} (for a Client
+         * Terminator when targeted for a Server initiated Send); {@link MessageEventType#REQUEST "request"} (for a
+         * Client Endpoint when targeted for a Server initiated Request); or {@link MessageEventType#RESOLVE "resolve"}
+         * or {@link MessageEventType#REJECT "reject"} (for settling of Promise from a Client-initiated Request, and
+         * for a Client Terminator when targeted as the reply-endpoint for a Client initiated Request) - <b>or
+         * {@link MessageEventType#SESSION_CLOSED "sessionclosed"} if the session was closed with outstanding Requests
+         * and MatsSocket therefore "clears out" these Requests.</b>
+         * <p/>
+         * Notice: In the face of {@link MessageType#SESSION_CLOSED "sessionclosed"}, the {@link #data} property (i.e.
+         * the actual message from the server) will be <code>undefined</code>. This is <i>by definition</i>: The
+         * Request was outstanding, meaning that an answer from the Server had yet to come. This is opposed to a normal
+         * REJECT settling from the Server-side MatsSocketEndpoint, which may choose to include data with a rejection.
          *
          * @type {string}
          */
-        this.messageType = messageType;
-
-        /**
-         * Lowercase of {@link #messageType}, just to look a little more like a JavaScript event.
-         *
-         * @type {string}
-         */
-        this.type = messageType.toLowerCase();
+        this.type = type;
 
         /**
          * The actual data from the other peer.
@@ -481,7 +627,7 @@
 
         /**
          * Round-trip time in milliseconds, basically <code>{@link #receivedTimestamp} -
-         * {@link #clientSentTimestamp}</code>, but depending on the browser/runtime, you might get higher resolution
+         * {@link #clientRequestTimestamp}</code>, but depending on the browser/runtime, you might get higher resolution
          * than integer milliseconds (i.e. fractions of milliseconds, a floating point number) - it depends on
          * the resolution of <code>performance.now()</code>.
          *
@@ -540,65 +686,6 @@
     }
 
     /**
-     * Received (Negative) Acknowledge Event - the one emitted for a Send's resolve() and reject() (i.e. then() and
-     * catch()), and to a {@link MatsSocket#request request}'s receivedCallback function.
-     */
-    function ReceivedEvent(type, traceId, sentTimestamp, receivedTimestamp, roundTripMillis) {
-        /**
-         * Type of message, either "ack" or "nack".
-         *
-         * @type {string}
-         */
-        this.type = type;
-
-        /**
-         * TraceId for this call / message.
-         *
-         * @type {string}
-         */
-        this.traceId = traceId;
-
-        /**
-         * Millis-since-epoch when the message was sent from the Client.
-         *
-         * @type {number}
-         */
-        this.sentTimestamp = sentTimestamp;
-
-        /**
-         * Millis-since-epoch when the ACK or NACK was received on the Client, millis-since-epoch.
-         *
-         * @type {number}
-         */
-        this.receivedTimestamp = receivedTimestamp;
-
-        /**
-         * Round-trip time in milliseconds, basically <code>{@link #receivedTimestamp} -
-         * {@link #sentTimestamp}</code>, but depending on the browser/runtime, you might get higher resolution
-         * than integer milliseconds (i.e. fractions of milliseconds, a floating point number) - it depends on
-         * the resolution of <code>performance.now()</code>.
-         * <p/>
-         * Notice that Received-events might be de-prioritized on the Server side (batched up, with micro-delays
-         * to get multiple into the same batch), so this number should not be taken as the "ping time".
-         *
-         * @type {number}
-         */
-        this.roundTripMillis = roundTripMillis;
-    }
-
-    const ReceivedEventType = Object.freeze({
-        ACK: "ack",
-
-        NACK: "nack",
-
-        /**
-         * "Synthetic" event in that it only happens if the MatsSocketSession is closed with outstanding Initiations
-         * not yet Received on Server.
-         */
-        SESSION_CLOSED: "sessionclosed"
-    });
-
-    /**
      * Stats: A "holding struct" for pings - you may get the latest pings (with experienced round-trip times) from the
      * property {@link MatsSocket#pings}.
      *
@@ -626,7 +713,7 @@
          *
          * @type {number} the number of milliseconds from ping sent to pong received.
          */
-        this.roundTripTime = undefined;
+        this.roundTripMillis = undefined;
     }
 
     /**
@@ -666,8 +753,8 @@
             throw new Error("socketFactory should be a function, instead got [" + socketFactory + "]");
         }
 
-        // Polyfill performance.now() for node.
-        let performance = ((typeof(window) === "object" && window.performance) || {
+        // Polyfill performance.now() for Node.js
+        let performance = ((typeof (window) === "object" && window.performance) || {
             now: function now() {
                 return Date.now();
             }
@@ -683,6 +770,9 @@
         // ==============================================================================================
         // PUBLIC:
         // ==============================================================================================
+
+        // NOTE!! There is an "implicit"/"hidden" 'sessionId' field too, but we do not make it explicit.
+        // 'sessionId' is set when we get the SessionId from WELCOME, cleared (deleted) upon SessionClose (along with _sessionOpened = false)
 
         /**
          * Whether to log via console.log. The logging is quite extensive.
@@ -734,9 +824,10 @@
          * client library means that you've lost sync with the server, and you should crash or "reboot" the application
          * employing the library to regain sync.</b>
          * <p/>
-         * The registered event listener functions are called when the server kicks us off the socket and the session is
+         * The registered event listener functions are called when the Server kicks us off the socket and the session is
          * closed due to a multitude of reasons, where most should never happen if you use the library correctly, in
-         * particular wrt. authentication.
+         * particular wrt. authentication. <b>It is NOT invoked when you explicitly invoke matsSocket.close() from
+         * the client yourself!</b>
          * <p/>
          * The event object is the forwarded WebSocket CloseEvent, albeit it is prototype-extended to include the
          * property 'codeName' (in addition to the existing 'code') for the relevant {@link MatsSocketCloseCodes}.
@@ -761,7 +852,7 @@
          * 'roomForLatency' is set too small, compared to the bandwidth available for sending the messages residing in
          * the current pipeline).
          * <p/>
-         * Note that when this event listener is invoked, the MatsSocket session is as closed as if you invoked
+         * Note that when this event listener is invoked, the MatsSocket session is just as closed as if you invoked
          * {@link MatsSocket#close()} on it: All outstanding send/requests are rejected, all request Promises are
          * rejected, and the MatsSocket object is as if just constructed and configured. You may "boot it up again" by
          * sending a new message where you then will get a new MatsSocket Session. However, you should consider
@@ -896,7 +987,10 @@
          * MatsSocketSession. In the latter cases, where the MatsSocketSession is closed, the WebSocket connection will
          * stay down - until you open a new MatsSocketSession.
          * <p/>
-         * Effectively the same as <code>({@link #state} === {@link ConnectionState#CONNECTED}) || ({@link #state} === {@link ConnectionState#SESSION_ESTABLISHED})</code>.
+         * Pretty much the same as <code>({@link #state} === {@link ConnectionState#CONNECTED})
+         * || ({@link #state} === {@link ConnectionState#SESSION_ESTABLISHED})</code> - however, in the face of
+         * {@link MessageType#DISCONNECT}, the state will not change, but the connection is dead ('connected' returns
+         * false).
          *
          * @member {string} connected
          * @memberOf MatsSocket
@@ -1137,15 +1231,15 @@
         this.close = function (reason) {
             // Fetch properties we need before clearing state
             let currentWsUrl = _currentWebSocketUrl();
-            let existingSessionId = _sessionId;
+            let existingSessionId = that.sessionId;
             log("close(): Closing MatsSocketSession, id:[" + existingSessionId + "] due to [" + reason
                 + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
 
-            // :: Close WebSocket itself.
+            // :: In-band Session Close: Close the WebSocket itself with CLOSE_SESSION Close Code.
             // ?: Do we have _webSocket?
             if (_webSocket) {
                 // -> Yes, so close WebSocket with MatsSocket-specific CloseCode CLOSE_SESSION 4000.
-                log(" \\-> WebSocket is open, so we close it in-band with MatsSocketCloseCode CLOSE_SESSION (4000).");
+                log(" \\-> WebSocket is open, so we perform in-band Session Close by closing the WebSocket with MatsSocketCloseCode.CLOSE_SESSION (4000).");
                 // Perform the close
                 _webSocket.close(MatsSocketCloseCodes.CLOSE_SESSION, "From client: " + reason);
             }
@@ -1155,7 +1249,7 @@
             // Close Session and clear all state of this MatsSocket.
             _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages("From Client: " + reason);
 
-            // :: Out-of-band session close
+            // :: Out-of-band Session Close
             // ?: Do we have a sessionId?
             if (existingSessionId) {
                 // ?: Is the out-of-band close function defined?
@@ -1187,7 +1281,7 @@
          */
         this.reconnect = function (reason) {
             log("reconnect(): Closing WebSocket with CloseCode 'RECONNECT (" + MatsSocketCloseCodes.RECONNECT
-                + ")', MatsSocketSessionId:[" + _sessionId + "] due to [" + reason + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
+                + ")', MatsSocketSessionId:[" + that.sessionId + "] due to [" + reason + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
             if (!_webSocket) {
                 throw new Error("There is no live WebSocket to close with RECONNECT closeCode!");
             }
@@ -1198,7 +1292,7 @@
             // So then, MatsSocket dutifully starts reconnecting - /after/ the test is finished. Thus, Node sees the
             // outstanding timeout "thread" which pings, and never exits. To better emulate an actual lost connection,
             // we /first/ unset the 'onmessage' handler (so that any pending messages surely will be lost), before we
-            // close the socket. Notice that a "_sessionClosed" guard was also added, so that it shall explicitly stop
+            // close the socket. Notice that a "_sessionOpened" guard was also added, so that it shall explicitly stop
             // such reconnecting in face of an actual .close(..) invocation.
 
             // First unset message handler so that we do not receive any more WebSocket messages (but NOT unset 'onclose', nor 'onerror')
@@ -1248,9 +1342,13 @@
         // PRIVATE
         // ==============================================================================================
 
-        function log() {
+        function log(msg, object) {
             if (that.logging) {
-                console.log.apply(console, arguments);
+                if (object) {
+                    console.log(_instanceId + "/" + that.sessionId + ": " + msg, object);
+                } else {
+                    console.log(_instanceId + "/" + that.sessionId + ": " + msg);
+                }
             }
         }
 
@@ -1274,14 +1372,14 @@
 
         // fields
 
+        let _instanceId = that.id(5);
+
         // If true, we're currently already trying to get a WebSocket
         let _webSocketConnecting = false;
         // If not undefined, we have an open WebSocket available.
         let _webSocket = undefined;
-        // If true, we should not accidentally try to reconnect or similar
-        let _sessionClosed = true; // NOTE: Set to false upon enqueuing of information-bearing message.
-        // Set when we get the SessionId from WELCOME, cleared upon SessionClose (along with _sessionClosed = true)
-        let _sessionId = undefined;
+        // If false, we should not accidentally try to reconnect or similar
+        let _sessionOpened = false; // NOTE: Set to true upon enqueuing of information-bearing message.
 
         let _pipeline = [];
         let _terminators = Object.create(null);
@@ -1379,14 +1477,14 @@
 
         function _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
             // Clear state
-            _sessionId = undefined;
+            delete (that.sessionId);
             _state = ConnectionState.NO_SESSION;
 
             // :: Clear pipeline
             _pipeline.length = 0;
 
-            // Were now also closed - until a new message is enqueued.
-            _sessionClosed = true;
+            // Were now also closed (i.e. not Opened) - until a new message is enqueued.
+            _sessionOpened = false;
 
             // :: Reject all outstanding messages
             for (let cmid in _outboxInitiations) {
@@ -1398,7 +1496,7 @@
                 if (that.logging) log("Close Session: Clearing outstanding Initiation [" + initiation.envelope.t + "] to [" + initiation.envelope.eid + "], cmid:[" + initiation.envelope.cmid + "], TraceId:[" + initiation.envelope.tid + "].");
                 if (initiation.nack) {
                     try {
-                        let nackEvent = _receivedEventFromEnvelope(ReceivedEventType.SESSION_CLOSED, initiation.envelope.tid, initiation.sentTimestamp, Date.now(), performance.now() - initiation.performanceNow);
+                        let nackEvent = _createReceivedEvent(ReceivedEventType.SESSION_CLOSED, initiation.envelope.tid, initiation.sentTimestamp, Date.now(), performance.now() - initiation.performanceNow);
                         nackEvent.desc = "Session Closed: Session was closed due to [" + reason + "]";
                         initiation.nack(nackEvent);
                     } catch (err) {
@@ -1417,7 +1515,7 @@
                 if (that.logging) log("Close Session: Clearing outstanding REQUEST to [" + request.envelope.eid + "], cmid:[" + request.envelope.cmid + "], TraceId:[" + request.envelope.tid + "].", request);
                 if (request.reject) {
                     try {
-                        let rejectEvent = _messageEventFromEnvelope({}, MessageType.REJECT, request.envelope.cmid, request.envelope.tid, request.sentTimestamp, Date.now(), performance.now() - request.performanceNow, {});
+                        let rejectEvent = _createMessageEvent({}, MessageEventType.SESSION_CLOSED, request.envelope.cmid, request.envelope.tid, request.sentTimestamp, Date.now(), performance.now() - request.performanceNow, undefined);
                         rejectEvent.desc = "Session Closed: Session was closed due to [" + reason + "]";
                         request.reject(rejectEvent);
                     } catch (err) {
@@ -1433,8 +1531,8 @@
          * is active or not).
          */
         function _addInformationBearingEnvelopeToPipeline(envelope, traceId, outstandingInitiation, outstandingRequest) {
-            // This is an information-bearing message, so now we are not closed!
-            _sessionClosed = false;
+            // This is an information-bearing message, so now we are Opened!
+            _sessionOpened = true;
             let now = Date.now();
             let performanceNow = performance.now();
 
@@ -1598,18 +1696,13 @@
                     tid: "MatsSocket_start_" + that.id(6)
                 };
                 // ?: Have we requested a reconnect?
-                if (_sessionId !== undefined) {
-                    log("HELLO not send, adding to pre-pipeline. HELLO:RECONNECT to MatsSocketSessionId:[" + _sessionId + "]");
+                if (that.sessionId !== undefined) {
+                    log("HELLO not send, adding to pre-pipeline. HELLO (\"Reconnect\") to MatsSocketSessionId:[" + that.sessionId + "]");
                     // -> Evidently yes, so add the requested reconnect-to-sessionId.
-                    helloMessage.sid = _sessionId;
-                    // This implementation of MatsSocket client lib expects existing session
-                    // when reconnecting, thus wants pipelined messages to be ditched if
-                    // the assumption about existing session fails.
-                    helloMessage.st = "RECONNECT";
+                    helloMessage.sid = that.sessionId;
                 } else {
                     // -> We want a new session (which is default anyway)
-                    log("HELLO not sent, adding to pre-pipeline. HELLO:NEW, we will get assigned a MatsSocketSessionId upon WELCOME.");
-                    helloMessage.st = "NEW";
+                    log("HELLO not sent, adding to pre-pipeline. HELLO (\"New\"), we will get assigned a MatsSocketSessionId upon WELCOME.");
                 }
                 // Add the HELLO to the prePipeline
                 prePipeline = [];
@@ -1662,18 +1755,19 @@
 
         function _updateStateAndNotifyConnectionEventListeners(connectionEvent) {
             // ?: Should we log? Logging is on, AND either NOT CountDown, OR CountDown and whole second.
-            if (that.logging && ((connectionEvent.state !== ConnectionState.COUNTDOWN)
+            if (that.logging && ((connectionEvent.type !== ConnectionEventType.COUNTDOWN)
                 || (connectionEvent.countdownSeconds === connectionEvent.timeoutSeconds)
                 || (Math.round(connectionEvent.countdownSeconds) === connectionEvent.countdownSeconds))) {
                 log("Sending ConnectionEvent to listeners", connectionEvent);
             }
-            // ?: Is it one of the states we're notifying about?
-            if (connectionEvent.state === ConnectionState.CONNECTING
-                || connectionEvent.state === ConnectionState.WAITING
-                || connectionEvent.state === ConnectionState.CONNECTED
-                || connectionEvent.state === ConnectionState.SESSION_ESTABLISHED) {
+            // ?: Is this a state?
+            let result = Object.keys(ConnectionState).filter(function (key) {
+                return ConnectionState[key] === connectionEvent.type;
+            });
+            if (result.length === 1) {
                 // -> Yes, this is a state - so update the state..!
-                _state = connectionEvent.state;
+                _state = ConnectionState[result[0]];
+                log("The ConnectionEventType [" + result[0] + "] is also a ConnectionState - setting MatsSocket state [" + _state + "].");
             }
 
             // :: Notify all ConnectionEvent listeners.
@@ -1695,7 +1789,7 @@
             // E-> No, WebSocket ain't open..
 
             // ?: Assert that we aren't actually closed (could conceivably have happened async)
-            if (_sessionClosed) {
+            if (!_sessionOpened) {
                 // -> We've been asynchronously closed - bail out from opening WebSocket
                 throw (new Error("We're closed, so we should not open WebSocket"));
             }
@@ -1714,7 +1808,7 @@
             };
 
             // About to create WebSocket, so notify our listeners about this.
-            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTING, _currentWebSocketUrl(), undefined, _secondsTenths(timeout), secondsLeft()));
+            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTING, _currentWebSocketUrl(), undefined, _secondsTenths(timeout), secondsLeft()));
 
             // Create the WebSocket
             let websocket = socketFactory(_currentWebSocketUrl(), "matssocket");
@@ -1755,7 +1849,7 @@
                 } else {
                     // -> No, we've NOT hit target, so sleep till next countdown target, where we re-invoke ourselves (this countDownTimer())
                     // Notify ConnectionEvent listeners about this COUNTDOWN event.
-                    _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.COUNTDOWN, _currentWebSocketUrl(), undefined, _secondsTenths(timeout), secondsLeft()));
+                    _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.COUNTDOWN, _currentWebSocketUrl(), undefined, _secondsTenths(timeout), secondsLeft()));
                     let sleep = Math.max(5, currentCountdownTargetTimestamp - Date.now());
                     countdownId = setTimeout(function () {
                         countDownTimer();
@@ -1775,7 +1869,7 @@
             // Close: Log + IF this is the first "round" AND there is multiple URLs, then immediately try the next URL. (Close may happen way before the Connection Timeout)
             websocket.onclose = function (closeEvent) {
                 log("Create WebSocket: close. Code:" + closeEvent.code + ", Reason:" + closeEvent.reason, closeEvent);
-                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.WAITING, _currentWebSocketUrl(), closeEvent, _secondsTenths(timeout), secondsLeft()));
+                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.WAITING, _currentWebSocketUrl(), closeEvent, _secondsTenths(timeout), secondsLeft()));
 
                 // ?: If we are on the FIRST (0th) round of trying out the different URLs, then immediately try the next
                 // .. But only if there are multiple URLs configured.
@@ -1814,7 +1908,7 @@
 
                 _registerBeforeunload();
 
-                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTED, _currentWebSocketUrl(), event, undefined, undefined));
+                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTED, _currentWebSocketUrl(), event, undefined, undefined));
 
                 // Fire off any waiting messages, next tick
                 _invokeLater(function () {
@@ -1827,7 +1921,7 @@
         function _onerror(event) {
             error("websocket.onerror", "Got 'onerror' event from WebSocket.", event);
             // :: Synchronously notify our ConnectionEvent listeners.
-            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.CONNECTION_ERROR, _currentWebSocketUrl(), event, undefined, undefined));
+            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTION_ERROR, _currentWebSocketUrl(), event, undefined, undefined));
         }
 
         function _onclose(closeEvent) {
@@ -1861,18 +1955,26 @@
                 }
             } else {
                 // -> NOT one of the specific "Session is closed" CloseCodes -> Reconnect and Reissue all outstanding..
-                log("We were closed with a CloseCode [" + MatsSocketCloseCodes.nameFor(closeEvent.code) + "] that does not denote that we should close the session. Initiate reconnect and reissue all outstanding.");
+                if (closeEvent.code !== MatsSocketCloseCodes.DISCONNECT) {
+                    log("We were closed with a CloseCode [" + MatsSocketCloseCodes.nameFor(closeEvent.code) + "] that does NOT denote that we should close the session. Initiate reconnect and reissue all outstanding.");
+                } else {
+                    log("We were closed with the special DISCONNECT close code - act as we lost connection, but do NOT start to reconnect.");
+                }
 
                 // :: This is a reconnect - so we should do pipeline processing right away, to get the HELLO over.
                 _reconnect_ForceSendHello = true;
 
                 // :: Synchronously notify our ConnectionEvent listeners.
-                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.LOST_CONNECTION, _currentWebSocketUrl(), closeEvent, undefined, undefined));
+                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.LOST_CONNECTION, _currentWebSocketUrl(), closeEvent, undefined, undefined));
 
-                // :: Start reconnecting, but give the server a little time to settle
-                setTimeout(function () {
-                    _initiateWebSocketCreation();
-                }, 200 + Math.round(Math.random() * 200));
+                // ?: Is this the special DISCONNECT that asks us to NOT start reconnecting?
+                if (closeEvent.code !== MatsSocketCloseCodes.DISCONNECT) {
+                    // -> No, not special DISCONNECT - so start reconnecting.
+                    // :: Start reconnecting, but give the server a little time to settle
+                    setTimeout(function () {
+                        _initiateWebSocketCreation();
+                    }, 200 + Math.round(Math.random() * 200));
+                }
             }
         }
 
@@ -1890,11 +1992,12 @@
                     if (that.logging) log(" \\- onmessage: handling message " + i + ": " + envelope.t + ", envelope:" + JSON.stringify(envelope));
 
                     if (envelope.t === MessageType.WELCOME) {
-                        _sessionId = envelope.sid;
-                        if (that.logging) log("We're WELCOME! SessionId:" + _sessionId + ", there are [" + Object.keys(_outboxInitiations).length + "] outstanding sends-or-requests, and [" + Object.keys(_outboxReplies).length + "] outstanding replies.");
+                        // Fetch our assigned MatsSocketSessionId
+                        that.sessionId = envelope.sid;
+                        if (that.logging) log("We're WELCOME! SessionId:" + that.sessionId + ", there are [" + Object.keys(_outboxInitiations).length + "] outstanding sends-or-requests, and [" + Object.keys(_outboxReplies).length + "] outstanding replies.");
                         // :: Synchronously notify our ConnectionEvent listeners.
-                        _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionState.SESSION_ESTABLISHED, _currentWebSocketUrl(), undefined, undefined, undefined));
-                        // Start pinger
+                        _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.SESSION_ESTABLISHED, _currentWebSocketUrl(), undefined, undefined, undefined));
+                        // Start pinger (AFTER having set ConnectionState to SESSION_ESTABLISHED, otherwise it'll exit!)
                         _startPinger();
 
                         // TODO: Test this outstanding-stuff! Both that they are actually sent again, and that server handles the (quite possible) double-delivery.
@@ -2008,12 +2111,12 @@
                         if (envelope.t === MessageType.ACK) {
                             // -> Yes, it was undefined or "ACK" - so Server was happy.
                             if (initiation.ack) {
-                                initiation.ack(_receivedEventFromEnvelope(ReceivedEventType.ACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
+                                initiation.ack(_createReceivedEvent(ReceivedEventType.ACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
                             }
                         } else {
                             // -> No, it was "NACK", so message has not been forwarded to Mats
                             if (initiation.nack) {
-                                initiation.nack(_receivedEventFromEnvelope(ReceivedEventType.NACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
+                                initiation.nack(_createReceivedEvent(ReceivedEventType.NACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
                             }
                             // ?: ALSO check if it was a REQUEST?
                             let request = _outstandingRequests[envelope.cmid];
@@ -2076,7 +2179,7 @@
                         _inbox[envelope.smid] = envelope;
 
                         // Actually invoke the Terminator
-                        terminator.resolve(_messageEventFromEnvelope(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined, envelope.msg));
+                        terminator.resolve(_createMessageEvent(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined, envelope.msg));
 
                     } else if (envelope.t === MessageType.REQUEST) {
                         // -> REQUEST: Server-to-Client Request a REPLY from a client endpoint
@@ -2142,7 +2245,7 @@
                         };
 
                         // Invoke the Endpoint, getting a Promise back.
-                        let promise = endpoint(_messageEventFromEnvelope(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined, envelope.msg));
+                        let promise = endpoint(_createMessageEvent(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined, envelope.msg));
 
                         // Finally attach the Resolve and Reject handler
                         promise.then(function (resolveMessage) {
@@ -2171,7 +2274,7 @@
                             // -> Yes, still present - so we delete and resolve it
                             delete _outboxInitiations[envelope.cmid];
                             if (initiation.ack) {
-                                initiation.ack(_receivedEventFromEnvelope(ReceivedEventType.ACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
+                                initiation.ack(_createReceivedEvent(ReceivedEventType.ACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
                             }
                         }
 
@@ -2205,7 +2308,7 @@
             }
         }
 
-        function _messageEventFromEnvelope(incomingEnvelope, type, messageId, traceId, sentTimestamp, receivedTimestamp, roundTripMillis, msg) {
+        function _createMessageEvent(incomingEnvelope, type, messageId, traceId, sentTimestamp, receivedTimestamp, roundTripMillis, msg) {
             let debug = new DebugInformation(sentTimestamp, incomingEnvelope, receivedTimestamp);
 
             let messageEvent = new MessageEvent(type.toLowerCase(), msg, traceId, messageId, receivedTimestamp);
@@ -2216,21 +2319,21 @@
             return messageEvent;
         }
 
-        function _receivedEventFromEnvelope(type, traceId, sentTimestamp, receivedTimestamp, roundTripMillis) {
+        function _createReceivedEvent(type, traceId, sentTimestamp, receivedTimestamp, roundTripMillis) {
             return new ReceivedEvent(type, traceId, sentTimestamp, receivedTimestamp, roundTripMillis);
         }
 
-        function _completeFuture(request, envelope, receivedTimestamp) {
+        function _completeFuture(request, incomingEnvelope, receivedTimestamp) {
             // ?: Is this a RequestReplyTo, as indicated by the request having a replyToEndpoint?
             if (request.replyToEndpointId) {
                 // -> Yes, this is a REQUEST-with-ReplyTo
                 // Find the (client) Terminator which the Reply should go to
                 let terminator = _terminators[request.replyToEndpointId];
                 // Create the event
-                let event = _messageEventFromEnvelope(envelope, envelope.t, envelope.cmid, request.envelope.tid, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow, envelope.msg);
+                let event = _createMessageEvent(incomingEnvelope, incomingEnvelope.t, incomingEnvelope.cmid, request.envelope.tid, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow, incomingEnvelope.msg);
                 // .. add CorrelationInformation from request
                 event.correlationInformation = request.correlationInformation;
-                if (envelope.t === MessageType.RESOLVE) {
+                if (incomingEnvelope.t === MessageType.RESOLVE) {
                     terminator.resolve(event);
                 } else {
                     // ?: Do we actually have a Reject-function (not necessarily, app decides whether to register it)
@@ -2242,11 +2345,11 @@
             } else {
                 // -> No, this is a REQUEST-with-Promise (missing (client) EndpointId)
                 // Delete the outstanding request, as we will complete it now.
-                delete _outstandingRequests[envelope.cmid];
+                delete _outstandingRequests[incomingEnvelope.cmid];
                 // Create the event
-                let event = _messageEventFromEnvelope(envelope, envelope.t, envelope.cmid, request.envelope.tid, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow, envelope.msg);
+                let event = _createMessageEvent(incomingEnvelope, incomingEnvelope.t, incomingEnvelope.cmid, request.envelope.tid, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow, incomingEnvelope.msg);
                 // Was it RESOLVE or REJECT?
-                if (envelope.t === MessageType.RESOLVE) {
+                if (incomingEnvelope.t === MessageType.RESOLVE) {
                     request.resolve(event);
                 } else {
                     request.reject(event);
@@ -2271,8 +2374,8 @@
 
         function _pingLater() {
             _pinger_TimeoutId = setTimeout(function () {
-                if (that.logging) log("Ping-'thread': About to send ping. ConnectionState:[" + that.state + "], connected:[" + that.connected + "]");
-                if ((that.state === ConnectionState.SESSION_ESTABLISHED) && that.connected) {
+                if (that.logging) log("Ping-'thread': About to send ping. ConnectionState:[" + that.state + "], sessionOpened:[" + _sessionOpened + "].");
+                if ((that.state === ConnectionState.SESSION_ESTABLISHED) && _sessionOpened) {
                     let pingId = that.jid(3);
                     if (that.logging) log("Sending PING! PingId:" + pingId);
                     let pingPong = new PingPong(pingId, Date.now());
@@ -2292,8 +2395,18 @@
     }
 
     exports.MatsSocket = MatsSocket;
-    exports.MatsSocketCloseCodes = MatsSocketCloseCodes;
-    exports.ConnectionState = ConnectionState;
-    exports.ConnectionEvent = ConnectionEvent;
+
     exports.MessageType = MessageType;
+    exports.MatsSocketCloseCodes = MatsSocketCloseCodes;
+
+    exports.ConnectionState = ConnectionState;
+
+    exports.ConnectionEvent = ConnectionEvent;
+    exports.ConnectionEventType = ConnectionEventType;
+
+    exports.ReceivedEvent = ReceivedEvent;
+    exports.ReceivedEventType = ReceivedEventType;
+
+    exports.MessageEvent = MessageEvent;
+    exports.MessageEventType = MessageEventType;
 }));

@@ -18,91 +18,246 @@
 }(typeof self !== 'undefined' ? self : this, function (chai, sinon, ws, mats, env) {
     const MatsSocket = mats.MatsSocket;
 
+    let matsSocket;
+
+    function createMatsSocket() {
+        matsSocket = new MatsSocket("TestApp", "1.2.3", availableUrls);
+        matsSocket.logging = false;
+    }
+
+    function closeMatsSocket() {
+        // :: Chill the close slightly, so as to get the final "ACKACK" envelope over to delete server's inbox.
+        let toClose = matsSocket;
+        setTimeout(function () {
+            toClose.close("Test done");
+        }, 25);
+    }
+
+    function setAuth(userId = "standard", duration = 20000, roomForLatencyMillis = 10000) {
+        const now = Date.now();
+        const expiry = now + duration;
+        matsSocket.setCurrentAuthorization("DummyAuth:" + userId + ":" + expiry, expiry, roomForLatencyMillis);
+    }
+
+    const availableUrls = (env.MATS_SOCKET_URLS || "ws://localhost:8080/matssocket,ws://localhost:8081/matssocket").split(",");
+
+
     describe('MatsSocket integration tests of connect, reconnect and close', function () {
-        let matsSocket;
+        /*
+         * NOTE!!! This test runs a scenario where two MatsSockets connect using the same MatsSocketSessionId. This is
+         * NOT a situation that shall occur in actual use - you are NOT supposed to use the sessionId outside of the
+         * MatsSocket instance - i.e. any given MatsSocket instance shall have a different sessionId than any other
+         * MatsSocket instance.
+         *
+         * The test tries to emulate a situation where the MatsSocket client instance realizes that
+         * the connection is broken, and starts to reconnect - while at the same time the Server has not realized this,
+         * and thus still have the WebSocket connection open. In this situation, the Server will experience this as a
+         * new WebSocket session firing up, and which tries to do a MatsSocket HELLO "Reconnect to existing SessionId",
+         * while the Server still has a WebSocket session that already claims to be that MatsSocketSessionId. What the
+         * Server is programmed to do, is to kill the existing socket with close code DISCONNECT, and then register the
+         * existing MatsSocketSessionId to this new connection.
+         *
+         * What this test fails to actually exercise, is what happens if this scenario actually occurs *within a single
+         * MatsSocket instance*: Does an outstanding Request that takes some time to finish actually resolve when the
+         * situation has settled (i.e. when the new WebSocket connection has taken over, and the old killed)?
+         *
+         * If you have an idea of how to test this scenario in a better way, then please do so! Maybe using the unit
+         * test harness?
+         */
+        describe('connect twice to same MatsSocketSessionId', function () {
 
-        function setAuth(userId = "standard", duration = 20000, roomForLatencyMillis = 10000) {
-            const now = Date.now();
-            const expiry = now + duration;
-            matsSocket.setCurrentAuthorization("DummyAuth:" + userId + ":" + expiry, expiry, roomForLatencyMillis);
-        }
+            function connectTwice(url1, url2, done) {
+                // Create the first MatsSocket
+                let matsSocket_A = new MatsSocket("TestApp", "1.2.3", url1);
+                matsSocket_A.logging = false;
+                const now = Date.now();
+                const expiry = now + 20000;
+                matsSocket_A.setCurrentAuthorization("DummyAuth:standard:" + expiry, expiry, 5000);
 
-        const urls = env.MATS_SOCKET_URLS || "ws://localhost:8080/matssocket,ws://localhost:8081/matssocket";
+                let matsSocket_A_SessionClosed = 0;
+                matsSocket_A.addSessionClosedEventListener(function (closeEvent) {
+                    matsSocket_A_SessionClosed++;
+                });
 
-        beforeEach(() => {
-            matsSocket = new MatsSocket("TestApp", "1.2.3", urls.split(","));
-            matsSocket.logging = false;
-        });
-
-        afterEach(() => {
-            // :: Chill the close slightly, so as to get the final "ACKACK" envelope over to delete server's inbox.
-            let toClose = matsSocket;
-            setTimeout(function () {
-                toClose.close("Test done");
-            }, 25);
-        });
-
-        describe('reconnect', function () {
-            it('request to "slow endpoint", then immediate reconnect() upon SESSION_ESTABLISHED. Tests that we get the RESOLVE when we reconnect.', function (done) {
-                setAuth();
-
-                let firstTime = true;
-                let killSocket = function (connectionEvent) {
-                    // Waiting for state. "CONNECTED" is too early, as it doesn't get to send any messages at all
-                    // but with SESSION_ESTABLISHED, it is pretty spot on.
-                    if (firstTime && (connectionEvent.state === mats.ConnectionState.SESSION_ESTABLISHED)) {
-                        matsSocket.reconnect("Integration-test, testing reconnects A");
-                        firstTime = false;
+                let matsSocket_A_LostConnection = undefined;
+                let matsSocket_A_LostConnection_Count = 0;
+                matsSocket_A.addConnectionEventListener(function (connectionEvent) {
+                    if (connectionEvent.type === mats.ConnectionEventType.LOST_CONNECTION) {
+                        matsSocket_A_LostConnection_Count++;
+                        matsSocket_A_LostConnection = connectionEvent;
                     }
-                };
+                });
 
-                matsSocket.addConnectionEventListener(killSocket);
 
-                let req = {
-                    string: "test",
-                    number: 15,
-                    sleepTime: 250
-                };
-                // Request to a service that will reply AFTER A DELAY
-                matsSocket.request("Test.slow", "REQUEST_reconnect_A_" + matsSocket.id(6), req)
-                    .then(reply => {
-                        let data = reply.data;
-                        chai.assert.strictEqual(data.string, req.string + ":FromSlow");
-                        chai.assert.strictEqual(data.number, req.number);
-                        chai.assert.strictEqual(data.sleepTime, req.sleepTime);
+                // Create a second MatsSocket, that will get the same MatsSocketSessionId as the first.
+                let matsSocket_B = new MatsSocket("TestApp", "1.2.3", url1);
+                matsSocket_B.logging = matsSocket_A.logging;
+                matsSocket_B.setCurrentAuthorization("DummyAuth:standard:" + expiry, expiry, 5000);
+
+                let matsSocket_B_SessionClosed = 0;
+                matsSocket_B.addSessionClosedEventListener(function (closeEvent) {
+                    matsSocket_B_SessionClosed++;
+                });
+
+                let matsSocket_B_LostConnection_Count = 0;
+                matsSocket_B.addConnectionEventListener(function (connectionEvent) {
+                    if (connectionEvent.type === mats.ConnectionEvent.LOST_CONNECTION) {
+                        matsSocket_B_LostConnection_Count++;
+                    }
+                });
+
+
+                function firstStep() {
+                    matsSocket_A.send("Test.ignoreInIncomingHandler", "SEND_twiceConnect_ensureAssignedSessionId_" + matsSocket_A.id(6), {})
+                        .then(function (receivedEvent) {
+                            // Assert that the Resolve is MessageEventType.REPLY
+                            chai.assert.strictEqual(receivedEvent.type, mats.ReceivedEventType.ACK, "xxx");
+                            // Assert that the SessionClosedEvent listener was NOT invoked
+                            chai.assert.strictEqual(matsSocket_A_SessionClosed, 0, "SessionClosedEvent listener should NOT have been invoked!");
+                            // Do next step outside this handler
+                            secondStep();
+                        });
+                }
+
+                function secondStep() {
+                    // The MatsSocket has now gotten its SessionId, which we've sneakily made available on matsSocket_A.sessionId
+                    // .. Set the existing sessionId on this new MatsSocket
+                    matsSocket_B.sessionId = matsSocket_A.sessionId;
+
+                    /* Now perform a request using matsSocket_B, which will "start" that MatsSocket instance,
+                     * and hence perform a "HELLO(RECONNECT)" to the existing MatsSocketSessionId
+                     * This should lead to the existing matsSocket_A being thrown out.
+                     */
+                    // :: Request to a MatsSocket->Mats service, ASAP reply
+                    let req = {
+                        string: "test twice connect",
+                        number: 42,
+                        sleepTime: 0
+                    };
+                    let receivedCallbackInvoked = 0;
+                    matsSocket_B.request("Test.simpleMats", "REQUEST_twiceConnect_requestOnNewMatsSocket" + matsSocket_A.id(6), req,
+                        function () {
+                            receivedCallbackInvoked++;
+                        })
+                        .then(reply => {
+                            let data = reply.data;
+                            // Assert that we got receivedCallback ONCE
+                            chai.assert.strictEqual(receivedCallbackInvoked, 1, "Should have gotten one, and only one, receivedCallback.");
+                            // Assert data, with the changes from Server side.
+                            chai.assert.strictEqual(data.string, req.string + ":FromSimpleMats");
+                            chai.assert.strictEqual(data.number, req.number);
+                            chai.assert.strictEqual(data.sleepTime, req.sleepTime);
+                            thirdStep();
+                        });
+                }
+
+                function thirdStep() {
+                    setTimeout(function () {
+                        // instance A should NOT be connected
+                        chai.assert.isFalse(matsSocket_A.connected, "Instance A should not be connected now!");
+                        // .. but it should however still be in state ConnectionState.SESSION_ESTABLISHED (which is a bit weird, but think of the situation where this happens *within a single MatsSocket instance*.
+                        chai.assert.strictEqual(matsSocket_A.state, mats.ConnectionState.SESSION_ESTABLISHED, "Instance A should still be in ConnectionState.SESSION_ESTABLISHED");
+                        // .. and it should NOT have received a SessionClosedEvent (because the MatsSocketSession is NOT closed, it is just the WebSocket connection that has gone down).
+                        chai.assert.strictEqual(matsSocket_A_SessionClosed, 0, "SessionClosedEvent listener for instance A should NOT have been invoked!");
+                        // .. but is SHOULD have received a single ConnectionEventType.LOST_CONNECTION (because that is definitely what has happened)
+                        chai.assert.strictEqual(matsSocket_A_LostConnection_Count, 1, "Instance A: ConnectionEventType.LOST_CONNECTION should have come, once");
+                        // .. that has the webSocketEvent set.
+                        chai.assert.strictEqual(matsSocket_A_LostConnection.webSocketEvent.code, mats.MatsSocketCloseCodes.DISCONNECT, "Instance A: ConnectionEventType.LOST_CONNECTION should have webSocketEvent, and its code should be MatsSocketCloseCodes.DISCONNECT.");
+                        chai.assert(matsSocket_A_LostConnection.webSocketEvent.reason.includes("same MatsSocketSessionId"), "Instance A: ConnectionEventType.LOST_CONNECTION should have webSocketEvent, and should say something 'same MatsSocketSessionId'.");
+
+                        // instance B SHOULD be connected
+                        chai.assert.isTrue(matsSocket_B.connected, "Instance B should be connected now!");
+                        // .. and it should have state ConnectionState.SESSION_ESTABLISHED
+                        chai.assert.strictEqual(matsSocket_B.state, mats.ConnectionState.SESSION_ESTABLISHED, "Instance B should be in ConnectionState.SESSION_ESTABLISHED");
+                        // .. and it should NOT have received a SessionClosedEvent
+                        chai.assert.strictEqual(matsSocket_B_SessionClosed, 0, "SessionClosedEvent listener for instance B should NOT have been invoked!");
+                        // .. and it should NOT have received a ConnectionEventType.LOST_CONNECTION
+                        chai.assert.strictEqual(matsSocket_B_LostConnection_Count, 0, "Instance B: ConnectionEventType.LOST_CONNECTION should NOT have come");
+
+                        // Now close instance B
+                        matsSocket_B.close("Twice-connect test done - instance A!");
+
+                        // .. which should NOT fire SessionClosed (since client side close())
+                        chai.assert.strictEqual(matsSocket_B_SessionClosed, 0, "SessionClosedEvent listener for instance B should NOT have been invoked!");
+                        // .. but it should NOT be connected anymore
+                        chai.assert.isFalse(matsSocket_B.connected, "Instance A should not be connected now!");
+                        // .. and state should be NO_SESSION
+                        chai.assert.strictEqual(matsSocket_B.state, mats.ConnectionState.NO_SESSION, "Instance B should, after close, be in ConnectionState.NO_SESSION");
+
+                        // Just to clean up, also close instance A - but this instance is pretty much dead anyway, and the MatsSocketSession is closed on server after close of instance B
+                        matsSocket_A.close("Twice-connect test done - instance A!");
+
                         done();
                     });
+                }
+
+                // Kick it off
+                firstStep();
+            }
+
+            it("Connect twice to same Server - the second connection should result in the first being killed.", function (done) {
+                connectTwice(availableUrls[0], availableUrls[0], done);
             });
 
-            it('request that resolves in handleIncoming(..), then immediate reconnect() upon SESSION_ESTABLISHED. Tests that we get the RESOLVE when we reconnect..', function (done) {
+            it("Connect twice to different Server - the second connection should result in the first being killed.", function (done) {
+                connectTwice(availableUrls[0], availableUrls[1], done);
+            });
+        });
+
+
+        describe('reconnect', function () {
+            // Create Socket before each request
+            beforeEach(() => {
+                createMatsSocket();
+            });
+            afterEach(() => {
+                closeMatsSocket();
+            });
+
+            function reconnectTest(done, whichTest, serverEndpointId, expectedServerChange) {
                 setAuth();
 
-                let firstTime = true;
-                let killSocket = function (connectionEvent) {
-                    // Waiting for state. "CONNECTED" is too early, as it doesn't get to send any messages at all
-                    // but with SESSION_ESTABLISHED, it is pretty spot on.
-                    if (firstTime && (connectionEvent.state === mats.ConnectionState.SESSION_ESTABLISHED)) {
-                        matsSocket.reconnect("Integration-test, testing reconnects B");
-                        firstTime = false;
+                let reconnectDone = false;
+                matsSocket.addConnectionEventListener(function (connectionEvent) {
+                    // Waiting for state transition. "CONNECTED" is too early, as it doesn't get to send any messages at all
+                    // but with SESSION_ESTABLISHED, it is pretty spot on. (MatsSocket authorized and fully established).
+                    if (!reconnectDone && (connectionEvent.type === mats.ConnectionEventType.SESSION_ESTABLISHED)) {
+                        matsSocket.reconnect("Integration-test, testing reconnects " + whichTest);
+                        reconnectDone = true;
                     }
-                };
-
-                matsSocket.addConnectionEventListener(killSocket);
+                });
 
                 let req = {
                     string: "test",
                     number: 15,
-                    sleepTime: -1
+                    sleepTime: 150
                 };
-                // Request to a service that will reply immediately (in handleIncoming)
-                matsSocket.request("Test.resolveInIncomingHandler", "REQUEST_reconnectB_" + matsSocket.id(6), req)
+                let receivedCallbackInvoked = 0;
+                // Request to a service that will reply either AFTER A DELAY or IMMEDIATELY
+                matsSocket.request(serverEndpointId, "REQUEST_reconnect_" + whichTest + "_" + matsSocket.id(6), req,
+                    function () {
+                        receivedCallbackInvoked++;
+                    })
                     .then(reply => {
                         let data = reply.data;
-                        chai.assert.strictEqual(data.string, req.string + ":From_resolveInIncomingHandler");
+                        // Assert that we got receivedCallback ONCE
+                        chai.assert.strictEqual(receivedCallbackInvoked, 1, "Should have gotten one, and only one, receivedCallback.");
+                        // Assert that the reconnect() was done.
+                        chai.assert(reconnectDone, "Should have run reconnect().");
+                        // Assert data, with the changes from Server side.
+                        chai.assert.strictEqual(data.string, req.string + expectedServerChange);
                         chai.assert.strictEqual(data.number, req.number);
                         chai.assert.strictEqual(data.sleepTime, req.sleepTime);
                         done();
                     });
+            }
+
+            it('request to "slow endpoint", then immediate reconnect() upon SESSION_ESTABLISHED. Tests that we get the RESOLVE when we reconnect.', function (done) {
+                reconnectTest(done, "slowEndpoint", "Test.slow", ":FromSlow");
+            });
+
+            it('request with immediate resolve in handleIncoming(..), then immediate reconnect() upon SESSION_ESTABLISHED. Tests that we get the RESOLVE when we reconnect.', function (done) {
+                reconnectTest(done, "replyHandleIncoming", "Test.resolveInIncomingHandler", ":From_resolveInIncomingHandler");
             });
 
             it('reconnect with a different resolved userId should fail', function (done) {
@@ -111,73 +266,107 @@
                 let originalConsoleError = console.error;
                 console.error = function (msg, obj) { /* ignore */
                 };
-                // First authorize with 'Endre' as userId - in the ConnectionEvent listener we change this.
+                // First authorize with 'Endre' as userId - in the ConnectionEvent listener right below we change this to "Stølsvik".
                 setAuth("Endre");
 
-                let firstTime = true;
-                let killSocket = function (connectionEvent) {
-                    if (firstTime && (connectionEvent.state === mats.ConnectionState.SESSION_ESTABLISHED)) {
+                // :: We add a ConnectionEventListener that listens for SESSION_ESTABLISHED (fully open, authorized MatsSocket) and then does immediate reconnect().
+                matsSocket.addConnectionEventListener(function (connectionEvent) {
+                    // ?: Is this the SESSION_ESTABLISHED event?
+                    if (connectionEvent.type === mats.ConnectionEventType.SESSION_ESTABLISHED) {
+                        // -> Yes, so change the authentication, and then reconnect - which should fail.
                         setAuth("Stølsvik");
                         matsSocket.reconnect("Integration-test, testing reconnects with different user");
-                        firstTime = false;
                     }
-                };
-
-                matsSocket.addConnectionEventListener(killSocket);
-
-                let sessionClosed = false;
-
-                // The CloseEvent here is WebSocket's own CloseEvent
-                matsSocket.addSessionClosedEventListener(function (closeEvent) {
-                    chai.assert.strictEqual(closeEvent.code, mats.MatsSocketCloseCodes.VIOLATED_POLICY);
-                    chai.assert(closeEvent.reason.includes("does not match"), "Reason string should something about existing user 'does not match' the new user.");
-                    sessionClosed = true;
                 });
 
-                let receivedCallbackInvoked = false;
+                // :: We add a SessionClosedEvent listener, which should be invoked once the changed authorization from above fails on Server side.
+                let sessionClosed = 0;
+                matsSocket.addSessionClosedEventListener(function (closeEvent) {
+                    // Note: The CloseEvent here is WebSocket's own CloseEvent
+                    // This reason for this should be VIOLATED_POLICY, i.e. "authentication failures".
+                    chai.assert.strictEqual(closeEvent.code, mats.MatsSocketCloseCodes.VIOLATED_POLICY);
+                    // .. also assert our prototype-extension of WebSocket CloseEvent with property "codeName"
+                    if (typeof CloseEvent !== 'undefined') {
+                        // ^ guard against Node.js, which evidently does not have CloseEvent..
+                        chai.assert.strictEqual(closeEvent.codeName, "VIOLATED_POLICY");
+                    }
+                    // Assert that the reason string has interesting prose
+                    chai.assert(closeEvent.reason.includes("does not match"), "Reason string should something about existing user 'does not match' the new user.");
+                    sessionClosed++;
+                });
 
                 // When we get a SessionClosed from the Server, outstanding initiations are NACKed / Rejected
+                let receivedCallbackInvoked = 0;
                 matsSocket.request("Test.resolveInIncomingHandler", "REQUEST_reconnect1_" + matsSocket.id(6), {},
                     function (event) {
-                        receivedCallbackInvoked = true;
+                        receivedCallbackInvoked++;
                     })
                     .catch(reply => {
-                        chai.assert(receivedCallbackInvoked, "ReceivedCallback should have been invoked.");
-                        chai.assert(sessionClosed, "SessionClosedEvent listener should have been invoked.");
+                        // Assert that we got the Received-callback for the Request
+                        chai.assert.strictEqual(receivedCallbackInvoked, 1, "ReceivedCallback should have been invoked, once.");
+                        // Assert that the Session was closed
+                        chai.assert.strictEqual(sessionClosed, 1, "SessionClosedEvent listener should have been invoked, once.");
                         // Restore console's error.
                         console.error = originalConsoleError;
+                        // This went well.
                         done();
                     });
             });
-
-
-            // TODO: Test two MatsSockets to same SessionId - the first one should be closed. Which close code?
         });
 
         describe("client close", function () {
-            // Set a valid authorization before each request
-            beforeEach(() => setAuth());
-
-            it("send: Promise should reject if closed before ack", function (done) {
-                let promise = matsSocket.send("Test.single", "SEND_should_reject_on_close_" + matsSocket.id(6), {
-                    string: "The String",
-                    number: Math.PI
-                });
-                promise.catch(function (event) {
-                    done();
-                });
-                matsSocket.close("testing close rejects");
+            // Create MatsSocket and set a valid authorization before each request
+            beforeEach(() => {
+                createMatsSocket();
+                setAuth();
             });
 
-            it("request: Promise should reject if closed before ack", function (done) {
-                let promise = matsSocket.request("Test.single", "REQUEST_should_reject_on_close_" + matsSocket.id(6), {
-                    string: "The String",
-                    number: Math.PI
+            // TODO: Make test for server.closeSession().
+
+            it("send: returned Promise should reject with SESSION_CLOSED if closed before ack. Also, SessionClosedEvent listener should NOT be invoked.", function (done) {
+                // :: We add a SessionClosedEvent listener, which should NOT be invoked when we close from Client side
+                let sessionClosed = 0;
+                matsSocket.addSessionClosedEventListener(function (closeEvent) {
+                    sessionClosed++;
                 });
-                promise.catch(function (event) {
-                    done();
+
+                matsSocket.send("Test.single", "SEND_should_reject_on_close_" + matsSocket.id(6), {})
+                    .catch(function (messageEvent) {
+                        // Assert that the Reject is MessageEventType.SESSION_CLOSED
+                        chai.assert.strictEqual(messageEvent.type, mats.MessageEventType.SESSION_CLOSED, "Send's Promise's Reject Event should be a MessageEventType.SESSION_CLOSED.");
+                        // Assert that the SessionClosedEvent listener was NOT invoked
+                        chai.assert.strictEqual(sessionClosed, 0, "SessionClosedEvent listener should NOT have been invoked!");
+                        done();
+                    });
+                // Immediate close
+                matsSocket.close("testing that client.close() rejects send()'s Promise");
+            });
+
+            it("request: receivedCallback should give SESSION_CLOSED, and returned Promise should reject with SESSION_CLOSED, if closed before ack. Also, SessionClosedEvent listener should NOT be invoked.", function (done) {
+                // :: We add a SessionClosedEvent listener, which should NOT be invoked when we close from Client side
+                let sessionClosed = 0;
+                matsSocket.addSessionClosedEventListener(function (closeEvent) {
+                    sessionClosed++;
                 });
-                matsSocket.close("testing close rejects");
+
+                // When we close session from Client side, receivedCallback should be invoked with SESSION_CLOSED, and Promise should reject with SESSION_CLOSED
+                let receivedCallbackInvoked = 0;
+                matsSocket.request("Test.single", "REQUEST_should_reject_on_close_" + matsSocket.id(6), {},
+                    function (receivedEvent) {
+                        chai.assert.strictEqual(receivedEvent.type, mats.ReceivedEventType.SESSION_CLOSED, "receivedCallback should get a ReceivedEventType.SESSION_CLOSED.");
+                        receivedCallbackInvoked++;
+                    })
+                    .catch(function (messageEvent) {
+                        // Assert that the Reject is MessageEventType.SESSION_CLOSED
+                        chai.assert.strictEqual(messageEvent.type, mats.MessageEventType.SESSION_CLOSED, "Request's Promise's Reject Event should be a MessageEventType.SESSION_CLOSED, not [" + messageEvent.type + "].");
+                        // Assert that we got the Received-callback for the Request
+                        chai.assert.strictEqual(receivedCallbackInvoked, 1, "ReceivedCallback should have been invoked, once.");
+                        // Assert that the SessionClosedEvent listener was NOT invoked
+                        chai.assert.strictEqual(sessionClosed, 0, "SessionClosedEvent listener should NOT have been invoked!");
+                        done();
+                    });
+                // Immediate close
+                matsSocket.close("testing that client.close() rejects request()'s Promise");
             });
         });
     });

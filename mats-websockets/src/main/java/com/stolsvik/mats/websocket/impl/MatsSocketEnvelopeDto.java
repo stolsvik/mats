@@ -58,9 +58,9 @@ class MatsSocketEnvelopeDto {
     public String toString() {
         return "{" + t
                 + (eid == null ? "" : "->" + eid)
-                + (tid == null ? "" : " tid:" + cmid)
+                + (tid == null ? "" : " tid:" + tid)
                 + (cmid == null ? "" : " cmid:" + cmid)
-                + (smid == null ? "" : " smid:" + cmid)
+                + (smid == null ? "" : " smid:" + smid)
                 + "}";
     }
 

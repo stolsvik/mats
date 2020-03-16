@@ -539,7 +539,16 @@ public interface MatsSocketServer {
          * server).</li>
          * </ul>
          */
-        RECONNECT(4002);
+        RECONNECT(4002),
+
+        /**
+         * 4003: From Server side: Currently used in the specific situation where a MatsSocket client connects with
+         * the same MatsSocketSessionId as an existing WebSocket connection. This could happen if the client has
+         * realized that a connection is wonky and wants to ditch it, but the server has not realized the same yet.
+         * When the server then gets the new connect, it'll see that there is an active WebSocket already. It needs
+         * to close that. But the client "must not do anything" other than what it already is doing - reconnecting.
+         */
+        DISCONNECT(4003);
 
         private final int _closeCode;
 

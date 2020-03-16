@@ -32,7 +32,6 @@ import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Builder;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
-import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,6 +57,7 @@ import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsInitiator.MatsBackendException;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendException;
 import com.stolsvik.mats.websocket.AuthenticationPlugin;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
@@ -609,21 +609,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         // Shut down forwarder thread
         _messageToWebSocketForwarder.shutdown();
 
+        // Deregister all MatsSocketSession from us, with SERVICE_RESTART, which asks them to reconnect
         getCurrentLocalRegisteredMatsSocketSessions().forEach(msmh -> {
-            // Close WebSocket
-            closeWebSocket(msmh.getWebSocketSession(), MatsSocketCloseCodes.SERVICE_RESTART,
+            msmh.closeWebSocketAndDeregisterSession(MatsSocketCloseCodes.SERVICE_RESTART,
                     "From Server: Server instance is going down, please reconnect.");
-            // Local deregister
-            deregisterLocalMatsSocketSession(msmh.getMatsSocketSessionId(), msmh.getConnectionId());
-            // CSAF deregister
-            try {
-                _clusterStoreAndForward.deregisterSessionFromThisNode(msmh.getMatsSocketSessionId(), msmh
-                        .getConnectionId());
-            }
-            catch (DataAccessException e) {
-                log.warn("Could not deregister MatsSocketSession [" + msmh.getMatsSocketSessionId()
-                        + "] from CSAF, ignoring.", e);
-            }
         });
     }
 
@@ -675,7 +664,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
             // ?: If we are going down, then immediately close it.
             if (_matsSocketServer._stopped) {
-                DefaultMatsSocketServer.closeWebSocket(session, MatsSocketCloseCodes.SERVICE_RESTART,
+                closeWebSocket(session, MatsSocketCloseCodes.SERVICE_RESTART,
                         "This server is going down, perform a (re)connect to another instance.");
                 return;
             }
@@ -1005,8 +994,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         if (localMatsSocketSession.isPresent()
                 && connectionId.equals(localMatsSocketSession.get().getConnectionId())) {
             // -> Yes, so close it.
-            localMatsSocketSession.get().closeWithProtocolError("Cannot have two MatsSockets with the same"
-                    + " MatsSocketSessionId - closing the previous");
+            localMatsSocketSession.get().closeWebSocketAndDeregisterSession(MatsSocketCloseCodes.DISCONNECT,
+                    "Cannot have two MatsSockets with the same MatsSocketSessionId - closing the previous"
+                            + " (from remote node)");
         }
     }
 

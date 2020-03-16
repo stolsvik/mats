@@ -8,7 +8,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
 
 /**
  * Sets up the test endpoints used from the integration tests (and the HTML test-pages).
@@ -20,8 +19,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     static void setupMatsAndMatsSocketEndpoints(MatsFactory matsFactory, MatsSocketServer matsSocketServer) {
         // "Standard" test endpoint
-        setupMats_StandardTestSingle(matsFactory);
-        setupSocket_StandardTestSingle(matsSocketServer);
+        setup_StandardTestSingle(matsSocketServer, matsFactory);
+        setup_SimpleMats(matsSocketServer, matsFactory);
 
         // Resolve/Reject/Throws in incomingHandler and replyAdapter
         setupSocket_IgnoreInIncoming(matsSocketServer);
@@ -47,39 +46,50 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static final String STANDARD_ENDPOINT = "Test.single";
 
-    private static void setupSocket_StandardTestSingle(MatsSocketServer matsSocketServer) {
+    private static void setup_StandardTestSingle(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
         // :: Make default MatsSocket Endpoint
-        MatsSocketEndpoint<MatsSocketRequestDto, MatsDataTO, MatsDataTO, MatsSocketReplyDto> matsSocketEndpoint = matsSocketServer
-                .matsSocketEndpoint(STANDARD_ENDPOINT,
-                        MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                        (ctx, principal, msIncoming) -> {
-                            log.info("Got MatsSocket request on MatsSocket EndpointId: " +
-                                    ctx.getMatsSocketEndpointId());
-                            log.info(" \\- Authorization: " + ctx.getAuthorizationHeader());
-                            log.info(" \\- Principal:     " + ctx.getPrincipal());
-                            log.info(" \\- UserId:        " + ctx.getUserId());
-                            log.info(" \\- Message:       " + msIncoming);
-                            ctx.forwardCustom(new MatsDataTO(msIncoming.number, msIncoming.string),
-                                    msg -> msg.to(ctx.getMatsSocketEndpointId())
-                                            .interactive()
-                                            .nonPersistent()
-                                            .setTraceProperty("requestTimestamp", msIncoming.requestTimestamp));
-                        },
-                        (ctx, matsReply) -> {
-                            log.info("Adapting message: " + matsReply);
-                            MatsSocketReplyDto reply = new MatsSocketReplyDto(matsReply.string.length(),
-                                    matsReply.number,
-                                    ctx.getMatsContext().getTraceProperty("requestTimestamp", Long.class));
-                            ctx.resolve(reply);
-                        });
-    }
+        matsSocketServer.matsSocketEndpoint(STANDARD_ENDPOINT,
+                MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                (ctx, principal, msIncoming) -> {
+                    log.info("Got MatsSocket request on MatsSocket EndpointId: " +
+                            ctx.getMatsSocketEndpointId());
+                    log.info(" \\- Authorization: " + ctx.getAuthorizationHeader());
+                    log.info(" \\- Principal:     " + ctx.getPrincipal());
+                    log.info(" \\- UserId:        " + ctx.getUserId());
+                    log.info(" \\- Message:       " + msIncoming);
+                    ctx.forwardCustom(new MatsDataTO(msIncoming.number, msIncoming.string),
+                            msg -> msg.to(ctx.getMatsSocketEndpointId())
+                                    .interactive()
+                                    .nonPersistent()
+                                    .setTraceProperty("requestTimestamp", msIncoming.requestTimestamp));
+                },
+                (ctx, matsReply) -> {
+                    log.info("Adapting message: " + matsReply);
+                    MatsSocketReplyDto reply = new MatsSocketReplyDto(matsReply.string.length(),
+                            matsReply.number,
+                            ctx.getMatsContext().getTraceProperty("requestTimestamp", Long.class));
+                    ctx.resolve(reply);
+                });
 
-    private static void setupMats_StandardTestSingle(MatsFactory matsFactory) {
         // :: Make simple single Mats Endpoint
         matsFactory.single(STANDARD_ENDPOINT, SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class,
                 SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> new MatsDataTO(
                         incomingDto.number,
-                        incomingDto.string + ":FromSimple",
+                        incomingDto.string + ":FromSingle",
+                        incomingDto.sleepTime));
+    }
+
+    private static void setup_SimpleMats(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
+        // :: Make "Test.simpleMats" MatsSocket Endpoint
+        matsSocketServer.matsSocketEndpoint("Test.simpleMats",
+                MatsDataTO.class, MatsDataTO.class, MatsDataTO.class,
+                (ctx, principal, msg) -> ctx.forwardInteractivePersistent(msg));
+
+        // :: Make "Test.simpleMats" Endpoint
+        matsFactory.single("Test.simpleMats", SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class,
+                SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class, (processContext, incomingDto) -> new MatsDataTO(
+                        incomingDto.number,
+                        incomingDto.string + ":FromSimpleMats",
                         incomingDto.sleepTime));
     }
 
