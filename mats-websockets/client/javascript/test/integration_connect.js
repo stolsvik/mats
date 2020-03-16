@@ -90,7 +90,7 @@
 
 
                 // Create a second MatsSocket, that will get the same MatsSocketSessionId as the first.
-                let matsSocket_B = new MatsSocket("TestApp", "1.2.3", url1);
+                let matsSocket_B = new MatsSocket("TestApp", "1.2.3", url2);
                 matsSocket_B.logging = matsSocket_A.logging;
                 matsSocket_B.setCurrentAuthorization("DummyAuth:standard:" + expiry, expiry, 5000);
 
@@ -107,6 +107,7 @@
                 });
 
 
+                // First SEND a message to instance A, so as to perform HELLO and get a WELCOME with sessionId
                 function firstStep() {
                     matsSocket_A.send("Test.ignoreInIncomingHandler", "SEND_twiceConnect_ensureAssignedSessionId_" + matsSocket_A.id(6), {})
                         .then(function (receivedEvent) {
@@ -119,6 +120,9 @@
                         });
                 }
 
+                // Now, give this sessionId to instance B, and then send a REQUEST with this instance
+                // This leads to HELLO->WELCOME, and that the server closes instance A with a DISCONNECT
+                // NOTE: This shall happen both if the second connection is to the same node (server instance) as the first, or to a different node.
                 function secondStep() {
                     // The MatsSocket has now gotten its SessionId, which we've sneakily made available on matsSocket_A.sessionId
                     // .. Set the existing sessionId on this new MatsSocket
@@ -147,11 +151,12 @@
                             chai.assert.strictEqual(data.string, req.string + ":FromSimpleMats");
                             chai.assert.strictEqual(data.number, req.number);
                             chai.assert.strictEqual(data.sleepTime, req.sleepTime);
-                            thirdStep();
+                            thirdStep_Asserts();
                         });
                 }
 
-                function thirdStep() {
+                // Finally, assert lots of state and events that shall and shall not have happened.
+                function thirdStep_Asserts() {
                     setTimeout(function () {
                         // instance A should NOT be connected
                         chai.assert.isFalse(matsSocket_A.connected, "Instance A should not be connected now!");
