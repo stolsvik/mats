@@ -13,6 +13,58 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 
 /**
+ * The MatsSocket Java library, along with its clients is a WebSocket-"extension" of the Mats library <i>(there are
+ * currently clients for JavaScript (web and Node.js) and Dart (Dart and Flutter)</i>. It is a clearly demarcated
+ * solution in that it only utilizes the API of the Mats library and the API of the <i>JSR 356 WebSocket API for
+ * Java</i> (with some optional hooks that typically will be implemented using the Servlet API, but any HTTP server
+ * implementation can be employed). It provides for asynchronous communications between a client and a MatsSocketServer
+ * using WebSockets, which again asynchronously interfaces with the Mats API, taking Mats's asynchronous aspects and
+ * guaranteed delivery all the way from the client, to the server, and back. MatsSocketEndpoints are simple to
+ * understand and create, simple to authenticate and authorize, and the interface with Mats is very simple, yet
+ * flexible.
+ * <p/>
+ * Features:
+ * <ul>
+ * <li>Very lightweight transport protocol, which is human readable and understandable, with little overhead
+ * ({@link MessageType all message types} and {@link MatsSocketCloseCodes all socket closure modes}).</li>
+ * <li>A TraceId is created on the Client, sent with the client call, through the MatsSocketServer, all the way through
+ * all Mats stages, back to the Reply - logged along all the steps.</li>
+ * <li>Provides "Send" and "Request" features both Client-to-Server and Server-to-Client.</li>
+ * <li>Reconnection in face of broken connections is handled by the Client library, with full feedback solution to the
+ * end user via event listeners</li>
+ * <li>Guaranteed delivery both ways, also in face of reconnects at any point, employing an "outbox" and "inbox" on both
+ * sides, with a three-way handshake protocol for each "information bearing message": Message, acknowledge of message,
+ * acknowledge of acknowledge.</li>
+ * <li>Client side Event Listener for ConnectionEvents (e.g. connecting, waiting, session_established, lost_connection),
+ * for display to end user.</li>
+ * <li>Client side Event Listener for SessionClosedEvents, which is when the system does not manage to keep the
+ * guarantees in face of adverse situation on the server side (typically lost database connection in a bad spot).</li>
+ * <li>Pipelining of messages, which is automatic (i.e. delay of 2 ms after last message enqueued before the pipeline is
+ * sent) - but with optional "flush()" command to send a pipeline right away.</li>
+ * <li>Several debugging features in the protocol (full round-trip TraceId, comprehensive logging, and
+ * {@link DebugOption DebugOptions})</li>
+ * <li>Built-in and simple statistics gathering on the client.</li>
+ * <li>Simple and straight-forward, yet comprehensive and mandatory, authentication model employing a
+ * MatsSocketServer-wide server {@link AuthenticationPlugin} paired with a Client authentication callback, and a
+ * per-MatsSocketEndpoint, per-message {@link IncomingAuthorizationAndAdapter IncomingAuthorizationAndAdapter}.</li>
+ * <li>The WebSocket protocol itself has built-in "per-message" compression.</li>
+ * </ul>
+ * <p/>
+ * Notes:
+ * <ul>
+ * <li>There is no way to cancel or otherwise control individual messages: The library's simple "send" and
+ * Promise-yielding "request" operations (with optional "receivedCallback" for the client) is the only way to talk with
+ * the library. When that method returns, the operation is queued, and will be transferred ASAP. This works like magic
+ * for short and medium messages, but does not constitute a fantastic solution for large payloads over bad networks (as
+ * typically <i>can</i> be the case with Web apps and mobile apps).</li>
+ * <li>MatsSockets does not provide "channel multiplexing", meaning that one message (or pipeline of messages) will have
+ * to be fully transferred before the next one is. This means that if you decide to send over a 200 MB PDF using the
+ * MatsSocket instance over a 2G cellular network, any concurrent messages will experience a massive delay. This again
+ * means that you should probably not do that: Either you should do such a download or upload using ordinary HTTP
+ * solutions, or employ a second MatsSocket instance for this if you just cannot get enough of the MatsSocket API - but
+ * you will get more control over e.g. cancellation of the transfer with the HTTP approach.</li>
+ * </ul>
+ *
  * @author Endre Stølsvik 2019-11-28 16:15 - http://stolsvik.com/, endre@stolsvik.com
  */
 public interface MatsSocketServer {
@@ -105,6 +157,18 @@ public interface MatsSocketServer {
         void adaptReply(MatsSocketEndpointReplyContext<MR, R> ctx, MR matsReply);
     }
 
+    /**
+     * Representation of a MatsSocketEndpoint.
+     *
+     * @param <I>
+     *            type of the incoming MatsSocket message ("Incoming")
+     * @param <MI>
+     *            type of the forwarded Mats message ("Mats Incoming")
+     * @param <MR>
+     *            type of the returned Mats message ("Mats Reply")
+     * @param <R>
+     *            type of the outgoing MatsSocket message ("Reply")
+     */
     interface MatsSocketEndpoint<I, MI, MR, R> {
     }
 
@@ -542,11 +606,11 @@ public interface MatsSocketServer {
         RECONNECT(4002),
 
         /**
-         * 4003: From Server side: Currently used in the specific situation where a MatsSocket client connects with
-         * the same MatsSocketSessionId as an existing WebSocket connection. This could happen if the client has
-         * realized that a connection is wonky and wants to ditch it, but the server has not realized the same yet.
-         * When the server then gets the new connect, it'll see that there is an active WebSocket already. It needs
-         * to close that. But the client "must not do anything" other than what it already is doing - reconnecting.
+         * 4003: From Server side: Currently used in the specific situation where a MatsSocket client connects with the
+         * same MatsSocketSessionId as an existing WebSocket connection. This could happen if the client has realized
+         * that a connection is wonky and wants to ditch it, but the server has not realized the same yet. When the
+         * server then gets the new connect, it'll see that there is an active WebSocket already. It needs to close
+         * that. But the client "must not do anything" other than what it already is doing - reconnecting.
          */
         DISCONNECT(4003);
 
