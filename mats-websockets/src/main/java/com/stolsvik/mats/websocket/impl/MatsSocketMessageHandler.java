@@ -238,7 +238,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             // NOTE: the 'auth' property can come on ANY message, but AUTH is a special message to send 'auth' with.
             envelopes.removeIf(envelope -> envelope.t == AUTH);
 
-
             // :: 2a. Handle PINGs (send PONG asap).
 
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
@@ -1076,7 +1075,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                                 log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
                                         + "] of type [" + envelope.t + "] - it was NOT stored, thus it was an ACK.");
                             }
-                            // We're done here - return from Mats-initiate-lambda
+                            // Return from Mats-initiate lambda - We're done here.
                             return;
                         }
                         catch (DataAccessException ex) {
@@ -1099,24 +1098,39 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     handledEnvelope[0].t = NACK;
                     handledEnvelope[0].desc = "An incoming " + envelope.t
                             + " envelope targeted a non-existing MatsSocketEndpoint";
-                    log.warn("Unknown MatsSocketEndpointId for incoming envelope " + envelope);
-                    // We're done here - return from Mats-initiate-lambda
+                    log.warn("Unknown MatsSocketEndpointId [" + targetEndpointId + "] for incoming envelope "
+                            + envelope);
+                    // Return from Mats-initiate lambda - We're done here.
                     return;
                 }
+
                 MatsSocketEndpointRegistration<?, ?, ?, ?> registration = registrationO.get();
+
+                // -> Developer-friendliness assert for Client REQUESTs going to a Terminator (which won't ever Reply).
+                if ((type == REQUEST) && ((registration.getMatsSocketReplyClass() == Void.class)
+                        || (registration.getMatsSocketReplyClass() == void.class))) {
+                    handledEnvelope[0].t = NACK;
+                    handledEnvelope[0].desc = "An incoming " + envelope.t
+                            + " envelope targeted a MatsSocketEndpoint which is a Terminator, i.e. won't ever reply";
+                    log.warn("MatsSocketEndpointId targeted by Client REQUEST is a Terminator [" + targetEndpointId
+                            + "] for incoming envelope " + envelope);
+                    // Return from Mats-initiate lambda - We're done here.
+                    return;
+                }
+
                 IncomingAuthorizationAndAdapter incomingAuthEval = registration.getIncomingAuthEval();
 
                 // Deserialize the message with the info from the registration
-                Object msg = deserialize((String) envelope.msg, registration.getMsIncomingClass());
+                Object msg = deserialize((String) envelope.msg, registration.getMatsSocketIncomingClass());
 
                 // :: Actually invoke the IncomingAuthorizationAndAdapter.handleIncoming(..)
-                // Create the Context
+                // .. create the Context
                 MatsSocketEndpointRequestContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointRequestContextImpl(
                         _matsSocketServer, registration, _matsSocketSessionId, init, envelope,
                         clientMessageReceivedTimestamp, _authorization, _principal, _userId, _authAllowedDebugOptions,
                         type, correlationString, correlationBinary, msg);
 
-                // Invoke the incoming handler
+                // .. invoke the incoming handler
                 incomingAuthEval.handleIncoming(requestContext, _principal, msg);
 
                 // :: Based on the situation in the RequestContext, we return ACK/NACK/RETRY/RESOLVE/REJECT
@@ -1222,7 +1236,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
              * NOTICE! With "Outbox pattern" enabled on the MatsFactory, this exception shall never come. This because
              * if the sending to MQ does not work out, it will still have stored the message in the outbox, and the
              * MatsFactory will then get the message sent onto MQ at a later time, thus the need for this particular
-             * exception is not needed, and will not be raised.
+             * exception is not there anymore, and will never be raised.
              */
 
             // :: Compensating transaction, i.e. delete that we've received the message (if SEND or REQUEST), or store
@@ -1257,6 +1271,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                                 + " Closing MatsSocketSession and WebSocket with UNEXPECTED_CONDITION.", ex);
                         closeSessionAndWebSocket(MatsSocketCloseCodes.UNEXPECTED_CONDITION,
                                 "Server error (data store), could not reliably recover (retry count exceeded)");
+                        // This did NOT go OK.
                         return false;
                     }
                     log.warn("Didn't manage to get out of a MatsMessageSendRuntimeException situation at attempt ["
@@ -1270,6 +1285,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                                 + " UNEXPECTED_CONDITION.", exc);
                         closeSessionAndWebSocket(MatsSocketCloseCodes.UNEXPECTED_CONDITION,
                                 "Server error (data store), could not reliably recover (interrupted).");
+                        // This did NOT go OK.
                         return false;
                     }
                 }
@@ -1291,7 +1307,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         // Add ACK/NACK/RETRY/RESOLVE/REJECT message to "queue"
         replyEnvelopes.add(handledEnvelope[0]);
 
-        // This went OK.
+        // This went OK (seen from the "message handled adequately" standpoint, not wrt. ACN/NACK/REJECT or otherwise)
         return true;
     }
 

@@ -840,8 +840,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             return _matsSocketEndpointId;
         }
 
-        public Class<I> getMsIncomingClass() {
+        public Class<I> getMatsSocketIncomingClass() {
             return _msIncomingClass;
+        }
+
+        public Class<R> getMatsSocketReplyClass() {
+            return _msReplyClass;
         }
 
         IncomingAuthorizationAndAdapter<I, MI, R> getIncomingAuthEval() {
