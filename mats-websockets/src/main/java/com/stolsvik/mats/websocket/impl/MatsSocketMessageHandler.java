@@ -7,6 +7,7 @@ import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.HELLO;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.NACK;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.PING;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.PONG;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.REAUTH;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.REJECT;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.REQUEST;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RESOLVE;
@@ -165,6 +166,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         return _currentResolvedServerToClientDebugOptions;
     }
 
+    private List<MatsSocketEnvelopeDto> _heldEnvelopesWaitingForReauth = new ArrayList<>();
+    private boolean _askedClientForReauth = false;
+
+    private int _numberOfInformationBearingIncomingWhileWaitingForReauth = 0;
+
     @Override
     public void onMessage(String message) {
         try { // try-finally: MDC.clear();
@@ -205,13 +211,15 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             }
 
             if (log.isDebugEnabled()) log.debug("Messages: " + envelopes);
-            boolean shouldNotifyAboutExistingMessages = false;
 
             // :: 0. Look for request-debug in any of the messages
+
+            // NOTE! This is what will be used for Server initiated messages. For Client initiated, each message itself
+            // chooses which debug options it wants for the full processing of itself (incl. Reply).
             for (MatsSocketEnvelopeDto envelope : envelopes) {
                 // ?: Pick out any "Request Debug" flags
                 if (envelope.rd != null) {
-                    // -> Yes, there was an authorization header sent along with this message
+                    // -> Yes, there was an "Request Debug" sent along with this message
                     EnumSet<DebugOption> requestedDebugOptions = DebugOption.enumSetOf(envelope.rd);
                     // Intersect this with allowed DebugOptions
                     requestedDebugOptions.retainAll(_authAllowedDebugOptions);
@@ -221,6 +229,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             }
 
             // :: 1a. Look for Authorization header in any of the messages
+
             // NOTE! Authorization header can come with ANY message!
             String newAuthorization = null;
             for (MatsSocketEnvelopeDto envelope : envelopes) {
@@ -229,8 +238,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // -> Yes, there was an authorization header sent along with this message
                     newAuthorization = envelope.auth;
                     log.info("Found authorization header in message of type [" + envelope.t + "]");
-                    // Notify client about "new" (as in existing) messages, just in case there are any.
-                    shouldNotifyAboutExistingMessages = true;
                     // Notice: No 'break', as we want to go through all messages and find the latest auth header.
                 }
             }
@@ -372,8 +379,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                         clientAck2s = new ArrayList<>();
                     }
                     clientAck2s.add(envelope.cmid);
-                    // The message is handled, so go to next message.
-                    continue;
                 }
             }
             // .. now actually act on the ACK2s (delete from our inbox - we do not need it anymore to guard for DD)
@@ -394,7 +399,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             // :: 4. Evaluate whether we should go further.
 
             // ?: Do we have any more messages in pipeline, or have we gotten new Authorization?
-            if (envelopes.isEmpty() && (newAuthorization == null)) {
+            if (envelopes.isEmpty() && _heldEnvelopesWaitingForReauth.isEmpty() && (newAuthorization == null)) {
                 // -> No messages, and no new auth. Thus, all messages that were here was control messages.
                 // Return, without considering valid existing authentication. Again: It is allowed to send control
                 // messages (in particular PING), and thus keep connection open, without having current valid
@@ -410,15 +415,130 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
             // === AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
 
-            // :: 5. Evaluate Authentication by Authorization header
-            boolean authenticationOk = doAuthentication(newAuthorization);
+            // :: 5. Evaluate Authentication by Authorization header - do this before HELLO handling
+            AuthenticationHandlingResult authenticationHandlingResult = doAuthentication(newAuthorization);
             // ?: Did this go OK?
-            if (!authenticationOk) {
-                // -> No, not OK - doAuthentication() has already closed session and websocket and the lot.
+            if (authenticationHandlingResult == AuthenticationHandlingResult.REAUTH) {
+                // -> We are not allowed to process further messages until better auth present.
+                // NOTE: There shall only be information-bearing messages left in the pipeline now.
+                // NOTE: Also, it cannot be HELLO, as initial auth fail would have given BAD, not REAUTH.
+
+                // :: Assert that we have 'cmid' on all the remaining messages, as they shall all be information-bearing
+                // messages from the Client, and thus contain 'cmid'.
+                for (MatsSocketEnvelopeDto envelope : envelopes) {
+                    if (envelope.cmid == null) {
+                        closeSessionWithProtocolError("Missing 'cmid' on message of type [" + envelope.t + "]");
+                        return;
+                    }
+                }
+
+                // Keep count of how many information bearing messages we've gotten without replying to any.
+                _numberOfInformationBearingIncomingWhileWaitingForReauth += envelopes.size();
+
+                // Make reply envelope list
+                List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
+
+                // ?: Have we already asked for REAUTH?
+                if (!_askedClientForReauth) {
+                    // -> No, not asked for REAUTH, so do it now.
+                    MatsSocketEnvelopeDto reauthEnvelope = new MatsSocketEnvelopeDto();
+                    reauthEnvelope.t = REAUTH;
+                    replyEnvelopes.add(reauthEnvelope);
+                    // We've now asked Client for REAUTH, so don't do it again until he has given us new.
+                    _askedClientForReauth = true;
+                }
+                else {
+                    // ?: Is the number of info-bearing messages processed without forward motion too high?
+                    if (_numberOfInformationBearingIncomingWhileWaitingForReauth > 500) {
+                        // -> Yes, so close it off.
+                        /*
+                         * What has likely happened here is that we've sent REAUTH, but the Client screwed this up, and
+                         * has not given us any new auth, but keeps doing RETRY when we ask for it. This will go on
+                         * forever - and without new AUTH, we will just keep answering RETRY. So, if this number of
+                         * information bearing messages has gone way overboard, then shut things down. PS: The counter
+                         * is reset after a processing round.
+                         */
+                        closeSessionWithPolicyViolation("Too many information bearing messages."
+                                + " Server has requested REAUTH, no answer.");
+                        return;
+                    }
+                }
+
+                // TODO: Handle loops. E.g. break out if we've gotten many messages without any replies.
+
+                // :: We will "hold" messages while waiting for REAUTH
+                /*
+                 * The reason for this holding stuff is not only out of love for the bandwidth, but also because if the
+                 * reason for the AUTH being old when we evaluated it was that the message sent over was massive over a
+                 * bad line, replying "REAUTH" and "RETRY" to the massive message could potentially lead to the same
+                 * happening right away again. So instead, we hold the big message, ask for REAUTH, and then process it
+                 * when the auth comes in.
+                 */
+                for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                    // :: Do some DOS-preventive measures:
+                    // ?: Do we have more than some limit of held messages?
+                    if (_heldEnvelopesWaitingForReauth.size() > 100) {
+                        // -> Yes, over limit so then we reply "RETRY" to the rest.
+                        break;
+                    }
+                    // ?: Is the size of current held messages more than some limit?
+                    int currentSizeOfHeld = _heldEnvelopesWaitingForReauth.stream().mapToInt(
+                            envelope -> envelope.msg instanceof String ? ((String) envelope.msg).length() : 0).sum();
+                    if (currentSizeOfHeld > 20 * 1024 * 1024) {
+                        // -> Yes, so then we reply "RETRY" to the rest.
+                        /*
+                         * NOTE! This will lead to at least one message being held (this is however limited by the
+                         * WebSocket per-message limit set up in HELLO). Therefore, if the Client has a dozen giga
+                         * messages, where each of them ends up in this bad situation where the auth is expired before
+                         * we get to evaluate it, each time one more message should be processed.
+                         */
+                        break;
+                    }
+
+                    // E-> There IS room for this message to be held - so hold it!
+                    _heldEnvelopesWaitingForReauth.add(it.next());
+                    // Now remove it from incoming list (since we hold it!) - remaining will get RETRY, then done.
+                    it.remove();
+                }
+
+                // Any remaining incoming message will get a RETRY back to Client
+                for (MatsSocketEnvelopeDto envelopeToRetry : envelopes) {
+                    MatsSocketEnvelopeDto retryReplyEnvelope = new MatsSocketEnvelopeDto();
+                    retryReplyEnvelope.t = RETRY;
+                    retryReplyEnvelope.cmid = envelopeToRetry.cmid;
+                    replyEnvelopes.add(retryReplyEnvelope);
+                }
+
+                try {
+                    String json = _envelopeListObjectWriter.writeValueAsString(replyEnvelopes);
+                    webSocketSendText(json);
+                }
+                catch (JsonProcessingException e) {
+                    throw new AssertionError("Huh, couldn't serialize message?!", e);
+                }
+                catch (IOException e) {
+                    // TODO: Handle!
+                    // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
+                    throw new AssertionError("Hot damn.", e);
+                }
+                // We're finished processing all Envelopes in incoming WebSocket Message.
+                return;
+            }
+            // ?: Was it BAD Auth result?
+            else if (authenticationHandlingResult == AuthenticationHandlingResult.BAD) {
+                // -> Yes, BAD - and then doAuthentication() has already closed session and websocket and the lot.
+                return;
+            }
+            // ?: .. okay, this MUST then be OK Auth Result - just assert this
+            else if (authenticationHandlingResult != AuthenticationHandlingResult.OK) {
+                log.error("Unknown AuthenticationHandlingResult [" + authenticationHandlingResult
+                        + "], what on earth is this?!");
+                closeSessionWithProtocolError("Internal Server error.");
                 return;
             }
 
             // :: 6. Are we authenticated? (I.e. Authorization Header must sent along in the very first pipeline..)
+
             if (_authorization == null) {
                 log.error("We have not got Authorization header!");
                 closeSessionWithPolicyViolation("Missing Authorization header");
@@ -460,7 +580,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                             // -> No, not OK - handleHello(..) has already closed session and websocket and the lot.
                             return;
                         }
-                        shouldNotifyAboutExistingMessages = true;
+                        // MessageForwarder-> There might be EXISTING messages waiting for this MatsSocketSession!
+                        _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
                     }
                     finally {
                         MDC.remove(MDC_MESSAGE_TYPE);
@@ -481,6 +602,19 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
             // :: 9. Now go through and handle all the rest of the messages
 
+            // First drain the held messages into the now-being-processed list
+            if (!_heldEnvelopesWaitingForReauth.isEmpty()) {
+                // Add the held ones in front..
+                List<MatsSocketEnvelopeDto> newList = new ArrayList<>(_heldEnvelopesWaitingForReauth);
+                // .. now clear the held-list
+                _heldEnvelopesWaitingForReauth.clear();
+                // .. then add the existing envelopes.
+                newList.addAll(envelopes);
+                // .. finally use this instead of the one we had.
+                envelopes = newList;
+            }
+
+            // .. then go through all incoming Envelopes (held and from this pipeline).
             List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
             for (MatsSocketEnvelopeDto envelope : envelopes) {
                 try { // try-finally: MDC.remove..
@@ -521,6 +655,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
             // ----- All messages handled.
 
+            // Now we have forward progress, so reset this to 0.
+            _numberOfInformationBearingIncomingWhileWaitingForReauth = 0;
+
             // :: 10. Send all replies
 
             if (replyEnvelopes.size() > 0) {
@@ -537,14 +674,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
                     throw new AssertionError("Hot damn.", e);
                 }
-            }
-
-            // 11. Possibly notify about existing messages (after we process HELLO)
-
-            // ?: Notify about existing messages
-            if (shouldNotifyAboutExistingMessages) {
-                // -> Yes, so do it now.
-                _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
             }
         }
         finally {
@@ -648,7 +777,26 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         }
     }
 
-    private boolean doAuthentication(String newAuthorization) {
+    private enum AuthenticationHandlingResult {
+        /**
+         * Authentication evaluation went well.
+         */
+        OK,
+
+        /**
+         * Initial Authentication evaluation went bad, MatsSocketSession is closed, as is WebSocket - exit out of
+         * handler.
+         */
+        BAD,
+
+        /**
+         * Re-evaluation (NOT initial) did not work out - ask Client for new auth. Possibly hold messages until AUTH
+         * comes back.
+         */
+        REAUTH
+    }
+
+    private AuthenticationHandlingResult doAuthentication(String newAuthorization) {
         /*
          * Any evaluation implication SessionAuthenticator, and setting of _authorization, _principal and _userId, is
          * done within sync of SessionAuthenticator.
@@ -674,18 +822,19 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     log.error("Got Exception when invoking SessionAuthenticator.initialAuthentication(..),"
                             + " Authorization header: " + newAuthorization, e);
                     closeSessionWithPolicyViolation("Initial Auth-eval: Got Exception");
-                    return false;
+                    return AuthenticationHandlingResult.BAD;
                 }
                 if (authenticationResult instanceof AuthenticationResult_Authenticated) {
                     // -> Authenticated!
-                    goodAuthentication(newAuthorization,
-                            (AuthenticationResult_Authenticated) authenticationResult, "Authenticated");
-                    return true;
+                    AuthenticationResult_Authenticated res = (AuthenticationResult_Authenticated) authenticationResult;
+                    goodAuthentication(newAuthorization, res._principal, res._userId, res._debugOptions,
+                            "Initial Authentication");
+                    return AuthenticationHandlingResult.OK;
                 }
                 else {
                     // -> InvalidAuthentication, null, or any other result.
                     badAuthentication(newAuthorization, authenticationResult, "Initial Auth-eval");
-                    return false;
+                    return AuthenticationHandlingResult.BAD;
                 }
             }
             else {
@@ -711,44 +860,51 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     log.error("Got Exception when invoking SessionAuthenticator.reevaluateAuthentication(..),"
                             + " Authorization header: " + authorizationToEvaluate, e);
                     closeSessionWithPolicyViolation("Auth re-eval: Got Exception.");
-                    return false;
+                    return AuthenticationHandlingResult.BAD;
                 }
                 if (authenticationResult instanceof AuthenticationResult_Authenticated) {
                     // -> Authenticated anew
-                    goodAuthentication(authorizationToEvaluate,
-                            (AuthenticationResult_Authenticated) authenticationResult, "New authentication");
-                    return true;
+                    AuthenticationResult_Authenticated res = (AuthenticationResult_Authenticated) authenticationResult;
+                    goodAuthentication(authorizationToEvaluate, res._principal, res._userId, res._debugOptions,
+                            "Re-auth: New Authentication");
+                    return AuthenticationHandlingResult.OK;
                 }
                 else if (authenticationResult instanceof AuthenticationResult_StillValid) {
                     // -> The existing authentication is still valid
-                    log.debug("Still valid authentication with UserId: [" + _userId + "] and Principal [" + _principal
-                            + "]");
-                    // Update Authorization, in case it changed (strange that it didn't return "Authenticated" instead?)
-                    _authorization = authorizationToEvaluate;
-                    // Update lastAuthenticatedMillis, since it was still happy with it.
-                    _lastAuthenticatedTimestamp = System.currentTimeMillis();
-                    return true;
+                    // Do a "goodAuthentication"-invocation, just with existing info!
+                    goodAuthentication(_authorization, _principal, _userId, _authAllowedDebugOptions,
+                            "Still valid Authentication");
+                    return AuthenticationHandlingResult.OK;
+                }
+                else if (authenticationResult instanceof AuthenticationResult_InvalidAuthentication) {
+                    // -> The existing authentication is NOT any longer valid
+                    log.info("NOT valid anymore Authentication - asking client for REAUTH. Current userId: [" + _userId
+                            + "] and Principal [" + _principal + "]");
+                    return AuthenticationHandlingResult.REAUTH;
                 }
                 else {
                     // -> InvalidAuthentication, null, or any other result.
                     badAuthentication(authorizationToEvaluate, authenticationResult, "Auth re-eval");
-                    return false;
+                    return AuthenticationHandlingResult.BAD;
                 }
             }
         } // end sync _sessionAuthenticator
           // NOTE! There should NOT be a default return here!
     }
 
-    private void goodAuthentication(String authorization,
-            AuthenticationResult_Authenticated authenticationResult,
-            String what) {
+    private void goodAuthentication(String authorization, Principal principal, String userId,
+            EnumSet<DebugOption> debugOptions, String what) {
         // Store the new values
         _authorization = authorization;
-        _principal = authenticationResult._principal;
-        _userId = authenticationResult._userId;
-        _authAllowedDebugOptions = authenticationResult._debugOptions;
-        // We can now send outgoing messages
+        _principal = principal;
+        _userId = userId;
+        _authAllowedDebugOptions = debugOptions;
+        // We have gotten the Auth, so we do not currently have a question outstanding
+        _askedClientForReauth = false;
+        // We can now send outgoing messages again
         _holdOutgoingMessages = false;
+        // .. therefore, go and check if there are any we should send over now
+        _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
         // Update the timestamp of when the SessionAuthenticator last time was happy with the authentication.
         _lastAuthenticatedTimestamp = System.currentTimeMillis();
 

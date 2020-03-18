@@ -18,7 +18,7 @@
         root.ConnectionState = root.mats.ConnectionState;
 
         root.AuthorizationRequiredEvent = root.mats.AuthorizationRequiredEvent;
-        root.AuthorizationRequiredEventType = root.mats.AuthorizationRequiredEventType
+        root.AuthorizationRequiredEventType = root.mats.AuthorizationRequiredEventType;
 
         root.ConnectionEvent = root.mats.ConnectionEvent;
         root.ConnectionEventType = root.mats.ConnectionEventType;
@@ -739,17 +739,17 @@
      * Stats: A "holding struct" for pings - you may get the latest pings (with experienced round-trip times) from the
      * property {@link MatsSocket#pings}.
      *
-     * @param {string} correlationId
+     * @param {number} pingId
      * @param {number} sentTimestamp
      * @constructor
      */
-    function PingPong(correlationId, sentTimestamp) {
+    function PingPong(pingId, sentTimestamp) {
         /**
          * Pretty meaningless information, but if logged server side, you can possibly correlate outliers.
          *
-         * @type {string}
+         * @type {number}
          */
-        this.correlationId = correlationId;
+        this.pingId = pingId;
 
         /**
          * Millis-from-epoch when this ping was sent.
@@ -1005,9 +1005,10 @@
             // ?: Should we send it now?
             if (_authExpiredCallbackInvoked === AuthorizationRequiredEventType.REAUTHENTICATE) {
                 log("Immediate send of AUTH due to SERVER_REQUEST");
-                _addEnvelopeToPipeline({
-                    t: MessageType.AUTH
-                });
+                let authMsg = {t: MessageType.AUTH};
+                _addEnvelopeToPipeline_EvaluatePipelineLater(authMsg);
+                // NOTE! We do this "sync", not "setTimeout-style", as if we have a "AUTH", we want this sent ASAP.
+                this.flush();
             }
             // We're now back to "normal", i.e. not outstanding authorization request.
             _authExpiredCallbackInvoked = undefined;
@@ -1439,6 +1440,7 @@
         // If false, we should not accidentally try to reconnect or similar
         let _sessionOpened = false; // NOTE: Set to true upon enqueuing of information-bearing message.
 
+        let _prePipeline = [];
         let _pipeline = [];
         let _terminators = Object.create(null);
         let _endpoints = Object.create(null);
@@ -1641,22 +1643,26 @@
                 _outstandingRequests[thisMessageSequenceId] = outstandingRequest;
             }
 
-            _addEnvelopeToPipeline(envelope);
+            _addEnvelopeToPipeline_EvaluatePipelineLater(envelope);
         }
 
         /**
          * Unconditionally adds the supplied envelope to the pipeline, and then evaluates the pipeline,
          * invokeLater-style so as to get "auth-pipelining". Use flush() to get sync send.
          */
-        function _addEnvelopeToPipeline(envelope) {
+        function _addEnvelopeToPipeline_EvaluatePipelineLater(envelope, prePipeline = false) {
             // ?: Have we sent hello, i.e. session is "active", but the authorization has changed since last we sent over authorization?
             if (_helloSent && (_currentAuthorizationSentToServer !== _authorization)) {
-                if (that.logging) log("Authorization has changed, so we add it to the envelope about to be enqueued, of type ["+envelope.t+"].");
+                if (that.logging) log("Authorization has changed, so we add it to the envelope about to be enqueued, of type [" + envelope.t + "].");
                 // -> Yes, it has changed, so set new, and add it to envelope of this next message.
                 _currentAuthorizationSentToServer = _authorization;
                 envelope.auth = _authorization;
             }
-            _pipeline.push(envelope);
+            if (prePipeline) {
+                _prePipeline.push(envelope);
+            } else {
+                _pipeline.push(envelope);
+            }
             if (that.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
             _evaluatePipelineLater();
         }
@@ -1694,7 +1700,7 @@
         }
 
         /**
-         * Sends pipelined messages if pipelining is not engaged.
+         * Sends pipelined messages
          */
         function _evaluatePipelineSend() {
             // ?: Are there any messages in pipeline, or should we force processing to get HELLO due to reconnect.
@@ -1743,8 +1749,6 @@
 
             // ----- We have an open WebSocket!
 
-            let prePipeline = undefined;
-
             // -> Yes, WebSocket is open, so send any outstanding messages
             // ?: Have we sent HELLO?
             if (!_helloSent) {
@@ -1769,8 +1773,7 @@
                     log("HELLO not sent, adding to pre-pipeline. HELLO (\"New\"), we will get assigned a MatsSocketSessionId upon WELCOME.");
                 }
                 // Add the HELLO to the prePipeline
-                prePipeline = [];
-                prePipeline.unshift(helloMessage);
+                _prePipeline.unshift(helloMessage);
                 // We will now have sent the HELLO, so do not send it again.
                 _helloSent = true;
                 // .. and again, we will now have sent the HELLO - If this was a RECONNECT, we have now done the immediate reconnect HELLO.
@@ -1782,10 +1785,11 @@
 
             // :: Send pre-pipeline messages, if there are any
             // (Before the HELLO is sent and sessionId is established, the max size of message is low on the server)
-            if (prePipeline) {
-                if (that.logging) log("Flushing prePipeline of [" + prePipeline.length + "] messages.");
-                _webSocket.send(JSON.stringify(prePipeline));
-                // NOTE: prePipeline is function scoped, so it "clears" when this function exits.
+            if (_prePipeline.length > 0) {
+                if (that.logging) log("Flushing prePipeline of [" + _prePipeline.length + "] messages.");
+                _webSocket.send(JSON.stringify(_prePipeline));
+                // Clear prePipeline
+                _prePipeline.length = 0;
             }
             // :: Send any pipelined messages.
             if (_pipeline.length > 0) {
@@ -2088,7 +2092,7 @@
                                 continue;
                             }
                             // NOTICE: Won't delete it here - that is done when we process the ACK from server
-                            _addEnvelopeToPipeline(initiationEnvelope);
+                            _addEnvelopeToPipeline_EvaluatePipelineLater(initiationEnvelope);
                             // Flush for each message, in case the size of the message was of issue why we closed (maybe pipeline was too full).
                             that.flush();
                         }
@@ -2108,7 +2112,7 @@
                                 continue;
                             }
                             // NOTICE: Won't delete it here - that is done when we process the ACK from server
-                            _addEnvelopeToPipeline(replyEnvelope);
+                            _addEnvelopeToPipeline_EvaluatePipelineLater(replyEnvelope);
                             // Flush for each message, in case the size of the message was of issue why we closed (maybe pipeline was too full).
                             that.flush();
                         }
@@ -2135,7 +2139,7 @@
                             // Note: the retry-cycles will start at attempt=2, since we initialize it with 1, and have already increased it by now.
                             let retryDelay = Math.pow(2, (initiation.attempt - 2)) * 500 + Math.round(Math.random() * 1000);
                             setTimeout(function () {
-                                _addEnvelopeToPipeline(initiationEnvelope);
+                                _addEnvelopeToPipeline_EvaluatePipelineLater(initiationEnvelope);
                             }, retryDelay);
                             continue;
                         }
@@ -2153,7 +2157,7 @@
                             // Note: the retry-cycles will start at attempt=2, since we initialize it with 1, and have already increased it by now.
                             let retryDelay = Math.pow(2, (initiation.attempt - 2)) * 500 + Math.round(Math.random() * 1000);
                             setTimeout(function () {
-                                _addEnvelopeToPipeline(replyEnvelope);
+                                _addEnvelopeToPipeline_EvaluatePipelineLater(replyEnvelope);
                             }, retryDelay);
                         }
                     } else if ((envelope.t === MessageType.ACK) || (envelope.t === MessageType.NACK)) {
@@ -2162,7 +2166,7 @@
                         // ?: Do server want receipt of the RECEIVED-from-client, indicated by the message having 'cmid' property?
                         if (envelope.cmid) {
                             // -> Yes, so send RECEIVED to server
-                            _addEnvelopeToPipeline({
+                            _addEnvelopeToPipeline_EvaluatePipelineLater({
                                 t: MessageType.ACK2,
                                 cmid: envelope.cmid
                             });
@@ -2231,7 +2235,7 @@
                         if (!terminator) {
                             ackEnvelope.desc = "The Client Terminator [" + envelope.eid + "] does not exist!";
                         }
-                        _addEnvelopeToPipeline(ackEnvelope);
+                        _addEnvelopeToPipeline_EvaluatePipelineLater(ackEnvelope);
 
                         // ?: Do we have the desired Terminator?
                         if (terminator === undefined) {
@@ -2259,7 +2263,7 @@
 
                         if (!envelope.smid) {
                             // -> No, we do not have this. Programming error from app.
-                            error("REQUEST: missing smid", "The REQUEST envelope is missing 'smid'.", envelope);
+                            error("request missing smid", "The REQUEST envelope is missing 'smid'.", envelope);
                             continue;
                         }
 
@@ -2274,12 +2278,12 @@
                         if (!endpoint) {
                             ackEnvelope.desc = "The Client Endpoint [" + envelope.eid + "] does not exist!";
                         }
-                        _addEnvelopeToPipeline(ackEnvelope);
+                        _addEnvelopeToPipeline_EvaluatePipelineLater(ackEnvelope);
 
-                        // ?: Do we have the desired Terminator?
+                        // ?: Do we have the desired Endpoint?
                         if (endpoint === undefined) {
                             // -> No, we do not have this. Programming error from app.
-                            error("missing client Endpoint", "The Client Endpoint [" + envelope.eid + "] does not exist!!", envelope);
+                            error("missing client endpoint", "The Client Endpoint [" + envelope.eid + "] does not exist!!", envelope);
                             continue;
                         }
                         // E-> We found the Endpoint to request!
@@ -2301,7 +2305,6 @@
                             // Create the Reply message
                             let replyEnvelope = {
                                 t: resolveReject,
-                                eid: envelope.reid,
                                 smid: envelope.smid,
                                 tid: envelope.tid,
                                 msg: msg
@@ -2313,8 +2316,8 @@
                                 attempt: 1,
                                 envelope: replyEnvelope
                             };
-                            // Send it over the wire
-                            _addEnvelopeToPipeline(replyEnvelope);
+                            // Send it down the wire
+                            _addEnvelopeToPipeline_EvaluatePipelineLater(replyEnvelope);
                         };
 
                         // Invoke the Endpoint, getting a Promise back.
@@ -2332,7 +2335,7 @@
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
                         if (envelope.smid) {
                             // -> Yes, so send RECEIVED to server
-                            _addEnvelopeToPipeline({
+                            _addEnvelopeToPipeline_EvaluatePipelineLater({
                                 t: MessageType.ACK,
                                 smid: envelope.smid
                             });
@@ -2362,7 +2365,7 @@
                     } else if (envelope.t === MessageType.PING) {
                         // -> PING request, respond with a PONG
                         // Add the PONG reply to pipeline
-                        _addEnvelopeToPipeline({
+                        _addEnvelopeToPipeline_EvaluatePipelineLater({
                             t: MessageType.PONG,
                             x: envelope.x
                         });
@@ -2445,11 +2448,13 @@
 
         let _pinger_TimeoutId;
 
+        let _pingId = 0;
+
         function _pingLater() {
             _pinger_TimeoutId = setTimeout(function () {
                 if (that.logging) log("Ping-'thread': About to send ping. ConnectionState:[" + that.state + "], sessionOpened:[" + _sessionOpened + "].");
                 if ((that.state === ConnectionState.SESSION_ESTABLISHED) && _sessionOpened) {
-                    let pingId = that.jid(3);
+                    let pingId = _pingId ++;
                     if (that.logging) log("Sending PING! PingId:" + pingId);
                     let pingPong = new PingPong(pingId, Date.now());
                     _pings.push(pingPong);

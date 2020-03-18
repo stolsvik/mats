@@ -101,42 +101,52 @@
             });
         });
 
-        describe('authorization invalid when Server shall send information bearing message', function () {
-            it('Request with delay long enough for Authorization expires shall require REAUTH from Client', function (done) {
+        function testIt(userId, done) {
+            setAuth(userId, 2000, 0);
 
-                setAuth("standard", 400, 0);
-
-                let authCallbackCalledCount = 0;
-                let authCallbackCalledEventType = undefined;
-                matsSocket.setAuthorizationExpiredCallback(function (event) {
-                    authCallbackCalledCount ++;
-                    authCallbackCalledEventType = event.type;
-                    setAuth();
+            let authCallbackCalledCount = 0;
+            let authCallbackCalledEventType = undefined;
+            matsSocket.setAuthorizationExpiredCallback(function (event) {
+                authCallbackCalledCount ++;
+                authCallbackCalledEventType = event.type;
+                // This standard auth does not fail reevaluateAuthentication.
+                setAuth();
+            });
+            let req = {
+                string: "test",
+                number: 15,
+                sleepTime: 10
+            };
+            let receivedCallbackInvoked = 0;
+            // Request to a service that will reply AFTER A DELAY that is long enough that auth shall be expired!
+            matsSocket.request("Test.slow", "REQUEST_authentication_from_server_" + matsSocket.id(6), req,
+                function () {
+                    receivedCallbackInvoked++;
+                })
+                .then(reply => {
+                    let data = reply.data;
+                    // Assert that we got receivedCallback ONCE
+                    chai.assert.strictEqual(receivedCallbackInvoked, 1, "Should have gotten one, and only one, receivedCallback.");
+                    // Assert that we got AuthorizationExpiredEventType.REAUTHENTICATE, and only one call to Auth.
+                    chai.assert.strictEqual(authCallbackCalledEventType, mats.AuthorizationRequiredEventType.REAUTHENTICATE, "Should have gotten AuthorizationRequiredEventType.REAUTHENTICATE authorizationExpiredCallback.");
+                    chai.assert.strictEqual(authCallbackCalledCount, 1, "authorizationExpiredCallback should only have been invoked once");
+                    // Assert data, with the changes from Server side.
+                    chai.assert.strictEqual(data.string, req.string + ":FromSlow");
+                    chai.assert.strictEqual(data.number, req.number);
+                    chai.assert.strictEqual(data.sleepTime, req.sleepTime);
+                    done();
                 });
-                let req = {
-                    string: "test",
-                    number: 15,
-                    sleepTime: 500
-                };
-                let receivedCallbackInvoked = 0;
-                // Request to a service that will reply AFTER A DELAY that is long enough that auth shall be expired!
-                matsSocket.request("Test.slow", "REQUEST_authentication_from_server_" + matsSocket.id(6), req,
-                    function () {
-                        receivedCallbackInvoked++;
-                    })
-                    .then(reply => {
-                        let data = reply.data;
-                        // Assert that we got receivedCallback ONCE
-                        chai.assert.strictEqual(receivedCallbackInvoked, 1, "Should have gotten one, and only one, receivedCallback.");
-                        // Assert that we got AuthorizationExpiredEventType.REAUTHENTICATE, and only one call to Auth.
-                        chai.assert.strictEqual(authCallbackCalledEventType, mats.AuthorizationRequiredEventType.REAUTHENTICATE, "Should have gotten AuthorizationRequiredEventType.REAUTHENTICATE authorizationExpiredCallback.");
-                        chai.assert.strictEqual(authCallbackCalledCount, 1, "authorizationExpiredCallback should only have been invoked once");
-                        // Assert data, with the changes from Server side.
-                        chai.assert.strictEqual(data.string, req.string + ":FromSlow");
-                        chai.assert.strictEqual(data.number, req.number);
-                        chai.assert.strictEqual(data.sleepTime, req.sleepTime);
-                        done();
-                    });
+        }
+
+        describe('authorization invalid when Server about to receive or send out information bearing message', function () {
+            it('Receive: Using special userId which DummyAuthenticator fails on step reevaluateAuthentication(..), Server should ask for REAUTH when we perform Request, and when gotten, resolve w/o retransmit (server "holds" message).', function (done) {
+                // Using special "userId" for DummySessionAuthenticator that specifically fails @ reevaluateAuthentication(..) step
+                testIt("fail_reevaluateAuthentication", done);
+            });
+
+            it('Send: Request with delay long enough before Reply so that Authorization expires shall have Server require REAUTH from Client', function (done) {
+                // Using special "userId" for DummySessionAuthenticator that specifically fails @ reevaluateAuthenticationForOutgoingMessage(..) step
+                testIt("fail_reevaluateAuthenticationForOutgoingMessage", done);
             });
         });
     });
