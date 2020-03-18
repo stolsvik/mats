@@ -220,7 +220,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 }
             }
 
-            // :: 1. Look for Authorization header in any of the messages
+            // :: 1a. Look for Authorization header in any of the messages
             // NOTE! Authorization header can come with ANY message!
             String newAuthorization = null;
             for (MatsSocketEnvelopeDto envelope : envelopes) {
@@ -234,10 +234,12 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     // Notice: No 'break', as we want to go through all messages and find the latest auth header.
                 }
             }
-            // :: 1b. Remove any specific AUTH message (it ONLY contains the 'auth' property, handled above).
+            // :: 1b. Remove any *specific* AUTH message (it ONLY contains the 'auth' property, handled above).
+            // NOTE: the 'auth' property can come on ANY message, but AUTH is a special message to send 'auth' with.
             envelopes.removeIf(envelope -> envelope.t == AUTH);
 
-            // :: 2a. Handle any PING messages (send PONG asap).
+
+            // :: 2a. Handle PINGs (send PONG asap).
 
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeDto envelope = it.next();
@@ -275,7 +277,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 }
             }
 
-            // :: 2b. Handle any PONG messages
+            // :: 2b. Handle PONGs
 
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeDto envelope = it.next();
@@ -296,188 +298,28 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 }
             }
 
-            // ?: Do we have any more messages in pipeline, or have we gotten new Authorization?
-            if (envelopes.isEmpty() && (newAuthorization == null)) {
-                // -> No messages, and no new auth. Thus, all messages that were here was PING.
-                // Return, without considering valid existing authentication.
-                // Again: It is allowed to send PINGs, and thus keep connection open, without having current
-                // valid authorization. The rationale here is that otherwise we'd have to /continuously/ ask an
-                // OAuth/OIDC/token server about new tokens, which probably would keep that session open. With
-                // the present logic, the only thing you can do without authorization, is keeping the connection
-                // actually open. Once you try to send any information-bearing messages, authentication check will
-                // immediately kick in - and then you better have sent over valid auth, otherwise you're kicked off.
-                return;
-            }
+            // :: 3a. Handle ACKs and NACKs - i.e. Client tells us that it has received an information bearing message.
 
-            // AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
-
-            // :: 3. Evaluate Authentication by Authorization header
-            boolean authenticationOk = doAuthentication(newAuthorization);
-            // ?: Did this go OK?
-            if (!authenticationOk) {
-                // -> No, not OK - doAuthentication() has already closed session and websocket and the lot.
-                return;
-            }
-
-            // :: 4. Are we authenticated? (I.e. Authorization Header must sent along in the very first pipeline..)
-            if (_authorization == null) {
-                log.error("We have not got Authorization header!");
-                closeSessionWithPolicyViolation("Missing Authorization header");
-                return;
-            }
-            if (_principal == null) {
-                log.error("We have not got Principal!");
-                closeSessionWithPolicyViolation("Missing Principal");
-                return;
-            }
-            if (_userId == null) {
-                log.error("We have not got UserId!");
-                closeSessionWithPolicyViolation("Missing UserId");
-                return;
-            }
-
-            // :: 5. look for a HELLO message
-            // (should be first/alone, but we will reply to it immediately even if part of pipeline).
+            // ACK or NACK denotes that we can delete it from outbox on our side.
+            List<String> clientAcks = null;
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeDto envelope = it.next();
-                if (envelope.t == HELLO) {
-                    try { // try-finally: MDC.remove(..)
-                        MDC.put(MDC_MESSAGE_TYPE, envelope.t.name());
-                        // Remove this HELLO envelope from pipeline
-                        it.remove();
-                        // ?: Have we processed HELLO before?
-                        if (_helloProcessedOk) {
-                            // -> Yes, and this is not according to protocol.
-                            closeSessionWithPolicyViolation(
-                                    "Shall only receive HELLO once for an entire MatsSocket Session.");
-                            return;
-                        }
-                        // E-> First time we see HELLO
-                        // :: Handle the HELLO
-                        boolean handleHelloOk = handleHello(clientMessageReceivedTimestamp, envelope);
-                        // ?: Did the HELLO go OK?
-                        if (!handleHelloOk) {
-                            // -> No, not OK - handleHello(..) has already closed session and websocket and the lot.
-                            return;
-                        }
-                    }
-                    finally {
-                        MDC.remove(MDC_MESSAGE_TYPE);
-                    }
-                    break;
-                }
-            }
 
-            // :: 6. Assert state: All present: SessionId, Authorization, Principal and UserId.
-            if ((_matsSocketSessionId == null)
-                    || (_authorization == null)
-                    || (_principal == null)
-                    || (_userId == null)) {
-                closeSessionWithPolicyViolation("Illegal state at checkpoint.");
-                return;
-            }
-
-            List<String> clientAcks = null;
-            List<String> clientAck2s = null;
-
-            // :: 7. Now go through and handle all the rest of the messages
-            List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
-            for (MatsSocketEnvelopeDto envelope : envelopes) {
-                try { // try-finally: MDC.remove..
-                    MDC.put(MDC_MESSAGE_TYPE, envelope.t.name());
-                    if (envelope.tid != null) {
-                        MDC.put(MDC_TRACE_ID, envelope.tid);
-                    }
-
-                    // :: These are the "information bearing messages" client-to-server, which we need to put in inbox
-                    // so that we can catch double-deliveries of same message.
-
-                    // ?: Is this a incoming SEND or REQUEST, or Reply RESOLVE or REJECT to us?
-                    if ((envelope.t == SEND) || (envelope.t == REQUEST)
-                            || (envelope.t == RESOLVE) || (envelope.t == REJECT)) {
-                        boolean ok = handleSendOrRequestOrReply(clientMessageReceivedTimestamp, replyEnvelopes,
-                                envelope);
-                        if (!ok) {
-                            return;
-                        }
-                        // The message is handled, so go to next message.
-                        continue;
-                    }
-
-                    // :: This is the "client has received an information-bearing message"-message, denoting
-                    // that we can delete it from outbox on our side.
-
-                    // ?: Is this a ACK or NACK for a message from us?
-                    else if ((envelope.t == ACK) || (envelope.t == NACK)) {
-                        if (envelope.smid == null) {
-                            closeSessionWithProtocolError("Received " + envelope.t + " message with missing 'smid.");
-                            return;
-                        }
-                        if (clientAcks == null) {
-                            clientAcks = new ArrayList<>();
-                        }
-                        clientAcks.add(envelope.smid);
-                        // The message is handled, so go to next message.
-                        continue;
-                    }
-
-                    // :: This is the "client has deleted an information-bearing message from his outbox"-message,
-                    // denoting that we can delete it from inbox on our side
-
-                    // ?: Is this a ACK2 for a ACK/NACK from us?
-                    else if (envelope.t == ACK2) {
-                        if (envelope.cmid == null) {
-                            closeSessionWithProtocolError("Received ACK2 message with missing 'cmid.");
-                            return;
-                        }
-                        if (clientAck2s == null) {
-                            clientAck2s = new ArrayList<>();
-                        }
-                        clientAck2s.add(envelope.cmid);
-                        // The message is handled, so go to next message.
-                        continue;
-                    }
-
-                    // :: Unknown message..
-
-                    else {
-                        // -> Unknown message: We're not very lenient her - CLOSE SESSION AND CONNECTION!
-                        log.error("Got an unknown message type [" + envelope.t
-                                + "] from client. Answering by closing connection with PROTOCOL_ERROR.");
-                        closeSessionWithProtocolError("Received unknown message type.");
+                // ?: Is this a ACK or NACK for a message from us?
+                if ((envelope.t == ACK) || (envelope.t == NACK)) {
+                    // -> Yes - remove it, we're handling it now.
+                    it.remove();
+                    if (envelope.smid == null) {
+                        closeSessionWithProtocolError("Received " + envelope.t + " message with missing 'smid.");
                         return;
                     }
-                }
-                finally {
-                    MDC.remove(MDC_MESSAGE_TYPE);
-                }
-            }
-
-            // ----- All messages handled.
-
-            // Send all replies
-            if (replyEnvelopes.size() > 0) {
-                // TODO: Use the MessageToWebSocketForwarder for this.
-                try {
-                    String json = _envelopeListObjectWriter.writeValueAsString(replyEnvelopes);
-                    webSocketSendText(json);
-                }
-                catch (JsonProcessingException e) {
-                    throw new AssertionError("Huh, couldn't serialize message?!", e);
-                }
-                catch (IOException e) {
-                    // TODO: Handle!
-                    // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
-                    throw new AssertionError("Hot damn.", e);
+                    if (clientAcks == null) {
+                        clientAcks = new ArrayList<>();
+                    }
+                    clientAcks.add(envelope.smid);
                 }
             }
-            // ?: Notify about existing messages
-            if (shouldNotifyAboutExistingMessages) {
-                // -> Yes, so do it now.
-                _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
-            }
-
-            // ?: Did we get any RECEIVED?
+            // .. now actually act on the ACK and NACKs (Reply with ACK2, and delete from outbox)
             // TODO: Make this a bit more nifty, putting such Ids on a queue of sorts, finishing async
             if (clientAcks != null) {
                 log.debug("Got ACK/NACK for messages " + clientAcks + ".");
@@ -513,7 +355,29 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 }
             }
 
-            // ?: Did we get any ACKACK?
+            // :: 3b. Handle ACK2's - which is that the Client has received an ACK or NACK from us.
+
+            // This is thus the "client has deleted an information-bearing message from his outbox"-message,
+            // denoting that we can delete it from inbox on our side
+            List<String> clientAck2s = null;
+            for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketEnvelopeDto envelope = it.next();
+                // ?: Is this a ACK2 for a ACK/NACK from us?
+                if (envelope.t == ACK2) {
+                    it.remove();
+                    if (envelope.cmid == null) {
+                        closeSessionWithProtocolError("Received ACK2 message with missing 'cmid.");
+                        return;
+                    }
+                    if (clientAck2s == null) {
+                        clientAck2s = new ArrayList<>();
+                    }
+                    clientAck2s.add(envelope.cmid);
+                    // The message is handled, so go to next message.
+                    continue;
+                }
+            }
+            // .. now actually act on the ACK2s (delete from our inbox - we do not need it anymore to guard for DD)
             // TODO: Make this a bit more nifty, putting such Ids on a queue of sorts, finishing async
             if (clientAck2s != null) {
                 log.debug("Got ACK2 for messages " + clientAck2s + ".");
@@ -523,8 +387,165 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 }
                 catch (DataAccessException e) {
                     // TODO: Make self-healer thingy.
-                    log.warn("Got problems when trying to mark messages as complete. Ignoring, hoping for miracles.");
+                    log.warn("Got problems when trying to delete Messages from Inbox."
+                            + " Ignoring, not that big of a deal.");
                 }
+            }
+
+            // :: 4. Evaluate whether we should go further.
+
+            // ?: Do we have any more messages in pipeline, or have we gotten new Authorization?
+            if (envelopes.isEmpty() && (newAuthorization == null)) {
+                // -> No messages, and no new auth. Thus, all messages that were here was control messages.
+                // Return, without considering valid existing authentication. Again: It is allowed to send control
+                // messages (in particular PING), and thus keep connection open, without having current valid
+                // authorization. The rationale here is that otherwise we'd have to /continuously/ ask an
+                // OAuth/OIDC/token server about new tokens, which probably would keep the authentication session open.
+                // With the present logic, the only thing you can do without authorization, is keeping the connection
+                // actually open. Once you try to send any information-bearing messages, authentication check will
+                // immediately kick in - and then you better have sent over valid auth, otherwise you're kicked off.
+                return;
+            }
+
+            // ----- We have messages in pipeline that needs Authentication and Authorization to be processed!
+
+            // === AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
+
+            // :: 5. Evaluate Authentication by Authorization header
+            boolean authenticationOk = doAuthentication(newAuthorization);
+            // ?: Did this go OK?
+            if (!authenticationOk) {
+                // -> No, not OK - doAuthentication() has already closed session and websocket and the lot.
+                return;
+            }
+
+            // :: 6. Are we authenticated? (I.e. Authorization Header must sent along in the very first pipeline..)
+            if (_authorization == null) {
+                log.error("We have not got Authorization header!");
+                closeSessionWithPolicyViolation("Missing Authorization header");
+                return;
+            }
+            if (_principal == null) {
+                log.error("We have not got Principal!");
+                closeSessionWithPolicyViolation("Missing Principal");
+                return;
+            }
+            if (_userId == null) {
+                log.error("We have not got UserId!");
+                closeSessionWithPolicyViolation("Missing UserId");
+                return;
+            }
+
+            // :: 7. look for a HELLO message
+
+            // (should be first/alone, but we will reply to it immediately even if part of pipeline).
+            for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketEnvelopeDto envelope = it.next();
+                if (envelope.t == HELLO) {
+                    try { // try-finally: MDC.remove(..)
+                        MDC.put(MDC_MESSAGE_TYPE, envelope.t.name());
+                        // Remove this HELLO envelope from pipeline
+                        it.remove();
+                        // ?: Have we processed HELLO before for this WebSocket connection?
+                        if (_helloProcessedOk) {
+                            // -> Yes, and this is not according to protocol.
+                            closeSessionWithPolicyViolation("Shall only receive HELLO once per MatsSocket"
+                                    + " WebSocket connection.");
+                            return;
+                        }
+                        // E-> First time we see HELLO
+                        // :: Handle the HELLO
+                        boolean handleHelloOk = handleHello(clientMessageReceivedTimestamp, envelope);
+                        // ?: Did the HELLO go OK?
+                        if (!handleHelloOk) {
+                            // -> No, not OK - handleHello(..) has already closed session and websocket and the lot.
+                            return;
+                        }
+                        shouldNotifyAboutExistingMessages = true;
+                    }
+                    finally {
+                        MDC.remove(MDC_MESSAGE_TYPE);
+                    }
+                    break;
+                }
+            }
+
+            // :: 8. Assert state: All present: SessionId, Authorization, Principal and UserId.
+
+            if ((_matsSocketSessionId == null)
+                    || (_authorization == null)
+                    || (_principal == null)
+                    || (_userId == null)) {
+                closeSessionWithPolicyViolation("Illegal state at checkpoint.");
+                return;
+            }
+
+            // :: 9. Now go through and handle all the rest of the messages
+
+            List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
+            for (MatsSocketEnvelopeDto envelope : envelopes) {
+                try { // try-finally: MDC.remove..
+                    MDC.put(MDC_MESSAGE_TYPE, envelope.t.name());
+                    if (envelope.tid != null) {
+                        MDC.put(MDC_TRACE_ID, envelope.tid);
+                    }
+
+                    // :: These are the "information bearing messages" client-to-server, which we need to put in inbox
+                    // so that we can catch double-deliveries of same message.
+
+                    // ?: Is this a incoming SEND or REQUEST, or Reply RESOLVE or REJECT to us?
+                    if ((envelope.t == SEND) || (envelope.t == REQUEST)
+                            || (envelope.t == RESOLVE) || (envelope.t == REJECT)) {
+                        boolean ok = handleSendOrRequestOrReply(clientMessageReceivedTimestamp, replyEnvelopes,
+                                envelope);
+                        if (!ok) {
+                            return;
+                        }
+                        // The message is handled, so go to next message.
+                        continue;
+                    }
+
+                    // :: Unknown message..
+
+                    else {
+                        // -> Unknown message: We're not very lenient her - CLOSE SESSION AND CONNECTION!
+                        log.error("Got an unknown message type [" + envelope.t
+                                + "] from client. Answering by closing connection with PROTOCOL_ERROR.");
+                        closeSessionWithProtocolError("Received unknown message type.");
+                        return;
+                    }
+                }
+                finally {
+                    MDC.remove(MDC_MESSAGE_TYPE);
+                }
+            }
+
+            // ----- All messages handled.
+
+            // :: 10. Send all replies
+
+            if (replyEnvelopes.size() > 0) {
+                // TODO: Use the MessageToWebSocketForwarder for this.
+                try {
+                    String json = _envelopeListObjectWriter.writeValueAsString(replyEnvelopes);
+                    webSocketSendText(json);
+                }
+                catch (JsonProcessingException e) {
+                    throw new AssertionError("Huh, couldn't serialize message?!", e);
+                }
+                catch (IOException e) {
+                    // TODO: Handle!
+                    // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
+                    throw new AssertionError("Hot damn.", e);
+                }
+            }
+
+            // 11. Possibly notify about existing messages (after we process HELLO)
+
+            // ?: Notify about existing messages
+            if (shouldNotifyAboutExistingMessages) {
+                // -> Yes, so do it now.
+                _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
             }
         }
         finally {
@@ -809,8 +830,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                  * user so things should be OK, this ID is obviously the one the client got the last time. So if he
                  * really wants to screw up his life by doing reconnects when he does not need to, then OK.
                  */
-                // ?: If the existing is open, then deregister it from us, and DISCONNECT it.
+                // ?: Is the existing local session open?
                 if (existingSession.get().getWebSocketSession().isOpen()) {
+                    // -> Yes, open, so close.DISCONNECT existing - we will "overwrite" the current local afterwards.
                     existingSession.get().closeWebSocketAndDeregisterSession(MatsSocketCloseCodes.DISCONNECT,
                             "Cannot have two MatsSockets with the same MatsSocketSessionId"
                                     + " - closing the previous (from local node)");
@@ -871,6 +893,8 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         try {
             _matsSocketServer.getClusterStoreAndForward().registerSessionAtThisNode(_matsSocketSessionId, _userId,
                     _connectionId);
+
+            // TODO: Should check that this particular user does not have more than e.g. 20 simultaneous connections.
         }
         catch (WrongUserException e) {
             // -> This should never occur with the normal MatsSocket clients, so this is probably hackery going on.
@@ -892,7 +916,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         // Increase timeout to "prod timeout", now that client has said HELLO
         // TODO: Increase timeout, e.g. 75 seconds.
         _webSocketSession.setMaxIdleTimeout(30_000);
-        // Set high limit for text, as we, don't want to be held back on the protocol side of things.
+        // Set high limit for text, as we don't want to be held back on the protocol side of things.
         _webSocketSession.setMaxTextMessageBufferSize(50 * 1024 * 1024);
 
         // :: Create reply WELCOME message
@@ -905,9 +929,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         log.info("Sending WELCOME! MatsSocketSessionId:[" + _matsSocketSessionId + "]!");
 
         // Pack it over to client
-        // NOTICE: Since this is the first message ever, there will not be any currently-sending messages the other
-        // way (i.e. server-to-client, from the MessageToWebSocketForwarder). Therefore, it is perfectly OK to
-        // do this synchronously right here.
+        // NOTICE: Since this is the first message ever for this connection, there will not be any currently-sending
+        // messages the other way (i.e. server-to-client, from the MessageToWebSocketForwarder). Therefore, it is
+        // perfectly OK to do this synchronously right here.
         List<MatsSocketEnvelopeDto> replySingleton = Collections.singletonList(replyEnvelope);
         try {
             String json = _envelopeListObjectWriter.writeValueAsString(replySingleton);
@@ -1207,7 +1231,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             int retry = 0;
             while (true) {
                 try {
-                    // ?: Was this a REPLY (that wasn't a double-delivery)
+                    // ?: Was this a Reply (RESOLVE or REJECT) (that wasn't a double-delivery)
                     if (_correlationInfo_LambdaHack[0] != null) {
                         // -> Yes, REPLY, so try to store back the Correlation Information since we did not handle
                         // it after all (so go for RETRY from Client).
@@ -1230,9 +1254,9 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     retry++;
                     if (retry >= 12) {
                         log.error("Dammit, didn't manage to recover from a MatsMessageSendRuntimeException."
-                                + " Closing session and websocket with SERVER_ERROR.", ex);
+                                + " Closing MatsSocketSession and WebSocket with UNEXPECTED_CONDITION.", ex);
                         closeSessionAndWebSocket(MatsSocketCloseCodes.UNEXPECTED_CONDITION,
-                                "Server error, could not reliably recover.");
+                                "Server error (data store), could not reliably recover (retry count exceeded)");
                         return false;
                     }
                     log.warn("Didn't manage to get out of a MatsMessageSendRuntimeException situation at attempt ["
@@ -1242,10 +1266,10 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                     }
                     catch (InterruptedException exc) {
                         log.warn("Got interrupted while chill-sleeping trying to recover from"
-                                + "MatsMessageSendRuntimeException. Closing session and websocket with SERVER_ERROR.",
-                                exc);
+                                + " MatsMessageSendRuntimeException. Closing MatsSocketSession and WebSocket with"
+                                + " UNEXPECTED_CONDITION.", exc);
                         closeSessionAndWebSocket(MatsSocketCloseCodes.UNEXPECTED_CONDITION,
-                                "Server error, could not reliably recover.");
+                                "Server error (data store), could not reliably recover (interrupted).");
                         return false;
                     }
                 }
@@ -1519,6 +1543,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 // Send the SEND message
                 init.send(matsMessage);
             }
+        }
+
+        @Override
+        public MatsInitiate getMatsInitiate() {
+            return _matsInitiate;
         }
 
         @Override

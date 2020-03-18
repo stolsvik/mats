@@ -21,9 +21,9 @@
     describe('MatsSocket integration tests of Authentication & Authorization', function () {
         let matsSocket;
 
-        function setAuth(userId = "standard", duration = 20000, roomForLatencyMillis = 10000) {
+        function setAuth(userId = "standard", expirationTimeMillisSinceEpoch = 20000, roomForLatencyMillis = 10000) {
             const now = Date.now();
-            const expiry = now + duration;
+            const expiry = now + expirationTimeMillisSinceEpoch;
             matsSocket.setCurrentAuthorization("DummyAuth:" + userId + ":" + expiry, expiry, roomForLatencyMillis);
         }
 
@@ -97,23 +97,44 @@
                     .then(reply => {
                         chai.assert(authCallbackCalled);
                         done();
-                    })
+                    });
             });
         });
 
-        // TODO: Check for auth coming from server
+        describe('authorization invalid when Server shall send information bearing message', function () {
+            it('Request with delay long enough for Authorization expires shall require REAUTH from Client', function (done) {
 
-        describe('authorization serverside', function () {
-            it('Should invoke authorization callback before making calls', function (done) {
-                let authCallbackCalled = false;
+                setAuth("standard", 400, 0);
 
+                let authCallbackCalledCount = 0;
+                let authCallbackCalledEventType = undefined;
                 matsSocket.setAuthorizationExpiredCallback(function (event) {
-                    authCallbackCalled = true;
+                    authCallbackCalledCount ++;
+                    authCallbackCalledEventType = event.type;
                     setAuth();
                 });
-                matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {})
+                let req = {
+                    string: "test",
+                    number: 15,
+                    sleepTime: 500
+                };
+                let receivedCallbackInvoked = 0;
+                // Request to a service that will reply AFTER A DELAY that is long enough that auth shall be expired!
+                matsSocket.request("Test.slow", "REQUEST_authentication_from_server_" + matsSocket.id(6), req,
+                    function () {
+                        receivedCallbackInvoked++;
+                    })
                     .then(reply => {
-                        chai.assert(authCallbackCalled);
+                        let data = reply.data;
+                        // Assert that we got receivedCallback ONCE
+                        chai.assert.strictEqual(receivedCallbackInvoked, 1, "Should have gotten one, and only one, receivedCallback.");
+                        // Assert that we got AuthorizationExpiredEventType.REAUTHENTICATE, and only one call to Auth.
+                        chai.assert.strictEqual(authCallbackCalledEventType, mats.AuthorizationRequiredEventType.REAUTHENTICATE, "Should have gotten AuthorizationRequiredEventType.REAUTHENTICATE authorizationExpiredCallback.");
+                        chai.assert.strictEqual(authCallbackCalledCount, 1, "authorizationExpiredCallback should only have been invoked once");
+                        // Assert data, with the changes from Server side.
+                        chai.assert.strictEqual(data.string, req.string + ":FromSlow");
+                        chai.assert.strictEqual(data.number, req.number);
+                        chai.assert.strictEqual(data.sleepTime, req.sleepTime);
                         done();
                     });
             });

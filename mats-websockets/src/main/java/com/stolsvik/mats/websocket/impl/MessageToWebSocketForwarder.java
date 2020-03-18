@@ -179,9 +179,9 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     boolean authOk = matsSocketMessageHandler.reevaluateAuthenticationForOutgoingMessage();
                     if (!authOk) {
                         // Send "REAUTH" message, to get Client to send us new auth
-                        matsSocketMessageHandler.webSocketSendText("[{t:\"" + MessageType.REAUTH + "\"}]");
+                        matsSocketMessageHandler.webSocketSendText("[{\"t\":\"" + MessageType.REAUTH + "\"}]");
                         // Bail out and wait for new auth to come in, which will re-start sending.
-                        // NOTICE: The nok-ok return above will also have set "holdOutgoingMessages".
+                        // NOTICE: The not-ok return above will also have set "holdOutgoingMessages".
                         return;
                     }
 

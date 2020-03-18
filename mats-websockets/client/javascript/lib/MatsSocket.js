@@ -17,6 +17,9 @@
 
         root.ConnectionState = root.mats.ConnectionState;
 
+        root.AuthorizationRequiredEvent = root.mats.AuthorizationRequiredEvent;
+        root.AuthorizationRequiredEventType = root.mats.AuthorizationRequiredEventType
+
         root.ConnectionEvent = root.mats.ConnectionEvent;
         root.ConnectionEventType = root.mats.ConnectionEventType;
 
@@ -561,7 +564,6 @@
      * a Server initiated request.
      */
     function MessageEvent(type, data, traceId, messageId, receivedTimestamp) {
-
         /**
          * Values are from {@link MessageEventType}: Either {@link MessageEventType#SEND "send"} (for a Client
          * Terminator when targeted for a Server initiated Send); {@link MessageEventType#REQUEST "request"} (for a
@@ -636,7 +638,6 @@
          */
         this.roundTripMillis = undefined;
 
-
         /**
          * An instance of {@link DebugInformation}, potentially containing interesting meta-information about the
          * call.
@@ -659,7 +660,6 @@
          */
         SESSION_CLOSED: "sessionclosed"
     });
-
 
     /**
      * Meta-information for the call, availability depends on the allowed debug options for the authenticated user,
@@ -686,6 +686,56 @@
     }
 
     /**
+     * @param {string} type type of the event, one of {@link AuthorizationRequiredEvent}.
+     * @param {number} currentExpirationTimestamp millis-from-epoch when the current Authorization expires.
+     * @constructor
+     */
+    function AuthorizationRequiredEvent(type, currentExpirationTimestamp) {
+        /**
+         * Type of the event, one of {@link AuthorizationRequiredEvent}.
+         *
+         * @type {string} the correlationId used by the client lib to correlate outstanding pings with incoming pongs.
+         */
+        this.type = type;
+
+        /**
+         * Millis-from-epoch when the current Authorization expires - note that this might well still be in the future,
+         * but the "slack" left before expiration is not long enough.
+         *
+         * @type {number}
+         */
+        this.currentExpirationTimestamp = currentExpirationTimestamp;
+    }
+
+    /**
+     * Type of {@link AuthorizationRequiredEvent}.
+     *
+     * @type {Readonly<{NOT_PRESENT: string, SERVER_REQUEST: string, EXPIRED: string}>}
+     */
+    const AuthorizationRequiredEventType = Object.freeze({
+        /**
+         * Initial state, if auth not already set by app.
+         */
+        NOT_PRESENT: "notpresent",
+
+        /**
+         * The authentication is expired - note that this might well still be in the future,
+         * but the "slack" left before expiration is not long enough.
+         */
+        EXPIRED: "expired",
+
+        /**
+         * The server has requested that the app provides fresh auth to proceed - this needs to be fully fresh, even
+         * though there might still be "slack" enough left on the current authorization to proceed. (The server side
+         * might want the full expiry to proceed, or wants to ensure that the app can still produce new auth - i.e.
+         * it might suspect that the current authentication session has been invalidated, and need proof that the app
+         * can still produce new authorizations/tokens).
+         */
+        REAUTHENTICATE: "reauthenticate"
+    });
+
+
+    /**
      * Stats: A "holding struct" for pings - you may get the latest pings (with experienced round-trip times) from the
      * property {@link MatsSocket#pings}.
      *
@@ -697,21 +747,21 @@
         /**
          * Pretty meaningless information, but if logged server side, you can possibly correlate outliers.
          *
-         * @type {string} the correlationId used by the client lib to correlate outstanding pings with incoming pongs.
+         * @type {string}
          */
         this.correlationId = correlationId;
 
         /**
          * Millis-from-epoch when this ping was sent.
          *
-         * @type {number} which this ping was sent, millis-from-epoch.
+         * @type {number}
          */
         this.sentTimestamp = sentTimestamp;
 
         /**
          * The experienced round-trip time for this ping-pong - this is the time back-and-forth.
          *
-         * @type {number} the number of milliseconds from ping sent to pong received.
+         * @type {number}
          */
         this.roundTripMillis = undefined;
     }
@@ -933,26 +983,34 @@
          * @param authorizationHeader the authorization String which will be resolved to a Principal on the server side by the
          * authorization plugin (and which potentially also will be forwarded to other resources that requires
          * authorization).
-         * @param expirationTimeMillisSinceEpoch the millis-since-epoch at which this authorization (e.g. JWT access
+         * @param expirationTimestamp the millis-since-epoch at which this authorization (e.g. JWT access
          * token) expires. -1 means "never expires". <i>Notice that in a JWT token, the expiration time is in
          * seconds, not millis: Multiply by 1000.</i>
-         * @param roomForLatencyMillis the number of millis which is subtracted from the 'expirationTimeMillisSinceEpoch' to
+         * @param roomForLatencyMillis the number of millis which is subtracted from the 'expirationTimestamp' to
          * find the point in time where the MatsSocket will refuse to use the authorization and instead invoke the
          * 'authorizationExpiredCallback' and wait for a new authorization being set by invocation of the present method.
          * Depending on what the usage of the Authorization string is on server side is, this should probably <b>at least</b> be 10000,
          * i.e. 10 seconds - but if the Mats endpoints uses the Authorization string to do further accesses, both latency
          * and queue time must be taken into account (e.g. for calling into another API that also needs a valid token).
          */
-        this.setCurrentAuthorization = function (authorizationHeader, expirationTimeMillisSinceEpoch, roomForLatencyMillis) {
+        this.setCurrentAuthorization = function (authorizationHeader, expirationTimestamp, roomForLatencyMillis) {
+            if (this.logging) log("Got Authorization which "
+                + (expirationTimestamp !== -1 ? "Expires in [" + (expirationTimestamp - Date.now()) + " ms]" : "[Never expires]")
+                + ", roomForLatencyMillis: " + roomForLatencyMillis);
+
             _authorization = authorizationHeader;
-            _expirationTimeMillisSinceEpoch = expirationTimeMillisSinceEpoch;
+            _expirationTimestamp = expirationTimestamp;
             _roomForLatencyMillis = roomForLatencyMillis;
             _sendAuthorizationToServer = true;
-            _authExpiredCallbackInvoked = false;
-
-            if (this.logging) log("Got Authorization which "
-                + (expirationTimeMillisSinceEpoch !== -1 ? "Expires in [" + (expirationTimeMillisSinceEpoch - Date.now()) + " ms]" : "[Never expires]")
-                + ", roomForLatencyMillis: " + roomForLatencyMillis);
+            // ?: Should we send it now?
+            if (_authExpiredCallbackInvoked === AuthorizationRequiredEventType.REAUTHENTICATE) {
+                log("Immediate send of AUTH due to SERVER_REQUEST");
+                _addEnvelopeToPipeline({
+                    t: MessageType.AUTH
+                });
+            }
+            // We're now back to "normal", i.e. not outstanding authorization request.
+            _authExpiredCallbackInvoked = undefined;
 
             // Evaluate whether there are stuff in the pipeline that should be sent now.
             // (Not-yet-sent HELLO does not count..)
@@ -1395,8 +1453,9 @@
         let _reconnect_ForceSendHello = false;
 
         let _authorization = undefined;
+        let _currentAuthorizationSentToServer = undefined;
         let _sendAuthorizationToServer = false;
-        let _expirationTimeMillisSinceEpoch = undefined;
+        let _expirationTimestamp = undefined;
         let _roomForLatencyMillis = undefined;
         let _authorizationExpiredCallback = undefined;
         let _lastMessageEnqueuedTimestamp = Date.now(); // Start by assuming that it was just used.
@@ -1590,6 +1649,13 @@
          * invokeLater-style so as to get "auth-pipelining". Use flush() to get sync send.
          */
         function _addEnvelopeToPipeline(envelope) {
+            // ?: Have we sent hello, i.e. session is "active", but the authorization has changed since last we sent over authorization?
+            if (_helloSent && (_currentAuthorizationSentToServer !== _authorization)) {
+                if (that.logging) log("Authorization has changed, so we add it to the envelope about to be enqueued, of type ["+envelope.t+"].");
+                // -> Yes, it has changed, so set new, and add it to envelope of this next message.
+                _currentAuthorizationSentToServer = _authorization;
+                envelope.auth = _authorization;
+            }
             _pipeline.push(envelope);
             if (that.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
             _evaluatePipelineLater();
@@ -1607,6 +1673,26 @@
             }, 2);
         }
 
+        function _requestNewAuthorizationFromApp(what, event) {
+            // ?: Have we already asked app for new auth?
+            if (_authExpiredCallbackInvoked) {
+                // -> Yes, so just return.
+                log("Authorization was " + what + ", but we've already asked app for it due to: [" + _authExpiredCallbackInvoked + "].");
+                return;
+            }
+            // E-> No, not asked for auth - so do it.
+            log("Authorization was " + what + ". Will not send pipeline until gotten. Invoking 'authorizationExpiredCallback', type:[" + event.type + "].");
+            // We will have asked for auth after this.
+            _authExpiredCallbackInvoked = event.type;
+            // Assert that we have callback
+            if (!_authorizationExpiredCallback) {
+                error("missingauthcallback", "Was about to ask app for new Authorization header, but the 'authorizationExpiredCallback' is not present.");
+                return;
+            }
+            // Ask app for new auth
+            _authorizationExpiredCallback(event);
+        }
+
         /**
          * Sends pipelined messages if pipelining is not engaged.
          */
@@ -1619,42 +1705,20 @@
             }
             // ?: Do we have authorization?!
             if (_authorization === undefined) {
-                // -> Yes, authorization is expired.
-                // ?: Have we already asked app for new auth?
-                if (_authExpiredCallbackInvoked) {
-                    // -> Yes, so just return.
-                    log("Authorization was not present, but we've already asked app for it.");
-                    return;
-                }
-                // E-> No, not asked for auth - so do it.
-                log("Authorization was not present. Need this to continue. Invoking callback..");
-                // We will have asked for auth after next line.
-                _authExpiredCallbackInvoked = true;
-                // Ask for auth
-                _authorizationExpiredCallback({
-                    type: "notpresent"
-                });
+                // -> No, authorization not present.
+                _requestNewAuthorizationFromApp("not present", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.NOT_PRESENT, undefined));
                 return;
             }
             // ?: Check whether we have expired authorization
-            if ((_expirationTimeMillisSinceEpoch !== undefined) && (_expirationTimeMillisSinceEpoch !== -1)
-                && ((_expirationTimeMillisSinceEpoch - _roomForLatencyMillis) < Date.now())) {
+            if ((_expirationTimestamp !== undefined) && (_expirationTimestamp !== -1)
+                && ((_expirationTimestamp - _roomForLatencyMillis) < Date.now())) {
                 // -> Yes, authorization is expired.
-                // ?: Have we already asked app for new auth?
-                if (_authExpiredCallbackInvoked) {
-                    // -> Yes, so just return.
-                    log("Authorization was expired, but we've already asked app for new.");
-                    return;
-                }
-                // E-> No, not asked for new - so do it.
-                log("Authorization was expired. Need new to continue. Invoking callback..");
-                // We will have asked for auth after next line.
-                _authExpiredCallbackInvoked = true;
-                // Ask for auth
-                _authorizationExpiredCallback({
-                    type: "expired",
-                    currentAuthorizationExpirationTime: _expirationTimeMillisSinceEpoch
-                });
+                _requestNewAuthorizationFromApp("expired", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.EXPIRED, _expirationTimestamp));
+                return;
+            }
+            // ?: Check that we are not already waiting for new auth
+            if (_authExpiredCallbackInvoked) {
+                log("We have asked app for new authorization, and still waiting for it.");
                 return;
             }
 
@@ -1712,6 +1776,8 @@
                 // .. and again, we will now have sent the HELLO - If this was a RECONNECT, we have now done the immediate reconnect HELLO.
                 // (As opposed to initial connection, where we do not send before having an actual information bearing message in pipeline)
                 _reconnect_ForceSendHello = false;
+                // We've sent the current auth
+                _currentAuthorizationSentToServer = _authorization;
             }
 
             // :: Send pre-pipeline messages, if there are any
@@ -2012,13 +2078,13 @@
                             // ?: Is the RetransmitGuard the same as we currently have?
                             if (initiation.retransmitGuard === _outboxInitiations_RetransmitGuard) {
                                 // -> Yes, so it makes little sense in sending these messages again just yet.
-                                if (that.logging) log("RetransmitGuard: The outstanding Initiation with cmid:[" + initiationEnvelope.cmid + "] and TraceId:[" + initiationEnvelope.tid
+                                if (that.logging) log("RetransmitGuard: The outstanding Initiation [" + initiationEnvelope.t + "] with cmid:[" + initiationEnvelope.cmid + "] and TraceId:[" + initiationEnvelope.tid
                                     + "] was created with the same RetransmitGuard as we currently have [" + _outboxInitiations_RetransmitGuard + "] - they were sent directly trailing HELLO, before WELCOME came back in. No use in sending again.");
                                 continue;
                             }
                             initiation.attempt++;
                             if (initiation.attempt > 10) {
-                                error("toomanyretries", "Upon reconnect: Too many attempts at sending [" + initiationEnvelope.t + "] with cmid:[" + initiationEnvelope.cmid + "], TraceId[" + initiationEnvelope.tid + "], size:[" + JSON.stringify(initiationEnvelope).length + "].");
+                                error("toomanyretries", "Upon reconnect: Too many attempts at sending Initiation [" + initiationEnvelope.t + "] with cmid:[" + initiationEnvelope.cmid + "], TraceId[" + initiationEnvelope.tid + "], size:[" + JSON.stringify(initiationEnvelope).length + "].");
                                 continue;
                             }
                             // NOTICE: Won't delete it here - that is done when we process the ACK from server
@@ -2038,7 +2104,7 @@
                             let replyEnvelope = reply.envelope;
                             reply.attempt++;
                             if (reply.attempt > 10) {
-                                error("toomanyretries", "Upon reconnect: Too many attempts at sending [" + replyEnvelope.t + "] with smid:[" + replyEnvelope.smid + "], TraceId[" + replyEnvelope.tid + "], size:[" + JSON.stringify(replyEnvelope).length + "].");
+                                error("toomanyretries", "Upon reconnect: Too many attempts at sending Reply [" + replyEnvelope.t + "] with smid:[" + replyEnvelope.smid + "], TraceId[" + replyEnvelope.tid + "], size:[" + JSON.stringify(replyEnvelope).length + "].");
                                 continue;
                             }
                             // NOTICE: Won't delete it here - that is done when we process the ACK from server
@@ -2047,8 +2113,15 @@
                             that.flush();
                         }
 
+                    } else if (envelope.t === MessageType.REAUTH) {
+                        // -> Server asks us to get new Authentication, as the one he has "on hand" is too old to send us outgoing messages
+                        _requestNewAuthorizationFromApp("requested new by server", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.REAUTHENTICATE, undefined));
+
+
                     } else if (envelope.t === MessageType.RETRY) {
                         // -> Server asks us to RETRY the information-bearing-message
+
+                        // TODO: Test RETRY!
 
                         // ?: Is it an outstanding Send or Request
                         let initiation = _outboxInitiations[envelope.cmid];
@@ -2400,6 +2473,9 @@
     exports.MatsSocketCloseCodes = MatsSocketCloseCodes;
 
     exports.ConnectionState = ConnectionState;
+
+    exports.AuthorizationRequiredEvent = AuthorizationRequiredEvent;
+    exports.AuthorizationRequiredEventType = AuthorizationRequiredEventType;
 
     exports.ConnectionEvent = ConnectionEvent;
     exports.ConnectionEventType = ConnectionEventType;

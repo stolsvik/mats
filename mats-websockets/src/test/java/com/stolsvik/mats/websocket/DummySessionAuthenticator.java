@@ -2,7 +2,6 @@ package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
 
-import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +45,9 @@ class DummySessionAuthenticator implements SessionAuthenticator {
         }
 
         long expires = Long.parseLong(split[2]);
-        evaluateExpires(expires);
+        if ((expires != -1) && (expires < System.currentTimeMillis())) {
+            return context.invalidAuthentication("This DummyAuth is too old (initialAuthentication).");
+        }
 
         String userId = split[1];
 
@@ -59,12 +60,6 @@ class DummySessionAuthenticator implements SessionAuthenticator {
         Principal princial = new DummyAuthPrincipal(userId, authorizationHeader);
         // This was a good authentication
         return context.authenticated(princial, userId);
-    }
-
-    private void evaluateExpires(long expires) {
-        if ((expires != -1) && (expires < System.currentTimeMillis())) {
-            throw new IllegalStateException("This DummyAuth is too old.");
-        }
     }
 
     @Override
@@ -80,9 +75,15 @@ class DummySessionAuthenticator implements SessionAuthenticator {
         }
         // ?: If the AuthorizationHeader has not changed, then just evaluate expiry
         if (_currentGoodAuthorizationHeader.equals(authorizationHeader)) {
-            // This throws if not good
-            evaluateExpires(_currentExpiryMillis);
+            long expiryMillisLeft = _currentExpiryMillis - System.currentTimeMillis();
+            // Evaluate current expiry time
+            if ((_currentExpiryMillis != -1) && (expiryMillisLeft <= 0)) {
+                log.warn("Current DummyAuth is too old (reevaluateAuthentication) - currentExpiry:["
+                        + _currentExpiryMillis + "], which is [" + expiryMillisLeft + " ms] ago.");
+                return context.invalidAuthentication("This DummyAuth is too old (reevaluateAuthentication).");
+            }
             // Evidently was good, so still valid.
+            log.info("Still valid auth, there is [" + expiryMillisLeft + " ms] left");
             return context.stillValid();
         }
         // E-> Changed auth header, so do full initialAuth
@@ -94,7 +95,8 @@ class DummySessionAuthenticator implements SessionAuthenticator {
             String authorizationHeader, Principal existingPrincipal, long lastAuthenticatedTimestamp) {
         // NOTICE! DO NOT LOG AUTHORIZATION HEADER IN PRODUCTION!!
         log.info("reevaluateAuthenticationForOutgoingMessage(..): Authorization Header [" + authorizationHeader
-                + "], lastAuthenticatedMillis:[" + lastAuthenticatedTimestamp + "]");
+                + "], lastAuthenticatedMillis:[" + lastAuthenticatedTimestamp + "], which is [" + (System
+                        .currentTimeMillis() - lastAuthenticatedTimestamp) + " ms] ago.");
         // ?: Is it a special auth string that wants to fail upon reevaluateAuthenticationForOutgoingMessage?
         if (authorizationHeader.contains(":fail_reevaluateAuthenticationForOutgoingMessage:")) {
             // -> Yes, special auth string

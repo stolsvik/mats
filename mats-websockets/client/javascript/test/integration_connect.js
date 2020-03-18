@@ -18,11 +18,13 @@
 }(typeof self !== 'undefined' ? self : this, function (chai, sinon, ws, mats, env) {
     const MatsSocket = mats.MatsSocket;
 
+    let logging = false;
+
     let matsSocket;
 
     function createMatsSocket() {
         matsSocket = new MatsSocket("TestApp", "1.2.3", availableUrls);
-        matsSocket.logging = false;
+        matsSocket.logging = logging;
     }
 
     function closeMatsSocket() {
@@ -69,7 +71,7 @@
             function connectTwice(url1, url2, done) {
                 // Create the first MatsSocket
                 let matsSocket_A = new MatsSocket("TestApp", "1.2.3", url1);
-                matsSocket_A.logging = false;
+                matsSocket_A.logging = logging;
                 const now = Date.now();
                 const expiry = now + 20000;
                 matsSocket_A.setCurrentAuthorization("DummyAuth:standard:" + expiry, expiry, 5000);

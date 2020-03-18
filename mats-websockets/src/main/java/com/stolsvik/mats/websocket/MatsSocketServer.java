@@ -13,15 +13,16 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 
 /**
- * The MatsSocket Java library, along with its clients is a WebSocket-"extension" of the Mats library <i>(there are
- * currently clients for JavaScript (web and Node.js) and Dart (Dart and Flutter)</i>. It is a clearly demarcated
- * solution in that it only utilizes the API of the Mats library and the API of the <i>JSR 356 WebSocket API for
- * Java</i> (with some optional hooks that typically will be implemented using the Servlet API, but any HTTP server
- * implementation can be employed). It provides for asynchronous communications between a client and a MatsSocketServer
- * using WebSockets, which again asynchronously interfaces with the Mats API, taking Mats's asynchronous aspects and
- * guaranteed delivery all the way from the client, to the server, and back. MatsSocketEndpoints are simple to
- * understand and create, simple to authenticate and authorize, and the interface with Mats is very simple, yet
- * flexible.
+ * The MatsSocket Java library, along with its several clients libraries, is a WebSocket-"extension" of the Mats library
+ * <i>(there are currently clients for JavaScript (web and Node.js) and Dart (Dart and Flutter))</i>. It provides for
+ * asynchronous communications between a Client and a MatsSocketServer using WebSockets, which again asynchronously
+ * interfaces with the Mats API. The result is a simple programming model on the client, providing Mats's asynchronous
+ * and guaranteed delivery aspects all the way from the client, to the server, and back, and indeed the other way
+ * ("push", including requests from Server to Client). It is a clearly demarcated solution in that it only utilizes the
+ * API of the Mats library and the API of the <i>JSR 356 WebSocket API for Java</i> (with some optional hooks that
+ * typically will be implemented using the Servlet API, but any HTTP server implementation can be employed).
+ * MatsSocketEndpoints are simple to define, code and reason about, simple to authenticate and authorize, and the
+ * interface with Mats is very simple, yet flexible.
  * <p/>
  * Features:
  * <ul>
@@ -54,9 +55,9 @@ import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
  * <ul>
  * <li>There is no way to cancel or otherwise control individual messages: The library's simple "send" and
  * Promise-yielding "request" operations (with optional "receivedCallback" for the client) is the only way to talk with
- * the library. When that method returns, the operation is queued, and will be transferred ASAP. This works like magic
- * for short and medium messages, but does not constitute a fantastic solution for large payloads over bad networks (as
- * typically <i>can</i> be the case with Web apps and mobile apps).</li>
+ * the library. When those methods returns, the operation is queued, and will be transferred to the other side ASAP.
+ * This works like magic for short and medium messages, but does not constitute a fantastic solution for large payloads
+ * over bad networks (as typically <i>can</i> be the case with Web apps and mobile apps).</li>
  * <li>MatsSockets does not provide "channel multiplexing", meaning that one message (or pipeline of messages) will have
  * to be fully transferred before the next one is. This means that if you decide to send over a 200 MB PDF using the
  * MatsSocket instance over a 2G cellular network, any concurrent messages will experience a massive delay. This again
@@ -380,6 +381,27 @@ public interface MatsSocketServer {
          *            {@link MatsInitiator#initiate(InitiateLambda)}.
          */
         void forwardCustom(MI matsMessage, InitiateLambda customInit);
+
+        /**
+         * Using the returned {@link MatsInitiate MatsInitiate} instance, which is the same as the
+         * {@link #forwardCustom(Object, InitiateLambda) forwardXX(..)} methods utilize, you can initiate one or several Mats
+         * flows, <i>in addition</i> to your actual handling of the incoming message - within the same Mats
+         * transactional demarcation as the handling of the incoming message ("actual handling" referring to
+         * {@link #forwardCustom(Object, InitiateLambda) forward}, {@link #resolve(Object) resolve},
+         * {@link #reject(Object) reject} or even {@link #deny() deny} or ignore - the latter two being a bit hard to
+         * understand why you'd want).
+         * <p/>
+         * Notice: As mentioned, this is the same instance as the forward-methods utilize, so you must not put it into
+         * some "intermediate" state where you've invoked some of its methods, but not invoked any of the
+         * finishing-methods {@link MatsInitiate#send(Object) matsInitiate.send(..)} or
+         * {@link MatsInitiate#request(Object) .request(..)} methods.
+         *
+         * @return the {@link MatsInitiate MatsInitiate} instance which the
+         *         {@link #forwardCustom(Object, InitiateLambda) forward} methods utilize, where you can initiate one or
+         *         several other Mats flows (in addition to actual handling of incoming message) within the same Mats
+         *         transactional demarcation as the handling of the message.
+         */
+        MatsInitiate getMatsInitiate();
 
         /**
          * <b>Only for {@link MessageType#REQUEST REQUESTs}:</b> Send "Resolve" reply (resolves the client side Promise)
