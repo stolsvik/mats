@@ -133,6 +133,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                     // :: Deregister this specific MatsSocket Session (this connection) from this node.
                     try {
+                        // Notice how we supply the ConnectionId here, so that if the Session is already connected
+                        // again, but on a different WebSocket, we will not deregister /that/ connection.
                         _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId,
                                 matsSocketMessageHandler.getConnectionId());
                     }
@@ -146,18 +148,21 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // Bail out.
                         return;
                     }
-                    // Forward to new home (Note: It can theoretically be us, due to race wrt. close & reconnect)
+                    // Forward to new home (Note: It can theoretically be us, in another MatsSocketMessageHandler,
+                    // .. due to race wrt. close & reconnect)
                     _matsSocketServer.notifyHomeNodeIfAnyAboutNewMessage(matsSocketSessionId);
                     // We're done, exit.
                     return;
                 }
 
-                while (true) { // LOOP: Clear out currently stored messages from ClusterStoreAndForward
+                while (true) { // LOOP: Clear out (i.e. forward) currently stored messages from ClusterStoreAndForward
+
+                    // :: Get messages from CSAF
                     long nanos_start_GetMessages = System.nanoTime();
                     List<StoredMessage> messagesToDeliver;
                     try {
                         messagesToDeliver = _clusterStoreAndForward
-                                .getMessagesFromOutbox(matsSocketSessionId, 20, false);
+                                .getMessagesFromOutbox(matsSocketSessionId, 20);
                     }
                     catch (DataAccessException e) {
                         log.warn("Got problems when trying to load messages from CSAF."
@@ -278,17 +283,19 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     }).collect(Collectors.toList());
 
                     // Serialize the list of Envelopes
-                    String msg = _matsSocketServer.getEnvelopeListObjectWriter().writeValueAsString(envelopeList);
+                    String jsonEnvelopeList = _matsSocketServer.getEnvelopeListObjectWriter()
+                            .writeValueAsString(envelopeList);
 
                     // :: Forward message(s) over WebSocket
                     try {
                         // :: Actually send message(s) over WebSocket.
                         long nanos_start_SendMessage = System.nanoTime();
-                        matsSocketMessageHandler.webSocketSendText(msg);
+                        matsSocketMessageHandler.webSocketSendText(jsonEnvelopeList);
                         float millisSendMessages = msSince(nanos_start_SendMessage);
 
                         // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)
                         // Result: will not be picked up on the next round of fetching messages.
+                        // NOTE! They are COMPLETED when we get the ACK for the messageId from Client.
                         long nanos_start_MarkComplete = System.nanoTime();
                         try {
                             _clusterStoreAndForward.outboxMessagesAttemptedDelivery(matsSocketSessionId, messageIds);
@@ -332,7 +339,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                             return;
                         }
 
-                        // ?: Find messages with too many redelivery attempts (hardcoded 5 now)
+                        // :: Find messages with too many redelivery attempts (hardcoded 5 now)
                         // (Note: For current code, this should always only be max one..)
                         // (Note: We're using the "old" delivery_count number (before above increase) -> no problem)
                         List<StoredMessage> dlqMessages = messagesToDeliver.stream()
@@ -345,10 +352,14 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                 _clusterStoreAndForward.outboxMessagesDeadLetterQueue(matsSocketSessionId, messageIds);
                             }
                             catch (DataAccessException e) {
+                                String dlqMessageTypesAndTraceIds = dlqMessages.stream()
+                                        .map(msg -> "{" + msg.getType() + "} " + msg.getTraceId())
+                                        .collect(Collectors.joining(", "));
+
                                 log.warn("Got problems when trying to invoke 'messagesDeadLetterQueue' on CSAF for "
-                                        + messagesToDeliver.size() + " message(s) with TraceIds ["
-                                        + messageTypesAndTraceIds
-                                        + "]. Bailing out, hoping for self-healer process to figure it out.", e);
+                                        + dlqMessages.size() + " message(s) with TraceIds ["
+                                        + dlqMessageTypesAndTraceIds + "]. Bailing out, hoping for"
+                                        + " self-healer process to figure it out.", e);
                                 // Bail out
                                 return;
                             }
@@ -357,11 +368,11 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // Chill-wait a bit to avoid total tight-loop if weird problem with socket saying it is open
                         // but cannot send messages over it.
                         try {
-                            Thread.sleep(1000);
+                            Thread.sleep(2500);
                         }
                         catch (InterruptedException e) {
-                            log.info("Got interrupted while chill-waiting after trying to send a message over socket."
-                                    + " Assuming that someone wants us to shut down, bailing out.");
+                            log.info("Got interrupted while chill-waiting after trying to send a message over socket"
+                                    + " which failed. Assuming that someone wants us to shut down, bailing out.");
                             // Bail out
                             return;
                         }

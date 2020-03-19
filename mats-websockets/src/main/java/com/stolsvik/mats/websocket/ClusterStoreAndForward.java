@@ -20,18 +20,19 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
  * stored in some reliable storage. We then look up which node that currently holds the MatsSession, and notify it about
  * new messages for that session. This node gets the notice, finds the now local MatsSession, and forwards the message.
  * Note that it is possible that the node getting the reply, and the node which holds the WebSocket/MatsSession, is the
- * same node, in which case it is a local forward.
+ * same node, in which case it eventually results in a local forward.
  * <p />
  * Each node has his own instance of this class, connected to the same backing datastore.
  * <p />
  * It is assumed that the consumption of messages for a session is done single threaded, on one node only. That is, only
- * one thread on one node will actually {@link #getMessagesFromOutbox(String, int, boolean)} get messages}, and, more
- * importantly, {@link #outboxMessagesComplete(String, Collection) register dem as completed}. Wrt. multiple nodes, this
- * argument still holds, since only one node can hold a MatsSocket Session. I believe it is possible to construct a bad
- * async situation here (connect to one node, authenticate, get SessionId, immediately disconnect and perform reconnect,
- * and do this until the current {@link ClusterStoreAndForward} has the wrong idea of which node holds the Session) but
- * this should at most result in the client screwing up for himself (not getting messages), and a Session is not
- * registered until the client has authenticated. Such a situation will also resolve if the client again performs a
+ * one thread on one node will actually {@link #getMessagesFromOutbox(String, int)} get messages}, and, more
+ * importantly, {@link #outboxMessagesComplete(String, Collection) register them as completed}. Wrt. multiple nodes,
+ * this argument still holds, since only one node can hold a MatsSocketSession - the one that has the actual WebSocket
+ * connection. I believe it is possible to construct a bad async situation here (connect to one node, authenticate, get
+ * SessionId, immediately disconnect and perform reconnect, and do this until the current {@link ClusterStoreAndForward}
+ * has the wrong idea of which node holds the Session) but this should at most result in the client screwing up for
+ * himself (not getting messages). A Session is not registered until the client has authenticated, so this will never
+ * lead to information leakage to other users. Such a situation will also resolve if the client again performs a
  * non-malicious reconnect. It is the server that constructs and holds SessionIds: A client cannot itself force the
  * server side to create a Session or SessionId - it can only reconnect to an existing SessionId that it was given
  * earlier.
@@ -155,8 +156,8 @@ public interface ClusterStoreAndForward {
     /**
      * Stores the message for the Session, returning the nodename for the node holding the session, if any. If the
      * session is closed/timed out, the message won't be stored (i.e. dumped on the floor) and the return value is
-     * empty. The ServerMessageId is set by the CSAF, and available when
-     * {@link #getMessagesFromOutbox(String, int, boolean) getting messages}.
+     * empty. The ServerMessageId is set by the CSAF, and available when {@link #getMessagesFromOutbox(String, int)
+     * getting messages}.
      *
      * @param matsSocketSessionId
      *            the matsSocketSessionId that the message is meant for.
@@ -186,18 +187,43 @@ public interface ClusterStoreAndForward {
             throws DataAccessException;
 
     /**
-     * Fetch a set of messages, up to 'maxNumberOfMessages'.
+     * Fetch a set of messages, up to 'maxNumberOfMessages' - but do not include messages that have been attempted
+     * delivered already (marked with {@link #outboxMessagesAttemptedDelivery(String, Collection)}). If
+     * {@link #outboxMessagesUnmarkAttemptedDelivery(String)} is invoked, that mark will be unset.
      *
      * @param matsSocketSessionId
      *            the matsSocketSessionId that the message is meant for.
      * @param maxNumberOfMessages
      *            the maximum number of messages to fetch.
-     * @param takeAlreadyAttempted
-     *            if <code>true</code>, instead of excluding already attempted message, now only pick these.
      * @return a list of json encoded messages destined for the WebSocket.
      */
-    List<StoredMessage> getMessagesFromOutbox(String matsSocketSessionId, int maxNumberOfMessages,
-            boolean takeAlreadyAttempted) throws DataAccessException;
+    List<StoredMessage> getMessagesFromOutbox(String matsSocketSessionId, int maxNumberOfMessages)
+            throws DataAccessException;
+
+    /**
+     * Marks the specified messages as attempted delivered and notches the {@link StoredMessage#getDeliveryCount()} one
+     * up. If {@link #outboxMessagesUnmarkAttemptedDelivery(String)} is invoked (typically on reconnect), the mark will
+     * be unset, but the delivery count will stay in place - this is to be able to abort delivery attempts if there is
+     * something wrong with the message.
+     *
+     * @param matsSocketSessionId
+     *            the matsSocketSessionId that the serverMessageIds refers to.
+     * @param serverMessageIds
+     *            which messages failed delivery.
+     */
+    void outboxMessagesAttemptedDelivery(String matsSocketSessionId, Collection<String> serverMessageIds)
+            throws DataAccessException;
+
+    /**
+     * When this method is invoked, {@link #getMessagesFromOutbox(String, int)} will again return messages that has
+     * previously been marked as attempted delivered with {@link #outboxMessagesAttemptedDelivery(String, Collection)}.
+     * Notice that the {@link StoredMessage#getDeliveryCount()} will not be reset, but the
+     * {@link StoredMessage#getAttemptTimestamp()} will now again return null.
+     *
+     * @param matsSocketSessionId
+     *            the matsSocketSessionId whose messages now shall be attempted.
+     */
+    void outboxMessagesUnmarkAttemptedDelivery(String matsSocketSessionId) throws DataAccessException;
 
     /**
      * States that the messages are delivered. Will typically delete the message.
@@ -208,17 +234,6 @@ public interface ClusterStoreAndForward {
      *            which messages are complete.
      */
     void outboxMessagesComplete(String matsSocketSessionId, Collection<String> serverMessageIds)
-            throws DataAccessException;
-
-    /**
-     * Notches the 'delivery_count' one up for the specified messages.
-     *
-     * @param matsSocketSessionId
-     *            the matsSocketSessionId that the serverMessageIds refers to.
-     * @param serverMessageIds
-     *            which messages failed delivery.
-     */
-    void outboxMessagesAttemptedDelivery(String matsSocketSessionId, Collection<String> serverMessageIds)
             throws DataAccessException;
 
     /**
@@ -375,7 +390,6 @@ public interface ClusterStoreAndForward {
         long getCreatedTimestamp();
 
         long getLivelinessTimestamp();
-
     }
 
     class SimpleCsafSession implements CsafSession {

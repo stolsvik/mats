@@ -13,9 +13,6 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 
@@ -35,7 +32,7 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
  * @author Endre Stølsvik 2019-12-08 11:00 - http://stolsvik.com/, endre@stolsvik.com
  */
 public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
-    private static final Logger log = LoggerFactory.getLogger(ClusterStoreAndForward_SQL.class);
+    private static final int DLQ_DELIVERY_COUNT_MARKER = -666;
 
     private static final String INBOX_TABLE_PREFIX = "mats_socket_inbox_";
 
@@ -307,7 +304,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                     0,
                     null,
                     null,
-                    rs.getString(2),  // Store the envelope WITH the message in 'envelope'
+                    rs.getString(2), // Store the envelope WITH the message in 'envelope'
                     null,
                     rs.getBytes(3));
             select.close();
@@ -359,8 +356,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public List<StoredMessage> getMessagesFromOutbox(String matsSocketSessionId, int maxNumberOfMessages,
-            boolean takeAlreadyAttempted)
+    public List<StoredMessage> getMessagesFromOutbox(String matsSocketSessionId, int maxNumberOfMessages)
             throws DataAccessException {
         return withConnectionReturn(con -> {
             // The old MS JDBC Driver 'jtds' don't handle parameter insertion for 'TOP' statement.
@@ -369,9 +365,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                     + "          delivery_count, trace_id, type, envelope, message_text, message_binary"
                     + "  FROM " + outboxTableName(matsSocketSessionId)
                     + " WHERE session_id = ?"
-                    + (takeAlreadyAttempted
-                            ? " AND delivery_count > 0"
-                            : " AND delivery_count = 0"));
+                    + "   AND attempt_timestamp IS NULL"
+                    + "   AND delivery_count <> " + DLQ_DELIVERY_COUNT_MARKER);
             insert.setString(1, matsSocketSessionId);
             ResultSet rs = insert.executeQuery();
             List<StoredMessage> list = new ArrayList<>();
@@ -408,6 +403,18 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
+    public void outboxMessagesUnmarkAttemptedDelivery(String matsSocketSessionId) throws DataAccessException {
+        withConnectionVoid(con -> {
+            PreparedStatement update = con.prepareStatement("UPDATE " + outboxTableName(matsSocketSessionId)
+                    + "   SET attempt_timestamp = NULL"
+                    + " WHERE session_id = ?");
+            update.setString(1, matsSocketSessionId);
+            update.addBatch();
+            update.executeBatch();
+        });
+    }
+
+    @Override
     public void outboxMessagesComplete(String matsSocketSessionId, Collection<String> serverMessageIds)
             throws DataAccessException {
         withConnectionVoid(con -> {
@@ -428,9 +435,19 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     @Override
     public void outboxMessagesDeadLetterQueue(String matsSocketSessionId, Collection<String> serverMessageIds)
             throws DataAccessException {
-        log.error("Dead-Letter-Queue (DLQ) for matsSocketSessionId [" + matsSocketSessionId + "] for serverMessageIds "
-                + serverMessageIds + " - implemented as 'complete', so messages will just be deleted.");
-        outboxMessagesComplete(matsSocketSessionId, serverMessageIds);
+        withConnectionVoid(con -> {
+            // TODO / OPTIMIZE: Make "in" optimizations.
+            PreparedStatement update = con.prepareStatement("UPDATE " + outboxTableName(matsSocketSessionId)
+                    + "   SET attempt_timestamp = " + DLQ_DELIVERY_COUNT_MARKER
+                    + " WHERE session_id = ?"
+                    + "   AND smid = ?");
+            for (String messageId : serverMessageIds) {
+                update.setString(1, matsSocketSessionId);
+                update.setString(2, messageId);
+                update.addBatch();
+            }
+            update.executeBatch();
+        });
     }
 
     @Override

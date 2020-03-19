@@ -94,7 +94,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
     private EnumSet<DebugOption> _authAllowedDebugOptions;
     private EnumSet<DebugOption> _currentResolvedServerToClientDebugOptions = EnumSet.noneOf(DebugOption.class);
     private long _lastAuthenticatedTimestamp; // set to System.currentTimeMillis() each time (re)evaluated OK.
-    private volatile boolean _holdOutgoingMessages;
+    private volatile boolean _holdOutgoingMessages; // Set true (and read) by Forwarder, Cleared by this class.
 
     private String _clientLibAndVersion;
     private String _appNameAndVersion;
@@ -580,8 +580,6 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                             // -> No, not OK - handleHello(..) has already closed session and websocket and the lot.
                             return;
                         }
-                        // MessageForwarder-> There might be EXISTING messages waiting for this MatsSocketSession!
-                        _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
                     }
                     finally {
                         MDC.remove(MDC_MESSAGE_TYPE);
@@ -765,11 +763,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
                 closeSessionWithPolicyViolation("Auth reevaluateAuthenticationOutgoingMessage(..): Got Exception.");
                 return false;
             }
-            // Return whether we're still Authenticated or StillValid, and thus good to go with sending message
+            // Evaluate whether we're still Authenticated or StillValid, and thus good to go with sending message
             boolean okToSendOutgoingMessages = (authenticationResult instanceof AuthenticationResult_Authenticated)
                     || (authenticationResult instanceof AuthenticationResult_StillValid);
 
-            // ?: If we're not OK, then we should hold outgoing messages for now
+            // ?: If we're NOT ok, then we should hold outgoing messages until AUTH comes in.
             if (!okToSendOutgoingMessages) {
                 _holdOutgoingMessages = true;
             }
@@ -899,14 +897,17 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
         _principal = principal;
         _userId = userId;
         _authAllowedDebugOptions = debugOptions;
-        // We have gotten the Auth, so we do not currently have a question outstanding
-        _askedClientForReauth = false;
-        // We can now send outgoing messages again
-        _holdOutgoingMessages = false;
-        // .. therefore, go and check if there are any we should send over now
-        _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
         // Update the timestamp of when the SessionAuthenticator last time was happy with the authentication.
         _lastAuthenticatedTimestamp = System.currentTimeMillis();
+        // We have gotten the Auth, so we do not currently have a question outstanding
+        _askedClientForReauth = false;
+        // ?: Are we on "hold outgoing messages"?
+        if (_holdOutgoingMessages) {
+            // -> Yes we are holding, so clear that and do a round of message forwarding
+            _holdOutgoingMessages = false;
+            // Notify forwarder
+            _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
+        }
 
         // Update MDCs before logging.
         MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
@@ -1044,10 +1045,14 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
 
         // Register Session at this node
         _matsSocketServer.registerLocalMatsSocketSession(this);
-        // Register Session in CSAF
+        // :: Register Session in CSAF, and reset "attempted delivery" mark.
         try {
+            // Register in CSAF
             _matsSocketServer.getClusterStoreAndForward().registerSessionAtThisNode(_matsSocketSessionId, _userId,
                     _connectionId);
+
+            // Clear attempted delivery mark, to perform retransmission of these.
+            _matsSocketServer.getClusterStoreAndForward().outboxMessagesUnmarkAttemptedDelivery(_matsSocketSessionId);
 
             // TODO: Should check that this particular user does not have more than e.g. 20 simultaneous connections.
         }
@@ -1066,7 +1071,7 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             return false;
         }
 
-        // ----- We're now a live MatsSocketSession
+        // ----- We're now a live MatsSocketSession!
 
         // Increase timeout to "prod timeout", now that client has said HELLO
         // TODO: Increase timeout, e.g. 75 seconds.
@@ -1100,6 +1105,11 @@ class MatsSocketMessageHandler implements Whole<String>, MatsSocketStatics {
             // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
             throw new AssertionError("Hot damn.", e);
         }
+
+        // MessageForwarder-> There might be EXISTING messages waiting for this MatsSocketSession!
+        _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
+
+        // This went well.
         return true;
     }
 
