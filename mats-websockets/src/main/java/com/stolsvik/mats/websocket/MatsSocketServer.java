@@ -121,15 +121,18 @@ public interface MatsSocketServer {
      * Should handle (preliminary) Authorization evaluation on the supplied
      * {@link MatsSocketEndpointRequestContext#getPrincipal() Principal} and decide whether this message should be
      * forwarded to the Mats fabric (or directly resolved, rejected or denied). If it decides to forward to Mats, it
-     * then adapt the incoming message to a message that can be forwarded to the Mats fabric
+     * then adapt the incoming MatsSocket message to a message that can be forwarded to the Mats fabric.
      * <p/>
      * <b>Note: Do remember that the MatsSocket is "live connected directly to the Internet" and ANY data coming in as
-     * the incoming message can be utter garbage, and designed methodically to hack your system!</b>
+     * the incoming message can be utter garbage, or methodically designed to hack your system! Act accordingly!</b>
      * <p/>
      * <b>Note: This should <i>preferentially</i> only be pure and quick Java code, without much database access or
-     * lengthy computations</b>, as such things should happen in the Mats stages. You hold up the incoming message
-     * handler while inside this method, hindering new messages for this MatsSocketSession from being processed in a
-     * timely fashion - and you can also potentially deplete the WebSocket/Servlet thread pool.
+     * lengthy computations</b> - such things should happen in the Mats stages. You hold up the incoming WebSocket
+     * message handler while inside the IncomingAuthorizationAndAdapter, hindering new messages for this
+     * MatsSocketSession from being processed in a timely fashion - and you can also potentially deplete the
+     * WebSocket/Servlet thread pool. You should therefore just do authorization evaluation, decide whether to deny,
+     * forward to Mats, or insta-resolve or -reject, and adapt the MatsSocket incoming DTO to the Mats endpoint's
+     * expected incoming DTO (if forward), or MatsSocket reply DTO (if insta-resolve or -reject).
      * <p/>
      * Note: It is imperative that this does not perform any state-changes to the system - it should be utterly
      * idempotent, i.e. invoking it a hundred times with the same input should yield the same result. (Note: Logging is
@@ -141,13 +144,15 @@ public interface MatsSocketServer {
     }
 
     /**
-     * Used to transform the message from the Mats-side to MatsSocket-side, and decide whether to resolve or reject the
-     * waiting Client-side Promise - <b>this must only be pure Java DTO transformation code!</b>
+     * Used to transform the reply message from the Mats endpoint to the reply for the MatsSocket endpoint, and decide
+     * whether to resolve or reject the waiting Client-side Promise - <b>this should only be pure Java DTO
+     * transformation code!</b>
      * <p/>
-     * <b>Note: This should <i>definitely</i> only be pure and fast Java code, without <i>any</i> database access or
-     * lengthy computations</b>, as these things should have been done in the Mats stages. This method is run by the
-     * receiving Mats subscription terminator, of which there is literally only one per node, meaning that it affects
-     * <i>all</i> other replies that are coming in for <i>all</i> MatsSocketSessions on this node!!
+     * <b>Note: This should <i>preferentially</i> only be pure and quick Java code, without much database access or
+     * lengthy computations</b> - such things should happen in the Mats stages. The ReplyAdapter is run in the common
+     * MatsSocket reply Mats Terminator, which is shared between all MatsSocket Endpoints on this node, and should thus
+     * preferably just adapt the Mats reply DTO to the MatsSocket endpoint's expected reply DTO (and potentially decide
+     * whether to resolve or reject).
      * <p/>
      * Note: It is imperative that this does not perform any state-changes to the system - it should be utterly
      * idempotent, i.e. invoking it a hundred times with the same input should yield the same result. (Note: Logging is
@@ -384,8 +389,8 @@ public interface MatsSocketServer {
 
         /**
          * Using the returned {@link MatsInitiate MatsInitiate} instance, which is the same as the
-         * {@link #forwardCustom(Object, InitiateLambda) forwardXX(..)} methods utilize, you can initiate one or several Mats
-         * flows, <i>in addition</i> to your actual handling of the incoming message - within the same Mats
+         * {@link #forwardCustom(Object, InitiateLambda) forwardXX(..)} methods utilize, you can initiate one or several
+         * Mats flows, <i>in addition</i> to your actual handling of the incoming message - within the same Mats
          * transactional demarcation as the handling of the incoming message ("actual handling" referring to
          * {@link #forwardCustom(Object, InitiateLambda) forward}, {@link #resolve(Object) resolve},
          * {@link #reject(Object) reject} or even {@link #deny() deny} or ignore - the latter two being a bit hard to
