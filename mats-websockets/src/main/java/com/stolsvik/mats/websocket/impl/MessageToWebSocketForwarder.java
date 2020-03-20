@@ -21,6 +21,7 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredMessage;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
+import com.stolsvik.mats.websocket.impl.MatsSocketSessionAndMessageHandler.MatsSocketSessionState;
 
 /**
  * Gets a ping from the node-specific Topic, or when the client reconnects.
@@ -83,12 +84,14 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         _threadPool.shutdownNow();
     }
 
-    void newMessagesInCsafNotify(MatsSocketMessageHandler matsSocketMessageHandler) {
-        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketMessageHandler.getMatsSocketSessionId()
+    void newMessagesInCsafNotify(MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler) {
+        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketSessionAndMessageHandler
+                .getMatsSocketSessionId()
                 + "]");
         // :: Check if there is an existing handler for this MatsSocketSession
-        String uniqueId = matsSocketMessageHandler.getMatsSocketSessionId() + matsSocketMessageHandler
-                .getConnectionId();
+        String uniqueId = matsSocketSessionAndMessageHandler.getMatsSocketSessionId()
+                + matsSocketSessionAndMessageHandler
+                        .getConnectionId();
         boolean[] fireOffNewHandler = new boolean[1];
 
         _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
@@ -107,12 +110,12 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         // ?: Should we fire off new handler?
         if (fireOffNewHandler[0]) {
             // -> Yes, none were running, so fire off new handler.
-            _threadPool.execute(() -> this.handlerRunnable(matsSocketMessageHandler, uniqueId));
+            _threadPool.execute(() -> this.handlerRunnable(matsSocketSessionAndMessageHandler, uniqueId));
         }
     }
 
-    void handlerRunnable(MatsSocketMessageHandler matsSocketMessageHandler, String uniqueId) {
-        String matsSocketSessionId = matsSocketMessageHandler.getMatsSocketSessionId();
+    void handlerRunnable(MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler, String uniqueId) {
+        String matsSocketSessionId = matsSocketSessionAndMessageHandler.getMatsSocketSessionId();
 
         boolean removeOnExit = true;
 
@@ -120,34 +123,26 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
             RENOTIFY: while (true) { // LOOP: "Re-notifications"
                 // ?: Should we hold outgoing messages? (Waiting for "AUTH" answer from Client to our "REAUTH" request)
-                if (matsSocketMessageHandler.isHoldOutgoingMessages()) {
+                if (matsSocketSessionAndMessageHandler.isHoldOutgoingMessages()) {
                     // -> Yes, so bail out
                     return;
                 }
-                // ?: Check if WebSocket Session is still open.
-                if (!matsSocketMessageHandler.getWebSocketSession().isOpen()) {
-                    log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
-                            + " Session was closed. Notifying CSAF that this MatsSocketSession does not reside here on"
-                            + " [" + _matsSocketServer.getMyNodename() + "] anymore, forwarding notification to new"
-                            + " MatsSocketSession home (if any), and exiting handler.");
 
-                    // :: Deregister this specific MatsSocket Session (this connection) from this node.
-                    try {
-                        // Notice how we supply the ConnectionId here, so that if the Session is already connected
-                        // again, but on a different WebSocket, we will not deregister /that/ connection.
-                        _clusterStoreAndForward.deregisterSessionFromThisNode(matsSocketSessionId,
-                                matsSocketMessageHandler.getConnectionId());
-                    }
-                    catch (DataAccessException e) {
-                        log.warn("Got '" + e.getClass().getSimpleName() + "' when trying to notify CSAF about"
-                                + " WebSocket Session being closed and thus MatsSocketSession not residing"
-                                + " here on [" + _matsSocketServer.getMyNodename() + "] anymore. Bailing out, hoping"
-                                + " for self-healer process to figure it out.", e);
-                        // NOTE: Since the first thing the notifyHomeNodeIfAnyAboutNewMessage() needs to do is query
-                        // CSAF, this will pretty much guaranteed not work, so just forget it and exit out.
-                        // Bail out.
-                        return;
-                    }
+                // ?: Check if the MatsSocketSessionAndMessageHandler is still active
+                if (!matsSocketSessionAndMessageHandler.isActive()) {
+                    log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
+                            + " Session was not state [" + MatsSocketSessionState.ACTIVE + "], so exit out.");
+                    return;
+                }
+
+                // ?: Check if WebSocket Session (i.e. the Connection) is still open.
+                if (!matsSocketSessionAndMessageHandler.isWebSocketSessionOpen()) {
+                    log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
+                            + " Session was closed. Deregistering this MatsSocketSessionHandler, forwarding"
+                            + " notification to new MatsSocketSession home (if any), and exiting handler.");
+
+                    matsSocketSessionAndMessageHandler.deregisterSession();
+
                     // Forward to new home (Note: It can theoretically be us, in another MatsSocketMessageHandler,
                     // .. due to race wrt. close & reconnect)
                     _matsSocketServer.notifyHomeNodeIfAnyAboutNewMessage(matsSocketSessionId);
@@ -181,10 +176,11 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     }
 
                     // :: Now do authentication check for whether we're still good to go wrt. sending these messages.
-                    boolean authOk = matsSocketMessageHandler.reevaluateAuthenticationForOutgoingMessage();
+                    boolean authOk = matsSocketSessionAndMessageHandler.reevaluateAuthenticationForOutgoingMessage();
                     if (!authOk) {
                         // Send "REAUTH" message, to get Client to send us new auth
-                        matsSocketMessageHandler.webSocketSendText("[{\"t\":\"" + MessageType.REAUTH + "\"}]");
+                        matsSocketSessionAndMessageHandler.webSocketSendText("[{\"t\":\"" + MessageType.REAUTH
+                                + "\"}]");
                         // Bail out and wait for new auth to come in, which will re-start sending.
                         // NOTICE: The not-ok return above will also have set "holdOutgoingMessages".
                         return;
@@ -256,7 +252,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                     || MessageType.REJECT == storedMessage.getType()) {
                                 // -> Yes, Server-to-Client (SEND or REJECT)
                                 // Find what the client requests along with what authentication allows
-                                EnumSet<DebugOption> debugOptions = matsSocketMessageHandler
+                                EnumSet<DebugOption> debugOptions = matsSocketSessionAndMessageHandler
                                         .getCurrentResolvedServerToClientDebugOptions();
                                 // ?: How's the standing wrt. DebugOptions?
                                 if (debugOptions.isEmpty()) {
@@ -290,7 +286,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     try {
                         // :: Actually send message(s) over WebSocket.
                         long nanos_start_SendMessage = System.nanoTime();
-                        matsSocketMessageHandler.webSocketSendText(jsonEnvelopeList);
+                        matsSocketSessionAndMessageHandler.webSocketSendText(jsonEnvelopeList);
                         float millisSendMessages = msSince(nanos_start_SendMessage);
 
                         // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)
@@ -312,7 +308,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // ----- Good path!
 
                         log.info("Finished sending " + messagesToDeliver.size() + " message(s) with TraceIds ["
-                                + messageTypesAndTraceIds + "] to [" + matsSocketMessageHandler
+                                + messageTypesAndTraceIds + "] to [" + matsSocketSessionAndMessageHandler
                                 + "], get-from-CSAF took ["
                                 + millisGetMessages + " ms], send over websocket took:[" + millisSendMessages + " ms],"
                                 + " mark delivery attempt in CSAF took [" + millisMarkComplete + " ms].");
