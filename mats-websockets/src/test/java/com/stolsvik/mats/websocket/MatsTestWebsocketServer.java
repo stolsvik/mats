@@ -3,11 +3,14 @@ package com.stolsvik.mats.websocket;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.concurrent.ForkJoinPool;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.jms.ConnectionFactory;
 import javax.servlet.ServletContextEvent;
@@ -15,6 +18,7 @@ import javax.servlet.ServletContextListener;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.annotation.WebListener;
 import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -89,7 +93,6 @@ public class MatsTestWebsocketServer {
             _matsFactory.getFactoryConfig().setName("MF_Server_" + portNumber);
             _matsFactory.getFactoryConfig().setNodename("EndreBox_" + portNumber);
 
-
             // ## Create MatsSocketServer
             // Create DataSource using H2
             JdbcDataSource h2Ds = new JdbcDataSource();
@@ -131,21 +134,116 @@ public class MatsTestWebsocketServer {
     }
 
     /**
-     * Servlet mounted on the same path as the WebSocket - this actually works.
+     * PreConnectOperation: Servlet mounted on the same path as the WebSocket, picking up any "Authorization:" header
+     * and putting it in a Cookie named {@link DummySessionAuthenticator#AUTHORIZATION_COOKIE_NAME}.
      */
     @WebServlet(WEBSOCKET_PATH)
     public static class TestServletSamePath extends HttpServlet {
         @Override
-        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-            resp.getWriter().println("Testing Servlet on same path as WebSocket");
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) {
+            log.info("PreConnectOperation - GET: Desired cookie name:" + req.getParameter("matsauthcookie")
+                    + ", Authorization header: " + req.getHeader("Authorization")
+                    + ", Origin: " + req.getHeader("Origin")
+                    + ", path: " + req.getContextPath() + req.getServletPath());
+
+            try {
+                Thread.sleep(0);
+            }
+            catch (InterruptedException e) {
+                log.warn("Got interrupted while annoying-sleeping, which is strange.", e);
+            }
+
+            // Check CORS
+            if (!cors(req.getHeader("Origin"), resp)) return;
+
+            // Get the Authorization header.
+            String authHeader = req.getHeader("Authorization");
+            if (authHeader == null) {
+                log.warn("The PreConnectionOperation HTTP Auth-to-Cookie GET was invoked without"
+                        + " 'Authorization' header.");
+                resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                return;
+            }
+
+            if (authHeader.contains(":fail_preConnectOperationServlet:")) {
+                log.info("Asked to fail!");
+                resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                return;
+            }
+
+            // :: Create auth Cookie
+            // Allow arbitrary letters in Cookie value https://stackoverflow.com/a/31260616/39334
+            String authHeaderBase64WithoutPadding = java.util.Base64.getEncoder().withoutPadding()
+                    .encodeToString(authHeader.getBytes(StandardCharsets.UTF_8));
+            Cookie authCookie = new Cookie(DummySessionAuthenticator.AUTHORIZATION_COOKIE_NAME,
+                    authHeaderBase64WithoutPadding);
+            authCookie.setMaxAge(30); // Running a tight ship (it is also cleared in the actual WebSocket handshake)
+            authCookie.setHttpOnly(true); // No need for JavaScript to see this
+            authCookie.setSecure(req.isSecure()); // If requested over SSL, set "SSL-only".
+            // Note: Could have SameSite=Strict, but Servlet API does not have it - this is no problem.
+            // Note: Could set path, but would require more config in SessionAuthenticator to clear it.
+
+            // Add the Cookie and return.
+            resp.addCookie(authCookie);
+            resp.setStatus(HttpServletResponse.SC_NO_CONTENT);
+        }
+
+        // Based on https://stackoverflow.com/a/20204811/39334, "EDIT 2", without the ^ and $ and length restriction.
+        private String regex = "^https?://(?<domain>((?!-)[a-zA-Z0-9-]{0,62}[a-zA-Z0-9]\\.)*[a-zA-Z]{2,63})(?<port>:\\d{1,5})?$";
+        private Pattern pattern = Pattern.compile(regex);
+
+        @Override
+        protected void doOptions(HttpServletRequest req, HttpServletResponse resp) {
+            log.debug("PreConnectOperation - OPTIONS: Desired cookie name:" + req.getParameter("matsauthcookie")
+                    + ", Authorization header: " + req.getHeader("Authorization")
+                    + ", Origin: " + req.getHeader("Origin")
+                    + ", path: " + req.getContextPath() + req.getServletPath());
+            // Check CORS
+            if (!cors(req.getHeader("Origin"), resp)) return;
+
+            // Ok, return
+            resp.setStatus(HttpServletResponse.SC_NO_CONTENT);
+        }
+
+        private boolean cors(String originHeader, HttpServletResponse resp) {
+            // ?: Do we have an Origin header, indicating that web browser feels this is a CORS request?
+            if (originHeader == null) {
+                // -> No, no Origin header, so act normal, just add a little header to point out that we evaluated it.
+                resp.addHeader("X-MatsSocketServer-CORS", "NoOrigin_Ok");
+                return true;
+            }
+            Matcher matches = pattern.matcher(originHeader);
+            boolean match = matches.matches();
+            if (!match) {
+                resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return false;
+            }
+            String domain = matches.group("domain");
+            String port = matches.group("port");
+
+            boolean ok = domain.equals("localhost")
+                    || domain.endsWith("stolsvik.com")
+                    || domain.endsWith("stolsvik.net");
+            if (!ok) {
+                resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return false;
+            }
+
+            resp.addHeader("Access-Control-Allow-Origin", originHeader);
+            resp.addHeader("Vary", "Origin");
+            resp.addHeader("Access-Control-Allow-Credentials", "true");
+            resp.addHeader("Access-Control-Allow-Headers", "authorization");
+            // NOTICE: For production: When you get things to work, you can add this header.
+            // resp.addHeader("Access-Control-Max-Age", "86400"); // 24 hours, might be capped by browser.
+            return true;
         }
     }
 
     /**
-     * Servlet that handles out-of-band close_session, which is invoked upon window.onunload by sendBeacon. The idea is
-     * to get the MatsSocket Session closed even if the WebSocket channel is closed at the time.
+     * Servlet that handles out-of-band close_session, which is invoked upon window.onunload using window.sendBeacon.
+     * The idea is to get the MatsSocket Session closed even if the WebSocket channel is closed at the time.
      */
-    @WebServlet("/matssocket/close_session")
+    @WebServlet(WEBSOCKET_PATH + "/close_session")
     public static class OutOfBandCloseSessionServlet extends HttpServlet {
         @Override
         protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {

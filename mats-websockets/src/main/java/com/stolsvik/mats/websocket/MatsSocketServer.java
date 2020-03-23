@@ -255,21 +255,21 @@ public interface MatsSocketServer {
 
     interface MatsSocketEndpointRequestContext<I, MI, R> extends MatsSocketEndpointContext {
         /**
-         * @return current <i>Authorization Header</i> in effect for the MatsSocket that delivered the message. This
-         *         String is what resolves to the {@link #getPrincipal() current Principal} via the
-         *         {@link AuthenticationPlugin}.
+         * @return current <i>Authorization Value</i> in effect for the MatsSocket that delivered the message. This
+         *         String is what resolves to the {@link #getPrincipal() current Principal} and {@link #getUserId()
+         *         UserId} via the {@link AuthenticationPlugin}.
          */
-        String getAuthorizationHeader();
+        String getAuthorizationValue();
 
         /**
-         * @return the resolved Principal from the {@link #getAuthorizationHeader() Authorization Header}, via the
+         * @return the resolved Principal from the {@link #getAuthorizationValue() Authorization Value}, via the
          *         {@link AuthenticationPlugin}. It is assumed that you must cast this a more specific class which the
          *         authentication plugin provides.
          */
         Principal getPrincipal();
 
         /**
-         * @return the resolved UserId for the {@link #getAuthorizationHeader() Authorization header}.
+         * @return the resolved UserId for the {@link #getAuthorizationValue() Authorization Value}.
          */
         String getUserId();
 

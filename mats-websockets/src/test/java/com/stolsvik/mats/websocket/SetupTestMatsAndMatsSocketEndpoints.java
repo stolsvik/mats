@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsFactory;
+import com.stolsvik.mats.websocket.DummySessionAuthenticator.DummyAuthPrincipal;
 
 /**
  * Sets up the test endpoints used from the integration tests (and the HTML test-pages).
@@ -40,6 +41,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
         setup_ServerPush_Request_Via_Mats(matsSocketServer, matsFactory);
         setup_ServerPush_Request_Direct(matsSocketServer, matsFactory);
+
+        setupSocket_ReplyWithCookieAuthorization(matsSocketServer);
     }
 
     // ===== "Standard Endpoint".
@@ -53,7 +56,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                 (ctx, principal, msIncoming) -> {
                     log.info("Got MatsSocket request on MatsSocket EndpointId: " +
                             ctx.getMatsSocketEndpointId());
-                    log.info(" \\- Authorization: " + ctx.getAuthorizationHeader());
+                    log.info(" \\- Authorization: " + ctx.getAuthorizationValue());
                     log.info(" \\- Principal:     " + ctx.getPrincipal());
                     log.info(" \\- UserId:        " + ctx.getUserId());
                     log.info(" \\- Message:       " + msIncoming);
@@ -308,6 +311,16 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                             new MatsDataTO(msg.number, msg.string + ':' + ctx.getString("resolveReject"),
                                     msg.sleepTime));
                 });
+    }
+
+    private static void setupSocket_ReplyWithCookieAuthorization(MatsSocketServer matsSocketServer) {
+        matsSocketServer.matsSocketDirectReplyEndpoint("Test.replyWithCookieAuthorization",
+                MatsDataTO.class, MatsDataTO.class,
+                // RESOLVE
+                (ctx, principal, msg) -> ctx.resolve(
+                        new MatsDataTO(msg.number,
+                                ((DummyAuthPrincipal) principal).getAuthorizationHeaderFromCookie(),
+                                msg.sleepTime)));
     }
 
     /**

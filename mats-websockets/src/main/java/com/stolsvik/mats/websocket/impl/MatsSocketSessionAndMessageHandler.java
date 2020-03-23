@@ -1694,7 +1694,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
 
         @Override
-        public String getAuthorizationHeader() {
+        public String getAuthorizationValue() {
             return _authorization;
         }
 

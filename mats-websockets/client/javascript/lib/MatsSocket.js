@@ -46,6 +46,10 @@
         /**
          * Standard code 1008 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
          * used when the we cannot authenticate.
+         * <p/>
+         * Also used locally from the Client: If the PreConnectOperation return status code 401 or 403 or the WebSocket
+         * connect attempt raises error too many times (3x number of URLs), the MatsSocket will be "Closed Session" with
+         * this status code.
          */
         VIOLATED_POLICY: 1008,
 
@@ -247,8 +251,9 @@
 
         /**
          * State, and fires as ConnectionEvent when we transition into this state, which is when the WebSocket is literally trying to connect.
-         * This is between <code>new WebSocket(url)</code> and either webSocket.onopen or webSocket.onclose is
-         * fired, or countdown reaches 0. If webSocket.onopen, we transition into {@link #CONNECTED}, if webSocket.onclose, we transition into
+         * This is between <code>new WebSocket(url)</code> (or the {@link MatsSocket#preconnectoperation "PreConnectOperation"} if configured),
+         * and either webSocket.onopen or webSocket.onclose is fired, or countdown reaches 0. If webSocket.onopen,
+         * we transition into {@link #CONNECTED}, if webSocket.onclose, we transition into
          * {@link #WAITING}. If we reach countdown 0 while in CONNECTING, we will "re-transition" to the same state, and
          * thus get one more event of CONNECTING.
          * <p/>
@@ -655,8 +660,8 @@
         REQUEST: "request",
 
         /**
-         * "Synthetic" event in that it only happens if the MatsSocketSession is closed with outstanding Initiations
-         * not yet Received on Server.
+         * "Synthetic" event in that it only happens if the MatsSocketSession is closed with outstanding Requests
+         * not yet replied to by the server.
          */
         SESSION_CLOSED: "sessionclosed"
     });
@@ -774,10 +779,11 @@
      * @param {string} appName the name of the application using this MatsSocket.js client library
      * @param {string} appVersion the version of the application using this MatsSocket.js client library
      * @param {array} urls an array of WebSocket URLs speaking 'matssocket' protocol, or a single string URL.
-     * @param {function} socketFactory how to make WebSockets, optional in browser setting as it will use window.WebSocket.
+     * @param {object} config-object. Current sole key: 'webSocketFactory': how to make WebSockets, optional in browser
+     * setting as it will use window.WebSocket.
      * @constructor
      */
-    function MatsSocket(appName, appVersion, urls, socketFactory) {
+    function MatsSocket(appName, appVersion, urls, config) {
         let clientLibNameAndVersion = "MatsSocket.js,v0.10.0";
 
         // :: Validate primary arguments
@@ -793,14 +799,16 @@
             throw new Error("urls must have at least 1 url set, got: [" + urls + "]");
         }
 
+        let webSocketFactory = config ? config.webSocketFactory : undefined;
+
         // :: Provide default for socket factory if not defined.
-        if (socketFactory === undefined) {
-            socketFactory = function (url, protocol) {
+        if (webSocketFactory === undefined) {
+            webSocketFactory = function (url, protocol) {
                 return new WebSocket(url, protocol);
             };
         }
-        if (typeof socketFactory !== "function") {
-            throw new Error("socketFactory should be a function, instead got [" + socketFactory + "]");
+        if (typeof webSocketFactory !== "function") {
+            throw new Error("webSocketFactory should be a function, instead got [" + webSocketFactory + "]");
         }
 
         // Polyfill performance.now() for Node.js
@@ -822,7 +830,7 @@
         // ==============================================================================================
 
         // NOTE!! There is an "implicit"/"hidden" 'sessionId' field too, but we do not make it explicit.
-        // 'sessionId' is set when we get the SessionId from WELCOME, cleared (deleted) upon SessionClose (along with _sessionOpened = false)
+        // 'sessionId' is set when we get the SessionId from WELCOME, cleared (deleted) upon SessionClose (along with _matsSocketOpen = false)
 
         /**
          * Whether to log via console.log. The logging is quite extensive.
@@ -832,24 +840,76 @@
         this.logging = false;
 
         /**
-         * If this is set to a function, it will be invoked if close(..) is invoked and sessionId is present, the
-         * single parameter being a object with two keys:
-         * <ol>
-         *     <li>'currentWsUrl' is the current WebSocket url (the one that the WebSocket was last connected to, and
-         *       would have connected to again, e.g. "wss://example.com/matssocket").</li>
-         *     <li>'sessionId' is the current MatsSocket SessionId</li>
-         * </ol>
-         * The default is 'undefined', which effectively results in the invocation of
-         * <code>navigator.sendBeacon(currentWsUrl.replace('ws', 'http)+"/close_session?sessionId={sessionId}")<code>.
-         * Note that replace is replace-first, and that the extra 's' in 'wss' results in 'https'.
+         * "Out-of-band Close" refers to a small hack to notify the server about a MatsSocketSession being Closed even
+         * if the WebSocket is not live anymore: When {@link MatsSocket#close} is invoked, an attempt is done to close
+         * the WebSocket with CloseCode {@link MatsSocketCloseCodes#CLOSE_SESSION} - but whether the WebSocket is open
+         * or not, this "Out-of-band Close" will also be invoked if enabled and MatsSocket SessionId is present.
+         * <p/>
+         * Values:
+         * <ul>
+         *     <li>"Falsy": Disables this functionality</li>
+         *     <li>A <code>function</code>: The function is invoked when close(..) is invoked, the
+         *         single parameter being an object with two keys: <code>'webSocketUrl'</code> is the current WebSocket
+         *         url, i.e. the URL that the WebSocket was connected to, e.g. "wss://example.com/matssocket".
+         *         <code>'sessionId'</code> is the current MatsSocket SessionId - the one we're trying to close.</li>
+         *     <li>Otherwise "truthy" <b>(default)</b>: When this MatsSocket library is used in a web browser context,
+         *         the following code is executed:
+         *         <code>navigator.sendBeacon(webSocketUrl.replace('ws', 'http)+"/close_session?sessionId={sessionId}")</code>.
+         *         Note that replace is replace-first, and that an extra 's' in 'wss' thus results in 'https'.</li>
+         * </ul>
+         * The default is <code>true</code>.
+         * <p/>
+         * Note: A 'beforeunload' listener invoking {@link MatsSocket#close} is attached when running in a web browser,
+         * so that if the user navigates away, the current MatsSocketSession is closed.
          *
-         * @type {Function}
+         * @type {(function|boolean)}
          */
-        this.outofbandclose = undefined;
+        this.outofbandclose = true;
+
+        /**
+         * "Pre Connection Operation" refers to a hack whereby the MatsSocket performs a specified operation - by default
+         * a {@link XMLHttpRequest} to the same URL as the WebSocket will be connected to - before initiating the
+         * WebSocket connection. The goal of this solution is to overcome a deficiency with the WebSocket Web API
+         * where it is impossible to add headers, in particular "Authorization": The XHR adds the Authorization header
+         * as normal, and the server side can transfer this header value over to a Cookie (e.g. named "Authorization").
+         * When the WebSocket connect is performed, the cookies will be transferred along with the initial "handshake"
+         * HTTP Request - and the AuthenticationPlugin on the server side can then validate the Authorization header -
+         * now present in a cookie.
+         * <p/>
+         * Values:
+         * <ul>
+         *     <li>"Falsy", e.g. <code>false</code> or <code>undefined</code> <b>(default)</b>: Disables this functionality.</li>
+         *     <li>A <code>string</code>: Performs a XmlHttpRequest with the URL set to the specified string.
+         *     Expects 200, 202 or 204 as returned status code to go on.</li>
+         *     <li>A <code>function</code>: Invokes the function with a parameter object containing <code>'webSocketUrl'</code>, which is
+         *     the current WebSocket URL that we will connect to when this PreConnectionOperation has gone through,
+         *     and <code>'authorization'</code>, which is the current Authorization Value. <b>Expects
+         *     a two-element array returned</b>: [abortFunction, requestPromise]. The abortFunction is invoked when
+         *     the connection-retry system deems the current attempt to have taken too long time. The requestPromise must
+         *     be resolved by your code when the request has been successfully performed, or rejected if it didn't go through.
+         *     In the latter case, a new invocation of the 'preconnectoperation' will be performed after a countdown,
+         *     possibly with a different 'webSocketUrl' value if the MatsSocket is configured with multiple URLs.</li>
+         *     <li>Otherwise "truthy", e.g. <code>true</code>: Performs a XmlHttpRequest to the same URL as the
+         *     WebSocket URL, with "ws" replaced with "http", similar to {@link #outofbandclose}, and the HTTP Header
+         *     "Authorization" set to the current Authorization Value. Expects 200, 202 or 204 as returned status code
+         *     to go on.</li>
+         * </ul>
+         * The default is <code>false</code>.
+         * <p/>
+         * Note: For inspiration for the function-style value of this config, look in the source for the method
+         * <code>defaultXhrPromiseFactory(params)</code>.
+         * <p/>
+         * Note: A WebSocket is set up with a single HTTP Request, called the "Upgrade" or "Handshake" request. The
+         * point about being able to send Authorization along with the WebSocket connect only refers to this initial
+         * HTTP Request. Subsequent updates of the Authorization by means of invocation of
+         * {@link MatsSocket#setCurrentAuthorization} will not result in new HTTP calls - these new Authorization
+         * strings are sent in-band with WebSocket messages (MatsSocket envelopes).
+         */
+        this.preconnectoperation = false;
 
         /**
          * A bit field requesting different types of debug information - it is read each time an information bearing
-         * message is added to the pipeline, and if not 'unhandled' or 0, the debug options flags is added to the
+         * message is added to the pipeline, and if not 'undefined' or 0, the debug options flags is added to the
          * message.
          * <p/>
          * The debug options on the outgoing Client-to-Server requests are tied to that particular request flow -
@@ -857,7 +917,10 @@
          * also stored on the server and used when messages originate there (i.e. Server-to-Client SENDs and REQUESTs).
          * <p/>
          * If you only want debug information on a particular Client-to-Server request, you'll need to first set the
-         * debug flags, then do the request (adding the message to the pipeline), and then reset the debug flags back.
+         * debug flags, then do the request (adding the message to the pipeline), and then reset the debug flags back,
+         * and send some new message (Just to be precise: Any message from Server-to-Client which happens to be
+         * performed in the timespan between the request and the subsequent message which resets the debug flags
+         * will therefore also have debug information attached).
          * <p/>
          * The value is a bit field, so you bitwise-or (or add) together the different things you want. Undefined, or 0,
          * means "no debug info".
@@ -914,7 +977,7 @@
          * in sync, and can consider just "act as if nothing happened" - by sending a new message and thus get a new
          * MatsSocket Session going.
          *
-         * @param {function} sessionClosedEventListener a function that is invoked when the library gets the current
+         * @param {{}} sessionClosedEventListener a function that is invoked when the library gets the current
          * MatsSocketSession closed from the server. The event object is the WebSocket's {@link CloseEvent}.
          */
         this.addSessionClosedEventListener = function (sessionClosedEventListener) {
@@ -980,7 +1043,7 @@
          * Note: If the underlying WebSocket has not been established and HELLO sent, then invoking this method will NOT
          * do that - only the first actual MatsSocket message will start the WebSocket and do HELLO.
          *
-         * @param authorizationHeader the authorization String which will be resolved to a Principal on the server side by the
+         * @param authorizationValue the authorization String which will be resolved to a Principal on the server side by the
          * authorization plugin (and which potentially also will be forwarded to other resources that requires
          * authorization).
          * @param expirationTimestamp the millis-since-epoch at which this authorization (e.g. JWT access
@@ -993,12 +1056,12 @@
          * i.e. 10 seconds - but if the Mats endpoints uses the Authorization string to do further accesses, both latency
          * and queue time must be taken into account (e.g. for calling into another API that also needs a valid token).
          */
-        this.setCurrentAuthorization = function (authorizationHeader, expirationTimestamp, roomForLatencyMillis) {
+        this.setCurrentAuthorization = function (authorizationValue, expirationTimestamp, roomForLatencyMillis) {
             if (this.logging) log("Got Authorization which "
                 + (expirationTimestamp !== -1 ? "Expires in [" + (expirationTimestamp - Date.now()) + " ms]" : "[Never expires]")
                 + ", roomForLatencyMillis: " + roomForLatencyMillis);
 
-            _authorization = authorizationHeader;
+            _authorization = authorizationValue;
             _expirationTimestamp = expirationTimestamp;
             _roomForLatencyMillis = roomForLatencyMillis;
             _sendAuthorizationToServer = true;
@@ -1151,7 +1214,7 @@
          * @param endpointId
          * @param traceId
          * @param message
-         * @returns {Promise<unknown>}
+         * @returns {Promise<ReceivedEvent>}
          */
         this.send = function (endpointId, traceId, message) {
             return new Promise(function (resolve, reject) {
@@ -1181,9 +1244,9 @@
          * @param traceId
          * @param message
          * @param receivedCallback
-         * @returns {Promise<unknown>}
+         * @returns {Promise<MessageEvent>}
          */
-        this.request = function (endpointId, traceId, message, receivedCallback) {
+        this.request = function (endpointId, traceId, message, receivedCallback = undefined) {
             return new Promise(function (resolve, reject) {
                 let envelope = Object.create(null);
                 envelope.t = MessageType.REQUEST;
@@ -1206,17 +1269,19 @@
         };
 
         /**
-         * Perform a Request, but send the reply to a specific client endpoint registered on this MatsSocket instance.
-         * The returned Promise functions as for Send, since the reply will not go to the Promise now. Notice that you
-         * can set a CorrelationId which will be available for the Client endpoint when it receives the reply - this
-         * is pretty much free form.
+         * Perform a Request, but send the reply to a specific client terminator registered on this MatsSocket instance.
+         * The returned Promise functions as for Send, since the reply will not go to the Promise, but to the
+         * terminator. Notice that you can set any CorrelationInformation object which will be available for the Client
+         * terminator when it receives the reply - this is kept on the client (not serialized and sent along with
+         * request and reply), so it can be any object: An identifier, some object to apply the result on, or even a
+         * function.
          *
          * @param endpointId
          * @param traceId
          * @param message
          * @param replyToTerminatorId
          * @param correlationInformation
-         * @returns {Promise<unknown>}
+         * @returns {Promise<ReceivedEvent>}
          */
         this.requestReplyTo = function (endpointId, traceId, message, replyToTerminatorId, correlationInformation) {
             // ?: Do we have the Terminator the client requests reply should go to?
@@ -1252,44 +1317,44 @@
          * {@link #setCurrentAuthorization()} and {@link #setAuthorizationExpiredCallback()}).
          */
         this.flush = function () {
+            // ?: Are we currently doing "auto-pipelining"?
             if (_evaluatePipelineLater_timeoutId) {
+                // -> Yes, so clear this timeout, since we're flushing now.
                 clearTimeout(_evaluatePipelineLater_timeoutId);
                 _evaluatePipelineLater_timeoutId = undefined;
             }
+            // Do flush
             _evaluatePipelineSend();
         };
 
         /**
-         * MatsSocket will always iterate through the URL array starting from 0th element. Therefore, the URL array is
-         * shuffled. Invoking this method disables this randomization. Must be invoked before MatsSocket connects.
-         * Should only be used for testing, as you in production definitely want randomization.
-         */
-        this.disableUrlRandomization = function () {
-            // Just copy over the original array to the "_useUrls" var.
-            _useUrls = urls;
-        };
-
-        /**
-         * Closes any currently open WebSocket with MatsSocket-specific CloseCode CLOSE_SESSION (4000). It <i>also</i>
-         * uses <code>navigator.sendBeacon(..)</code> (if present) to send an out-of-band Close Session HTTP POST,
-         * or, if {@link #outofbandclose} is a function, it is invoked instead. The SessionId is made undefined. If
-         * there currently is a pipeline, this will be dropped (i.e. messages deleted), any outstanding acknowledge
-         * callbacks are dropped, acknowledge Promises are rejected, and outstanding Reply Promises (from Requests)
-         * are rejected. The effect is to cleanly shut down the Session and MatsSocket (closing session on server side).
+         * Closes any currently open WebSocket with MatsSocket-specific CloseCode CLOSE_SESSION (4000). Depending
+         * of the value of {@link #outofbandclose}, it <i>also</i> uses <code>navigator.sendBeacon(..)</code>
+         * (if present, i.e. web browser context) to send an out-of-band Close Session HTTP POST, or, if
+         * 'outofbancclose' is a function, this is invoked (if 'outofbandclose' is <code>false</code>, this
+         * functionality is disabled). Upon receiving the WebSocket close, the server terminates the MatsSocketSession.
+         * The MatsSocket instance's SessionId is made undefined. If there currently is a pipeline,
+         * this will be dropped (i.e. messages deleted), any outstanding receiveCallbacks
+         * (from Requests) are invoked, and received Promises (from sends) are rejected, with type
+         * {@link ReceivedEventType#SESSION_CLOSED}, outstanding Reply Promises (from Requests)
+         * are rejected with {@link MessageEventType#SESSION_CLOSED}. The effect is to cleanly shut down the
+         * MatsSocketSession (all session data removed from server), and also clean the MatsSocket instance.
          * <p />
-         * Afterwards, the MatsSocket can be started up again by sending a message. As The SessionId on this client
-         * MatsSocket was cleared (and the previous Session on the server is gone anyway), this will give a new server
-         * side Session. If you want a totally clean MatsSocket, then just ditch this instance and make a new one.
+         * Afterwards, the MatsSocket can be started up again by sending a message - keeping its configuration wrt.
+         * terminators, endpoints and listeners. As The SessionId on this client MatsSocket was cleared (and the
+         * previous Session on the server is deleted), this will result in a new server side Session. If you want a
+         * totally clean MatsSocket instance, then just ditch the current instance and make a new one (which then will
+         * have to be configured with terminators etc).
+         * <p />
+         * <b>Note: A 'beforeunload' event handler is registered on 'window' (if present), which invokes this
+         * method</b>, so that if the user navigates away, the session will be closed.
          *
-         * <b>Note: An 'onBeforeUnload' event handler is registered on 'window' (if present), which invokes this
-         * method.</b>
-         *
-         * @param {string} reason short descriptive string. Will be returned as part of reason string, must be quite
-         * short.
+         * @param {string} reason short descriptive string. Will be supplied with the webSocket close reason string,
+         * and must therefore be quite short (max 123 chars).
          */
         this.close = function (reason) {
             // Fetch properties we need before clearing state
-            let currentWsUrl = _currentWebSocketUrl();
+            let webSocketUrl = _currentWebSocketUrl;
             let existingSessionId = that.sessionId;
             log("close(): Closing MatsSocketSession, id:[" + existingSessionId + "] due to [" + reason
                 + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
@@ -1303,8 +1368,6 @@
                 _webSocket.close(MatsSocketCloseCodes.CLOSE_SESSION, "From client: " + reason);
             }
 
-            // Clear out WebSocket "infrastructure", i.e. state and "pinger thread".
-            _clearWebSocketStateAndInfrastructure();
             // Close Session and clear all state of this MatsSocket.
             _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages("From Client: " + reason);
 
@@ -1312,19 +1375,20 @@
             // ?: Do we have a sessionId?
             if (existingSessionId) {
                 // ?: Is the out-of-band close function defined?
-                if (this.outofbandclose !== undefined) {
-                    // -> Yes, so invoke it
+                if (typeof (this.outofbandclose) === "function") {
+                    // -> Yes, function, so invoke it
                     this.outofbandclose({
-                        currentWsUrl: currentWsUrl,
+                        webSocketUrl: webSocketUrl,
                         sessionId: existingSessionId
                     });
-                } else {
-                    // -> No, so do default logic
+                    // ?: Is the out-of-band close 'truthy'?
+                } else if (this.outofbandclose) {
+                    // -> Yes, truthy, so do default logic
                     // ?: Do we have 'navigator'?
                     if ((typeof window !== 'undefined') && (typeof window.navigator !== 'undefined')) {
                         // -> Yes, navigator present, so then we can fire off the out-of-band close too
                         // Fire off a "close" over HTTP using navigator.sendBeacon(), so that even if the socket is closed, it is possible to terminate the MatsSocket SessionId.
-                        let closeSesionUrl = currentWsUrl.replace("ws", "http") + "/close_session?session_id=" + existingSessionId;
+                        let closeSesionUrl = webSocketUrl.replace("ws", "http") + "/close_session?session_id=" + existingSessionId;
                         log("  \\- Send an out-of-band (i.e. HTTP) close_session, using navigator.sendBeacon('" + closeSesionUrl + "').");
                         let success = window.navigator.sendBeacon(closeSesionUrl);
                         log("    \\- Result: " + (success ? "Enqueued POST, but do not know whether anyone received it - check Network tab of Dev Tools." : "Did NOT manage to enqueue a POST."));
@@ -1339,7 +1403,7 @@
          * @param reason a string saying why.
          */
         this.reconnect = function (reason) {
-            log("reconnect(): Closing WebSocket with CloseCode 'RECONNECT (" + MatsSocketCloseCodes.RECONNECT
+            if (that.logging) log("reconnect(): Closing WebSocket with CloseCode 'RECONNECT (" + MatsSocketCloseCodes.RECONNECT
                 + ")', MatsSocketSessionId:[" + that.sessionId + "] due to [" + reason + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
             if (!_webSocket) {
                 throw new Error("There is no live WebSocket to close with RECONNECT closeCode!");
@@ -1351,7 +1415,7 @@
             // So then, MatsSocket dutifully starts reconnecting - /after/ the test is finished. Thus, Node sees the
             // outstanding timeout "thread" which pings, and never exits. To better emulate an actual lost connection,
             // we /first/ unset the 'onmessage' handler (so that any pending messages surely will be lost), before we
-            // close the socket. Notice that a "_sessionOpened" guard was also added, so that it shall explicitly stop
+            // close the socket. Notice that a "_matsSocketOpen" guard was also added, so that it shall explicitly stop
             // such reconnecting in face of an actual .close(..) invocation.
 
             // First unset message handler so that we do not receive any more WebSocket messages (but NOT unset 'onclose', nor 'onerror')
@@ -1367,7 +1431,7 @@
          *
          * @param {number} length how long the string should be. 6 should be enough to make a TraceId "unique enough"
          * to uniquely find it in a log system. If you want "absolute certainty" that there never will be any collisions,
-         * go for 20.
+         * i.e. a "GUID", go for 20.
          * @returns {string} a random string consisting of characters from from digits, lower and upper case letters
          * (62 chars).
          */
@@ -1380,12 +1444,11 @@
         };
 
         /**
-         * Convenience method for making random strings for correlationIds, not meant for human reading ever
+         * Convenience method for making random strings for correlationIds, not meant for human reading
          * (choose e.g. length=8), as the alphabet consist of all visible ACSII chars that won't be quoted in a JSON
-         * string. Should you want to make free-standing SessionIds or similar, you would want to have a longer length,
-         * use e.g. length=16.
+         * string. If you want "absolute certainty" that there never will be any collisions, i.e. a "GUID", go for 16.
          *
-         * @param {number} length how long the string should be, e.g. 8 chars for a pretty safe correlationId.
+         * @param {number} length how long the string should be, e.g. 8 chars for a very safe correlationId.
          * @returns {string} a random string consisting of characters from all visible and non-JSON-quoted chars of
          * ASCII (92 chars).
          */
@@ -1401,12 +1464,14 @@
         // PRIVATE
         // ==============================================================================================
 
+        const start = Date.now();
+
         function log(msg, object) {
             if (that.logging) {
                 if (object) {
-                    console.log(_instanceId + "/" + that.sessionId + ": " + msg, object);
+                    console.log(_matsSocketInstanceId + "/" + that.sessionId + "{" + (Date.now() - start) + "}: " + msg, object);
                 } else {
-                    console.log(_instanceId + "/" + that.sessionId + ": " + msg);
+                    console.log(_matsSocketInstanceId + "/" + that.sessionId + "{" + (Date.now() - start) + "}: " + msg);
                 }
             }
         }
@@ -1420,9 +1485,9 @@
         }
 
         // Simple Alphabet: All digits, lower and upper ASCII chars: 10 + 26 x 2 = 62 chars.
-        let _alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const _alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
         // Alphabet of JSON-non-quoted and visible chars: 92 chars.
-        let _jsonAlphabet = "!#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+        const _jsonAlphabet = "!#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 
         // The URLs to use - will be shuffled. Can be reset to not randomized by this.disableUrlRandomize()
         let _useUrls = [].concat(urls);
@@ -1431,20 +1496,19 @@
 
         // fields
 
-        let _instanceId = that.id(5);
+        const _matsSocketInstanceId = that.id(3);
 
         // If true, we're currently already trying to get a WebSocket
         let _webSocketConnecting = false;
-        // If not undefined, we have an open WebSocket available.
-        let _webSocket = undefined;
+        // If NOT undefined, we have an open WebSocket available.
+        let _webSocket = undefined; // NOTE: It is set upon "onopen", and unset upon "onclose".
         // If false, we should not accidentally try to reconnect or similar
-        let _sessionOpened = false; // NOTE: Set to true upon enqueuing of information-bearing message.
+        let _matsSocketOpen = false; // NOTE: Set to true upon enqueuing of information-bearing message.
 
         let _prePipeline = [];
         let _pipeline = [];
         let _terminators = Object.create(null);
         let _endpoints = Object.create(null);
-        let _inbox = Object.create(null);
 
         let _sessionClosedEventListeners = [];
         let _connectionEventListeners = [];
@@ -1473,10 +1537,12 @@
         const _outstandingRequests = Object.create(null);
         // Outbox for SEND and REQUEST messages waiting for Received ACK/NACK
         const _outboxInitiations = Object.create(null);
-        // .. a "guard object" to avoid having to retransmit messages sent /before/ the HELLO/WELCOME handshake
+        // .. "guard object" to avoid having to retransmit messages sent /before/ the WELCOME is received for the HELLO handshake
         let _outboxInitiations_RetransmitGuard = this.jid(5);
         // Outbox for REPLYs
         const _outboxReplies = Object.create(null);
+        // The Inbox - to be able to catch double deliveries from Server
+        let _inbox = Object.create(null);
 
         // :: STATS
         // Last 100 PINGs
@@ -1541,11 +1607,13 @@
             delete (that.sessionId);
             _state = ConnectionState.NO_SESSION;
 
+            _clearWebSocketStateAndInfrastructure();
+
             // :: Clear pipeline
             _pipeline.length = 0;
 
-            // Were now also closed (i.e. not Opened) - until a new message is enqueued.
-            _sessionOpened = false;
+            // Were now also NOT open, until a new message is enqueued.
+            _matsSocketOpen = false;
 
             // :: Reject all outstanding messages
             for (let cmid in _outboxInitiations) {
@@ -1586,14 +1654,9 @@
             }
         }
 
-        /**
-         * <b>YOU SHOULD PROBABLY NOT USE THIS!</b>, instead using the specific prototype methods for generating messages.
-         * Add a message to the outgoing pipeline, evaluates whether to send the pipeline afterwards (i.e. if pipelining
-         * is active or not).
-         */
         function _addInformationBearingEnvelopeToPipeline(envelope, traceId, outstandingInitiation, outstandingRequest) {
-            // This is an information-bearing message, so now we are Opened!
-            _sessionOpened = true;
+            // This is an information-bearing message, so now this MatsSocket instance is open.
+            _matsSocketOpen = true;
             let now = Date.now();
             let performanceNow = performance.now();
 
@@ -1653,17 +1716,22 @@
         function _addEnvelopeToPipeline_EvaluatePipelineLater(envelope, prePipeline = false) {
             // ?: Have we sent hello, i.e. session is "active", but the authorization has changed since last we sent over authorization?
             if (_helloSent && (_currentAuthorizationSentToServer !== _authorization)) {
+                // -> Yes, it has changed, so add it to envelope of this next message, and store it as sent.
                 if (that.logging) log("Authorization has changed, so we add it to the envelope about to be enqueued, of type [" + envelope.t + "].");
-                // -> Yes, it has changed, so set new, and add it to envelope of this next message.
-                _currentAuthorizationSentToServer = _authorization;
                 envelope.auth = _authorization;
+                _currentAuthorizationSentToServer = _authorization;
             }
+            // ?: Should we add it to the pre-pipeline, or the ordinary?
             if (prePipeline) {
+                // -> To pre-pipeline
+                if (that.logging) log("Envelope of type [" + envelope.t + "] enqueued to PRE-pipeline: " + JSON.stringify(envelope));
                 _prePipeline.push(envelope);
             } else {
+                // -> To ordinary pipeline.
+                if (that.logging) log("Envelope of type [" + envelope.t + "] enqueued to pipeline: " + JSON.stringify(envelope));
                 _pipeline.push(envelope);
             }
-            if (that.logging) log("Pushed to pipeline: " + JSON.stringify(envelope));
+            // Perform "auto-pipelining", by waiting a minimal amount of time before actually sending.
             _evaluatePipelineLater();
         }
 
@@ -1674,29 +1742,9 @@
                 clearTimeout(_evaluatePipelineLater_timeoutId);
             }
             _evaluatePipelineLater_timeoutId = setTimeout(function () {
-                _evaluatePipelineSend();
                 _evaluatePipelineLater_timeoutId = undefined;
+                _evaluatePipelineSend();
             }, 2);
-        }
-
-        function _requestNewAuthorizationFromApp(what, event) {
-            // ?: Have we already asked app for new auth?
-            if (_authExpiredCallbackInvoked) {
-                // -> Yes, so just return.
-                log("Authorization was " + what + ", but we've already asked app for it due to: [" + _authExpiredCallbackInvoked + "].");
-                return;
-            }
-            // E-> No, not asked for auth - so do it.
-            log("Authorization was " + what + ". Will not send pipeline until gotten. Invoking 'authorizationExpiredCallback', type:[" + event.type + "].");
-            // We will have asked for auth after this.
-            _authExpiredCallbackInvoked = event.type;
-            // Assert that we have callback
-            if (!_authorizationExpiredCallback) {
-                error("missingauthcallback", "Was about to ask app for new Authorization header, but the 'authorizationExpiredCallback' is not present.");
-                return;
-            }
-            // Ask app for new auth
-            _authorizationExpiredCallback(event);
         }
 
         /**
@@ -1723,6 +1771,7 @@
                 return;
             }
             // ?: Check that we are not already waiting for new auth
+            // (This is needed here since we might actually have valid authentication, but server has still asked us, via "REAUTH", to get new)
             if (_authExpiredCallbackInvoked) {
                 log("We have asked app for new authorization, and still waiting for it.");
                 return;
@@ -1800,31 +1849,65 @@
             }
         }
 
+        function _requestNewAuthorizationFromApp(what, event) {
+            // ?: Have we already asked app for new auth?
+            if (_authExpiredCallbackInvoked) {
+                // -> Yes, so just return.
+                log("Authorization was " + what + ", but we've already asked app for it due to: [" + _authExpiredCallbackInvoked + "].");
+                return;
+            }
+            // E-> No, not asked for auth - so do it.
+            log("Authorization was " + what + ". Will not send pipeline until gotten. Invoking 'authorizationExpiredCallback', type:[" + event.type + "].");
+            // We will have asked for auth after this.
+            _authExpiredCallbackInvoked = event.type;
+            // Assert that we have callback
+            if (!_authorizationExpiredCallback) {
+                // -> We do not have callback! This is actually disaster.
+                error("missingauthcallback", "Was about to ask app for new Authorization header, but the 'authorizationExpiredCallback' is not present.");
+                return;
+            }
+            // E-> We do have 'authorizationExpiredCallback', so ask app for new auth
+            _authorizationExpiredCallback(event);
+        }
+
         let _urlIndexCurrentlyConnecting = 0; // Cycles through the URLs
-        let _connectionAttemptRound = 0; // When cycled one time through URLs, increases.
+        let _connectionAttemptRound = 0; // When cycled one time through URLs, this increases.
+        let _currentWebSocketUrl = undefined;
+
         let _connectionTimeoutBase = 500; // Base timout, milliseconds. Doubles, up to max defined below.
         let _connectionTimeoutMinIfSingleUrl = 5000; // Min timeout if single-URL configured, milliseconds.
         // Based on whether there is multiple URLs, or just a single one, we choose the short "timeout base", or a longer one, as minimum.
         let _connectionTimeoutMin = _useUrls.length > 1 ? _connectionTimeoutBase : _connectionTimeoutMinIfSingleUrl;
         let _connectionTimeoutMax = 15000; // Milliseconds max between connection attempts.
+        let _consecutiveAuthFailOrWebSocketErrors = 0; // Increased each time PreConnectionOperation returns 401 or 403, OR WebSocket.onerror is triggered when trying to connect.
 
-        function _currentWebSocketUrl() {
-            log("## Using urlIndexCurrentlyConnecting [" + _urlIndexCurrentlyConnecting + "]: " + _useUrls[_urlIndexCurrentlyConnecting] + ", round:" + _connectionAttemptRound);
-            return _useUrls[_urlIndexCurrentlyConnecting];
+        function _increaseReconnectStateVars() {
+            _urlIndexCurrentlyConnecting++;
+            if (_urlIndexCurrentlyConnecting >= _useUrls.length) {
+                _urlIndexCurrentlyConnecting = 0;
+                _connectionAttemptRound++;
+            }
+            _currentWebSocketUrl = _useUrls[_urlIndexCurrentlyConnecting];
+            log("## _increaseReconnectStateVars(): round:[" + _connectionAttemptRound + "], urlIndex:[" + _urlIndexCurrentlyConnecting + "] = " + _currentWebSocketUrl);
         }
+
+        function _resetReconnectStateVars() {
+            _urlIndexCurrentlyConnecting = 0;
+            _connectionAttemptRound = 0;
+            _currentWebSocketUrl = _useUrls[_urlIndexCurrentlyConnecting];
+            log("## _resetReconnectStateVars(): round:[" + _connectionAttemptRound + "], urlIndex:[" + _urlIndexCurrentlyConnecting + "] = " + _currentWebSocketUrl);
+        }
+
+        // Invoke it right away to get it set
+        _resetReconnectStateVars();
 
         function _secondsTenths(milliseconds) {
             // Rounds to tenth of second, e.g. 2730 -> 2.7.
             return Math.round(milliseconds / 100) / 10;
         }
 
-        function _resetReconnectStateVars() {
-            _urlIndexCurrentlyConnecting = 0;
-            _connectionAttemptRound = 0;
-        }
-
         function _updateStateAndNotifyConnectionEventListeners(connectionEvent) {
-            // ?: Should we log? Logging is on, AND either NOT CountDown, OR CountDown and whole second.
+            // ?: Should we log? Logging is on, AND (either NOT CountDown, OR CountDown == initialSeconds, OR Countdown == whole second).
             if (that.logging && ((connectionEvent.type !== ConnectionEventType.COUNTDOWN)
                 || (connectionEvent.countdownSeconds === connectionEvent.timeoutSeconds)
                 || (Math.round(connectionEvent.countdownSeconds) === connectionEvent.countdownSeconds))) {
@@ -1850,21 +1933,32 @@
             }
         }
 
+        function _notifySessionClosedEventListeners(closeEvent) {
+            if (that.logging) log("Sending SessionClosedEvent to listeners", closeEvent);
+            for (let i = 0; i < _sessionClosedEventListeners.length; i++) {
+                try {
+                    _sessionClosedEventListeners[i](closeEvent);
+                } catch (err) {
+                    error("notify SessionClosedEvent listeners", "Caught error when notifying one of the [" + _sessionClosedEventListeners.length + "] SessionClosedEvent listeners.", err);
+                }
+            }
+        }
+
         function _initiateWebSocketCreation() {
             // ?: Assert that we do not have the WebSocket already
             if (_webSocket !== undefined) {
                 // -> Damn, we did have a WebSocket. Why are we here?!
-                throw (new Error("Should not be here, as WebSocket is already in place, or we're trying to connect"));
+                throw (new Error("Should not be here, as WebSocket is already in place!"));
             }
-            // E-> No, WebSocket ain't open..
-
-            // ?: Assert that we aren't actually closed (could conceivably have happened async)
-            if (!_sessionOpened) {
-                // -> We've been asynchronously closed - bail out from opening WebSocket
-                throw (new Error("We're closed, so we should not open WebSocket"));
+            // ?: Assert that we are actually open - we should not be trying to connect otherwise.
+            if (!_matsSocketOpen) {
+                // -> We've been asynchronously been closed - bail out from opening WebSocket
+                throw (new Error("The MatsSocket instance is closed, so we should not open WebSocket"));
             }
 
-            // :: We are currently trying to connect!
+            // ----- We do not already have a WebSocket and the MatsSocket instance is Open!
+
+            // :: We are currently trying to connect! (This will be set to true repeatedly while in the process of opening)
             _webSocketConnecting = true;
 
             // Timeout: LESSER of "max" and "timeoutBase * (2^round)", which should lead to timeoutBase x1, x2, x4, x8 - but capped at max.
@@ -1878,129 +1972,344 @@
             };
 
             // About to create WebSocket, so notify our listeners about this.
-            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTING, _currentWebSocketUrl(), undefined, _secondsTenths(timeout), secondsLeft()));
+            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTING, _currentWebSocketUrl, undefined, _secondsTenths(timeout), secondsLeft()));
 
-            // Create the WebSocket
-            let websocket = socketFactory(_currentWebSocketUrl(), "matssocket");
+            let preConnectOperationAbortFunction = undefined;
+            let websocketAttempt = undefined;
+            let countdownId = undefined;
 
-            let increaseReconnectStateVars = function () {
-                _urlIndexCurrentlyConnecting++;
-                if (_urlIndexCurrentlyConnecting >= _useUrls.length) {
-                    _urlIndexCurrentlyConnecting = 0;
-                    _connectionAttemptRound++;
+            /*
+             * Make a "connection timeout" countdown,
+             * This will re-invoke itself every 100 ms to created the COUNTDOWN events - until either cancelled by connect,
+             *  or it reaches targetTimeoutTimestamp (timeout), where it aborts the attempt, bumps the state vars,
+             *  and then re-runs the '_initiateWebSocketCreation' method.
+             */
+            function w_countDownTimer() {
+                // ?: Assert that we're still open
+                if (!_matsSocketOpen) {
+                    log("When doing countdown rounds, we realize that this MatsSocket instance is closed! - stopping right here.");
+                    w_abortAttempt();
+                    return;
                 }
-            };
-
-            // Make a "connection timeout" thingy,
-            // This will re-invoke itself every 100 ms to created the COUNTDOWN events - until either cancelled by connect,
-            // or it reaches targetTimeoutTimestamp (timeout), where it bumps the state vars, and then re-runs the present method.
-            let countdownId;
-            let countDownTimer = function () {
                 // :: Find next target
                 while (currentCountdownTargetTimestamp <= Date.now()) {
                     currentCountdownTargetTimestamp += 100;
                 }
                 // ?: Have we now hit or overshot the target?
                 if (currentCountdownTargetTimestamp >= targetTimeoutTimestamp) {
-                    // -> Yes, we've hit target, so this did not work out.
-                    // :: Bad attempt, clear this WebSocket out
-                    log("Create WebSocket: Timeout exceeded [" + timeout + "], URL [" + _currentWebSocketUrl() + "] is bad so ditch it.");
-                    // Clear out the handlers
-                    websocket.onopen = undefined;
-                    websocket.onerror = undefined;
-                    websocket.onclose = undefined;
-                    // Close the current WebSocket connection attempt (i.e. abort connect if still trying).
-                    websocket.close(4999, "WebSocket connect timeout");
-                    // Invoke after a small random number of millis: Bump reconnect state vars, re-run _initiateWebSocketCreation
-                    setTimeout(function () {
-                        increaseReconnectStateVars();
-                        _initiateWebSocketCreation();
-                    }, Math.round(Math.random() * 200));
+                    // -> Yes, we've hit target, so this did not work out - abort attempt, bump state vars, and reschedule the entire show.
+                    w_connectTimeout_AbortAttemptAndReschedule();
                 } else {
-                    // -> No, we've NOT hit target, so sleep till next countdown target, where we re-invoke ourselves (this countDownTimer())
+                    // -> No, we've NOT hit timeout-target, so sleep till next countdown-target, where we re-invoke ourselves (this w_countDownTimer())
                     // Notify ConnectionEvent listeners about this COUNTDOWN event.
-                    _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.COUNTDOWN, _currentWebSocketUrl(), undefined, _secondsTenths(timeout), secondsLeft()));
+                    _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.COUNTDOWN, _currentWebSocketUrl, undefined, _secondsTenths(timeout), secondsLeft()));
                     let sleep = Math.max(5, currentCountdownTargetTimestamp - Date.now());
                     countdownId = setTimeout(function () {
-                        countDownTimer();
+                        w_countDownTimer();
                     }, sleep);
                 }
-            };
-            // Initial invoke of our countdown-timer.
-            countDownTimer();
+            }
 
-            // :: Add the handlers for this "trying to acquire" procedure.
+            function w_abortAttempt() {
+                // ?: Are we in progress with the PreConnectionOperation?
+                if (preConnectOperationAbortFunction) {
+                    // -> Evidently still doing PreConnectionRequest - kill it.
+                    log("  \\- Within PreConnectionOperation phase - invoking preConnectOperationFunction's abort() function.");
+                    // null out the 'preConnectOperationAbortFunction', as this is used for indication for whether the preConnectRequestPromise's resolve&reject should act.
+                    let abortFunctionTemp = preConnectOperationAbortFunction;
+                    // Clear out
+                    preConnectOperationAbortFunction = undefined;
+                    // Invoke the abort.
+                    abortFunctionTemp();
+                }
 
-            // Error: Just log for debugging. NOTICE: Upon Error, Close is also always invoked.
-            websocket.onerror = function (event) {
-                log("Create WebSocket: error.", event);
-            };
+                // ?: Are we in progress with opening WebSocket?
+                if (websocketAttempt) {
+                    // -> Evidently still trying to connect WebSocket - kill it.
+                    log("  \\- Within WebSocket connect phase - clearing handlers and invoking webSocket.close().");
+                    websocketAttempt.onopen = undefined;
+                    websocketAttempt.onerror = function (closeEvent) {
+                        if (that.logging) log("!! websocketAttempt.onerror: Forced close by timeout, instanceId:[" + closeEvent.target.webSocketInstanceId + "]", closeEvent);
+                    };
+                    websocketAttempt.onclose = function (closeEvent) {
+                        if (that.logging) log("!! websocketAttempt.onclose: Forced close by timeout, instanceId:[" + closeEvent.target.webSocketInstanceId + "]", closeEvent);
+                    };
+                    // Close the current WebSocket connection attempt (i.e. abort connect if still trying).
+                    websocketAttempt.close(4999, "WebSocket connect aborted");
+                    // Clear out the attempt
+                    websocketAttempt = undefined;
+                }
+            }
 
-            // Close: Log + IF this is the first "round" AND there is multiple URLs, then immediately try the next URL. (Close may happen way before the Connection Timeout)
-            websocket.onclose = function (closeEvent) {
-                log("Create WebSocket: close. Code:" + closeEvent.code + ", Reason:" + closeEvent.reason, closeEvent);
-                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.WAITING, _currentWebSocketUrl(), closeEvent, _secondsTenths(timeout), secondsLeft()));
+            function w_defaultXhrPromiseFactory(params) {
+                let xhr = new XMLHttpRequest();
+                let abort = function () {
+                    xhr.abort();
+                };
+                let preConnectPromise = new Promise(function (resolve, reject) {
+                        xhr.addEventListener("loadend", function (event) {
+                            // Get XHR's status
+                            let status = xhr.status;
+                            // ?: Was it a GOOD return?
+                            if ((status === 200) || (status === 202) || (status === 204)) {
+                                // -> Yes, it was good - supplying the status code
+                                resolve(status);
+                            } else {
+                                // -> Not, it was BAD - supplying the status code
+                                reject(status);
+                            }
+                        });
+                        xhr.withCredentials = true;
+                        xhr.open("GET", (params.directUrl ? params.directUrl : params.webSocketUrl.replace("ws", "http")));
+                        xhr.setRequestHeader("Authorization", params.authorization);
+                        xhr.send();
+                    }
+                );
+                return [abort, preConnectPromise];
+            }
 
+            function w_attemptPreConnectionOperation() {
+                // :: First need to check whether we have OK Authorization - if not, we must terminate entire connection procedure, ask for new, and start over.
+                // Note: The start-over will happen when new auth comes in, _evaluatePipelineSend(..) is invoked, and there is no WebSocket there.
+                // ?: Check whether we have expired authorization
+                if ((_expirationTimestamp !== undefined) && (_expirationTimestamp !== -1)
+                    && ((_expirationTimestamp - _roomForLatencyMillis) < Date.now())) {
+                    // -> Yes, authorization is expired.
+                    log("PreConnectOperation: Authorization is expired, we need new to continue.");
+                    // We are not connecting anymore
+                    _webSocketConnecting = false;
+                    // Cancel the "connection timeout" thingy
+                    clearTimeout(countdownId);
+                    // Request new auth
+                    _requestNewAuthorizationFromApp("expired", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.EXPIRED, _expirationTimestamp));
+                    return;
+                }
+
+                // :: Decide based on 'preconnectoperation' how to do the .. PreConnectOperation
+                let abortAndPromise;
+                let params = {
+                    webSocketUrl: _currentWebSocketUrl,
+                    authorization: _authorization
+                };
+                if (typeof (that.preconnectoperation) === 'function') {
+                    // -> Function, so invoke it, with contract-specified params object containing 'webSocketUrl'.
+                    abortAndPromise = that.preconnectoperation(params);
+                } else if (typeof (that.preconnectoperation) === 'string') {
+                    // -> String, so invoke our default promise factory with special "directUrl" params argument
+                    params.directUrl = that.preconnectoperation;
+                    abortAndPromise = w_defaultXhrPromiseFactory(params);
+                } else {
+                    // -> Truthy, so invoke our default promise factory with contract-specified params object containing 'webSocketUrl'.
+                    abortAndPromise = w_defaultXhrPromiseFactory(params);
+                }
+
+                // Deconstruct the return
+                preConnectOperationAbortFunction = abortAndPromise[0];
+                let preConnectRequestPromise = abortAndPromise[1];
+
+                // Handle the resolve or reject from the preConnectionOperation
+                preConnectRequestPromise
+                    .then(function (statusMessage) {
+                        // -> Yes, good return - so go onto next phase, which is creating the WebSocket
+                        // ?: Are we still trying to perform the preConnectOperation? (not timed out)
+                        if (preConnectOperationAbortFunction) {
+                            // -> Yes, not timed out, so then we're good to go with the next phase
+                            log("PreConnectionOperation went OK [" + statusMessage + "], going on to create WebSocket.");
+                            // Create the WebSocket
+                            w_attemptWebSocket();
+                        }
+                    })
+                    .catch(function (statusMessage) {
+                        // -> No, bad return - so go for next
+                        // ?: Are we still trying to perform the preConnectOperation? (not timed out)
+                        if (preConnectOperationAbortFunction) {
+                            // -> Yes, not timed out, so then we'll notify about our failed attempt
+                            log("PreConnectionOperation failed [" + statusMessage + "] - retrying.");
+                            // ?: Is the statusMessage between 400 and 599 - indicating that we actually got a response, but not anything good?
+                            if ((statusMessage >= 400) && (statusMessage <= 599)) {
+                                // Yes, so increase consecutive auth fails
+                                _consecutiveAuthFailOrWebSocketErrors++;
+                            }
+                            // Go for next retry
+                            w_connectFailed_RetryOrWaitForTimeout();
+                        }
+                    });
+            }
+
+            function w_attemptWebSocket() {
+                // We're not trying to perform the preConnectOperation anymore, so clear it.
+                preConnectOperationAbortFunction = undefined;
+                // :: Assert that we're not already trying to make a WebSocket
+                if (websocketAttempt) {
+                    throw Error("When going for attempt on creating WebSocket, there was already an attempt in place.");
+                }
+
+                // ?: Assert that we're still open
+                if (!_matsSocketOpen) {
+                    log("Upon WebSocket.open, we realize that this MatsSocket instance is closed! - stopping right here.");
+                    w_abortAttempt();
+                    return;
+                }
+
+                // Actually create the instance
+                let url = _currentWebSocketUrl + (that.preconnectoperation ? "?preconnect=true" : "");
+                const webSocketInstanceId = that.id(6);
+                if (that.logging) log("INSTANTIATING new WebSocket(\"" + url + "\", \"matssocket\") - InstanceId:[" + webSocketInstanceId + "]");
+                websocketAttempt = webSocketFactory(url, "matssocket");
+                websocketAttempt.webSocketInstanceId = webSocketInstanceId;
+
+                // :: Add the handlers for this "trying to acquire" procedure.
+
+                // Error: Mainly just log for debugging - but also keep tally of fails in a row. NOTICE: Upon Error, Close is also always invoked.
+                websocketAttempt.onerror = function (event) {
+                    log("Create WebSocket: error. InstanceId:[" + event.target.webSocketInstanceId + "]", event);
+                    // Increase consecutive errors
+                    _consecutiveAuthFailOrWebSocketErrors++;
+                };
+
+                // Close: Log + IF this is the first "round" AND there is multiple URLs, then immediately try the next URL. (Close may happen way before the Connection Timeout)
+                websocketAttempt.onclose = function (closeEvent) {
+                    log("Create WebSocket: close. InstanceId:[" + closeEvent.target.webSocketInstanceId + "], Code:" + closeEvent.code + ", Reason:" + closeEvent.reason, closeEvent);
+                    _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.WAITING, _currentWebSocketUrl, closeEvent, _secondsTenths(timeout), secondsLeft()));
+                    w_connectFailed_RetryOrWaitForTimeout();
+                };
+
+                // Open: Success! Cancel countdown timer, and set WebSocket in MatsSocket, clear flags, set proper WebSocket event handlers including onMessage.
+                websocketAttempt.onopen = function (event) {
+                    // First and foremost: Cancel the "connection timeout" thingy - we're done!
+                    clearTimeout(countdownId);
+
+                    // ?: Assert that we're still open
+                    if (!_matsSocketOpen) {
+                        log("Upon WebSocket.open, we realize that this MatsSocket instance is closed! - stopping right here.");
+                        w_abortAttempt();
+                        return;
+                    }
+
+                    log("Create WebSocket: opened! InstanceId:[" + event.target.webSocketInstanceId + "].", event);
+
+                    // Store our brand new, open-for-business WebSocket.
+                    _webSocket = websocketAttempt;
+                    // We're not /trying/ to connect anymore..
+                    _webSocketConnecting = false;
+                    // Since we've just established this WebSocket, we have obviously not sent HELLO yet.
+                    _helloSent = false;
+
+                    // The consecutive fails is now 0
+                    _consecutiveAuthFailOrWebSocketErrors = 0;
+
+                    // Set our proper handlers
+                    _webSocket.onopen = undefined; // No need for 'onopen', it is already open. Also, node.js evidently immediately fires it again, even though it was already fired.
+                    _webSocket.onerror = _onerror;
+                    _webSocket.onclose = _onclose;
+                    _webSocket.onmessage = _onmessage;
+
+                    _registerBeforeunload();
+
+                    _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTED, _currentWebSocketUrl, event, undefined, undefined));
+
+                    // Fire off any waiting messages, next tick
+                    _invokeLater(function () {
+                        log("WebSocket is open! Running evaluatePipelineSend() to start HELLO/WELCOME handshake.");
+                        _evaluatePipelineSend();
+                    });
+                };
+            }
+
+            function w_connectFailed_RetryOrWaitForTimeout() {
+                // :: Attempt failed, either immediate retry or wait for timeout
+                log("Create WebSocket: Attempt failed, URL [" + _currentWebSocketUrl + "] didn't work out.");
+                // ?: Assert that we're still open
+                if (!_matsSocketOpen) {
+                    log("After failed attempt, we realize that this MatsSocket instance is closed! - stopping right here.");
+                    // Abort connecting
+                    w_abortAttempt();
+                    // Cancel the "reconnect scheduler" thingy.
+                    clearTimeout(countdownId);
+                    return;
+                }
+                // ?: Have we had to many auth failures (in PreConnectOperation) or WebSocket error events upon WebSocket creation?
+                if (_consecutiveAuthFailOrWebSocketErrors >= (_useUrls.length * 3)) {
+                    // -> Yes, too much fails or errors - stop nagging server.
+                    if (that.logging) log("Too many consecutive PreConnectOperation fails or WebSocket errors [" + _consecutiveAuthFailOrWebSocketErrors + "].");
+                    // Abort connecting
+                    w_abortAttempt();
+                    // Cancel the "reconnect scheduler" thingy.
+                    clearTimeout(countdownId);
+                    // Close Session
+                    let reason = "Trying to create WebSocket: Too many consecutive PreConnectionOperation failures or WebSocket errors [" + _consecutiveAuthFailOrWebSocketErrors + "]";
+                    _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages(reason);
+                    // Notify SessionClosedEventListeners - with a fake CloseEvent
+                    _notifySessionClosedEventListeners({
+                        type: "close",
+                        code: MatsSocketCloseCodes.VIOLATED_POLICY,
+                        codeName: "VIOLATED_POLICY",
+                        reason: reason
+                    });
+                    return;
+                }
+                // Clear out the attempt instances
+                preConnectOperationAbortFunction = undefined;
+                websocketAttempt = undefined;
                 // ?: If we are on the FIRST (0th) round of trying out the different URLs, then immediately try the next
                 // .. But only if there are multiple URLs configured.
                 if ((_connectionAttemptRound === 0) && (_useUrls.length > 1)) {
                     // -> YES, we are on the 0th round of connection attempts, and there are multiple URLs, so immediately try the next.
-                    // Cancel the "connection timeout" thingy
+                    // Cancel the "reconnect scheduler" thingy.
                     clearTimeout(countdownId);
+
                     // Invoke on next tick: Bump state vars, re-run _initiateWebSocketCreation
                     _invokeLater(function () {
-                        increaseReconnectStateVars();
+                        _increaseReconnectStateVars();
                         _initiateWebSocketCreation();
                     });
                 }
                 // E-> NO, we are either not on the 0th round of attempts, OR there is just a single URL.
                 // Therefore, let the countdown timer do its stuff.
-            };
+            }
 
-            // Open: Success! Cancel countdown timer, and set WebSocket in MatsSocket, clear flags, set proper WebSocket event handlers including onMessage.
-            websocket.onopen = function (event) {
-                log("Create WebSocket: opened!", event);
-                // Cancel the "connection timeout" thingy
-                clearTimeout(countdownId);
+            function w_connectTimeout_AbortAttemptAndReschedule() {
+                // :: Attempt timed out, clear this WebSocket out
+                log("Create WebSocket: Attempt timeout exceeded [" + timeout + " ms], URL [" + _currentWebSocketUrl + "] didn't work out.");
+                // Abort the attempt.
+                w_abortAttempt();
+                // ?: Assert that we're still open
+                if (!_matsSocketOpen) {
+                    log("After timed out attempt, we realize that this MatsSocket instance is closed! - stopping right here.");
+                    w_abortAttempt();
+                    return;
+                }
+                // Invoke after a small random number of millis: Bump reconnect state vars, re-run _initiateWebSocketCreation
+                setTimeout(function () {
+                    _increaseReconnectStateVars();
+                    _initiateWebSocketCreation();
+                }, Math.round(Math.random() * 200));
+            }
 
-                // Store our brand new, open-for-business WebSocket.
-                _webSocket = websocket;
-                // We're not /trying/ to connect anymore..
-                _webSocketConnecting = false;
-                // Since we've just established this WebSocket, we have obviously not sent HELLO yet.
-                _helloSent = false;
+            // Start the countdown-timer.
+            w_countDownTimer();
 
-                // Set our proper handlers
-                websocket.onopen = undefined; // No need for 'onopen', it is already open. Also, node.js evidently immediately fires it again, even though it was already fired.
-                websocket.onerror = _onerror;
-                websocket.onclose = _onclose;
-                websocket.onmessage = _onmessage;
-
-                _registerBeforeunload();
-
-                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTED, _currentWebSocketUrl(), event, undefined, undefined));
-
-                // Fire off any waiting messages, next tick
-                _invokeLater(function () {
-                    log("We're open for business! Running evaluatePipelineSend()..");
-                    _evaluatePipelineSend();
-                });
-            };
+            // :: Start the actual connection attempt!
+            // ?: Should we do a PreConnectionOperation?
+            if (that.preconnectoperation) {
+                // -> function, string URL or 'true': Attempt tp perform the PreConnectionOperation - which upon success goes on to invoke 'w_attemptWebSocket()'.
+                w_attemptPreConnectionOperation();
+            } else {
+                // -> Falsy: No PreConnectionOperation, attempt to create the WebSocket directly.
+                w_attemptWebSocket();
+            }
         }
 
         function _onerror(event) {
             error("websocket.onerror", "Got 'onerror' event from WebSocket.", event);
             // :: Synchronously notify our ConnectionEvent listeners.
-            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTION_ERROR, _currentWebSocketUrl(), event, undefined, undefined));
+            _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTION_ERROR, _currentWebSocketUrl, event, undefined, undefined));
         }
 
         function _onclose(closeEvent) {
             log("websocket.onclose", closeEvent);
 
             // Note: here the WebSocket is already closed, so we don't have to close it..!
-
-            // Clear out WebSocket "infrastructure", i.e. state and "pinger thread".
-            _clearWebSocketStateAndInfrastructure();
 
             // ?: Special codes, that signifies that we should close (terminate) the MatsSocketSession.
             if ((closeEvent.code === MatsSocketCloseCodes.UNEXPECTED_CONDITION)
@@ -2016,13 +2325,8 @@
 
                 // :: Synchronously notify our SessionClosedEvent listeners
                 // NOTE: This shall only happen if Close Session is from ServerSide (that is, here), otherwise, if the app invoked matsSocket.close(), one would think the app knew about the close itself..!
-                for (let i = 0; i < _sessionClosedEventListeners.length; i++) {
-                    try {
-                        _sessionClosedEventListeners[i](closeEvent);
-                    } catch (err) {
-                        error("notify SessionClosedEvent listeners", "Caught error when notifying one of the [" + _sessionClosedEventListeners.length + "] SessionClosedEvent listeners.", err);
-                    }
-                }
+                _notifySessionClosedEventListeners(closeEvent);
+
             } else {
                 // -> NOT one of the specific "Session is closed" CloseCodes -> Reconnect and Reissue all outstanding..
                 if (closeEvent.code !== MatsSocketCloseCodes.DISCONNECT) {
@@ -2031,19 +2335,22 @@
                     log("We were closed with the special DISCONNECT close code - act as we lost connection, but do NOT start to reconnect.");
                 }
 
+                // Clear out WebSocket "infrastructure", i.e. state and "pinger thread".
+                _clearWebSocketStateAndInfrastructure();
+
                 // :: This is a reconnect - so we should do pipeline processing right away, to get the HELLO over.
                 _reconnect_ForceSendHello = true;
 
                 // :: Synchronously notify our ConnectionEvent listeners.
-                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.LOST_CONNECTION, _currentWebSocketUrl(), closeEvent, undefined, undefined));
+                _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.LOST_CONNECTION, _currentWebSocketUrl, closeEvent, undefined, undefined));
 
                 // ?: Is this the special DISCONNECT that asks us to NOT start reconnecting?
                 if (closeEvent.code !== MatsSocketCloseCodes.DISCONNECT) {
                     // -> No, not special DISCONNECT - so start reconnecting.
-                    // :: Start reconnecting, but give the server a little time to settle
+                    // :: Start reconnecting, but give the server a little time to settle, and a tad randomness to handle any reconnect floods.
                     setTimeout(function () {
                         _initiateWebSocketCreation();
-                    }, 200 + Math.round(Math.random() * 200));
+                    }, 250 + Math.round(Math.random() * 750));
                 }
             }
         }
@@ -2066,7 +2373,7 @@
                         that.sessionId = envelope.sid;
                         if (that.logging) log("We're WELCOME! SessionId:" + that.sessionId + ", there are [" + Object.keys(_outboxInitiations).length + "] outstanding sends-or-requests, and [" + Object.keys(_outboxReplies).length + "] outstanding replies.");
                         // :: Synchronously notify our ConnectionEvent listeners.
-                        _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.SESSION_ESTABLISHED, _currentWebSocketUrl(), undefined, undefined, undefined));
+                        _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.SESSION_ESTABLISHED, _currentWebSocketUrl, undefined, undefined, undefined));
                         // Start pinger (AFTER having set ConnectionState to SESSION_ESTABLISHED, otherwise it'll exit!)
                         _startPinger();
 
@@ -2435,11 +2742,12 @@
 
         function _startPinger() {
             log("Starting PING'er!");
-            _pingLater();
+            // Start the pinger with a random 0-3 seconds, in case of mass reconnect.
+            _pingLater(Math.random() * 3000);
         }
 
         function _stopPinger() {
-            log("Cancelling/stopping PINGer");
+            log("Cancelling PINGer");
             if (_pinger_TimeoutId) {
                 clearTimeout(_pinger_TimeoutId);
                 _pinger_TimeoutId = undefined;
@@ -2447,14 +2755,13 @@
         }
 
         let _pinger_TimeoutId;
-
         let _pingId = 0;
 
-        function _pingLater() {
+        function _pingLater(extrawait = 0) {
             _pinger_TimeoutId = setTimeout(function () {
-                if (that.logging) log("Ping-'thread': About to send ping. ConnectionState:[" + that.state + "], sessionOpened:[" + _sessionOpened + "].");
-                if ((that.state === ConnectionState.SESSION_ESTABLISHED) && _sessionOpened) {
-                    let pingId = _pingId ++;
+                if (that.logging) log("Ping-'thread': About to send ping. ConnectionState:[" + that.state + "], matsSocketOpen:[" + _matsSocketOpen + "].");
+                if ((that.state === ConnectionState.SESSION_ESTABLISHED) && _matsSocketOpen) {
+                    let pingId = _pingId++;
                     if (that.logging) log("Sending PING! PingId:" + pingId);
                     let pingPong = new PingPong(pingId, Date.now());
                     _pings.push(pingPong);
@@ -2468,7 +2775,7 @@
                 } else {
                     log("Ping-'thread': NOT Rescheduling due to wrong state or not connected, 'exiting thread'.");
                 }
-            }, 15000);
+            }, 15000 + extrawait);
         }
     }
 

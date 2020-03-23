@@ -209,7 +209,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 log.info(" \\- modifyHandshake(config, request, response). Asked SessionAuthenticator, returned: "
                         + (ok ? "OK" : "NOT OK!"));
                 if (!ok) {
-                    throw new IllegalStateException("SessionAuthenticator did nok like the Handshake.");
+                    throw new IllegalStateException("SessionAuthenticator did nok like the"
+                            + " WebSocket HTTP Handshake Request.");
                 }
                 super.modifyHandshake(sec, request, response);
             }
@@ -467,7 +468,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private void pingLocalOrRemoteNode(String sessionId, Optional<CurrentNode> nodeNameHoldingWebSocket,
             String from) {
         // ?: Check if WE have the session locally
-        Optional<MatsSocketSessionAndMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(sessionId);
+        Optional<MatsSocketSessionAndMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(
+                sessionId);
         if (localMatsSocketSession.isPresent()) {
             // -> Yes, evidently we have it! Do local forward.
             _messageToWebSocketForwarder.newMessagesInCsafNotify(localMatsSocketSession.get());
@@ -588,8 +590,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     void deregisterLocalMatsSocketSession(String matsSocketSessionId, String connectionId) {
         synchronized (_activeSessionsByMatsSocketSessionId_x) {
-            MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler = _activeSessionsByMatsSocketSessionId_x.get(
-                    matsSocketSessionId);
+            MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler = _activeSessionsByMatsSocketSessionId_x
+                    .get(matsSocketSessionId);
             if (matsSocketSessionAndMessageHandler != null) {
                 if (matsSocketSessionAndMessageHandler.getConnectionId().equals(connectionId)) {
                     _activeSessionsByMatsSocketSessionId_x.remove(matsSocketSessionId);
@@ -674,7 +676,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             // Set low limits for the HELLO message, 20KiB should be plenty even for quite large Oauth2 bearer tokens.
             session.setMaxTextMessageBufferSize(20 * 1024);
             // Set low time to say HELLO after the connect. (The default clients say it immediately on "onopen".)
-            session.setMaxIdleTimeout(2500);
+            session.setMaxIdleTimeout(5000);
 
             try {
                 boolean ok = _sessionAuthenticator.onOpen(session, (ServerEndpointConfig) config);
@@ -694,7 +696,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 return;
             }
 
-            _matsSocketSessionAndMessageHandler = new MatsSocketSessionAndMessageHandler(_matsSocketServer, session, _connectionId,
+            _matsSocketSessionAndMessageHandler = new MatsSocketSessionAndMessageHandler(_matsSocketServer, session,
+                    _connectionId,
                     _handshakeRequestResponse._handshakeRequest, _sessionAuthenticator);
             session.addMessageHandler(_matsSocketSessionAndMessageHandler);
         }
@@ -711,8 +714,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 // -> Yes, timeout. This is handled, and does not constitute a "close session", client might
                 // just have lost connection and want's to reconnect soon. Just log info.
                 log.info("WebSocket @OnError: WebSocket server timed out the connection. MatsSocket SessionId: ["
-                        + (
-                        _matsSocketSessionAndMessageHandler == null
+                        + (_matsSocketSessionAndMessageHandler == null
                                 ? "no MatsSocketSession"
                                 : _matsSocketSessionAndMessageHandler.getMatsSocketSessionId())
                         + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this));
@@ -721,8 +723,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 // -> No, not timeout. So this is some kind of unexpected situation, typically raised from the
                 // MastSocket implementation on MessageHandler. Log warn. This will close the session.
                 log.warn("WebSocket @OnError, MatsSocket SessionId: ["
-                        + (
-                                _matsSocketSessionAndMessageHandler == null
+                        + (_matsSocketSessionAndMessageHandler == null
                                 ? "no MatsSocketSession"
                                 : _matsSocketSessionAndMessageHandler.getMatsSocketSessionId())
                         + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this),
@@ -734,8 +735,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         public void onClose(Session session, CloseReason closeReason) {
             log.info("WebSocket @OnClose, code:[" + MatsSocketCloseCodes.getCloseCode(closeReason.getCloseCode()
                     .getCode()) + "] (timeout:[" + _isTimeoutException + "]), reason:[" + closeReason.getReasonPhrase()
-                    + "], MatsSocket SessionId: [" + (
-                    _matsSocketSessionAndMessageHandler == null
+                    + "], MatsSocket SessionId: [" + (_matsSocketSessionAndMessageHandler == null
                             ? "no MatsSocketSession"
                             : _matsSocketSessionAndMessageHandler.getMatsSocketSessionId())
                     + "], ConnectionId:" + _connectionId + ", this:" + id(this));
@@ -1169,7 +1169,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
 
         // ?: Check if WE have the session locally
-        Optional<MatsSocketSessionAndMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(state.sid);
+        Optional<MatsSocketSessionAndMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(
+                state.sid);
         if (localMatsSocketSession.isPresent()) {
             // -> Yes, evidently we have it! Do local forward.
             _messageToWebSocketForwarder.newMessagesInCsafNotify(localMatsSocketSession.get());
