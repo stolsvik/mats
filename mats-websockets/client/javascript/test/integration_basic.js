@@ -86,7 +86,7 @@
                 return matsSocket.request("Test.single", "REQUEST-with-Promise_" + matsSocket.id(6), {
                     string: "Request String",
                     number: Math.E
-                })
+                });
             });
 
             it("Request should invoke both the ack callback and resolve Promise", function (done) {
@@ -114,7 +114,6 @@
                     done();
                 });
             });
-
         });
 
         describe("requestReplyTo", function () {
@@ -126,19 +125,103 @@
                 matsSocket.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_" + matsSocket.id(6), {
                     string: "Request String",
                     number: Math.E
-                }, "ClientSide.testTerminator")
+                }, "ClientSide.testTerminator");
             });
 
             it("Should reply to our own endpoint with our correlation data", function (done) {
                 const correlationInformation = matsSocket.id(5);
                 matsSocket.terminator("ClientSide.testTerminator", ({correlationInformation: correlationInformation}) => {
                     chai.assert.equal(correlationInformation, correlationInformation);
-                    done()
+                    done();
                 });
                 matsSocket.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_withCorrelationInfo_" + matsSocket.id(6), {
                     string: "Request String",
                     number: Math.E
-                }, "ClientSide.testTerminator", correlationInformation)
+                }, "ClientSide.testTerminator", correlationInformation);
+            });
+        });
+
+        describe("timeout on request", function () {
+            // Set a valid authorization before each request
+            beforeEach(() => setAuth());
+
+            it("request with timeout earlier than slow endpoint", function (done) {
+                // :: The actual test
+                function test() {
+                    let req = {
+                        string: "test",
+                        number: 15,
+                        sleepTime: 50
+                    };
+                    let receivedCallbackInvoked = false;
+                    matsSocket.request("Test.slow", "Timeout_request_" + matsSocket.id(6), req, {
+                        receivedCallback: function (event) {
+                            chai.assert.strictEqual(event.type, mats.ReceivedEventType.TIMEOUT);
+                            receivedCallbackInvoked = true;
+                        },
+                        // Extremely low timeout to NOT get ReceivedEventType.ACK.
+                        timeout: 1
+                    }).catch(event => {
+                        chai.assert.strictEqual(event.type, mats.MessageEventType.TIMEOUT);
+                        if (receivedCallbackInvoked) {
+                            done();
+                        }
+                    });
+                    matsSocket.flush();
+                }
+
+                // :: .. but must first wait for SESSION_ESTABLISHED to run test
+                matsSocket.addConnectionEventListener(event => {
+                    if (event.type === mats.ConnectionEventType.SESSION_ESTABLISHED) {
+                        test();
+                    }
+                });
+                // MatsSocket does not start until first message.
+                matsSocket.send("Test.ignoreInIncomingHandler", "Timeout_request_start", {});
+            });
+
+            it("requestReplyTo with timeout earlier than slow endpoint", function (done) {
+                let correlationInformation = matsSocket.jid(100);
+
+                // Create Terminator to receive the return
+                let messageCallbackInvoked = false;
+                let rejectCallbackInvoked = false;
+                matsSocket.terminator("Test.terminator", messageEvent => {
+                    // We do NOT expect a message!
+                    messageCallbackInvoked = true;
+                }, reject => {
+                    chai.assert.strictEqual(reject.type, mats.ReceivedEventType.TIMEOUT);
+                    chai.assert.strictEqual(reject.correlationInformation, correlationInformation);
+                    rejectCallbackInvoked = true;
+                });
+
+                // :: The actual test
+                function test() {
+                    let req = {
+                        string: "test",
+                        number: 15,
+                        sleepTime: 50
+                    };
+                    matsSocket.requestReplyTo("Test.slow", "Timeout_requestReplyTo_" + matsSocket.id(6), req, "Test.terminator", correlationInformation, {
+                        // Extremely low timeout to NOT get ReceivedEventType.ACK.
+                        timeout: 1
+                    }).catch(event => {
+                        chai.assert.strictEqual(event.type, mats.ReceivedEventType.TIMEOUT);
+                        chai.assert.isFalse(messageCallbackInvoked);
+                        chai.assert.isTrue(rejectCallbackInvoked);
+                        done();
+                    });
+                    matsSocket.flush();
+                }
+
+                // :: .. but must first wait for SESSION_ESTABLISHED to run test
+                matsSocket.addConnectionEventListener(event => {
+                    if (event.type === mats.ConnectionEventType.SESSION_ESTABLISHED) {
+                        test();
+                    }
+                });
+                // MatsSocket does not start until first message.
+                matsSocket.send("Test.ignoreInIncomingHandler", "Timeout_requestReplyTo_start", {});
             });
         });
 
@@ -186,7 +269,7 @@
                     chai.assert(received, "The received-callback should have been invoked.");
                     chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
-                })
+                });
             });
 
             it("context.deny() should NACK (and thus reject Promise)", function (done) {
@@ -199,7 +282,7 @@
                     chai.assert(received, "The received-callback should have been invoked.");
                     chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
-                })
+                });
             });
 
             it("context.resolve(..) should ACK received, and RESOLVE the Promise.", function (done) {
@@ -212,7 +295,7 @@
                     chai.assert(received, "The received-callback should have been invoked.");
                     chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
-                })
+                });
 
             });
 
@@ -254,7 +337,7 @@
                 promise.then(function () {
                     chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
-                })
+                });
             });
 
             it("context.deny() should NACK (reject Promise)", function (done) {
@@ -262,7 +345,7 @@
                 promise.catch(function () {
                     chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
-                })
+                });
             });
 
             it("context.resolve(..) should NACK (reject Promise) since it is not allowed to resolve/reject a send", function (done) {
@@ -270,7 +353,7 @@
                 promise.catch(function () {
                     chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
-                })
+                });
 
             });
 

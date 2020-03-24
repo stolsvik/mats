@@ -43,6 +43,8 @@ class MatsSocketEnvelopeDto {
     String cmid; // ClientMessageId, messageId from Client.
     String x; // PingId - "correlationId" for pings. Small, so as to use little space.
 
+    Long to; // Timeout, in millis, for Client-to-Server Requests.
+
     String desc; // Description when failure (NACK or others), exception message, multiline, may include stacktrace if
                  // authz.
 

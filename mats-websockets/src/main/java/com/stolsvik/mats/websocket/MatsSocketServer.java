@@ -214,7 +214,11 @@ public interface MatsSocketServer {
      * server side in the {@link ClusterStoreAndForward}. This both means that you do not need to be afraid of size (but
      * storing megabytes is silly anyway), but more importantly, this data cannot be tampered with client side - you can
      * be safe that what you gave in here is what you get out in the
-     * {@link MatsSocketEndpointRequestContext#getCorrelationString()}
+     * {@link MatsSocketEndpointRequestContext#getCorrelationString()} and
+     * {@link MatsSocketEndpointRequestContext#getCorrelationBinary()} ()}
+     * <p/>
+     * Note: To check whether the client Resolved or Rejected the request, use
+     * {@link MatsSocketEndpointRequestContext#getMessageType()}.
      * <p/>
      * Note: If the specified session is closed when this method is invoked, the message will (effectively) silently be
      * dropped. Even if you just got hold of the sessionId and it was active then, it might asynchronously close while
@@ -349,8 +353,6 @@ public interface MatsSocketServer {
          * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
          * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
          * will be a Mats send(..) message.
-         *
-         * TODO: What about timeout? Must be implemented client side.
          */
         void forwardInteractiveUnreliable(MI matsMessage);
 

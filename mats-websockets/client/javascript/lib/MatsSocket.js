@@ -124,6 +124,13 @@
          */
         DISCONNECT: 4003,
 
+        /**
+         * Resolves the numeric "close code" to the String key name of this enum, or <code>"UNKNOWN("+closeCode+")"</code>
+         * for unknown numeric codes.
+         *
+         * @param closeCode the numeric "close code" of the WebSocket.
+         * @returns {string} String key name of this enum, or <code>"UNKNOWN("+closeCode+")"</code> for unknown numeric codes.
+         */
         nameFor: function (closeCode) {
             let keys = Object.keys(MatsSocketCloseCodes).filter(function (key) {
                 return MatsSocketCloseCodes[key] === closeCode;
@@ -240,7 +247,7 @@
      */
     const ConnectionState = Object.freeze({
         /**
-         * State only - this is the initial State of a MatsSocket. Also, the MatsSocket is re-set back to this State in a
+         * This is the initial State of a MatsSocket. Also, the MatsSocket is re-set back to this State in a
          * Session-Closed-from-Server situation (which is communicated via listeners registered with
          * {@link MatsSocket#addSessionClosedEventListener(listener)}), OR if you have explicitly performed a
          * matsSocket.close().
@@ -250,58 +257,22 @@
         NO_SESSION: "nosession",
 
         /**
-         * State, and fires as ConnectionEvent when we transition into this state, which is when the WebSocket is literally trying to connect.
-         * This is between <code>new WebSocket(url)</code> (or the {@link MatsSocket#preconnectoperation "PreConnectOperation"} if configured),
-         * and either webSocket.onopen or webSocket.onclose is fired, or countdown reaches 0. If webSocket.onopen,
-         * we transition into {@link #CONNECTED}, if webSocket.onclose, we transition into
-         * {@link #WAITING}. If we reach countdown 0 while in CONNECTING, we will "re-transition" to the same state, and
-         * thus get one more event of CONNECTING.
-         * <p/>
-         * User Info Tip: Show a info-box, stating "Connecting..", and you may show the countdown number in "grayed out".
-         * Each time it transitions into CONNECTING, it will start a new countdown. Let's say it starts from say 4
-         * seconds: If this connection attempt fails after 1 second, it will transition into WAITING and continue the
-         * countdown with 3 seconds remaining.
-         * <p/>
-         * User Info Tip: Show a info-box, stating "Connecting! <4 seconds..>", countdown in "grayed out" style, box is
-         * some neutral information color, e.g. yellow (fading over to this color if already red or orange due to
-         * {@link #CONNECTION_ERROR} or {@link #LOST_CONNECTION}).
+         * Read doc at {@link ConnectionEventType#CONNECTING}.
          */
         CONNECTING: "connecting",
 
         /**
-         * State, and fires as ConnectionEvent when we transition into this state, which is when {@link #CONNECTING} fails.
-         * The only transition out of this state is {@link #CONNECTING}, when the {@link #COUNTDOWN} reaches 0.
-         * <p/>
-         * Notice that the {@link ConnectionEvent} contains the {@link Event} that came with webSocket.close (while CONNECTING).
-         * <p/>
-         * User Info Tip: Show a info-box, stating "Waiting for next attempt..", and you may show the countdown number with proper visibility. It will come into this state from {@link #CONNECTING},
-         * and have the time remaining from the initial countdown. So if the attempt countdown started from 4 seconds,
-         * and it took 1 second before the connection attempt failed, then there will be 3 seconds left in WAITING state.
-         * <p/>
-         * User Info Tip: Show a info-box, stating "Waiting! <2.9 seconds..>", countdown in normal visibility, box is
-         * some neutral information color, e.g. yellow (keeping the box color fading if in progress).
+         * Read doc at {@link ConnectionEventType#WAITING}.
          */
         WAITING: "waiting",
 
         /**
-         * State, and fires as ConnectionEvent when we transition into this state, which is when WebSocket.onopen is fired.
-         * Notice that the MatsSocket is still not fully established, as we have not yet exchanged HELLO and WELCOME -
-         * the MatsSocket is fully established at {@link #SESSION_ESTABLISHED}.
-         * <p/>
-         * Notice that the {@link ConnectionEvent} contains the WebSocket 'onopen' {@link Event} that was issued when
-         * the WebSocket opened.
-         * <p/>
-         * User Info Tip: Show a info-box, stating "Connected!", happy-color, e.g. green, with no countdown.
+         * Read doc at {@link ConnectionEventType#CONNECTED}.
          */
         CONNECTED: "connected",
 
         /**
-         * State, and fires as ConnectionEvent when we transition into this state, which is when when the WELCOME MatsSocket message comes
-         * from the Server, also implying that it has been authenticated: The MatsSocket is now fully established, and
-         * actual messages can be exchanged.
-         * <p/>
-         * User Info Tip: Show a info-box, stating "Session OK!", happy-color, e.g. green, with no countdown - and the
-         * entire info-box fades away fast, e.g. after 1 second.
+         * Read doc at {@link ConnectionEventType#SESSION_ESTABLISHED}.
          */
         SESSION_ESTABLISHED: "sessionestablished"
     });
@@ -314,22 +285,55 @@
      */
     const ConnectionEventType = Object.freeze({
         /**
-         * Read doc at {@link ConnectionState#CONNECTING}.
+         * State, and fires as ConnectionEvent when we transition into this state, which is when the WebSocket is literally trying to connect.
+         * This is between <code>new WebSocket(url)</code> (or the {@link MatsSocket#preconnectoperation "PreConnectOperation"} if configured),
+         * and either webSocket.onopen or webSocket.onclose is fired, or countdown reaches 0. If webSocket.onopen,
+         * we transition into {@link #CONNECTED}, if webSocket.onclose, we transition into
+         * {@link #WAITING}. If we reach countdown 0 while in CONNECTING, we will "re-transition" to the same state, and
+         * thus get one more event of CONNECTING.
+         * <p/>
+         * User Info Tip: Show a info-box, stating "Connecting! <4.0 seconds..>", countdown in "grayed out" style, box is
+         * some neutral information color, e.g. yellow (fading over to this color if already red or orange due to
+         * {@link #CONNECTION_ERROR} or {@link #LOST_CONNECTION}).
+         * Each time it transitions into CONNECTING, it will start a new countdown. Let's say it starts from say 4
+         * seconds: If this connection attempt fails after 1 second, it will transition into WAITING and continue the
+         * countdown with 3 seconds remaining.
          */
         CONNECTING: ConnectionState.CONNECTING,
 
         /**
-         * Read doc at {@link ConnectionState#WAITING}.
+         * State, and fires as ConnectionEvent when we transition into this state, which is when {@link #CONNECTING} fails.
+         * The only transition out of this state is {@link #CONNECTING}, when the {@link #COUNTDOWN} reaches 0.
+         * <p/>
+         * Notice that the {@link ConnectionEvent} contains the {@link Event} that came with webSocket.close (while CONNECTING).
+         * <p/>
+         * User Info Tip: Show a info-box, stating "Waiting! <2.9 seconds..>", countdown in normal visibility, box is
+         * some neutral information color, e.g. yellow (keeping the box color fading if in progress).
+         * It will come into this state from {@link #CONNECTING}, and have the time remaining from the initial countdown.
+         * So if the attempt countdown started from 4 seconds, and it took 1 second before the connection attempt failed,
+         * then there will be 3 seconds left in WAITING state.
          */
         WAITING: ConnectionState.WAITING,
 
         /**
-         * Read doc at {@link ConnectionState#CONNECTED}.
+         * State, and fires as ConnectionEvent when we transition into this state, which is when WebSocket.onopen is fired.
+         * Notice that the MatsSocket is still not fully established, as we have not yet exchanged HELLO and WELCOME -
+         * the MatsSocket is fully established at {@link #SESSION_ESTABLISHED}.
+         * <p/>
+         * Notice that the {@link ConnectionEvent} contains the WebSocket 'onopen' {@link Event} that was issued when
+         * the WebSocket opened.
+         * <p/>
+         * User Info Tip: Show a info-box, stating "Connected!", happy-color, e.g. green, with no countdown.
          */
         CONNECTED: ConnectionState.CONNECTED,
 
         /**
-         * Read doc at {@link ConnectionState#SESSION_ESTABLISHED}.
+         * State, and fires as ConnectionEvent when we transition into this state, which is when when the WELCOME MatsSocket message comes
+         * from the Server, also implying that it has been authenticated: The MatsSocket is now fully established, and
+         * actual messages can be exchanged.
+         * <p/>
+         * User Info Tip: Show a info-box, stating "Session OK!", happy-color, e.g. green, with no countdown - and the
+         * entire info-box fades away fast, e.g. after 1 second.
          */
         SESSION_ESTABLISHED: ConnectionState.SESSION_ESTABLISHED,
 
@@ -344,19 +348,24 @@
         CONNECTION_ERROR: "connectionerror",
 
         /**
-         * This comes when WebSocket.onclose is fired "unexpectedly", <b>and the reason for this close is NOT a SessionClosed Event</b>. The latter will
-         * instead invoke the listeners registered with {@link MatsSocket#addSessionClosedEventListener(listener)}.
-         * A LOST_CONNECTION will start a reconnection attempt after a very brief delay (couple of hundred milliseconds), and the next state transition and thus event is {@link #CONNECTING}.
+         * This comes when WebSocket.onclose is fired "unexpectedly", <b>and the reason for this close is NOT a SessionClosed Event</b> (The latter will
+         * instead invoke the listeners registered with {@link MatsSocket#addSessionClosedEventListener(listener)}).
+         * A LOST_CONNECTION will start a reconnection attempt after a very brief delay (couple of hundred milliseconds),
+         * and the next state transition and thus event is {@link #CONNECTING}.
          * <p/>
          * Notice that the {@link ConnectionEvent} contains the {@link CloseEvent} that caused the lost connection.
          * <p/>
-         * User Info Tip: Show a info-box, stating "Connection broken!", which is some orange color (unless it already is red due to {@link #CONNECTION_ERROR}), fading over to the next color when next event ({@link #CONNECTING} comes in.
+         * User Info Tip: Show a info-box, stating "Connection broken!", which is some orange color (unless it already
+         * is red due to {@link #CONNECTION_ERROR}), fading over to the next color when next event ({@link #CONNECTING}
+         * comes in.
          */
         LOST_CONNECTION: "lostconnection",
 
         /**
+         * Events fired every 100ms while in state {@link #CONNECTING}, possibly continuing over to {@link #WAITING}.
          * Notice that you will most probably not get an event with 0 seconds left, as that is when we (re-)transition to
-         * {@link #CONNECTING} and the countdown starts over (possibly with a larger timeout). Read more at {@link ConnectionEvent#countdownSeconds}.
+         * {@link #CONNECTING} and the countdown starts over (possibly with a larger timeout). Read more at
+         * {@link ConnectionEvent#countdownSeconds}.
          * <p/>
          * User Info Tip: Read more at {@link #CONNECTING} and {@linl #WAITING}.
          */
@@ -376,8 +385,7 @@
      */
     function ConnectionEvent(type, webSocketUrl, webSocketEvent, timeoutSeconds, countdownSeconds) {
         /**
-         * Return the enum value of {@link ConnectionEventType} - also available as the enum <i>key</i> string on the
-         * property {@link ConnectionEvent#eventName}.
+         * The type of the <code>ConnectionEvent</code>, returns an enum value of {@link ConnectionEventType}.
          *
          * @type {string}
          */
@@ -444,45 +452,6 @@
          * @type {number}
          */
         this.countdownSeconds = countdownSeconds;
-    }
-
-    /**
-     * TODO
-     *
-     * @member {string} codeName
-     * @memberOf ConnectionEvent
-     * @readonly
-     */
-    Object.defineProperty(ConnectionEvent.prototype, "eventName", {
-        get: function () {
-            let keys = Object.keys(ConnectionEventType).filter(function (key) {
-                return ConnectionState[key] === this.type;
-            });
-            if (keys.length === 1) {
-                return keys[0];
-            }
-            return "UNKNOWN(" + this.type + ")";
-        }
-    });
-
-    /**
-     * Hack the built-in CloseEvent to include a "codeName" property resolving to the MatsSocket-relevant close codes.
-     * Return the name of the CloseCode, e.g. "SESSION_LOST". Relevant for quick human introspection (i.e. debugger
-     * or logging) - programmatically you should use the numeric 'code' property, possibly comparing to the values of
-     * the {@link MatsSocketCloseCodes} enum keys, e.g. "<code>if (closeEvent.code ===
-     * MatsSocketCloseCodes.SESSION_LOST) {..}</code>".
-     *
-     * @member {string} codeName
-     * @memberOf CloseEvent
-     * @readonly
-     */
-    if (typeof CloseEvent !== 'undefined') {
-        // ^ guard against Node.js, which evidently does not have CloseEvent..
-        Object.defineProperty(CloseEvent.prototype, "codeName", {
-            get: function () {
-                return MatsSocketCloseCodes.nameFor(this.code);
-            }
-        });
     }
 
     /**
@@ -556,8 +525,18 @@
         NACK: "nack",
 
         /**
-         * "Synthetic" event in that it only happens if the MatsSocketSession is closed with outstanding Initiations
-         * not yet Received on Server.
+         * "Synthetic" event in that it is not a message from Server: A Client-to-Server
+         * {@link MatsSocket#request() Request} was not ACKed or NACKed by the server within the
+         * {@link MatsSocket#requestTimeoutMillis default request timeout} - or a specific timeout specified in the request
+         * invocation. In these situations, any nack- or receivedCallback will be invoked with a {@link ReceivedEvent}
+         * of this type.
+         */
+        TIMEOUT: "timeout",
+
+        /**
+         * "Synthetic" event in that it is not a message from Server: This only happens if the MatsSocketSession is
+         * closed with outstanding Initiations not yet Received on Server. In these situations, any nack- or
+         * receivedCallback will be invoked with a {@link ReceivedEvent} of this type.
          */
         SESSION_CLOSED: "sessionclosed"
     });
@@ -578,10 +557,12 @@
          * {@link MessageEventType#SESSION_CLOSED "sessionclosed"} if the session was closed with outstanding Requests
          * and MatsSocket therefore "clears out" these Requests.</b>
          * <p/>
-         * Notice: In the face of {@link MessageType#SESSION_CLOSED "sessionclosed"}, the {@link #data} property (i.e.
-         * the actual message from the server) will be <code>undefined</code>. This is <i>by definition</i>: The
-         * Request was outstanding, meaning that an answer from the Server had yet to come. This is opposed to a normal
-         * REJECT settling from the Server-side MatsSocketEndpoint, which may choose to include data with a rejection.
+         * Notice: In the face of {@link MessageType#SESSION_CLOSED "sessionclosed"} or {@link MessageType#TIMEOUT "timeout"},
+         * the {@link #data} property (i.e. the actual message from the server) will be <code>undefined</code>.
+         * Wrt. "sessionclosed", this is <i>by definition</i>: The Request was outstanding, meaning that an answer from the
+         * Server had yet to come. This is opposed to a normal REJECT settling from the Server-side MatsSocketEndpoint,
+         * which may choose to include data with a rejection. The same basically goes wrt. "timeout", as the Server
+         * has not replied yet.
          *
          * @type {string}
          */
@@ -589,6 +570,13 @@
 
         /**
          * The actual data from the other peer.
+         * <p/>
+         * Notice: In the face of {@link MessageType#SESSION_CLOSED "sessionclosed"} or {@link MessageType#TIMEOUT "timeout"},
+         * this value will be <code>undefined</code>.
+         * Wrt. "sessionclosed", this is <i>by definition</i>: The Request was outstanding, meaning that an answer from the
+         * Server had yet to come. This is opposed to a normal REJECT settling from the Server-side MatsSocketEndpoint,
+         * which may choose to include data with a rejection. The same basically goes wrt. "timeout", as the Server
+         * has not replied yet.
          *
          * @type {object}
          */
@@ -660,8 +648,19 @@
         REQUEST: "request",
 
         /**
-         * "Synthetic" event in that it only happens if the MatsSocketSession is closed with outstanding Requests
-         * not yet replied to by the server.
+         * "Synthetic" event in that it is not a message from Server: A Client-to-Server
+         * {@link MatsSocket#request() Request} was not replied to by the server within the
+         * {@link MatsSocket#requestTimeoutMillis default request timeout} - or a specific timeout specified in the request
+         * invocation. In these situations, the Request Promise is rejected with a {@link MessageEvent} of this type,
+         * and the {@link MessageEvent#data} value is undefined.
+         */
+        TIMEOUT: "timeout",
+
+        /**
+         * "Synthetic" event in that it is not a message from Server: This only happens if the MatsSocketSession is
+         * closed with outstanding Client-to-Server {@link MatsSocket#request() Requests} not yet replied to by the
+         * server. In these situations, the Request Promise is rejected with a {@link MessageEvent} of this type, and
+         * the {@link MessageEvent#data} value is undefined.
          */
         SESSION_CLOSED: "sessionclosed"
     });
@@ -765,6 +764,7 @@
 
         /**
          * The experienced round-trip time for this ping-pong - this is the time back-and-forth.
+         * <b>Note that this number can be a float, not necessarily integer</code>.
          *
          * @type {number}
          */
@@ -799,9 +799,9 @@
             throw new Error("urls must have at least 1 url set, got: [" + urls + "]");
         }
 
-        let webSocketFactory = config ? config.webSocketFactory : undefined;
 
         // :: Provide default for socket factory if not defined.
+        let webSocketFactory = config ? config.webSocketFactory : undefined;
         if (webSocketFactory === undefined) {
             webSocketFactory = function (url, protocol) {
                 return new WebSocket(url, protocol);
@@ -811,7 +811,7 @@
             throw new Error("webSocketFactory should be a function, instead got [" + webSocketFactory + "]");
         }
 
-        // Polyfill performance.now() for Node.js
+        // :: Polyfill performance.now() for Node.js
         let performance = ((typeof (window) === "object" && window.performance) || {
             now: function now() {
                 return Date.now();
@@ -847,13 +847,13 @@
          * <p/>
          * Values:
          * <ul>
-         *     <li>"Falsy": Disables this functionality</li>
+         *     <li>"Falsy", e.g. <code>false</code>: Disables this functionality</li>
          *     <li>A <code>function</code>: The function is invoked when close(..) is invoked, the
          *         single parameter being an object with two keys: <code>'webSocketUrl'</code> is the current WebSocket
          *         url, i.e. the URL that the WebSocket was connected to, e.g. "wss://example.com/matssocket".
          *         <code>'sessionId'</code> is the current MatsSocket SessionId - the one we're trying to close.</li>
-         *     <li>Otherwise "truthy" <b>(default)</b>: When this MatsSocket library is used in a web browser context,
-         *         the following code is executed:
+         *     <li>Otherwise "truthy", e.g. <code>true</code> <b>(default)</b>: When this MatsSocket library is used in
+         *         a web browser context, the following code is executed:
          *         <code>navigator.sendBeacon(webSocketUrl.replace('ws', 'http)+"/close_session?sessionId={sessionId}")</code>.
          *         Note that replace is replace-first, and that an extra 's' in 'wss' thus results in 'https'.</li>
          * </ul>
@@ -871,33 +871,34 @@
          * a {@link XMLHttpRequest} to the same URL as the WebSocket will be connected to - before initiating the
          * WebSocket connection. The goal of this solution is to overcome a deficiency with the WebSocket Web API
          * where it is impossible to add headers, in particular "Authorization": The XHR adds the Authorization header
-         * as normal, and the server side can transfer this header value over to a Cookie (e.g. named "Authorization").
+         * as normal, and the server side can transfer this header value over to a Cookie (e.g. named "MatsSocketAuthCookie").
          * When the WebSocket connect is performed, the cookies will be transferred along with the initial "handshake"
          * HTTP Request - and the AuthenticationPlugin on the server side can then validate the Authorization header -
          * now present in a cookie.
          * <p/>
          * Values:
          * <ul>
-         *     <li>"Falsy", e.g. <code>false</code> or <code>undefined</code> <b>(default)</b>: Disables this functionality.</li>
-         *     <li>A <code>string</code>: Performs a XmlHttpRequest with the URL set to the specified string.
-         *     Expects 200, 202 or 204 as returned status code to go on.</li>
-         *     <li>A <code>function</code>: Invokes the function with a parameter object containing <code>'webSocketUrl'</code>, which is
-         *     the current WebSocket URL that we will connect to when this PreConnectionOperation has gone through,
+         *     <li>"Falsy", e.g. <code>false</code> <b>(default)</b>: Disables this functionality.</li>
+         *     <li>A <code>string</code>: Performs a <code>XMLHttpRequest</code> with the URL set to the specified string, with the
+         *     HTTP Header "<code>Authorization</code>" set to the current AuthorizationValue. Expects 200, 202 or 204
+         *     as returned status code to go on.</li>
+         *     <li>A <code>function</code>: Invokes the function with a parameter object containing <code>'webSocketUrl'</code>,
+         *     which is the current WebSocket URL that we will connect to when this PreConnectionOperation has gone through,
          *     and <code>'authorization'</code>, which is the current Authorization Value. <b>Expects
          *     a two-element array returned</b>: [abortFunction, requestPromise]. The abortFunction is invoked when
          *     the connection-retry system deems the current attempt to have taken too long time. The requestPromise must
          *     be resolved by your code when the request has been successfully performed, or rejected if it didn't go through.
          *     In the latter case, a new invocation of the 'preconnectoperation' will be performed after a countdown,
          *     possibly with a different 'webSocketUrl' value if the MatsSocket is configured with multiple URLs.</li>
-         *     <li>Otherwise "truthy", e.g. <code>true</code>: Performs a XmlHttpRequest to the same URL as the
-         *     WebSocket URL, with "ws" replaced with "http", similar to {@link #outofbandclose}, and the HTTP Header
-         *     "Authorization" set to the current Authorization Value. Expects 200, 202 or 204 as returned status code
-         *     to go on.</li>
+         *     <li>Otherwise "truthy", e.g. <code>true</code>: Performs a <code>XMLHttpRequest</code> to the same URL as
+         *     the WebSocket URL, with "ws" replaced with "http", similar to {@link #outofbandclose}, and the HTTP Header
+         *     "<code>Authorization</code>" set to the current Authorization Value. Expects 200, 202 or 204 as returned
+         *     status code to go on.</li>
          * </ul>
          * The default is <code>false</code>.
          * <p/>
          * Note: For inspiration for the function-style value of this config, look in the source for the method
-         * <code>defaultXhrPromiseFactory(params)</code>.
+         * <code>w_defaultXhrPromiseFactory(params)</code>.
          * <p/>
          * Note: A WebSocket is set up with a single HTTP Request, called the "Upgrade" or "Handshake" request. The
          * point about being able to send Authorization along with the WebSocket connect only refers to this initial
@@ -932,16 +933,32 @@
          */
         this.debug = undefined;
 
+
+        /**
+         * When performing a {@link #request() Request}, you may not always get a (timely) answer: Either you can loose
+         * the connection, thus lagging potentially forever - or, depending on the Mats message handling on the server
+         * (i.e. using "non-persistent messaging" for blazing fast performance for non-state changing requests),
+         * there is a minuscule chance that the message may be lost - or, if there is a massive backlog of messages
+         * for the particular Mats endpoint that is interfaced, you might not get an answer for 20 minutes. This setting
+         * controls the default timeout in milliseconds for Requests, and is default 45000 milliseconds (45 seconds),
+         * but you may override this per Request by specifying a different timeout in the config object for the request.
+         * When the timeout is hit, your Promise will be rejected with a {@link MessageEvent} of type
+         * {@link MessageEventType#TIMEOUT TIMEOUT}.
+         *
+         * @type {number}
+         */
+        this.requestTimeout = 45000;
+
         /**
          * <b>Note: You <i>should</i> register a SessionClosedEvent listener, as any invocation of this listener by this
          * client library means that you've lost sync with the server, and you should crash or "reboot" the application
          * employing the library to regain sync.</b>
-         * <p/>
+         * <p />
          * The registered event listener functions are called when the Server kicks us off the socket and the session is
          * closed due to a multitude of reasons, where most should never happen if you use the library correctly, in
          * particular wrt. authentication. <b>It is NOT invoked when you explicitly invoke matsSocket.close() from
          * the client yourself!</b>
-         * <p/>
+         * <p />
          * The event object is the forwarded WebSocket CloseEvent, albeit it is prototype-extended to include the
          * property 'codeName' (in addition to the existing 'code') for the relevant {@link MatsSocketCloseCodes}.
          * You can use the 'code' to "enum-compare" to {@code MatsSocketCloseCodes}, the enum keys are listed here:
@@ -959,23 +976,24 @@
          *   if you close the lid of a laptop, and open it again days later - but one would think that the
          *   Authentication session (the one giving you Authorization headers) had timed out long before.</li>
          * </ul>
-         * No such error should happen if this client is used properly (and the server does not get problems with
-         * its data store) - the only conceivable situation is that a pipeline of envelopes (MatsSocket messages) took
-         * more time to send over to the server than there was left before the authorization expired (i.e.
-         * 'roomForLatency' is set too small, compared to the bandwidth available for sending the messages residing in
-         * the current pipeline).
-         * <p/>
-         * Note that when this event listener is invoked, the MatsSocket session is just as closed as if you invoked
-         * {@link MatsSocket#close()} on it: All outstanding send/requests are rejected, all request Promises are
+         * No such error should happen if this client is used properly, and the server does not get problems with
+         * its data store.
+         * <p />
+         * Note that when this event listener is invoked, the MatsSocketSession is just as closed as if you invoked
+         * {@link MatsSocket#close()} on it: All outstanding send/requests are NACK'ed, all request Promises are
          * rejected, and the MatsSocket object is as if just constructed and configured. You may "boot it up again" by
          * sending a new message where you then will get a new MatsSocket Session. However, you should consider
          * restarting the application if this happens, or otherwise "reboot" it as if it just started up (gather all
          * required state and null out any other that uses lazy fetching). Realize that any outstanding "addOrder"
          * request's Promise will now have been rejected - and you don't really know whether the order was placed or
-         * not, so you should get the entire order list. On the received event, there will be a number detailing the
-         * number of outstanding send/requests and Promises that was rejected: If this is zero, you should actually be
-         * in sync, and can consider just "act as if nothing happened" - by sending a new message and thus get a new
-         * MatsSocket Session going.
+         * not, so you should get the entire order list. On the received event, the property 'outstandingInitiations'
+         * details the number of outstanding send/requests and Promises that was rejected: If this is zero, you
+         * <i>might</i> actually be in sync (barring Server-to-Client SENDs or REQUESTs), and can <i>consider</i> to
+         * just "act as if nothing happened" - by sending a new message and thus get a new MatsSocket Session going.
+         * <p />
+         * The event object is the WebSocket's {@link CloseEvent}, adorned with properties 'codeName', giving the
+         * <i>key name</i> of the {@link MatsSocketCloseCodes} (as provided by {@link MatsSocketCloseCodes#nameFor()}),
+         * and 'outstandingInitiations', giving the number of outstanding initiations when the session was closed.
          *
          * @param {{}} sessionClosedEventListener a function that is invoked when the library gets the current
          * MatsSocketSession closed from the server. The event object is the WebSocket's {@link CloseEvent}.
@@ -1166,10 +1184,10 @@
          *
          * @param endpointId the id of this client side Terminator.
          * @param messageCallback receives an Event when everything went OK, containing the message on the "data" property.
-         * @param errorCallback is relevant if this endpoint is set as the replyTo-target on a requestReplyTo(..) invocation, and will
+         * @param rejectCallback is relevant if this endpoint is set as the replyTo-target on a requestReplyTo(..) invocation, and will
          * get invoked with the Event if the corresponding Promise-variant would have been rejected.
          */
-        this.terminator = function (endpointId, messageCallback, errorCallback) {
+        this.terminator = function (endpointId, messageCallback, rejectCallback) {
             // :: Assert for double-registrations
             if (_terminators[endpointId] !== undefined) {
                 throw new Error("Cannot register more than one Terminator to same endpointId [" + endpointId + "], existing: " + _terminators[endpointId]);
@@ -1177,10 +1195,10 @@
             if (_endpoints[endpointId] !== undefined) {
                 throw new Error("Cannot register a Terminator to same endpointId [" + endpointId + "] as an Endpoint, existing: " + _endpoints[endpointId]);
             }
-            log("Registering Terminator on id [" + endpointId + "]:\n #messageCallback: " + messageCallback + "\n #errorCallback: " + errorCallback);
+            log("Registering Terminator on id [" + endpointId + "]:\n #messageCallback: " + messageCallback + "\n #rejectCallback: " + rejectCallback);
             _terminators[endpointId] = {
                 resolve: messageCallback,
-                reject: errorCallback
+                reject: rejectCallback
             };
         };
 
@@ -1224,12 +1242,12 @@
                 envelope.msg = message;
 
                 // Make lambda for what happens when it has been RECEIVED on server.
-                let outstandingInitiation = Object.create(null);
+                let initiation = Object.create(null);
                 // Set the Sends's returned Promise's settle functions for ACK and NACK.
-                outstandingInitiation.ack = resolve;
-                outstandingInitiation.nack = reject;
+                initiation.ack = resolve;
+                initiation.nack = reject;
 
-                _addInformationBearingEnvelopeToPipeline(envelope, traceId, outstandingInitiation, undefined);
+                _addInformationBearingEnvelopeToPipeline(envelope, traceId, initiation, undefined);
             });
         };
 
@@ -1237,34 +1255,93 @@
         /**
          * Perform a Request, and have the reply come back via the returned Promise. As opposed to Send, where the
          * returned Promise is resolved when the server accepts the message, the Promise is now resolved by the Reply.
-         * To get information of whether the server accepted the message, you can provide a receivedCallback - this is
-         * invoked when the server accepts the message.
+         * To get information of whether the server accepted or did not accept the message, you can provide either
+         * a receivedCallback function (set the 'config' parameter to this function) or set the two config properties
+         * 'ackCallback' and 'nackCallback' to functions. If you supply the single function variant, this is equivalent
+         * to setting both ack- and nackCallback to the same function. The {@link ReceivedEvent}'s type will distinguish
+         * between {@link ReceivedEventType#ACK ACK} or {@link ReceivedEventType#NACK NACK}.
+         * <p/>
+         * The config object has keys as such - <i>all are optional</i>:
+         * <ul>
+         *     <li>receivedCallback: {function} invoked when the Server receives the event and either ACK or NACKs it
+         *         - this overrides the ack- and nackCallbacks.</li>
+         *     <li>ackCallback: {function} invoked when the Server receives the event and ACKs it.</li>
+         *     <li>nackCallback: {function} invoked when the Server receives the event and NACKs it - or when {@link MessageEventType#TIMEOUT} or {@link MessageEventType#SESSION_CLOSED} happens.</li>
+         *     <li>timeout: number of milliseconds before the Client times out the Server reply. When this happens,
+         *         the 'nackCallback' (or receivedCallback if this is used) is invoked with a {@link ReceivedEvent} of
+         *         type {@link ReceivedEventType#TIMEOUT}, and the Request's Promise will be <i>rejected</i> with a
+         *         {@link MessageEvent} or type {@link MessageEventType#TIMEOUT}.
+         * </ul>
          *
-         * @param endpointId
-         * @param traceId
-         * @param message
-         * @param receivedCallback
+         * @param endpointId the Server MatsSocket Endpoint that this message should go to.
+         * @param traceId the TraceId for this message - will go through all parts of the call, including the Mats flow.
+         * @param message the actual message for the Server MatsSocket Endpoint.
+         * @param {function|object} configOrCallback either directly a "receivedCallback" function that is invoked both with Server ACK
+         *        or NACK, or a config object - read JSDoc above.
          * @returns {Promise<MessageEvent>}
          */
-        this.request = function (endpointId, traceId, message, receivedCallback = undefined) {
+        this.request = function (endpointId, traceId, message, configOrCallback = undefined) {
             return new Promise(function (resolve, reject) {
+                // Timeout is default MatsSocket's default
+                let timeout = that.requestTimeout;
+
+                // Make lambda for what happens when it has been RECEIVED on server.
+                let initiation = Object.create(null);
+
+                if (typeof (configOrCallback) === 'function') {
+                    // Set both ACN and NACK to the this function
+                    initiation.ack = configOrCallback;
+                    initiation.nack = configOrCallback;
+                } else if (typeof (configOrCallback) === 'object') {
+                    if (configOrCallback.receivedCallback) {
+                        if (typeof (configOrCallback.receivedCallback) !== 'function') {
+                            throw new Error("The 'configOrCallback.receivedCallback' is not a function.");
+                        }
+                        // Set both ACN and NACK to the 'receivedCallback'
+                        initiation.ack = configOrCallback.receivedCallback;
+                        initiation.nack = configOrCallback.receivedCallback;
+                    } else {
+                        if (configOrCallback.ackCallback) {
+                            if (typeof (configOrCallback.ackCallback) !== 'function') {
+                                throw new Error("The 'configOrCallback.ackCallback' is not a function.");
+                            }
+                            initiation.ack = configOrCallback.ackCallback;
+                        }
+                        if (configOrCallback.nackCallback) {
+                            if (typeof (configOrCallback.nackCallback) !== 'function') {
+                                throw new Error("The 'configOrCallback.nackCallback' is not a function.");
+                            }
+                            initiation.nack = configOrCallback.nackCallback;
+                        }
+                    }
+                    // ?: Do we have a timeout configured?
+                    if (configOrCallback.timeout) {
+                        if (typeof (configOrCallback.timeout) !== 'number') {
+                            throw new Error("The 'configOrCallback.timeout' is not a number.");
+                        }
+                        timeout = configOrCallback.timeout;
+                    }
+
+                } else if (typeof (configOrCallback) === 'undefined') {
+                    /* this is legal! */
+                } else {
+                    throw new Error("The 'configOrCallback' parameter was neither a function or an object.");
+                }
+
+                // Make Request for the Reply
+                let request = Object.create(null);
+                request.resolve = resolve;
+                request.reject = reject;
+                request.timeout = timeout;
+
+                // Make the MatsSocket Envelope that will be sent.
                 let envelope = Object.create(null);
                 envelope.t = MessageType.REQUEST;
                 envelope.eid = endpointId;
                 envelope.msg = message;
+                envelope.to = timeout;
 
-                // Make lambda for what happens when it has been RECEIVED on server.
-                let outstandingInitiation = Object.create(null);
-                // Set both ACN and NACK to the 'receivedCallback'
-                outstandingInitiation.ack = receivedCallback;
-                outstandingInitiation.nack = receivedCallback;
-
-                // Make future for the resolving of Promise
-                let future = Object.create(null);
-                future.resolve = resolve;
-                future.reject = reject;
-
-                _addInformationBearingEnvelopeToPipeline(envelope, traceId, outstandingInitiation, future);
+                _addInformationBearingEnvelopeToPipeline(envelope, traceId, initiation, request);
             });
         };
 
@@ -1276,14 +1353,16 @@
          * request and reply), so it can be any object: An identifier, some object to apply the result on, or even a
          * function.
          *
-         * @param endpointId
-         * @param traceId
-         * @param message
-         * @param replyToTerminatorId
-         * @param correlationInformation
+         * @param endpointId the Server MatsSocket Endpoint that this message should go to.
+         * @param traceId the TraceId for this message - will go through all parts of the call, including the Mats flow.
+         * @param message the actual message for the Server MatsSocket Endpoint.
+         * @param replyToTerminatorId which Client Terminator the reply should go to
+         * @param correlationInformation information that will be available to the Client Terminator (in {@link MessageEvent#correlationInformation}) when the reply comes back.
+         * @param {object} config an optional configuration object - the one parameter you can set is 'timeout', which
+         *        works like it does for {@link #request()}.
          * @returns {Promise<ReceivedEvent>}
          */
-        this.requestReplyTo = function (endpointId, traceId, message, replyToTerminatorId, correlationInformation) {
+        this.requestReplyTo = function (endpointId, traceId, message, replyToTerminatorId, correlationInformation, config = undefined) {
             // ?: Do we have the Terminator the client requests reply should go to?
             if (!_terminators[replyToTerminatorId]) {
                 // -> No, we do not have this. Programming error from app.
@@ -1291,23 +1370,39 @@
             }
 
             return new Promise(function (resolve, reject) {
+                // Make lambda for what happens when it has been RECEIVED on server.
+                let initiation = Object.create(null);
+                // Set the RequestReplyTop's returned Promise's settle functions for ACK and NACK.
+                initiation.ack = resolve;
+                initiation.nack = reject;
+
+                // :: Find which timeout to use
+                let timeout = that.requestTimeout;
+                if (config) {
+                    if (typeof (config) !== 'object') {
+                        throw new Error("The 'config' parameter wasn't an object.");
+                    }
+                    if (config.timeout) {
+                        if (typeof (config.timeout) !== 'number') {
+                            throw new Error("The 'config.timeout' is not a number.");
+                        }
+                        timeout = config.timeout;
+                    }
+                }
+                // Make Request for the Reply
+                let request = Object.create(null);
+                request.replyToEndpointId = replyToTerminatorId;
+                request.correlationInformation = correlationInformation;
+                request.timeout = timeout;
+
+                // Make the MatsSocket Envelope that will be sent.
                 let envelope = Object.create(null);
                 envelope.t = MessageType.REQUEST;
                 envelope.eid = endpointId;
                 envelope.msg = message;
+                envelope.to = timeout;
 
-                // Make lambda for what happens when it has been RECEIVED on server.
-                let outstandingInitiation = Object.create(null);
-                // Set the RequestReplyTop's returned Promise's settle functions for ACK and NACK.
-                outstandingInitiation.ack = resolve;
-                outstandingInitiation.nack = reject;
-
-                // Make request for the resolving of Promise
-                let request = Object.create(null);
-                request.replyToEndpointId = replyToTerminatorId;
-                request.correlationInformation = correlationInformation;
-
-                _addInformationBearingEnvelopeToPipeline(envelope, traceId, outstandingInitiation, request);
+                _addInformationBearingEnvelopeToPipeline(envelope, traceId, initiation, request);
             });
         };
 
@@ -1603,6 +1698,7 @@
         }
 
         function _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
+            log("closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages(). Current WebSocket:" + _webSocket);
             // Clear state
             delete (that.sessionId);
             _state = ConnectionState.NO_SESSION;
@@ -1615,7 +1711,7 @@
             // Were now also NOT open, until a new message is enqueued.
             _matsSocketOpen = false;
 
-            // :: Reject all outstanding messages
+            // :: NACK all outstanding messages
             for (let cmid in _outboxInitiations) {
                 // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                 let initiation = _outboxInitiations[cmid];
@@ -1625,9 +1721,7 @@
                 if (that.logging) log("Close Session: Clearing outstanding Initiation [" + initiation.envelope.t + "] to [" + initiation.envelope.eid + "], cmid:[" + initiation.envelope.cmid + "], TraceId:[" + initiation.envelope.tid + "].");
                 if (initiation.nack) {
                     try {
-                        let nackEvent = _createReceivedEvent(ReceivedEventType.SESSION_CLOSED, initiation.envelope.tid, initiation.sentTimestamp, Date.now(), performance.now() - initiation.performanceNow);
-                        nackEvent.desc = "Session Closed: Session was closed due to [" + reason + "]";
-                        initiation.nack(nackEvent);
+                        initiation.nack(_createReceivedEvent(ReceivedEventType.SESSION_CLOSED, initiation.envelope.tid, initiation.sentTimestamp, Date.now(), performance.now() - initiation.performanceNow));
                     } catch (err) {
                         error("Got error while clearing outstanding Initiation [" + initiation.envelope.t + "] to [" + initiation.envelope.eid + "], cmid:[" + initiation.envelope.cmid + "], TraceId:[" + initiation.envelope.tid + "].", err);
                     }
@@ -1642,19 +1736,15 @@
                 delete _outstandingRequests[cmid];
 
                 if (that.logging) log("Close Session: Clearing outstanding REQUEST to [" + request.envelope.eid + "], cmid:[" + request.envelope.cmid + "], TraceId:[" + request.envelope.tid + "].", request);
-                if (request.reject) {
-                    try {
-                        let rejectEvent = _createMessageEvent({}, MessageEventType.SESSION_CLOSED, request.envelope.cmid, request.envelope.tid, request.sentTimestamp, Date.now(), performance.now() - request.performanceNow, undefined);
-                        rejectEvent.desc = "Session Closed: Session was closed due to [" + reason + "]";
-                        request.reject(rejectEvent);
-                    } catch (err) {
-                        error("Got error while clearing outstanding REQUEST to [" + request.envelope.eid + "], cmid:[" + request.envelope.cmid + "], TraceId:[" + request.envelope.tid + "].", err);
-                    }
+                try {
+                    _completeFuture(request, {t: MessageEventType.SESSION_CLOSED}, Date.now());
+                } catch (err) {
+                    error("Got error while clearing outstanding REQUEST to [" + request.envelope.eid + "], cmid:[" + request.envelope.cmid + "], TraceId:[" + request.envelope.tid + "].", err);
                 }
             }
         }
 
-        function _addInformationBearingEnvelopeToPipeline(envelope, traceId, outstandingInitiation, outstandingRequest) {
+        function _addInformationBearingEnvelopeToPipeline(envelope, traceId, initiation, request) {
             // This is an information-bearing message, so now this MatsSocket instance is open.
             _matsSocketOpen = true;
             let now = Date.now();
@@ -1676,34 +1766,53 @@
 
             // Make lambda for what happens when it has been RECEIVED on server.
             // Store the outgoing envelope
-            outstandingInitiation.envelope = envelope;
+            initiation.envelope = envelope;
             // Store which "retransmitGuard" we were at when sending this (look up usage for why)
-            outstandingInitiation.retransmitGuard = _outboxInitiations_RetransmitGuard;
+            initiation.retransmitGuard = _outboxInitiations_RetransmitGuard;
             // Start the attempt counter. We start at 1, as we immediately will enqueue this envelope..
-            outstandingInitiation.attempt = 1;
+            initiation.attempt = 1;
             // Store the sent timestamp.
-            outstandingInitiation.sentTimestamp = now;
+            initiation.sentTimestamp = now;
             // Store TraceId
-            outstandingInitiation.traceId = traceId;
+            initiation.traceId = traceId;
             // Store performance.now for round-trip timing
-            outstandingInitiation.performanceNow = performanceNow;
+            initiation.performanceNow = performanceNow;
 
             // Then - store the outstanding Send or Request
-            _outboxInitiations[thisMessageSequenceId] = outstandingInitiation;
+            _outboxInitiations[thisMessageSequenceId] = initiation;
 
-            // ?: Do we have a outstandingRequest?
-            if (outstandingRequest) {
+            // ?: Do we have a request?
+            if (request) {
                 // Store the outgoing envelope
-                outstandingRequest.envelope = envelope;
+                request.envelope = envelope;
                 // Store TraceId
-                outstandingRequest.traceId = traceId;
+                request.traceId = traceId;
                 // Store the sent timestamp.
-                outstandingRequest.sentTimestamp = now;
+                request.sentTimestamp = now;
                 // Store performance.now for round-trip timing
-                outstandingRequest.performanceNow = performanceNow;
+                request.performanceNow = performanceNow;
+
+                // Make timeouter
+                request.timeoutId = setTimeout(function () {
+                    // :: The Request timeout was hit.
+                    if (that.logging) log("TIMEOUT! Request with TraceId:[" + request.traceId + "], cmid:[" + envelope.cmid + "] overshot timeout [" + (performance.now() - request.performanceNow) + " ms of " + request.timeout + "]");
+                    // Check if we've gotten the ACK/NACK
+                    let initiation = _outboxInitiations[thisMessageSequenceId];
+                    // ?: Was the initiation still present?
+                    if (initiation) {
+                        // -> Yes, still present - so we delete and resolve it
+                        delete _outboxInitiations[thisMessageSequenceId];
+                        if (initiation.nack) {
+                            initiation.nack(_createReceivedEvent(ReceivedEventType.TIMEOUT, initiation.traceId, initiation.sentTimestamp, Date.now(), performance.now() - initiation.performanceNow));
+                        }
+                    }
+                    delete _outstandingRequests[thisMessageSequenceId];
+                    _completeFuture(request, {t: MessageEventType.TIMEOUT}, Date.now());
+
+                }, request.timeout);
 
                 // Then - store this outstanding Request.
-                _outstandingRequests[thisMessageSequenceId] = outstandingRequest;
+                _outstandingRequests[thisMessageSequenceId] = request;
             }
 
             _addEnvelopeToPipeline_EvaluatePipelineLater(envelope);
@@ -1724,11 +1833,11 @@
             // ?: Should we add it to the pre-pipeline, or the ordinary?
             if (prePipeline) {
                 // -> To pre-pipeline
-                if (that.logging) log("Envelope of type [" + envelope.t + "] enqueued to PRE-pipeline: " + JSON.stringify(envelope));
+                if (that.logging) log("ENQUEUE: Envelope of type [" + envelope.t + "] enqueued to PRE-pipeline: " + JSON.stringify(envelope));
                 _prePipeline.push(envelope);
             } else {
                 // -> To ordinary pipeline.
-                if (that.logging) log("Envelope of type [" + envelope.t + "] enqueued to pipeline: " + JSON.stringify(envelope));
+                if (that.logging) log("ENQUEUE: Envelope of type [" + envelope.t + "] enqueued to pipeline: " + JSON.stringify(envelope));
                 _pipeline.push(envelope);
             }
             // Perform "auto-pipelining", by waiting a minimal amount of time before actually sending.
@@ -1879,7 +1988,7 @@
         // Based on whether there is multiple URLs, or just a single one, we choose the short "timeout base", or a longer one, as minimum.
         let _connectionTimeoutMin = _useUrls.length > 1 ? _connectionTimeoutBase : _connectionTimeoutMinIfSingleUrl;
         let _connectionTimeoutMax = 15000; // Milliseconds max between connection attempts.
-        let _consecutiveAuthFailOrWebSocketErrors = 0; // Increased each time PreConnectionOperation returns 401 or 403, OR WebSocket.onerror is triggered when trying to connect.
+        let _consecutiveAuthFailOrWebSocketErrors = 0; // Increased each time PreConnectionOperation returns 400 <= status <= 599, OR WebSocket.onerror is triggered when trying to connect.
 
         function _increaseReconnectStateVars() {
             _urlIndexCurrentlyConnecting++;
@@ -1962,7 +2071,7 @@
             _webSocketConnecting = true;
 
             // Timeout: LESSER of "max" and "timeoutBase * (2^round)", which should lead to timeoutBase x1, x2, x4, x8 - but capped at max.
-            // .. but at least 'minTimeout', which handles the special case of longer minimum if just 1 URL.
+            // .. but at least '_connectionTimeoutMin', which handles the special case of longer minimum if just 1 URL.
             let timeout = Math.max(_connectionTimeoutMin,
                 Math.min(_connectionTimeoutMax, _connectionTimeoutBase * Math.pow(2, _connectionAttemptRound)));
             let currentCountdownTargetTimestamp = Date.now();
@@ -1980,7 +2089,7 @@
 
             /*
              * Make a "connection timeout" countdown,
-             * This will re-invoke itself every 100 ms to created the COUNTDOWN events - until either cancelled by connect,
+             * This will re-invoke itself every 100 ms to create the COUNTDOWN events - until either cancelled by connect going through,
              *  or it reaches targetTimeoutTimestamp (timeout), where it aborts the attempt, bumps the state vars,
              *  and then re-runs the '_initiateWebSocketCreation' method.
              */
@@ -2060,6 +2169,7 @@
                             }
                         });
                         xhr.withCredentials = true;
+                        // Note: 'params.directUrl' is only relevant for this internal code, look at the usage of this method.
                         xhr.open("GET", (params.directUrl ? params.directUrl : params.webSocketUrl.replace("ws", "http")));
                         xhr.setRequestHeader("Authorization", params.authorization);
                         xhr.send();
@@ -2095,11 +2205,11 @@
                     // -> Function, so invoke it, with contract-specified params object containing 'webSocketUrl'.
                     abortAndPromise = that.preconnectoperation(params);
                 } else if (typeof (that.preconnectoperation) === 'string') {
-                    // -> String, so invoke our default promise factory with special "directUrl" params argument
+                    // -> String, so invoke our default promise factory with special 'directUrl' property, which overrides 'webSocketUrl'.
                     params.directUrl = that.preconnectoperation;
                     abortAndPromise = w_defaultXhrPromiseFactory(params);
                 } else {
-                    // -> Truthy, so invoke our default promise factory with contract-specified params object containing 'webSocketUrl'.
+                    // -> Truthy, so invoke our default promise factory with params object containing 'webSocketUrl'.
                     abortAndPromise = w_defaultXhrPromiseFactory(params);
                 }
 
@@ -2232,6 +2342,8 @@
                 if (_consecutiveAuthFailOrWebSocketErrors >= (_useUrls.length * 3)) {
                     // -> Yes, too much fails or errors - stop nagging server.
                     if (that.logging) log("Too many consecutive PreConnectOperation fails or WebSocket errors [" + _consecutiveAuthFailOrWebSocketErrors + "].");
+                    // Hold on to how many outstanding initiations there are now
+                    let outstandingInitiations = Object.keys(_outboxInitiations).length;
                     // Abort connecting
                     w_abortAttempt();
                     // Cancel the "reconnect scheduler" thingy.
@@ -2244,7 +2356,8 @@
                         type: "close",
                         code: MatsSocketCloseCodes.VIOLATED_POLICY,
                         codeName: "VIOLATED_POLICY",
-                        reason: reason
+                        reason: reason,
+                        outstandingInitiations: outstandingInitiations
                     });
                     return;
                 }
@@ -2276,7 +2389,6 @@
                 // ?: Assert that we're still open
                 if (!_matsSocketOpen) {
                     log("After timed out attempt, we realize that this MatsSocket instance is closed! - stopping right here.");
-                    w_abortAttempt();
                     return;
                 }
                 // Invoke after a small random number of millis: Bump reconnect state vars, re-run _initiateWebSocketCreation
@@ -2287,6 +2399,7 @@
             }
 
             // Start the countdown-timer.
+            // NOTICE! Order here is important - as the 'w_attemptPreConnectionOperation' right below may cancel it!
             w_countDownTimer();
 
             // :: Start the actual connection attempt!
@@ -2301,13 +2414,13 @@
         }
 
         function _onerror(event) {
-            error("websocket.onerror", "Got 'onerror' event from WebSocket.", event);
+            error("websocket.onerror, instanceId:[" + event.target.webSocketInstanceId + "]", "Got 'onerror' event from WebSocket.", event);
             // :: Synchronously notify our ConnectionEvent listeners.
             _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTION_ERROR, _currentWebSocketUrl, event, undefined, undefined));
         }
 
         function _onclose(closeEvent) {
-            log("websocket.onclose", closeEvent);
+            log("websocket.onclose, instanceId:[" + closeEvent.target.webSocketInstanceId + "]", closeEvent);
 
             // Note: here the WebSocket is already closed, so we don't have to close it..!
 
@@ -2320,11 +2433,16 @@
                 // -> One of the specific "Session is closed" CloseCodes -> Reject all outstanding, this MatsSocket is trashed.
                 error("session closed from server", "The WebSocket was closed with a CloseCode [" + MatsSocketCloseCodes.nameFor(closeEvent.code) + "] signifying that our MatsSocketSession is closed, reason:[" + closeEvent.reason + "].", closeEvent);
 
+                // Hold on to how many outstanding initiations there are now
+                let outstandingInitiations = Object.keys(_outboxInitiations).length;
+
                 // Close Session, Clear all state.
                 _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages("From Server: " + closeEvent.reason);
 
                 // :: Synchronously notify our SessionClosedEvent listeners
                 // NOTE: This shall only happen if Close Session is from ServerSide (that is, here), otherwise, if the app invoked matsSocket.close(), one would think the app knew about the close itself..!
+                closeEvent.codeName = MatsSocketCloseCodes.nameFor(closeEvent.code);
+                closeEvent.outstandingInitiations = outstandingInitiations;
                 _notifySessionClosedEventListeners(closeEvent);
 
             } else {
@@ -2355,13 +2473,13 @@
             }
         }
 
-        function _onmessage(webSocketEvent) {
+        function _onmessage(messageEvent) {
             let receivedTimestamp = Date.now();
-            let data = webSocketEvent.data;
+            let data = messageEvent.data;
             let envelopes = JSON.parse(data);
 
             let numEnvelopes = envelopes.length;
-            if (that.logging) log("onmessage: Got " + numEnvelopes + " messages.");
+            if (that.logging) log("websocket.onmessage, instanceId:[" + messageEvent.target.webSocketInstanceId + "]: Got " + numEnvelopes + " messages.");
 
             for (let i = 0; i < numEnvelopes; i++) {
                 let envelope = envelopes[i];
@@ -2493,7 +2611,7 @@
                         delete _outboxInitiations[envelope.cmid];
                         // ?: Was it a ACK (not NACK)?
                         if (envelope.t === MessageType.ACK) {
-                            // -> Yes, it was undefined or "ACK" - so Server was happy.
+                            // -> Yes, it was "ACK" - so Server was happy.
                             if (initiation.ack) {
                                 initiation.ack(_createReceivedEvent(ReceivedEventType.ACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
                             }
@@ -2563,7 +2681,7 @@
                         _inbox[envelope.smid] = envelope;
 
                         // Actually invoke the Terminator
-                        terminator.resolve(_createMessageEvent(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined, envelope.msg));
+                        terminator.resolve(_createMessageEvent(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined));
 
                     } else if (envelope.t === MessageType.REQUEST) {
                         // -> REQUEST: Server-to-Client Request a REPLY from a client endpoint
@@ -2628,7 +2746,7 @@
                         };
 
                         // Invoke the Endpoint, getting a Promise back.
-                        let promise = endpoint(_createMessageEvent(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined, envelope.msg));
+                        let promise = endpoint(_createMessageEvent(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined));
 
                         // Finally attach the Resolve and Reject handler
                         promise.then(function (resolveMessage) {
@@ -2654,7 +2772,7 @@
                         let initiation = _outboxInitiations[envelope.cmid];
                         // ?: Was the initiation still present?
                         if (initiation) {
-                            // -> Yes, still present - so we delete and resolve it
+                            // -> Yes, still present - so we delete and ACK it
                             delete _outboxInitiations[envelope.cmid];
                             if (initiation.ack) {
                                 initiation.ack(_createReceivedEvent(ReceivedEventType.ACK, initiation.traceId, initiation.sentTimestamp, receivedTimestamp, performance.now() - initiation.performanceNow));
@@ -2664,6 +2782,7 @@
                         let request = _outstandingRequests[envelope.cmid];
                         if (!request) {
                             if (that.logging) log("Double delivery: Evidently we've already completed the Request for cmid:[" + envelope.cmid + "], traiceId: [" + envelope.tid + "], ignoring.");
+                            continue;
                         }
 
                         // Complete the Promise on a REQUEST-with-Promise, or messageCallback/errorCallback on Endpoint for REQUEST-with-ReplyTo
@@ -2691,10 +2810,10 @@
             }
         }
 
-        function _createMessageEvent(incomingEnvelope, type, messageId, traceId, sentTimestamp, receivedTimestamp, roundTripMillis, msg) {
+        function _createMessageEvent(incomingEnvelope, type, messageId, traceId, sentTimestamp, receivedTimestamp, roundTripMillis) {
             let debug = new DebugInformation(sentTimestamp, incomingEnvelope, receivedTimestamp);
 
-            let messageEvent = new MessageEvent(type.toLowerCase(), msg, traceId, messageId, receivedTimestamp);
+            let messageEvent = new MessageEvent(type.toLowerCase(), incomingEnvelope.msg, traceId, messageId, receivedTimestamp);
             messageEvent.clientRequestTimestamp = sentTimestamp;
             messageEvent.roundTripMillis = roundTripMillis;
             messageEvent.debug = debug;
@@ -2707,13 +2826,16 @@
         }
 
         function _completeFuture(request, incomingEnvelope, receivedTimestamp) {
+            // We're finishing it now, so it shall not be timed out.
+            clearTimeout(request.timeoutId);
+
             // ?: Is this a RequestReplyTo, as indicated by the request having a replyToEndpoint?
             if (request.replyToEndpointId) {
                 // -> Yes, this is a REQUEST-with-ReplyTo
                 // Find the (client) Terminator which the Reply should go to
                 let terminator = _terminators[request.replyToEndpointId];
                 // Create the event
-                let event = _createMessageEvent(incomingEnvelope, incomingEnvelope.t, incomingEnvelope.cmid, request.envelope.tid, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow, incomingEnvelope.msg);
+                let event = _createMessageEvent(incomingEnvelope, incomingEnvelope.t, request.envelope.cmid, request.envelope.tid, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow);
                 // .. add CorrelationInformation from request
                 event.correlationInformation = request.correlationInformation;
                 if (incomingEnvelope.t === MessageType.RESOLVE) {
@@ -2728,9 +2850,9 @@
             } else {
                 // -> No, this is a REQUEST-with-Promise (missing (client) EndpointId)
                 // Delete the outstanding request, as we will complete it now.
-                delete _outstandingRequests[incomingEnvelope.cmid];
+                delete _outstandingRequests[request.envelope.cmid];
                 // Create the event
-                let event = _createMessageEvent(incomingEnvelope, incomingEnvelope.t, incomingEnvelope.cmid, request.envelope.tid, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow, incomingEnvelope.msg);
+                let event = _createMessageEvent(incomingEnvelope, incomingEnvelope.t, request.envelope.cmid, request.envelope.tid, request.sentTimestamp, receivedTimestamp, performance.now() - request.performanceNow);
                 // Was it RESOLVE or REJECT?
                 if (incomingEnvelope.t === MessageType.RESOLVE) {
                     request.resolve(event);

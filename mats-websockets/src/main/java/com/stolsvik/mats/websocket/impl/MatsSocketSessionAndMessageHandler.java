@@ -1763,7 +1763,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         public void forwardInteractiveUnreliable(MI matsMessage) {
             forwardCustom(matsMessage, customInit -> {
                 customInit.to(getMatsSocketEndpointId());
-                customInit.nonPersistent();
+                if (_envelope.to != null) {
+                    customInit.nonPersistent(_envelope.to + 5000);
+                }
+                else {
+                    customInit.nonPersistent();
+                }
                 customInit.interactive();
             });
         }
