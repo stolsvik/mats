@@ -552,9 +552,10 @@ public interface MatsSocketServer {
     }
 
     /**
-     * WebSocket CloseCodes used in MatsSocket, and for what. Using both standard codes, and app-specific/defined codes.
+     * WebSocket CloseCodes used in MatsSocket, and for what. Using both standard codes, and MatsSocket-specific/defined
+     * codes.
      * <p/>
-     * Note: Plural "Codes" since that is what the JSR 356 Java WebSocket API does..!
+     * Note: Plural "Codes" since that is what the JSR 356 Java WebSocket API {@link CloseCodes does..!}
      */
     enum MatsSocketCloseCodes implements CloseCode {
         /**
@@ -593,11 +594,12 @@ public interface MatsSocketServer {
          * <p/>
          * <b>Notice that if a close with this close code <i>is initiated from the Server-side</i>, this should NOT be
          * considered a CLOSE_SESSION by neither the client nor the server!</b> At least Jetty's implementation of JSR
-         * 356 WebSocket API for Java sends GOING_AWAY upon socket close due to timeout. Since a timeout can happen if
-         * we loose connection and thus can't convey PINGs, the MatsSocketServer must not interpret Jetty's
+         * 356 WebSocket API for Java sends GOING_AWAY upon socket close <i>due to timeout</i>. Since a timeout can
+         * happen if we loose connection and thus can't convey PINGs, the MatsSocketServer must not interpret Jetty's
          * timeout-close as Close Session. Likewise, if the client just experienced massive lag on the connection, and
          * thus didn't get the PING over to the server in a timely fashion, but then suddenly gets Jetty's timeout close
-         * with GOING_AWAY, this should not be interpreted by the client as the server wants to close the session.
+         * with GOING_AWAY, this should not be interpreted by the client as the server wants to close the
+         * MatsSocketSession.
          */
         GOING_AWAY(CloseCodes.GOING_AWAY.getCode()),
 

@@ -1181,6 +1181,8 @@
          * Registers a Terminator, on the specified terminatorId, and with the specified callbacks. A Terminator is
          * the target for Server-to-Client SENDs, and the Server's REPLYs from invocations of
          * <code>requestReplyTo(terminatorId ..)</code> where the terminatorId points to this Terminator.
+         * <p />
+         * Note: You cannot register any Terminators or Endpoints starting with "MatsSocket".
          *
          * @param endpointId the id of this client side Terminator.
          * @param messageCallback receives an Event when everything went OK, containing the message on the "data" property.
@@ -1195,6 +1197,10 @@
             if (_endpoints[endpointId] !== undefined) {
                 throw new Error("Cannot register a Terminator to same endpointId [" + endpointId + "] as an Endpoint, existing: " + _endpoints[endpointId]);
             }
+            // :: Assert that the namespace "MatsSocket" is not used
+            if (endpointId.startsWith("MatsSocket")) {
+                throw new Error('The namespace "MatsSocket" is reserved, TerminatorId ['+endpointId+'] is illegal.');
+            }
             log("Registering Terminator on id [" + endpointId + "]:\n #messageCallback: " + messageCallback + "\n #rejectCallback: " + rejectCallback);
             _terminators[endpointId] = {
                 resolve: messageCallback,
@@ -1207,6 +1213,8 @@
          * the target for Server-to-Client REQUESTs. The promiseProducer is a function that takes a message event
          * (the incoming REQUEST) and produces a Promise, whose return (resolve or reject) is the return value of the
          * endpoint.
+         * <p />
+         * Note: You cannot register any Terminators or Endpoints starting with "MatsSocket".
          *
          * @param endpointId the id of this client side Endpoint.
          * @param {function} promiseProducer a function that takes a Message Event and returns a Promise which when
@@ -1219,6 +1227,10 @@
             }
             if (_terminators[endpointId] !== undefined) {
                 throw new Error("Cannot register an Endpoint to same endpointId [" + endpointId + "] as a Terminator, existing: " + _terminators[endpointId]);
+            }
+            // :: Assert that the namespace "MatsSocket" is not used
+            if (endpointId.startsWith("MatsSocket")) {
+                throw new Error('The namespace "MatsSocket" is reserved, EndpointId ['+endpointId+'] is illegal.');
             }
             log("Registering Endpoint on id [" + endpointId + "]:\n #promiseProducer: " + promiseProducer);
             _endpoints[endpointId] = promiseProducer;
