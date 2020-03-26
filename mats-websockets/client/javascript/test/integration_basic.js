@@ -18,7 +18,10 @@
 }(typeof self !== 'undefined' ? self : this, function (chai, sinon, ws, mats, env) {
     const MatsSocket = mats.MatsSocket;
 
-    describe('MatsSocket integration tests, basic', function () {
+    // TODO: Check ConnectionEventListeners, including matsSocket.state
+    // TODO: Check SessionClosedEventListener
+
+    describe('MatsSocket integration tests, basics', function () {
         let matsSocket;
 
         function setAuth(userId = "standard", duration = 20000, roomForLatencyMillis = 10000) {
@@ -41,6 +44,11 @@
                 toClose.close("Test done");
             }, 25);
         });
+
+        function standardStateAssert() {
+            chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
+            chai.assert.strictEqual(matsSocket.state, mats.ConnectionState.SESSION_ESTABLISHED, "MatsSocket should have been in ConnectionState.SESSION_ESTABLISHED!");
+        }
 
         describe('simple sends', function () {
             // Set a valid authorization before each request
@@ -70,8 +78,9 @@
                     string: "The String",
                     number: Math.PI
                 });
-                promise.catch(reason => {
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
+                promise.catch(receivedEvent => {
+                    standardStateAssert();
+                    chai.assert.strictEqual(receivedEvent.type, mats.ReceivedEventType.NACK);
                     done();
                 });
             });
@@ -96,8 +105,8 @@
                         received = true;
                     });
                 promise.then(reason => {
+                    standardStateAssert();
                     chai.assert(received, "The received-callback should have been invoked.");
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
             });
@@ -109,8 +118,8 @@
                         received = true;
                     });
                 promise.catch(reason => {
+                    standardStateAssert();
                     chai.assert(received, "The received-callback should have been invoked.");
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
             });
@@ -131,7 +140,9 @@
             it("Should reply to our own endpoint with our correlation data", function (done) {
                 const correlationInformation = matsSocket.id(5);
                 matsSocket.terminator("ClientSide.testTerminator", ({correlationInformation: correlationInformation}) => {
+                    standardStateAssert();
                     chai.assert.equal(correlationInformation, correlationInformation);
+                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
                 matsSocket.requestReplyTo("Test.single", "REQUEST-with-ReplyTo_withCorrelationInfo_" + matsSocket.id(6), {
@@ -150,18 +161,20 @@
                 function test() {
                     let req = {
                         string: "test",
-                        number: 15,
-                        sleepTime: 50
+                        number: -1,
+                        sleepIncoming: 50, // Sleeptime before acknowledging
+                        sleepTime: 50 // Sleeptime before replying
                     };
                     let receivedCallbackInvoked = false;
                     matsSocket.request("Test.slow", "Timeout_request_" + matsSocket.id(6), req, {
+                        // Low timeout to NOT get ReceivedEventType.ACK.
+                        timeout: 5,
                         receivedCallback: function (event) {
                             chai.assert.strictEqual(event.type, mats.ReceivedEventType.TIMEOUT);
                             receivedCallbackInvoked = true;
-                        },
-                        // Extremely low timeout to NOT get ReceivedEventType.ACK.
-                        timeout: 1
+                        }
                     }).catch(event => {
+                        standardStateAssert();
                         chai.assert.strictEqual(event.type, mats.MessageEventType.TIMEOUT);
                         if (receivedCallbackInvoked) {
                             done();
@@ -173,6 +186,7 @@
                 // :: .. but must first wait for SESSION_ESTABLISHED to run test
                 matsSocket.addConnectionEventListener(event => {
                     if (event.type === mats.ConnectionEventType.SESSION_ESTABLISHED) {
+                        standardStateAssert();
                         test();
                     }
                 });
@@ -183,40 +197,60 @@
             it("requestReplyTo with timeout earlier than slow endpoint", function (done) {
                 let correlationInformation = matsSocket.jid(100);
 
-                // Create Terminator to receive the return
-                let messageCallbackInvoked = false;
-                let rejectCallbackInvoked = false;
-                matsSocket.terminator("Test.terminator", messageEvent => {
-                    // We do NOT expect a message!
-                    messageCallbackInvoked = true;
-                }, reject => {
-                    chai.assert.strictEqual(reject.type, mats.ReceivedEventType.TIMEOUT);
-                    chai.assert.strictEqual(reject.correlationInformation, correlationInformation);
-                    rejectCallbackInvoked = true;
-                });
+                /**
+                 * NOTICE: We should FIRST get the rejection on the Received Promise from requestReplyTo, and THEN
+                 * we should get a reject on the Terminator.
+                 */
+
+                let receivedResolveInvoked = false;
+                let receivedRejectInvoked = false;
 
                 // :: The actual test
                 function test() {
                     let req = {
                         string: "test",
-                        number: 15,
-                        sleepTime: 50
+                        number: -2,
+                        sleepIncoming: 50, // Sleeptime before acknowledging
+                        sleepTime: 50 // Sleeptime before replying
                     };
                     matsSocket.requestReplyTo("Test.slow", "Timeout_requestReplyTo_" + matsSocket.id(6), req, "Test.terminator", correlationInformation, {
-                        // Extremely low timeout to NOT get ReceivedEventType.ACK.
-                        timeout: 1
+                        // Low timeout to NOT get ReceivedEventType.ACK.
+                        timeout: 5
+                    }).then(event => {
+                        chai.assert.strictEqual(event.type, mats.ReceivedEventType.ACK);
+                        receivedResolveInvoked = true;
                     }).catch(event => {
+                        standardStateAssert();
                         chai.assert.strictEqual(event.type, mats.ReceivedEventType.TIMEOUT);
-                        chai.assert.isFalse(messageCallbackInvoked);
-                        chai.assert.isTrue(rejectCallbackInvoked);
-                        done();
+                        receivedRejectInvoked = true;
                     });
                     matsSocket.flush();
                 }
 
+                // Create Terminator to receive the return
+                let messageCallbackInvoked = false;
+                matsSocket.terminator("Test.terminator", messageEvent => {
+                    // We do NOT expect a message!
+                    messageCallbackInvoked = true;
+                }, event => {
+                    standardStateAssert();
+                    chai.assert.strictEqual(event.type, mats.ReceivedEventType.TIMEOUT);
+                    chai.assert.strictEqual(event.correlationInformation, correlationInformation);
+                    // NOTE! The ReceivedReject should already have been invoked.
+                    chai.assert.isTrue(receivedRejectInvoked);
+
+                    // Just wait a tad to see that we don't also get the messageCallbackInvoked
+                    setTimeout(function () {
+                        standardStateAssert();
+                        chai.assert.isFalse(messageCallbackInvoked);
+                        done();
+                    }, 5);
+                });
+
                 // :: .. but must first wait for SESSION_ESTABLISHED to run test
                 matsSocket.addConnectionEventListener(event => {
                     if (event.type === mats.ConnectionEventType.SESSION_ESTABLISHED) {
+                        standardStateAssert();
                         test();
                     }
                 });
@@ -229,9 +263,10 @@
             // Set a valid authorization before each request
             beforeEach(() => setAuth());
 
-            it("Pipeline should reply to our own endpoint", function (done) {
+            it("Pipeline should reply to our specified Terminator", function (done) {
                 let replyCount = 0;
                 matsSocket.terminator("ClientSide.testEndpoint", function (e) {
+                    standardStateAssert();
                     replyCount += 1;
                     if (replyCount === 3) {
                         done();
@@ -259,15 +294,15 @@
 
             // FOR ALL: Both the received callback should be invoked, and the Promise resolved/rejected
 
-            it("ignored (handler did nothing), should NACK when REQUEST (and thus reject Promise) since it is not allowed to ignore a Request (must either deny, insta-settle or forward)", function (done) {
+            it("Ignored (handler did nothing), should NACK when REQUEST (and thus reject Promise) since it is not allowed to ignore a Request (must either deny, insta-settle or forward)", function (done) {
                 let received = false;
                 let promise = matsSocket.request("Test.ignoreInIncomingHandler", "REQUEST_ignored_in_incomingHandler" + matsSocket.id(6), {},
                     function () {
                         received = true;
                     });
                 promise.catch(function () {
+                    standardStateAssert();
                     chai.assert(received, "The received-callback should have been invoked.");
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
             });
@@ -279,8 +314,8 @@
                         received = true;
                     });
                 promise.catch(function () {
+                    standardStateAssert();
                     chai.assert(received, "The received-callback should have been invoked.");
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
             });
@@ -292,8 +327,8 @@
                         received = true;
                     });
                 promise.then(function () {
+                    standardStateAssert();
                     chai.assert(received, "The received-callback should have been invoked.");
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
 
@@ -306,8 +341,8 @@
                         received = true;
                     });
                 promise.catch(function () {
+                    standardStateAssert();
                     chai.assert(received, "The received-callback should have been invoked.");
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
             });
@@ -319,8 +354,8 @@
                         received = true;
                     });
                 promise.catch(function () {
+                    standardStateAssert();
                     chai.assert(received, "The received-callback should have been invoked.");
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
             });
@@ -332,10 +367,10 @@
 
             // FOR ALL: Both the received callback should be invoked, and the Promise resolved/rejected
 
-            it("ignored (handler did nothing) should ACK when SEND (thus resolve Promise)", function (done) {
+            it("Ignored (handler did nothing) should ACK when SEND (thus resolve Promise)", function (done) {
                 let promise = matsSocket.send("Test.ignoreInIncomingHandler", "SEND_ignored_in_incomingHandler" + matsSocket.id(6), {});
                 promise.then(function () {
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
+                    standardStateAssert();
                     done();
                 });
             });
@@ -343,7 +378,7 @@
             it("context.deny() should NACK (reject Promise)", function (done) {
                 let promise = matsSocket.send("Test.denyInIncomingHandler", "SEND_denied_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
+                    standardStateAssert();
                     done();
                 });
             });
@@ -351,7 +386,7 @@
             it("context.resolve(..) should NACK (reject Promise) since it is not allowed to resolve/reject a send", function (done) {
                 let promise = matsSocket.send("Test.resolveInIncomingHandler", "SEND_resolved_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
+                    standardStateAssert();
                     done();
                 });
 
@@ -360,7 +395,7 @@
             it("context.reject(..) should NACK (reject Promise) since it is not allowed to resolve/reject a send", function (done) {
                 let promise = matsSocket.send("Test.rejectInIncomingHandler", "SEND_rejected_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
+                    standardStateAssert();
                     done();
                 });
             });
@@ -368,15 +403,10 @@
             it("Exception in incomingAdapter should NACK (reject Promise)", function (done) {
                 let promise = matsSocket.send("Test.throwsInIncomingHandler", "SEND_throws_in_incomingHandler" + matsSocket.id(6), {});
                 promise.catch(function () {
-                    chai.assert(matsSocket.connected, "MatsSocket has been closed, which was not expected here!");
                     done();
                 });
             });
         });
-
-        // TODO: Check ConnectionEventListeners, including matsSocket.state
-        // TODO: Check SessionClosedEventListener
-
 
         describe("requests handled in replyAdapter", function () {
             // Set a valid authorization before each request
@@ -384,13 +414,15 @@
 
             // FOR ALL: Both the received callback should be invoked, and the Promise resolved/rejected
 
-            it("ignored (handler did nothing) should NACK when Request handled in adaptReply(..) (thus nack receivedCallback, and reject Promise)", function (done) {
+            it("Ignored (handler did nothing) should NACK when Request handled in adaptReply(..) (thus nack receivedCallback, and reject Promise)", function (done) {
                 let received = false;
                 let promise = matsSocket.request("Test.ignoreInReplyAdapter", "REQUEST_ignored_in_replyAdapter" + matsSocket.id(6), {},
                     function () {
+                        standardStateAssert();
                         received = true;
                     });
                 promise.catch(function () {
+                    standardStateAssert();
                     if (received) {
                         done();
                     }
@@ -401,9 +433,11 @@
                 let received = false;
                 let promise = matsSocket.request("Test.resolveInReplyAdapter", "REQUEST_resolved_in_replyAdapter" + matsSocket.id(6), {},
                     function () {
+                        standardStateAssert();
                         received = true;
                     });
                 promise.then(function () {
+                    standardStateAssert();
                     if (received) {
                         done();
                     }
@@ -414,9 +448,11 @@
                 let received = false;
                 let promise = matsSocket.request("Test.rejectInReplyAdapter", "REQUEST_rejected_in_replyAdapter" + matsSocket.id(6), {},
                     function () {
+                        standardStateAssert();
                         received = true;
                     });
                 promise.catch(function () {
+                    standardStateAssert();
                     if (received) {
                         done();
                     }
@@ -427,9 +463,11 @@
                 let received = false;
                 let promise = matsSocket.request("Test.throwsInReplyAdapter", "REQUEST_throws_in_replyAdapter" + matsSocket.id(6), {},
                     function () {
+                        standardStateAssert();
                         received = true;
                     });
                 promise.catch(function () {
+                    standardStateAssert();
                     if (received) {
                         done();
                     }

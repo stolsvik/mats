@@ -30,15 +30,15 @@ the specific cell with its timing information.<br>
 
 <script>
     function tableCreate(rows, columns) {
-        var body = document.body;
-        var table = document.createElement('table');
+        let body = document.body;
+        let table = document.createElement('table');
         table.id = "request_table";
 
-        for (var i = 0; i < rows; i++) {
-            var tr = table.insertRow();
-            for (var j = 0; j < columns; j++) {
-                var cellNum = j * rows + i;
-                var td = tr.insertCell();
+        for (let i = 0; i < rows; i++) {
+            let tr = table.insertRow();
+            for (let j = 0; j < columns; j++) {
+                let cellNum = j * rows + i;
+                let td = tr.insertCell();
                 td.id = "request_" + cellNum;
                 td.innerHTML = "x";
             }
@@ -46,22 +46,22 @@ the specific cell with its timing information.<br>
         body.appendChild(table);
     }
 
-    var rows = 80;
-    var columns = 50;
+    let rows = 80;
+    let columns = 50;
 
     tableCreate(rows, columns);
-    var total = rows * columns;
+    let total = rows * columns;
 
     document.getElementById("title_heading").innerText = total + " requests";
 
-    var matsSocket = new mats.MatsSocket("TestApp", "1.2.3",
+    let matsSocket = new mats.MatsSocket("TestApp", "1.2.3",
         ["ws://localhost:8080/matssocket", "ws://localhost:8081/matssocket"]);
     matsSocket.setCurrentAuthorization("DummyAuth:standard:-1", -1);
 
-    var receivedCount = 0; // Number of received messages
-    var sumTimeMillis = 0; // Sum of millis per message, to get average.
+    let receivedCount = 0; // Number of received messages
+    let sumTimeMillis = 0; // Sum of millis per message, to get average.
 
-    var startMillis = Date.now();
+    let startMillis = Date.now();
 
     // Fire off a request for each of the Table's cells.
     for (let i = 0; i < total; i++) {
@@ -69,8 +69,8 @@ the specific cell with its timing information.<br>
         setTimeout((function (innerI) {
             // .. this "return function" here is to get a separately-scoped "i", called "innerI".
             return function () {
-                var requestId = "request_" + innerI;
-                var requestCell = document.getElementById(requestId);
+                let requestId = "request_" + innerI;
+                let requestCell = document.getElementById(requestId);
                 requestCell.innerHTML = "Req " + innerI;
 
                 // Fire off the MatsSocket request
@@ -82,17 +82,18 @@ the specific cell with its timing information.<br>
                     })
                     .then(function (event) {
                         // Setting data in Table's cell
-                        var timeTakenMs = event.roundTripMillis;
+                        let timeTakenMs = event.roundTripMillis;
                         sumTimeMillis += timeTakenMs;
-                        requestCell.innerHTML = "<b>" + timeTakenMs + " ms</b>";
+                        let displayMs = Math.round(timeTakenMs * 100) / 100;
+                        requestCell.innerHTML = "<b>" + displayMs + "</b>";
                         receivedCount++;
 
                         // ?: Is this the last reply coming in?
                         if (receivedCount === total) {
                             // -> Yes, last reply - so update the stats message at top.
-                            var totalMillis = Date.now() - startMillis;
-                            var averagePerMessage = sumTimeMillis / total;
-                            var throughputPerSecond = (total / totalMillis) * 1000;
+                            let totalMillis = Date.now() - startMillis;
+                            let averagePerMessage = sumTimeMillis / total;
+                            let throughputPerSecond = (total / totalMillis) * 1000;
                             document.getElementById("statistics").innerHTML =
                                 "Total time for " + total + " requests: " + totalMillis
                                 + " ms, average per message: " + averagePerMessage

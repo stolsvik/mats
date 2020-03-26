@@ -120,19 +120,19 @@
                 });
             }
 
-            it('Send a message to the Server, which responds by directly doing a Server-to-Client request (thus coming back here!), resolves, and when this returns to Server, sends it back to a MatsSocket terminator', function (done) {
+            it('Send a message to the Server, which responds by directly doing a Server-to-Client request (thus coming back here!), resolves, and when this returns to Server, sends it back to a Client Terminator', function (done) {
                 doTest("Test.server.request.direct", true, done);
             });
 
-            it('Send a message to the Server, which responds by directly doing a Server-to-Client request (thus coming back here!), rejects, and when this returns to Server, sends it back to a MatsSocket terminator', function (done) {
+            it('Send a message to the Server, which responds by directly doing a Server-to-Client request (thus coming back here!), rejects, and when this returns to Server, sends it back to a Client Terminator', function (done) {
                 doTest("Test.server.request.direct", false, done);
             });
 
-            it('Send a message to the Server, which responds by - in a Mats terminator - doing a Server-to-Client request (thus coming back here!), resolve, and when this returns to Server, sends it back to a MatsSocket terminator', function (done) {
+            it('Send a message to the Server, which responds by - in a Mats terminator - doing a Server-to-Client request (thus coming back here!), resolve, and when this returns to Server, sends it back to a Client Terminator', function (done) {
                 doTest("Test.server.request.viaMats", true, done);
             });
 
-            it('Send a message to the Server, which responds by - in a Mats terminator - doing a Server-to-Client request (thus coming back here!), rejects, and when this returns to Server, sends it back to a MatsSocket terminator', function (done) {
+            it('Send a message to the Server, which responds by - in a Mats terminator - doing a Server-to-Client request (thus coming back here!), rejects, and when this returns to Server, sends it back to a Client Terminator', function (done) {
                 doTest("Test.server.request.viaMats", false, done);
             });
         });

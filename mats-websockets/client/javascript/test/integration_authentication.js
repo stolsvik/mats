@@ -54,19 +54,6 @@
                 closeMatsSocket();
             });
 
-            beforeEach(() => {
-                matsSocket = new MatsSocket("TestApp", "1.2.3", urls.split(","));
-                matsSocket.logging = false;
-            });
-
-            afterEach(() => {
-                // :: Chill the close slightly, so as to get the final "ACKACK" envelope over to delete server's inbox.
-                let toClose = matsSocket;
-                setTimeout(function () {
-                    toClose.close("Test done");
-                }, 25);
-            });
-
             it('Should invoke authorization callback before making calls', function (done) {
                 let authCallbackCalled = false;
 
@@ -192,7 +179,6 @@
             });
 
             it('When preconnectoperations=true, we should get the initial AuthorizationValue presented in Cookie in the authPlugin.checkHandshake(..) function Server-side', function (done) {
-
                 // This is what we're going to test. Cannot be done in Node.js, as there is no common Cookie-jar there.
                 matsSocket.preconnectoperation = true;
 
@@ -214,10 +200,10 @@
                     });
             });
 
-            it('When the test-server\'s PreConnectOperation HTTP Auth-to-Cookie GET returns 400 <= status <= 599, we should eventually get VIOLATED_POLICY.', function (done) {
-
+            it('When the test-server\'s PreConnectOperation HTTP Auth-to-Cookie Servlet repeatedly returns [400 <= status <= 599], we should eventually get SessionClosedEvent.VIOLATED_POLICY.', function (done) {
                 // This is what we're going to test. Cannot be done in Node.js, as there is no common Cookie-jar there.
                 matsSocket.preconnectoperation = true;
+                matsSocket.maxConsecutiveFailsOrErrors = 2;
                 matsSocket.logging = logging;
 
                 // .. skip if in Node.js
@@ -225,9 +211,6 @@
                     this.skip();
                     return;
                 }
-
-                // Need massive timeout here, as the MatsSocket tries a couple of times (3x number of URLs) before giving up.
-                this.timeout(60000);
 
                 matsSocket.setAuthorizationExpiredCallback(function (event) {
                     const expiry = Date.now() + 1000;
@@ -249,10 +232,10 @@
                     });
             });
 
-            it('When authPlugin.checkHandshake(..) returns false, we should eventually get VIOLATED_POLICY.', function (done) {
-
+            it('When the test-server\'s authPlugin.checkHandshake(..) repeatedly returns false, we should eventually get SessionClosedEvent.VIOLATED_POLICY.', function (done) {
                 // This is what we're going to test. Cannot be done in Node.js, as there is no common Cookie-jar there.
                 matsSocket.preconnectoperation = true;
+                matsSocket.maxConsecutiveFailsOrErrors = 2;
                 matsSocket.logging = logging;
 
                 // .. skip if in Node.js
@@ -260,9 +243,6 @@
                     this.skip();
                     return;
                 }
-
-                // Need massive timeout here, as the MatsSocket tries a couple of times (3x number of URLs) before giving up.
-                this.timeout(60000);
 
                 matsSocket.setAuthorizationExpiredCallback(function (event) {
                     const expiry = Date.now() + 1000;

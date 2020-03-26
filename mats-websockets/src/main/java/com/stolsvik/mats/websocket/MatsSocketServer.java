@@ -458,6 +458,9 @@ public interface MatsSocketServer {
         void reject(R matsSocketRejectMessage);
     }
 
+    /**
+     * All Message Types (aka MatsSocket Envelope Types) used in the wire-protocol of MatsSocket.
+     */
     enum MessageType {
         /**
          * A HELLO message must be part of the first Pipeline of messages, preferably alone. One of the messages in the
@@ -489,26 +492,39 @@ public interface MatsSocketServer {
         RETRY,
 
         /**
-         * The message was Received, and acknowledged positively - i.e. it has acted on it.
+         * The specified message was Received, and acknowledged positively - i.e. the other party has decided to process
+         * it.
          * <p/>
-         * The sender has now taken over responsibility of this message, put it (at least the reference ClientMessageId)
-         * in its Inbox, and possibly acted on it. The reason for the Inbox is so that if it Receives the message again,
-         * it may just insta-ACK/NACK it and toss this copy out the window (since it has already handled it).
+         * The sender of the ACK has now taken over responsibility of the specified message, put it (at least the
+         * reference ClientMessageId) in its <i>Inbox</i>, and possibly started processing it. The reason for the Inbox
+         * is so that if it Receives the message again, it may just insta-ACK/NACK it and toss this copy out the window
+         * (since it has already handled it).
          * <p/>
-         * When the receive gets this, it may safely delete the message from its Outbox.
+         * When an ACK is received, the receiver may safely delete the acknowledged message from its <i>Outbox</i>.
          */
         ACK,
 
         /**
-         * The message was Received, but it did not acknowledge it - i.e. it has NOT acted on it.
+         * The specified message was Received, but it did not acknowledge it - i.e. the other party has decided to NOT
+         * process it.
          * <p/>
-         * The sender has now taken over responsibility of this message, put it (at least the reference ClientMessageId)
-         * in its Inbox, and possibly acted on it. The reason for the Inbox is so that if it Receives the message again,
-         * it may just insta-ACK/NACK it and toss this copy out the window (since it has already handled it).
+         * The sender of the NACK has now taken over responsibility of the specified message, put it (at least the
+         * reference Client/Server MessageId) in its <i>Inbox</i> - but has evidently decided not to process it. The
+         * reason for the Inbox is so that if it Receives the message again, it may just insta-ACK/NACK it and toss this
+         * copy out the window (since it has already handled it).
          * <p/>
-         * When the receive gets this, it may safely delete the message from its Outbox.
+         * When an NACK is received, the receiver may safely delete the acknowledged message from its <i>Outbox</i>.
          */
         NACK,
+
+        /**
+         * An "Acknowledge ^ 2", i.e. an acknowledge of the {@link #ACK} or {@link #NACK}. When the receiver gets this,
+         * it may safely delete the entry it has for the specified message from its <i>Inbox</i>.
+         * <p/>
+         * The message is now fully transferred from one side to the other, and both parties again has no reference to
+         * this message in their Inbox and Outbox.
+         */
+        ACK2,
 
         /**
          * A RESOLVE-reply to a previous {@link #REQUEST} - if the Client did the {@code REQUEST}, the Server will
@@ -523,14 +539,10 @@ public interface MatsSocketServer {
         REJECT,
 
         /**
-         * An "Acknowledge ^ 2", i.e. an acknowledge of the {@link #ACK} or {@link #NACK}. When the receiver gets this,
-         * it may safely delete the entry it has for this message from its Inbox.
-         */
-        ACK2,
-
-        /**
-         * The server requests that the client re-authenticates, where the client should immediately get a fresh
-         * authentication and back using either any message it has pending, or in a separate {@link #AUTH} message.
+         * The server requests that the Client re-authenticates, where the Client should immediately get a fresh
+         * authentication and send it back using either any message it has pending, or in a separate {@link #AUTH}
+         * message. Message processing - both processing of received messages, and sending of outgoing messages (i.e.
+         * Replies to REQUESTs, or Server-initiated SENDs and REQUESTs) will be stalled until such auth is gotten.
          */
         REAUTH,
 
@@ -567,6 +579,10 @@ public interface MatsSocketServer {
         /**
          * Standard code 1008 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
          * used when the we cannot authenticate.
+         * <p/>
+         * May also be used locally from the Client: If the PreConnectOperation return status code 401 or 403 or the
+         * WebSocket connect attempt raises error too many times (e.g. total 3x number of URLs), the MatsSocket will be
+         * "Closed Session" with this status code.
          */
         VIOLATED_POLICY(CloseCodes.VIOLATED_POLICY.getCode()),
 

@@ -20,6 +20,8 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
  */
 @JsonPropertyOrder({ "t", "smid", "cmid", "tid" })
 class MatsSocketEnvelopeDto {
+    MessageType t; // Type
+
     String clv; // Client Lib and Versions, informative, e.g.
     // "MatsSockLibCsharp,v2.0.3; iOS,v13.2"
     // "MatsSockLibAlternativeJava,v12.3; ASDKAndroid,vKitKat.4.4"
@@ -27,8 +29,6 @@ class MatsSocketEnvelopeDto {
     // browsers/JS: "MatsSocket.js,v0.8.9; User-Agent: <navigator.userAgent string>",
     String an; // AppName
     String av; // AppVersion
-
-    MessageType t; // Type
 
     String auth; // Authorization header
 

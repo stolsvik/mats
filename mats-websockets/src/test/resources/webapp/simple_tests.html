@@ -12,6 +12,9 @@ NOTE! You must open the browser's DevTool Console to get any effect of this!
         ['ws://localhost:5000/matssocket', 'ws://localhost:5001/matssocket',  // <- These two are bogus
             'ws://localhost:8080/matssocket', 'ws://localhost:8081/matssocket']); // <- These two should work
     // ['ws://localhost:5000/matssocket', 'ws://localhost:5001/matssocket', 'ws://localhost:5001/matssocket']); // <- All bogus
+
+    // ===== Configure the MatsSocket
+
     matsSocket.preconnectoperation = true;
     matsSocket.logging = true;
 
@@ -27,42 +30,55 @@ NOTE! You must open the browser's DevTool Console to get any effect of this!
         }, 100 + (100 * Math.random()));
     });
 
-    matsSocket.terminator("ClientSide.testEndpoint", function (e) {
-        var millis = Date.now() - e.clientMessageCreated;
-        console.log("Got message! CorrelationId:" + e.correlationId + ", time taken: " + millis + "ms"
-            + ", clientMessageReceivedNodename: " + e.clientMessageReceivedNodename
-            + ", matsMessageReplyReceivedNodename: " + e.matsMessageReplyReceivedNodename
-            + ", replyMessageToClientNodename:" + e.replyMessageToClientNodename);
+    // Add three different InitiationProcessedEventListeners
+    matsSocket.addInitiationProcessedEventListener(function (initiationProcessedEvent) {
+        console.log("# InitiationProcessedEvent (false, false)!", initiationProcessedEvent);
     });
+
+    matsSocket.addInitiationProcessedEventListener(function (initiationProcessedEvent) {
+        console.log("InitiationProcessedEvent (true, false)!", initiationProcessedEvent);
+    }, true);
+
+    matsSocket.addInitiationProcessedEventListener(function (initiationProcessedEvent) {
+        console.log("InitiationProcessedEvent (false, true)!", initiationProcessedEvent);
+    }, false, true);
+
+    // Create a Terminator for the requestReplyTo Requests.
+    matsSocket.terminator("ClientSide.testEndpoint", function (messageEvent) {
+        var millis = Date.now() - messageEvent.clientMessageCreated;
+        console.log("Got message! CorrelationId:" + messageEvent.correlationId + ", time taken: " + messageEvent.roundTripTime + "ms"
+            + ", clientMessageReceivedNodename: " + messageEvent.clientMessageReceivedNodename
+            + ", matsMessageReplyReceivedNodename: " + messageEvent.matsMessageReplyReceivedNodename
+            + ", replyMessageToClientNodename:" + messageEvent.replyMessageToClientNodename);
+    });
+
+    // ===== Perform some operations.
 
     matsSocket.send("Test.single", "SEND_" + matsSocket.id(6), {string: "The String", number: Math.PI});
     matsSocket.flush();
 
     matsSocket.send("Test.single", "SEND-with-Promise_" + matsSocket.id(6), {string: "The String", number: Math.PI})
-        .then(function (event) {
-            console.log("SEND-with-Promise resolved! (message received on server) Took " + (Date.now() - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
+        .then(function (receivedEvent) {
+            console.log("SEND-with-Promise resolved! (message received on server) Took " + receivedEvent.roundTripMillis + "ms: " + JSON.stringify(receivedEvent));
         });
     matsSocket.flush();
 
     matsSocket.request("Test.single", "REQUEST-with-Promise_" + matsSocket.id(6), {
         string: "Request String",
         number: Math.E
-    })
-        .then(function (reply) {
-            console.log("REQUEST-with-Promise resolved! (I.e. REPLY from Mats Endpoint) Took " + (Date.now() - reply.clientMessageCreated) + "ms: " + JSON.stringify(reply));
-        });
+    }).then(function (messageEvent) {
+        console.log("REQUEST-with-Promise resolved! (I.e. REPLY from Mats Endpoint) Took " + messageEvent.roundTripMillis + "ms: " + JSON.stringify(messageEvent));
+    });
     matsSocket.flush();
 
     matsSocket.request("Test.single", "REQUEST-with-Promise-and-receivedCallback_" + matsSocket.id(6), {
-            string: "Request String",
-            number: Math.E
-        },
-        function (event) {
-            console.log("REQUEST receivedCallback: (message received on server). Took " + (Date.now() - event.clientMessageCreated) + "ms: " + JSON.stringify(event));
-        })
-        .then(function (reply) {
-            console.log("REQUEST-with-Promise-and-receivedCallback resolved! (I.e. REPLY from Mats Endpoint) Took " + (Date.now() - reply.clientMessageCreated) + "ms: " + JSON.stringify(reply));
-        });
+        string: "Request String",
+        number: Math.E
+    }, function (receivedEvent) {
+        console.log("REQUEST receivedCallback: (message received on server). Took " + receivedEvent.roundTripMillis + "ms: " + JSON.stringify(receivedEvent));
+    }).then(function (messageEvent) {
+        console.log("REQUEST-with-Promise-and-receivedCallback resolved! (I.e. REPLY from Mats Endpoint) Took " + messageEvent.roundTripMillis + "ms: " + JSON.stringify(messageEvent));
+    });
     matsSocket.flush();
 
     setTimeout(function () {
@@ -77,12 +93,19 @@ NOTE! You must open the browser's DevTool Console to get any effect of this!
             "ClientSide.testEndpoint", "pipeline_3_" + matsSocket.id(10));
     }, 300);
 
+    // ===== Dump some stats: Print all initiations, and repeatedly print pings.
+
+    setTimeout(function () {
+        console.log("Initiations!", matsSocket.initiations);
+    }, 2000);
+
     function printStats() {
         setTimeout(function () {
             console.log("Pings!", matsSocket.pings);
             printStats();
         }, 31000);
     }
+
     printStats();
 
 </script>

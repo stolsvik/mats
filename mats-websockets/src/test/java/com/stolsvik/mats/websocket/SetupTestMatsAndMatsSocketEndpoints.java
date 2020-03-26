@@ -185,7 +185,15 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         // :: Forwards directly to Mats, no replyAdapter
         matsSocketServer.matsSocketEndpoint("Test.slow",
                 MatsDataTO.class, MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msIncoming) -> ctx.forwardInteractivePersistent(msIncoming));
+                (ctx, principal, msg) -> {
+                    try {
+                        Thread.sleep(msg.sleepIncoming);
+                    }
+                    catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                    ctx.forwardInteractivePersistent(msg);
+                });
 
         // :: Simple endpoint that just sleeps a tad, to simulate "long(er) running process".
         matsFactory.single("Test.slow", MatsDataTO.class, MatsDataTO.class,
@@ -359,6 +367,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         public double number;
         public String string;
         public int sleepTime;
+        public int sleepIncoming;
 
         public MatsDataTO() {
         }

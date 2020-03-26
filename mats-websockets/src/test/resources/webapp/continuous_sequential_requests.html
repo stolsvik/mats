@@ -28,15 +28,15 @@ Tools.<br>
 
 <script>
     function tableCreate(rows, columns) {
-        var body = document.body;
-        var table = document.createElement('table');
+        let body = document.body;
+        let table = document.createElement('table');
         table.id = "request_table";
 
-        for (var i = 0; i < rows; i++) {
-            var tr = table.insertRow();
-            for (var j = 0; j < columns; j++) {
-                var cellNum = j * rows + i;
-                var td = tr.insertCell();
+        for (let i = 0; i < rows; i++) {
+            let tr = table.insertRow();
+            for (let j = 0; j < columns; j++) {
+                let cellNum = j * rows + i;
+                let td = tr.insertCell();
                 td.id = "request_" + cellNum;
                 td.innerHTML = "x";
             }
@@ -44,29 +44,29 @@ Tools.<br>
         body.appendChild(table);
     }
 
-    var rows = 40;
-    var columns = 25;
+    let rows = 40;
+    let columns = 25;
 
     tableCreate(rows, columns);
-    var total = rows * columns;
+    let total = rows * columns;
 
     document.getElementById("title_heading").innerText = "Continuous, sequential requests, " + total + " per round.";
 
-    var matsSocket = new mats.MatsSocket("TestApp", "1.2.3",
+    let matsSocket = new mats.MatsSocket("TestApp", "1.2.3",
         ["ws://localhost:8080/matssocket", "ws://localhost:8081/matssocket"]);
     matsSocket.setCurrentAuthorization("DummyAuth:standard:-1", -1);
 
-    var sumTimeMillis = 0; // Sum of millis per message, to get average.
+    let sumTimeMillis = 0; // Sum of millis per message, to get average.
 
-    var startMillis = Date.now();
+    let startMillis = Date.now();
 
-    var cells = [];
-    for (var i = 0; i < total; i++) {
+    let cells = [];
+    for (let i = 0; i < total; i++) {
         cells[i] = document.getElementById("request_" + i);
     }
 
     function doRequest(cellNum) {
-        var requestCell = cells[cellNum];
+        let requestCell = cells[cellNum];
         requestCell.innerText = "Req!";
 
         // Fire off the MatsSocket request
@@ -78,19 +78,20 @@ Tools.<br>
             })
             .then(function (event) {
                 // Setting data in Table's cell
-                var timeTakenMs = event.roundTripMillis;
+                let timeTakenMs = event.roundTripMillis;
                 sumTimeMillis += timeTakenMs;
-                requestCell.innerText = timeTakenMs + " ms";
+                let displayMs = Math.round(timeTakenMs * 100) / 100;
+                requestCell.innerText = displayMs;
 
-                var newCellNum = cellNum + 1;
+                let newCellNum = cellNum + 1;
                 if (newCellNum >= total) {
                     // Reset counter
                     newCellNum = 0;
                     // Update statistics
-                    var now = Date.now();
-                    var totalMillis = now - startMillis;
-                    var averagePerMessage = totalMillis / total;
-                    var throughputPerSecond = (total / totalMillis) * 1000;
+                    let now = Date.now();
+                    let totalMillis = now - startMillis;
+                    let averagePerMessage = totalMillis / total;
+                    let throughputPerSecond = (total / totalMillis) * 1000;
                     document.getElementById("statistics").innerHTML =
                         "Total time for " + total + " requests: " + totalMillis
                         + " ms, average per message: " + averagePerMessage

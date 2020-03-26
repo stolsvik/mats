@@ -129,6 +129,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
     void webSocketSendText(String text) throws IOException {
         synchronized (_webSocketSendSyncObject) {
+            if (_webSocketBasicRemote == null) {
+                log.warn("When about to send message, the WebSocket 'BasicRemote' instance was gone,"
+                        + " MatsSocketSessionId [" + _matsSocketSessionId + "], connectionId:[" + _connectionId + "]"
+                        + " - probably async close, ignoring. Message:\n"+text);
+                return;
+            }
             _webSocketBasicRemote.sendText(text);
         }
     }
