@@ -35,11 +35,12 @@
         });
 
         afterEach(() => {
-            // :: Chill the close slightly, so as to get the final "ACKACK" envelope over to delete server's inbox.
+            // :: Chill the close slightly, so as to get the final "ACK2" envelope over to delete server's inbox.
+            // NOTE: This is done async, so for the fast tests, the closings will come in "behind".
             let toClose = matsSocket;
             setTimeout(function () {
                 toClose.close("Test done");
-            }, 25);
+            }, 500);
         });
 
         describe('MatsSocketServer.send()', function () {

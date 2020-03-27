@@ -3009,17 +3009,13 @@
                     } else if ((envelope.t === MessageType.ACK) || (envelope.t === MessageType.NACK)) {
                         // -> Server Acknowledges information-bearing message from Client.
 
-                        if (envelope.cmid === undefined) {
+                        if ((envelope.cmid === undefined) && (envelope.ids === undefined)) {
                             // -> No, we do not have this. Programming error from Server.
-                            error("ACK: missing cmid", "The ACK/NACK envelope is missing 'cmid'", envelope);
+                            error("ack missing ids", "The ACK/NACK envelope is missing 'cmid' or 'ids'.", envelope);
                             continue;
                         }
 
-                        // :: Send the ACK-to-ACK, i.e. ACK2
-                        _addEnvelopeToPipeline_EvaluatePipelineLater({
-                            t: MessageType.ACK2,
-                            cmid: envelope.cmid
-                        });
+                        _sendAck2Later(envelope.cmid, envelope.ids);
 
                         // :: Handling if this was an ACK for outstanding SEND or REQUEST
                         let initiation = _outboxInitiations[envelope.cmid];
@@ -3049,14 +3045,21 @@
 
                     } else if (envelope.t === MessageType.ACK2) {
                         // -> ACKNOWLEDGE of the RECEIVED: We can delete from our inbox
-                        if (envelope.smid === undefined) {
+                        if ((envelope.smid === undefined) && (envelope.ids === undefined)) {
                             // -> No, we do not have this. Programming error from Server.
-                            error("missing smid", "The ACK2 envelope is missing 'smid'", envelope);
+                            error("ack2 missing ids", "The ACK2 envelope is missing 'smid' or 'ids'", envelope);
                             continue;
                         }
                         // Delete it from inbox - that is what ACK2 means: Other side has now deleted it from outbox,
                         // and can thus not ever deliver it again (so we can delete the guard against double delivery).
-                        delete _inbox[envelope.smid];
+                        if (envelope.smid) {
+                            delete _inbox[envelope.smid];
+                        }
+                        if (envelope.ids) {
+                            for (let i = 0; i < envelope.ids.length; i++) {
+                                delete _inbox[envelope.ids[i]];
+                            }
+                        }
 
                     } else if ((envelope.t === MessageType.SEND) || (envelope.t === MessageType.REQUEST)) {
                         // -> SEND: Sever-to-Client Send a message to client terminatorOrEndpoint
@@ -3073,14 +3076,8 @@
                         let terminatorOrEndpoint = (envelope.t === MessageType.SEND ? _terminators[envelope.eid] : _endpoints[envelope.eid]);
 
                         // :: Send receipt unconditionally
-                        let ackEnvelope = {
-                            t: (terminatorOrEndpoint ? MessageType.ACK : MessageType.NACK),
-                            smid: envelope.smid
-                        };
-                        if (!terminatorOrEndpoint) {
-                            ackEnvelope.desc = "The Client " + termOrEndp + " [" + envelope.eid + "] does not exist!";
-                        }
-                        _addEnvelopeToPipeline_EvaluatePipelineLater(ackEnvelope);
+                        _sendAckLater((terminatorOrEndpoint ? MessageType.ACK : MessageType.NACK), envelope.smid, terminatorOrEndpoint ? undefined : "The Client " + termOrEndp + " [" + envelope.eid + "] does not exist!");
+
 
                         // ?: Do we have the desired Terminator?
                         if (terminatorOrEndpoint === undefined) {
@@ -3147,11 +3144,8 @@
                         // -> Reply to REQUEST
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
                         if (envelope.smid) {
-                            // -> Yes, so send RECEIVED to server
-                            _addEnvelopeToPipeline_EvaluatePipelineLater({
-                                t: MessageType.ACK,
-                                smid: envelope.smid
-                            });
+                            // -> Yes, so send ACK to server
+                            _sendAckLater(MessageType.ACK, envelope.smid);
                         }
                         // It is physically possible that the REPLY comes before the RECEIVED (I've observed it!).
                         // .. Such a situation could potentially be annoying for the using application (Reply before Received)..
@@ -3205,6 +3199,103 @@
                 } catch (err) {
                     error("message", "Got error while handling incoming envelope.cmid [" + envelope.cmid + "], type '" + envelope.t + "': " + JSON.stringify(envelope), err);
                 }
+            }
+        }
+
+        let _laterAcks = [];
+        let _laterNacks = [];
+        let _laterAckTimeoutId = undefined;
+
+        function _sendAckLater(type, smid, description) {
+            // ?: Do we have description?
+            if (description) {
+                // -> Yes, description - so then we need to send it by itself
+                _addEnvelopeToPipeline_EvaluatePipelineLater({
+                    t: type,
+                    smid: smid,
+                    desc: description
+                });
+                return;
+            }
+            // ?: Was it ACK or NACK?
+            if (type === MessageType.ACK) {
+                _laterAcks.push(smid);
+            } else {
+                _laterNacks.push(smid);
+            }
+            // Send them now or later
+            clearTimeout(_laterAckTimeoutId);
+            if ((_laterAcks.length + _laterNacks.length) > 10) {
+                _sendAcksAndNacksNow();
+            } else {
+                _laterAckTimeoutId = setTimeout(_sendAcksAndNacksNow, 20);
+            }
+        }
+
+        function _sendAcksAndNacksNow() {
+            // ACKs
+            if (_laterAcks.length > 1) {
+                _addEnvelopeToPipeline_EvaluatePipelineLater({
+                    t: MessageType.ACK,
+                    ids: _laterAcks
+                });
+                _laterAcks = [];
+            } else if (_laterAcks.length === 1) {
+                _addEnvelopeToPipeline_EvaluatePipelineLater({
+                    t: MessageType.ACK,
+                    smid: _laterAcks[0]
+                });
+                _laterAcks.length = 0;
+            }
+            // NACKs
+            if (_laterNacks.length > 1) {
+                _addEnvelopeToPipeline_EvaluatePipelineLater({
+                    t: MessageType.NACK,
+                    ids: _laterNacks
+                });
+                _laterNacks = [];
+            } else if (_laterNacks.length === 1) {
+                _addEnvelopeToPipeline_EvaluatePipelineLater({
+                    t: MessageType.NACK,
+                    smid: _laterNacks[0]
+                });
+                _laterNacks.length = 0;
+            }
+        }
+
+        let _laterAck2s = [];
+        let _laterAck2TimeoutId = undefined;
+
+        function _sendAck2Later(cmid, ids) {
+            if (cmid) {
+                _laterAck2s.push(cmid);
+            }
+            if (ids) {
+                _laterAck2s = _laterAck2s.concat(ids);
+            }
+            // Send them now or later
+            clearTimeout(_laterAck2TimeoutId);
+            if (_laterAck2s.length > 10) {
+                _sendAck2sNow();
+            } else {
+                _laterAck2TimeoutId = setTimeout(_sendAck2sNow, 50);
+            }
+        }
+
+        function _sendAck2sNow() {
+            // ACK2s
+            if (_laterAck2s.length > 1) {
+                _addEnvelopeToPipeline_EvaluatePipelineLater({
+                    t: MessageType.ACK2,
+                    ids: _laterAck2s
+                });
+                _laterAck2s = [];
+            } else if (_laterAck2s.length === 1) {
+                _addEnvelopeToPipeline_EvaluatePipelineLater({
+                    t: MessageType.ACK2,
+                    cmid: _laterAck2s[0]
+                });
+                _laterAck2s.length = 0;
             }
         }
 

@@ -132,7 +132,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             if (_webSocketBasicRemote == null) {
                 log.warn("When about to send message, the WebSocket 'BasicRemote' instance was gone,"
                         + " MatsSocketSessionId [" + _matsSocketSessionId + "], connectionId:[" + _connectionId + "]"
-                        + " - probably async close, ignoring. Message:\n"+text);
+                        + " - probably async close, ignoring. Message:\n" + text);
                 return;
             }
             _webSocketBasicRemote.sendText(text);
@@ -338,15 +338,20 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 if ((envelope.t == ACK) || (envelope.t == NACK)) {
                     // -> Yes - remove it, we're handling it now.
                     it.remove();
-                    if (envelope.smid == null) {
+                    if ((envelope.smid == null) && (envelope.ids == null)) {
                         closeSessionAndWebSocketWithProtocolError("Received " + envelope.t
-                                + " message with missing 'smid.");
+                                + " message with missing 'smid' or 'ids'.");
                         return;
                     }
                     if (clientAcks == null) {
                         clientAcks = new ArrayList<>();
                     }
-                    clientAcks.add(envelope.smid);
+                    if (envelope.smid != null) {
+                        clientAcks.add(envelope.smid);
+                    }
+                    if (envelope.ids != null) {
+                        clientAcks.addAll(envelope.ids);
+                    }
                 }
             }
             // .. now actually act on the ACK and NACKs (Reply with ACK2, and delete from outbox)
@@ -364,15 +369,16 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
                 // Send "ACK2", i.e. "I've now deleted these Ids from my outbox".
                 // TODO: Use the MessageToWebSocketForwarder for this.
-                List<MatsSocketEnvelopeDto> ackAckEnvelopes = new ArrayList<>(clientAcks.size());
-                for (String ackSmid : clientAcks) {
-                    MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
-                    replyEnvelope.t = ACK2;
-                    replyEnvelope.smid = ackSmid;
-                    ackAckEnvelopes.add(replyEnvelope);
+                MatsSocketEnvelopeDto ack2Envelope = new MatsSocketEnvelopeDto();
+                ack2Envelope.t = ACK2;
+                if (clientAcks.size() > 1) {
+                    ack2Envelope.ids = clientAcks;
+                }
+                else {
+                    ack2Envelope.smid = clientAcks.get(0);
                 }
                 try {
-                    String json = _envelopeListObjectWriter.writeValueAsString(ackAckEnvelopes);
+                    String json = _envelopeListObjectWriter.writeValueAsString(Collections.singletonList(ack2Envelope));
                     webSocketSendText(json);
                 }
                 catch (JsonProcessingException e) {
@@ -395,14 +401,20 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // ?: Is this a ACK2 for a ACK/NACK from us?
                 if (envelope.t == ACK2) {
                     it.remove();
-                    if (envelope.cmid == null) {
-                        closeSessionAndWebSocketWithProtocolError("Received ACK2 message with missing 'cmid.");
+                    if ((envelope.cmid == null) && (envelope.ids == null)) {
+                        closeSessionAndWebSocketWithProtocolError("Received ACK2 envelope with missing 'cmid'"
+                                + " or 'ids'.");
                         return;
                     }
                     if (clientAck2s == null) {
                         clientAck2s = new ArrayList<>();
                     }
-                    clientAck2s.add(envelope.cmid);
+                    if (envelope.cmid != null) {
+                        clientAck2s.add(envelope.cmid);
+                    }
+                    if (envelope.ids != null) {
+                        clientAck2s.addAll(envelope.ids);
+                    }
                 }
             }
             // .. now actually act on the ACK2s (delete from our inbox - we do not need it anymore to guard for DD)
@@ -489,13 +501,11 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     }
                 }
 
-                // TODO: Handle loops. E.g. break out if we've gotten many messages without any replies.
-
                 // :: We will "hold" messages while waiting for REAUTH
                 /*
                  * The reason for this holding stuff is not only out of love for the bandwidth, but also because if the
                  * reason for the AUTH being old when we evaluated it was that the message sent over was massive over a
-                 * bad line, replying "REAUTH" and "RETRY" to the massive message could potentially lead to the same
+                 * slow line, replying "REAUTH" and "RETRY" to the massive message could potentially lead to the same
                  * happening right away again. So instead, we hold the big message, ask for REAUTH, and then process it
                  * when the auth comes in.
                  */
@@ -512,10 +522,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     if (currentSizeOfHeld > 20 * 1024 * 1024) {
                         // -> Yes, so then we reply "RETRY" to the rest.
                         /*
-                         * NOTE! This will lead to at least one message being held (this is however limited by the
-                         * WebSocket per-message limit set up in HELLO). Therefore, if the Client has a dozen giga
-                         * messages, where each of them ends up in this bad situation where the auth is expired before
-                         * we get to evaluate it, each time one more message should be processed.
+                         * NOTE! This will lead to at least one message being held, since if under limit, we add
+                         * unconditionally, and the overrun will be caught in the next looping (this one single is
+                         * however also limited by the WebSocket per-message limit set up in HELLO). Therefore, if the
+                         * Client has a dozen giga messages, where each of them ends up in this bad situation where the
+                         * auth is expired before we get to evaluate it, each time at least one more message should be
+                         * processed.
                          */
                         break;
                     }
@@ -546,7 +558,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
                     throw new AssertionError("Hot damn.", e);
                 }
-                // We're finished processing all Envelopes in incoming WebSocket Message.
+                // We're finished handling all Envelopes in incoming WebSocket Message that was blocked by REAUTH
                 return;
             }
             // ?: Was it BAD Auth result?
@@ -642,7 +654,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 envelopes = newList;
             }
 
-            // .. then go through all incoming Envelopes (held and from this pipeline).
+            // .. then go through all incoming Envelopes (both held, and from this pipeline).
             List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
             for (MatsSocketEnvelopeDto envelope : envelopes) {
                 try { // try-finally: MDC.remove..
@@ -657,11 +669,15 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // ?: Is this a incoming SEND or REQUEST, or Reply RESOLVE or REJECT to us?
                     if ((envelope.t == SEND) || (envelope.t == REQUEST)
                             || (envelope.t == RESOLVE) || (envelope.t == REJECT)) {
-                        boolean ok = handleSendOrRequestOrReply(clientMessageReceivedTimestamp, replyEnvelopes,
+                        MatsSocketEnvelopeDto reply = handleSendOrRequestOrReply(clientMessageReceivedTimestamp,
                                 envelope);
-                        if (!ok) {
+                        // ?: Did we get a reply envelope?
+                        if (reply == null) {
+                            // -> No, badness ensued - handling has already closed session and websocket and the lot.
                             return;
                         }
+                        // E-> We got a reply envelope.
+                        replyEnvelopes.add(reply);
                         // The message is handled, so go to next message.
                         continue;
                     }
@@ -689,6 +705,63 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             // :: 10. Send all replies
 
             if (replyEnvelopes.size() > 0) {
+
+                // :: Do "ACK/NACK/ACK2 compaction"
+                List<String> acks = null;
+                List<String> nacks = null;
+                List<String> ack2s = null;
+                for (Iterator<MatsSocketEnvelopeDto> it = replyEnvelopes.iterator(); it.hasNext(); ) {
+                    MatsSocketEnvelopeDto envelope = it.next();
+                    if (envelope.t == ACK && envelope.desc == null) {
+                        it.remove();
+                        acks = acks != null ? acks : new ArrayList<>();
+                        acks.add(envelope.cmid);
+                    }
+                    if (envelope.t == NACK && envelope.desc == null) {
+                        it.remove();
+                        nacks = nacks != null ? nacks : new ArrayList<>();
+                        nacks.add(envelope.cmid);
+                    }
+                    if (envelope.t == ACK2 && envelope.desc == null) {
+                        it.remove();
+                        ack2s = ack2s != null ? ack2s : new ArrayList<>();
+                        ack2s.add(envelope.smid);
+                    }
+                }
+                if (acks != null && acks.size() > 0) {
+                    MatsSocketEnvelopeDto e_acks = new MatsSocketEnvelopeDto();
+                    e_acks.t = ACK;
+                    if (acks.size() == 1) {
+                        e_acks.cmid = acks.get(0);
+                    }
+                    else {
+                        e_acks.ids = acks;
+                    }
+                    replyEnvelopes.add(e_acks);
+                }
+                if (nacks != null && nacks.size() > 0) {
+                    MatsSocketEnvelopeDto e_nacks = new MatsSocketEnvelopeDto();
+                    e_nacks.t = NACK;
+                    if (nacks.size() == 1) {
+                        e_nacks.cmid = nacks.get(0);
+                    }
+                    else {
+                        e_nacks.ids = nacks;
+                    }
+                    replyEnvelopes.add(e_nacks);
+                }
+                if (ack2s != null && ack2s.size() > 0) {
+                    MatsSocketEnvelopeDto e_ack2s = new MatsSocketEnvelopeDto();
+                    e_ack2s.t = ACK2;
+                    if (ack2s.size() == 1) {
+                        e_ack2s.smid = ack2s.get(0);
+                    }
+                    else {
+                        e_ack2s.ids = ack2s;
+                    }
+                    replyEnvelopes.add(e_ack2s);
+                }
+
                 // TODO: Use the MessageToWebSocketForwarder for this.
                 try {
                     String json = _envelopeListObjectWriter.writeValueAsString(replyEnvelopes);
@@ -1184,8 +1257,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         return true;
     }
 
-    private boolean handleSendOrRequestOrReply(long clientMessageReceivedTimestamp,
-            List<MatsSocketEnvelopeDto> replyEnvelopes, MatsSocketEnvelopeDto envelope) {
+    private MatsSocketEnvelopeDto handleSendOrRequestOrReply(long clientMessageReceivedTimestamp,
+            MatsSocketEnvelopeDto envelope) {
         MessageType type = envelope.t;
 
         log.info("  \\- " + envelope + ", msg:[" + envelope.msg + "].");
@@ -1193,19 +1266,20 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         // :: Assert some props.
         if (envelope.cmid == null) {
             closeSessionAndWebSocketWithProtocolError("Missing 'cmid' on " + envelope.t + ".");
-            return false;
+            return null;
         }
         if (envelope.tid == null) {
             closeSessionAndWebSocketWithProtocolError("Missing 'tid' (TraceId) on " + envelope.t + ", cmid:["
                     + envelope.cmid + "].");
-            return false;
+            return null;
         }
         if (((type == RESOLVE) || (type == REJECT)) && (envelope.smid == null)) {
             closeSessionAndWebSocketWithProtocolError("Missing 'smid' on a REPLY from Client,"
                     + " cmid:[" + envelope.cmid + "].");
-            return false;
+            return null;
         }
 
+        // Hack for lamba processing
         MatsSocketEnvelopeDto[] handledEnvelope = new MatsSocketEnvelopeDto[] { new MatsSocketEnvelopeDto() };
         handledEnvelope[0].cmid = envelope.cmid; // Client MessageId.
 
@@ -1510,7 +1584,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         closeSessionAndWebSocket(MatsSocketCloseCodes.UNEXPECTED_CONDITION,
                                 "Server error (data store), could not reliably recover (retry count exceeded)");
                         // This did NOT go OK.
-                        return false;
+                        return null;
                     }
                     log.warn("Didn't manage to get out of a MatsMessageSendRuntimeException situation at attempt ["
                             + retry + "], will try again after sleeping half a second.", e);
@@ -1524,7 +1598,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         closeSessionAndWebSocket(MatsSocketCloseCodes.UNEXPECTED_CONDITION,
                                 "Server error (data store), could not reliably recover (interrupted).");
                         // This did NOT go OK.
-                        return false;
+                        return null;
                     }
                 }
             }
@@ -1542,11 +1616,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             handledEnvelope[0].desc = t.getClass().getSimpleName() + ": " + t.getMessage();
         }
 
-        // Add ACK/NACK/RETRY/RESOLVE/REJECT message to "queue"
-        replyEnvelopes.add(handledEnvelope[0]);
-
         // This went OK (seen from the "message handled adequately" standpoint, not wrt. ACN/NACK/REJECT or otherwise)
-        return true;
+        // Return our produced ACK/NACK/RETRY/RESOLVE/REJECT
+        return handledEnvelope[0];
     }
 
     private <T> T deserialize(String serialized, Class<T> clazz) {

@@ -35,11 +35,12 @@
         });
 
         afterEach(() => {
-            // :: Chill the close slightly, so as to get the final "ACKACK" envelope over to delete server's inbox.
+            // :: Chill the close slightly, so as to get the final "ACK2" envelope over to delete server's inbox.
+            // NOTE: This is done async, so for the fast tests, the closings will come in "behind".
             let toClose = matsSocket;
             setTimeout(function () {
                 toClose.close("Test done");
-            }, 25);
+            }, 250);
         });
 
         function standardStateAssert() {
@@ -165,7 +166,7 @@
                     let receivedCallbackInvoked = false;
                     matsSocket.request("Test.slow", "Timeout_request_" + matsSocket.id(6), req, {
                         // Low timeout to NOT get ReceivedEventType.ACK.
-                        timeout: 5,
+                        timeout: 10,
                         receivedCallback: function (event) {
                             chai.assert.strictEqual(event.type, mats.ReceivedEventType.TIMEOUT);
                             receivedCallbackInvoked = true;

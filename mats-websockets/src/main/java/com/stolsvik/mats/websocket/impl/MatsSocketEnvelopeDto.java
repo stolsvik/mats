@@ -41,6 +41,7 @@ class MatsSocketEnvelopeDto {
     String tid; // TraceId
     String smid; // ServerMessageId, messageId from Server.
     String cmid; // ClientMessageId, messageId from Client.
+    List<String> ids; // Either multiple cmid or smid - used for ACKs/NACKs and ACK2s.
     String x; // PingId - "correlationId" for pings. Small, so as to use little space.
 
     Long to; // Timeout, in millis, for Client-to-Server Requests.

@@ -28,11 +28,12 @@
     }
 
     function closeMatsSocket() {
-        // :: Chill the close slightly, so as to get the final "ACKACK" envelope over to delete server's inbox.
+        // :: Chill the close slightly, so as to get the final "ACK2" envelope over to delete server's inbox.
+        // NOTE: This is done async, so for the fast tests, the closings will come in "behind".
         let toClose = matsSocket;
         setTimeout(function () {
             toClose.close("Test done");
-        }, 25);
+        }, 500);
     }
 
     function setAuth(userId = "standard", duration = 20000, roomForLatencyMillis = 10000) {
@@ -117,8 +118,8 @@
                             chai.assert.strictEqual(receivedEvent.type, mats.ReceivedEventType.ACK, "xxx");
                             // Assert that the SessionClosedEvent listener was NOT invoked
                             chai.assert.strictEqual(matsSocket_A_SessionClosed, 0, "SessionClosedEvent listener should NOT have been invoked!");
-                            // Do next step outside this handler
-                            secondStep();
+                            // Do next step outside this handler - after a brief delay, so as to let our "delayed ACK/NACK/ACK2 compaction" work its magic.
+                            setTimeout(secondStep, 150);
                         });
                 }
 
@@ -181,20 +182,22 @@
                         // .. and it should NOT have received a ConnectionEventType.LOST_CONNECTION
                         chai.assert.strictEqual(matsSocket_B_LostConnection_Count, 0, "Instance B: ConnectionEventType.LOST_CONNECTION should NOT have come");
 
-                        // Now close instance B
-                        matsSocket_B.close("Twice-connect test done - instance A!");
+                        // Now close instance B - after a brief delay, so as to let our "delayed ACK/NACK/ACK2 compaction" work its magic.
+                        setTimeout(function () {
+                            matsSocket_B.close("Twice-connect test done - instance A!");
 
-                        // .. which should NOT fire SessionClosed (since client side close())
-                        chai.assert.strictEqual(matsSocket_B_SessionClosed, 0, "SessionClosedEvent listener for instance B should NOT have been invoked!");
-                        // .. but it should NOT be connected anymore
-                        chai.assert.isFalse(matsSocket_B.connected, "Instance A should not be connected now!");
-                        // .. and state should be NO_SESSION
-                        chai.assert.strictEqual(matsSocket_B.state, mats.ConnectionState.NO_SESSION, "Instance B should, after close, be in ConnectionState.NO_SESSION");
+                            // .. which should NOT fire SessionClosed (since client side close())
+                            chai.assert.strictEqual(matsSocket_B_SessionClosed, 0, "SessionClosedEvent listener for instance B should NOT have been invoked!");
+                            // .. but it should NOT be connected anymore
+                            chai.assert.isFalse(matsSocket_B.connected, "Instance A should not be connected now!");
+                            // .. and state should be NO_SESSION
+                            chai.assert.strictEqual(matsSocket_B.state, mats.ConnectionState.NO_SESSION, "Instance B should, after close, be in ConnectionState.NO_SESSION");
 
-                        // Just to clean up, also close instance A - but this instance is pretty much dead anyway, and the MatsSocketSession is closed on server after close of instance B
-                        matsSocket_A.close("Twice-connect test done - instance A!");
+                            // Just to clean up, also close instance A - but this instance is pretty much dead anyway, and the MatsSocketSession is closed on server after close of instance B
+                            matsSocket_A.close("Twice-connect test done - instance A!");
 
-                        done();
+                            done();
+                        }, 150);
                     });
                 }
 
