@@ -1606,7 +1606,10 @@
                     if (typeof (config) !== 'object') {
                         throw new Error("The 'config' parameter wasn't an object.");
                     }
-                    initiation.suppressInitiationProcessedEvent = config.suppressInitiationProcessedEvent;
+                    // ?: 'suppressInitiationProcessedEvent' setting?
+                    if (config.suppressInitiationProcessedEvent) {
+                        initiation.suppressInitiationProcessedEvent = true;
+                    }
                 }
 
                 let envelope = Object.create(null);
@@ -1709,8 +1712,10 @@
                         timeout = configOrCallback.timeout;
                     }
 
-                    // Store 'suppressInitiationProcessedEvent' setting
-                    initiation.suppressInitiationProcessedEvent = configOrCallback.suppressInitiationProcessedEvent;
+                    // ?: 'suppressInitiationProcessedEvent' setting?
+                    if (configOrCallback.suppressInitiationProcessedEvent) {
+                        initiation.suppressInitiationProcessedEvent = true;
+                    }
 
                     // ?: Is the 'configOrCallback' /undefined/?
                 } else if (typeof (configOrCallback) === 'undefined') {
@@ -1796,7 +1801,10 @@
                         timeout = config.timeout;
                     }
 
-                    initiation.suppressInitiationProcessedEvent = config.suppressInitiationProcessedEvent;
+                    // ?: 'suppressInitiationProcessedEvent' setting?
+                    if (config.suppressInitiationProcessedEvent) {
+                        initiation.suppressInitiationProcessedEvent = true;
+                    }
                 }
 
                 // Make Request for the Reply
@@ -1984,7 +1992,6 @@
         function error(type, msg, err) {
             if (err) {
                 console.error(type + ": " + msg, err);
-                console.log(err.stack);
             } else {
                 console.error(type + ": " + msg);
             }
@@ -2277,6 +2284,11 @@
             if ((_pipeline.length === 0) && !_reconnect_ForceSendHello) {
                 // -> No, no message in pipeline, and we should not force processing to get HELLO
                 // Nothing to do, drop out.
+                return;
+            }
+            // ?: Is the MatsSocket open yet? (I.e. an information-bearing message has been enqueued)
+            if (!_matsSocketOpen) {
+                log("evaluatePipelineSend(), but MatsSocket is not open - ignoring.");
                 return;
             }
             // ?: Do we have authorization?!
@@ -3015,32 +3027,39 @@
                             continue;
                         }
 
-                        _sendAck2Later(envelope.cmid, envelope.ids);
+                        let ids = [];
+                        if (envelope.cmid !== undefined) ids.push(envelope.cmid);
+                        if (envelope.ids !== undefined) ids = ids.concat(envelope.ids);
+
+                        _sendAck2Later(ids);
 
                         // :: Handling if this was an ACK for outstanding SEND or REQUEST
-                        let initiation = _outboxInitiations[envelope.cmid];
-                        // ?: Check that we found it.
-                        if (initiation === undefined) {
-                            // -> No, NOT initiation. Assume it was a Reply, delete the outbox entry.
-                            delete _outboxReplies[envelope.cmid];
-                            continue;
-                        }
-                        // E-> ----- Yes, we had an outstanding Initiation (SEND or REQUEST).
+                        for (let i = 0; i < ids.length; i++) {
+                            let cmid = ids[i];
+                            let initiation = _outboxInitiations[cmid];
+                            // ?: Check that we found it.
+                            if (initiation === undefined) {
+                                // -> No, NOT initiation. Assume it was a for a Reply (RESOLVE or REJECT), delete the outbox entry.
+                                delete _outboxReplies[cmid];
+                                continue;
+                            }
+                            // E-> ----- Yes, we had an outstanding Initiation (SEND or REQUEST).
 
-                        initiation.messageAcked_PerformanceNow = performance.now();
+                            initiation.messageAcked_PerformanceNow = performance.now();
 
-                        // Fetch Request, if any.
+                            // Fetch Request, if any.
 
-                        let receivedEventType = (envelope.t === MessageType.ACK ? ReceivedEventType.ACK : ReceivedEventType.NACK);
-                        _completeReceived(receivedEventType, initiation, receivedTimestamp, envelope.desc);
+                            let receivedEventType = (envelope.t === MessageType.ACK ? ReceivedEventType.ACK : ReceivedEventType.NACK);
+                            _completeReceived(receivedEventType, initiation, receivedTimestamp, envelope.desc);
 
-                        let request = _outstandingRequests[envelope.cmid];
-                        // ?: If this was a REQUEST, and it is a !ACK - it will never get a Reply..
-                        if (request && (envelope.t !== MessageType.ACK)) {
-                            // -> Yes, this was a REQUEST that got an !ACK
-                            // We have to reject the REQUEST too - it was never processed, and will thus never get a Reply
-                            // (Note: This is either a reject for a Promise, or errorCallback on Endpoint).
-                            _completeRequest(request, MessageEventType.REJECT, envelope, receivedTimestamp);
+                            let request = _outstandingRequests[cmid];
+                            // ?: If this was a REQUEST, and it is a !ACK - it will never get a Reply..
+                            if (request && (envelope.t !== MessageType.ACK)) {
+                                // -> Yes, this was a REQUEST that got an !ACK
+                                // We have to reject the REQUEST too - it was never processed, and will thus never get a Reply
+                                // (Note: This is either a reject for a Promise, or errorCallback on Endpoint).
+                                _completeRequest(request, MessageEventType.REJECT, envelope, receivedTimestamp);
+                            }
                         }
 
                     } else if (envelope.t === MessageType.ACK2) {
@@ -3266,13 +3285,8 @@
         let _laterAck2s = [];
         let _laterAck2TimeoutId = undefined;
 
-        function _sendAck2Later(cmid, ids) {
-            if (cmid) {
-                _laterAck2s.push(cmid);
-            }
-            if (ids) {
-                _laterAck2s = _laterAck2s.concat(ids);
-            }
+        function _sendAck2Later(ids) {
+            _laterAck2s = _laterAck2s.concat(ids);
             // Send them now or later
             clearTimeout(_laterAck2TimeoutId);
             if (_laterAck2s.length > 10) {

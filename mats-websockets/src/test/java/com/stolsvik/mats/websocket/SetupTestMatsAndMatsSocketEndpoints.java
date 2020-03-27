@@ -43,6 +43,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         setup_ServerPush_Request_Direct(matsSocketServer, matsFactory);
 
         setupSocket_ReplyWithCookieAuthorization(matsSocketServer);
+
+        setupSocket_CloseThisSession(matsSocketServer);
     }
 
     // ===== "Standard Endpoint".
@@ -326,9 +328,25 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                 MatsDataTO.class, MatsDataTO.class,
                 // RESOLVE
                 (ctx, principal, msg) -> ctx.resolve(
-                        new MatsDataTO(msg.number,
-                                ((DummyAuthPrincipal) principal).getAuthorizationHeaderFromCookie(),
+                        new MatsDataTO(msg.number, ((DummyAuthPrincipal) principal).getAuthorizationHeaderFromCookie(),
                                 msg.sleepTime)));
+    }
+
+    private static void setupSocket_CloseThisSession(MatsSocketServer matsSocketServer) {
+        matsSocketServer.matsSocketTerminator("Test.closeThisSession",
+                MatsDataTO.class, Void.class,
+                // Perform 'server.closeSession(thisSession)' in a new Thread.
+                (ctx, principal, msg) -> {
+                    new Thread(() -> {
+                        try {
+                            Thread.sleep(100);
+                        }
+                        catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                        matsSocketServer.closeSession(ctx.getMatsSocketSessionId());
+                    }, "Mats CloseThisSession").start();
+                });
     }
 
     /**

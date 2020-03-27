@@ -214,8 +214,7 @@
                     matsSocket.requestReplyTo("Test.slow", "Timeout_requestReplyTo_" + matsSocket.id(6), req, "Test.terminator", correlationInformation, {
                         // Low timeout to NOT get ReceivedEventType.ACK.
                         timeout: 5
-                    }).then(event => {
-                        chai.assert.strictEqual(event.type, mats.ReceivedEventType.ACK);
+                    }).then(_ => {
                         receivedResolveInvoked = true;
                     }).catch(event => {
                         standardStateAssert();
@@ -240,6 +239,7 @@
                     // Just wait a tad to see that we don't also get the messageCallbackInvoked
                     setTimeout(function () {
                         standardStateAssert();
+                        chai.assert.isFalse(receivedResolveInvoked);
                         chai.assert.isFalse(messageCallbackInvoked);
                         done();
                     }, 5);

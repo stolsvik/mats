@@ -503,7 +503,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     @Override
     public void closeSession(String matsSocketSessionId) {
-        log.info("Got 'out-of-band' request to Close MatsSocketSessionId: [" + matsSocketSessionId + "].");
+        log.info("server.closeSession(..): Got instructed to Close MatsSocketSessionId: [" + matsSocketSessionId
+                + "].");
         if (matsSocketSessionId == null) {
             throw new NullPointerException("matsSocketSessionId");
         }
@@ -517,15 +518,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 // NOTE: It might be this node that is the current node, and that's fine.
                 try {
                     _matsFactory.getDefaultInitiator().initiate(msg -> msg
-                            .traceId("MatsSocket.internal.outOfBandSessionClose[" + matsSocketSessionId + "]" + rnd(5))
-                            .from(MATS_EP_PREFIX + ".internal.outOfBandSessionClose")
+                            .traceId("MatsSocket.internal.serverSideCloseSession[" + matsSocketSessionId + "]" + rnd(5))
+                            .from(MATS_EP_PREFIX + ".internal.serverSideCloseSession")
                             .to(terminatorId_NodeControl_ForNode(currentNode.get().getNodename()))
-                            .publish(new NodeControl_CloseSessionDto(matsSocketSessionId), new NodeControlStateDto(
-                                    NodeControlStateDto.CLOSE_SESSION)));
+                            .publish(new NodeControl_CloseSessionDto(matsSocketSessionId),
+                                    new NodeControlStateDto(NodeControlStateDto.CLOSE_SESSION)));
                     return;
                 }
                 catch (MatsBackendException | MatsMessageSendException e) {
-                    log.warn("'Out of band'/Server side Close Session, and the MatsSocket Session was still registered"
+                    log.warn("Server side Close Session, and the MatsSocket Session was still registered"
                             + " in CSAF, but we didn't manage to communicate with MQ. Will ignore this and close it"
                             + " from CSAF anyway.", e);
                 }
@@ -968,7 +969,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 matsSocketSessionId);
         // Close the session if we have it.
         localMsmh.ifPresent(msmh -> msmh.closeSessionAndWebSocket(MatsSocketCloseCodes.CLOSE_SESSION,
-                "'Out-of-band'/Server side Close Session"));
+                "Server side Close Session"));
 
         // :: Close it from the CSAF
         try {

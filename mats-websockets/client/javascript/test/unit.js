@@ -27,12 +27,12 @@
         JSON.parse(payload).forEach(({t, cmid}, idx) => {
             if (t === 'HELLO') {
                 setTimeout(() => {
-                    webSocket.onmessage({data: JSON.stringify([{t: "WELCOME"}])});
+                    webSocket.onmessage({target: webSocket, data: JSON.stringify([{t: "WELCOME"}])});
                 }, idx);
             }
-            if (cmid !== undefined) {
+            if (t !== "ACK2" && cmid !== undefined) {
                 setTimeout(() => {
-                    webSocket.onmessage({data: JSON.stringify([{t: "ACK", cmid: cmid}])});
+                    webSocket.onmessage({target: webSocket, data: JSON.stringify([{t: "ACK", cmid: cmid}])});
                 }, idx);
             }
         });
@@ -80,7 +80,6 @@
                 matsSocket.logging = logging;
 
                 let authCallbackCalled = false;
-
                 matsSocket.setAuthorizationExpiredCallback(function (event) {
                     authCallbackCalled = true;
                     matsSocket.setCurrentAuthorization("Test", Date.now() + 20000, 0);
@@ -112,7 +111,6 @@
                 matsSocket.logging = logging;
 
                 let authCallbackCalled = false;
-
                 matsSocket.setCurrentAuthorization("Test", Date.now() - 20000, 0);
                 matsSocket.setAuthorizationExpiredCallback(function (event) {
                     authCallbackCalled = true;
@@ -126,10 +124,9 @@
 
             it('Should invoke authorization callback when room for latency expired', async function () {
                 const matsSocket = new MatsSocket("Test", "1.0", ["ws://localhost:8080/"], config);
-                matsSocket.logging = logging;
+                matsSocket.logging = true;
 
                 let authCallbackCalled = false;
-
                 matsSocket.setCurrentAuthorization("Test", Date.now() + 1000, 2000);
                 matsSocket.setAuthorizationExpiredCallback(function (event) {
                     authCallbackCalled = true;

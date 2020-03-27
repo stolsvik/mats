@@ -331,8 +331,6 @@
                 setAuth();
             });
 
-            // TODO: Make test for server.closeSession().
-
             it("send: returned Promise should reject with SESSION_CLOSED if closed before ack. Also, SessionClosedEvent listener should NOT be invoked.", function (done) {
                 // :: We add a SessionClosedEvent listener, which should NOT be invoked when we close from Client side
                 let sessionClosed = 0;
@@ -377,6 +375,53 @@
                     });
                 // Immediate close
                 matsSocket.close("testing that client.close() rejects request()'s Promise");
+            });
+        });
+
+        describe("server close", function () {
+            // Create MatsSocket and set a valid authorization before each request
+            beforeEach(() => {
+                createMatsSocket();
+                setAuth();
+            });
+
+            it("Sends a message to a Server endpoint, which in a Thread closes this session.", function (done) {
+                // :: We add a SessionClosedEvent listener, which will be invoked when we MatsSocket endpoint closes us.
+                let sessionClosed = 0;
+                matsSocket.addSessionClosedEventListener(function (closeEvent) {
+                    chai.assert.equal(closeEvent.code, MatsSocketCloseCodes.CLOSE_SESSION, "WebSocket CloseEvent's CloseCode should be MatsSocketCloseCodes.CLOSE_SESSION");
+                    chai.assert.equal(closeEvent.codeName, "CLOSE_SESSION", "WebSocket CloseEvent should have 'codeName'==\"CLOSE_SESSION\".");
+                    chai.assert.isFalse(matsSocket.connected, "MatsSocket should NOT be connected");
+                    chai.assert.equal(matsSocket.state, ConnectionState.NO_SESSION, "MatsSocket.state should be ConnectionState.NO_SESSION");
+                    sessionClosed++;
+                });
+
+                let sendReceivedAck = false;
+                matsSocket.send("Test.closeThisSession", "SEND_server.CloseThisSession_" + matsSocket.id(6), {})
+                    .then(receivedEvent => {
+                        chai.assert.strictEqual(receivedEvent.type, mats.ReceivedEventType.ACK, "Send's Promise's should be resolved with ACK.");
+                        sendReceivedAck = true;
+                    });
+
+                // Make a Request that should be aborted
+                let req = {
+                    string: "test",
+                    number: -1,
+                    sleepTime: 500 // Sleeptime before replying - *more* than the wait on server side to server.closeSession(..)
+                };
+                let receivedCallbackInvoked = false;
+                matsSocket.request("Test.slow", "REQUEST_server.CloseThisSession_" + matsSocket.id(6), req, {
+                    receivedCallback: function (event) {
+                        chai.assert.strictEqual(event.type, mats.ReceivedEventType.ACK);
+                        receivedCallbackInvoked = true;
+                    }
+                }).catch(messageEvent => {
+                    chai.assert.equal(messageEvent.type, mats.MessageEventType.SESSION_CLOSED);
+                    chai.assert.isTrue(receivedCallbackInvoked);
+                    chai.assert.isTrue(sendReceivedAck);
+                    chai.assert.equal(sessionClosed, 1, "SessionCloseEvent should have come 1 time.");
+                    done();
+                });
             });
         });
     });
