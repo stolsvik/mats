@@ -42,6 +42,9 @@
             }, 25);
         });
 
+        // TODO: Check ConnectionEventListeners, including matsSocket.state
+        // TODO: Check SessionClosedEventListener
+
         describe('InitiationProcessedEvent listeners', function () {
             // Set a valid authorization before each request
             beforeEach(() => setAuth());
@@ -82,7 +85,7 @@
                         // -> No, so then it should be undefined
                         chai.assert.isUndefined(processedEvent.initiationMessage);
                     }
-                    assertCommon(processedEvent);
+
                     bothPresent();
                 }, includeInitiationMessage, false);
 
@@ -164,7 +167,7 @@
                         // -> No, so then it should be undefined
                         chai.assert.isUndefined(processedEvent.initiationMessage);
                     }
-                    assertCommon(processedEvent);
+
                     bothPresent();
                 }, includeStash, includeStash);
 
@@ -261,7 +264,7 @@
                         // -> No, so then it should be undefined
                         chai.assert.isUndefined(processedEvent.initiationMessage);
                     }
-                    assertCommon(processedEvent);
+
                     bothPresent();
                 }, includeStash, includeStash);
 

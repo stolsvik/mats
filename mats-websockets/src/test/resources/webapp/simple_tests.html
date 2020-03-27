@@ -30,6 +30,11 @@ NOTE! You must open the browser's DevTool Console to get any effect of this!
         }, 100 + (100 * Math.random()));
     });
 
+    // Add PingPong listener
+    matsSocket.addPingPongListener(function(pingPong) {
+       console.log("= PingPong listener!", pingPong);
+    });
+
     // Add three different InitiationProcessedEventListeners
     matsSocket.addInitiationProcessedEventListener(function (initiationProcessedEvent) {
         console.log("# InitiationProcessedEvent (false, false)!", initiationProcessedEvent);

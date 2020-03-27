@@ -18,9 +18,6 @@
 }(typeof self !== 'undefined' ? self : this, function (chai, sinon, ws, mats, env) {
     const MatsSocket = mats.MatsSocket;
 
-    // TODO: Check ConnectionEventListeners, including matsSocket.state
-    // TODO: Check SessionClosedEventListener
-
     describe('MatsSocket integration tests, basics', function () {
         let matsSocket;
 

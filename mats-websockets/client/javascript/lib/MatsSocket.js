@@ -1357,35 +1357,6 @@
             }
         });
 
-
-        /**
-         * Registering a {@link InitiationProcessedEvent} listener will give you meta information about each Send
-         * and Request that is performed through the library when it is fully processed, thus also containing
-         * information about experienced round-trip times. The idea is that you thus can gather metrics of
-         * performance as experienced out on the client, by e.g. periodically sending this gathering to the Server.
-         * <b>Make sure that you understand that if you send to the server each time this listener is invoked, using
-         * the MatsSocket itself, you WILL end up in a tight loop!</b> This is because the sending of the statistics
-         * message itself will again trigger a new invocation of this listener. This can be avoided in two ways: Either
-         * instead send periodically - in which case you can include the statistics message itself, OR specify that
-         * you do NOT want a listener-invocation of these messages by use of the config object on the send, request
-         * and requestReplyTo methods.
-         *
-         * @param {InitiationProcessedEvent<InitiationProcessedEvent>} initiationProcessedEventListener a function that is invoked when the library issues
-         * @param {boolean} includeInitiationMessage whether to include the {@link InitiationProcessedEvent#initiationMessage}
-         * @param {boolean} includeReplyMessageEvent whether to include the {@link InitiationProcessedEvent#replyMessageEvent}
-         * {@link ConnectionEvent}s.
-         */
-        this.addInitiationProcessedEventListener = function (initiationProcessedEventListener, includeInitiationMessage, includeReplyMessageEvent) {
-            if (!(typeof initiationProcessedEventListener === 'function')) {
-                throw Error("InitiationProcessedEvent listener must be a function");
-            }
-            _initiationProcessedEventListeners.push({
-                listener: initiationProcessedEventListener,
-                includeInitiationMessage: includeInitiationMessage,
-                includeReplyMessageEvent: includeReplyMessageEvent
-            });
-        };
-
         /**
          * Returns whether this MatsSocket <i>currently</i> have a WebSocket connection open. It can both go down
          * by lost connection (driving through a tunnel), where it will start to do reconnection attempts, or because
@@ -1429,7 +1400,14 @@
         });
 
         /**
-         * Metrics/Introspection: Returns an array of the 100 latest {@link PingPong}s.
+         * Metrics/Introspection: Returns an array of the 100 latest {@link PingPong}s. Note that a PingPong entry
+         * is added to this array <i>before</i> it gets the Pong, thus the latest may not have its
+         * {@link PingPong#roundTripMillis} set yet. Also, if a ping is performed right before the connection goes down,
+         * it will never get the Pong, thus there might be entries in the middle of the list too that does not have
+         * roundTripMillis set. This is opposed to the {@link #addPingPongListener}, which only gets invoked when
+         * the pong has arrived.
+         *
+         * @see #addPingPongListener()
          *
          * @member {array<PingPong>}
          * @memberOf MatsSocket
@@ -1442,7 +1420,32 @@
         });
 
         /**
-         * Metrics/Introspection: Returns an array of the {@link #numberOfInitiationsKept} latest {@link InitiationProcessedEvent}s.
+         * A {@link PingPong} listener is invoked each time a {@link MessageType#PONG} message comes in, giving you
+         * information about the experienced {@link PingPong#roundTripMillis round-trip time}. The PINGs and PONGs are
+         * handled slightly special in that they always are handled ASAP with short-path code routes, and should thus
+         * give a good indication about experienced latency from the network. That said, they are sent on the same
+         * connection as all data, so if there is a gigabyte document "in the pipe", the PING will come behind that
+         * and thus get a big hit. Thus, you should consider this when interpreting the results - a high outlier should
+         * be seen in conjunction with a message that was sent at the same time.
+         *
+         * @param {function<PingPong>} pingPongListener a function that is invoked when the library issues
+         */
+        this.addPingPongListener = function (pingPongListener) {
+            if (!(typeof pingPongListener === 'function')) {
+                throw Error("PingPong listener must be a function");
+            }
+            _pingPongListeners.push(pingPongListener);
+        };
+
+        /**
+         * Metrics/Introspection: Returns an array of the {@link #numberOfInitiationsKept} latest
+         * {@link InitiationProcessedEvent}s.
+         * <p />
+         * Note: These objects will always have the {@link InitiationProcessedEvent#initiationMessage} and (if Request)
+         * {@link InitiationProcessedEvent#replyMessageEvent} set, as opposed to the events issued to
+         * {@link #addInitiationProcessedEventListener}, which can decide whether to include them.
+         *
+         * @see #addInitiationProcessedEventListener()
          *
          * @member {InitiationProcessedEvent<InitiationProcessedEvent>}
          * @memberOf MatsSocket
@@ -1480,6 +1483,38 @@
                 }
             }
         });
+
+        /**
+         * Registering a {@link InitiationProcessedEvent} listener will give you meta information about each Send
+         * and Request that is performed through the library when it is fully processed, thus also containing
+         * information about experienced round-trip times. The idea is that you thus can gather metrics of
+         * performance as experienced out on the client, by e.g. periodically sending this gathering to the Server.
+         * <b>Make sure that you understand that if you send to the server each time this listener is invoked, using
+         * the MatsSocket itself, you WILL end up in a tight loop!</b> This is because the sending of the statistics
+         * message itself will again trigger a new invocation of this listener. This can be avoided in two ways: Either
+         * instead send periodically - in which case you can include the statistics message itself, OR specify that
+         * you do NOT want a listener-invocation of these messages by use of the config object on the send, request
+         * and requestReplyTo methods.
+         * <p />
+         * Note: Each listener gets its own instance of {@link InitiationProcessedEvent}, which also is different from
+         * the ones in the {@link #initiations} array.
+         *
+         * @param {function<InitiationProcessedEvent>} initiationProcessedEventListener a function that is invoked when
+         * the library issues {@link InitiationProcessedEvent}s.
+         * @param {boolean} includeInitiationMessage whether to include the {@link InitiationProcessedEvent#initiationMessage}
+         * @param {boolean} includeReplyMessageEvent whether to include the {@link InitiationProcessedEvent#replyMessageEvent}
+         * Reply {@link MessageEvent}s.
+         */
+        this.addInitiationProcessedEventListener = function (initiationProcessedEventListener, includeInitiationMessage, includeReplyMessageEvent) {
+            if (!(typeof initiationProcessedEventListener === 'function')) {
+                throw Error("InitiationProcessedEvent listener must be a function");
+            }
+            _initiationProcessedEventListeners.push({
+                listener: initiationProcessedEventListener,
+                includeInitiationMessage: includeInitiationMessage,
+                includeReplyMessageEvent: includeReplyMessageEvent
+            });
+        };
 
         // ========== Terminator and Endpoint registration ==========
 
@@ -1985,6 +2020,7 @@
 
         let _sessionClosedEventListeners = [];
         let _connectionEventListeners = [];
+        let _pingPongListeners = [];
         let _initiationProcessedEventListeners = [];
 
         let _state = ConnectionState.NO_SESSION;
@@ -3150,9 +3186,21 @@
 
                     } else if (envelope.t === MessageType.PONG) {
                         // -> Response to a PING
-                        let pingPongArray = _outstandingPings[envelope.x];
+                        let pingPongHolder = _outstandingPings[envelope.x];
                         delete _outstandingPings[envelope.x];
-                        pingPongArray[1].roundTripMillis = _roundTiming(performance.now() - pingPongArray[0]);
+                        // Calculate the round-trip time, using performanceNow stored along with the PingPong instance.
+                        let pingPong = pingPongHolder[1];
+                        let performanceThen = pingPongHolder[0];
+                        pingPong.roundTripMillis = _roundTiming(performance.now() - performanceThen);
+
+                        // Notify PingPong listeners, synchronously.
+                        for (let i = 0; i < _pingPongListeners.length; i++) {
+                            try {
+                                _pingPongListeners[i](pingPong);
+                            } catch (err) {
+                                error("notify initiationprocessedevent listeners", "Caught error when notifying one of the [" + _initiationProcessedEventListeners.length + "] InitiationClosedEvent listeners.", err);
+                            }
+                        }
                     }
                 } catch (err) {
                     error("message", "Got error while handling incoming envelope.cmid [" + envelope.cmid + "], type '" + envelope.t + "': " + JSON.stringify(envelope), err);
@@ -3325,7 +3373,6 @@
                 if (that.logging) log("Ping-'thread': About to send ping. ConnectionState:[" + that.state + "], matsSocketOpen:[" + _matsSocketOpen + "].");
                 if ((that.state === ConnectionState.SESSION_ESTABLISHED) && _matsSocketOpen) {
                     let pingId = _pingId++;
-                    if (that.logging) log("Sending PING! PingId:" + pingId);
                     let pingPong = new PingPong(pingId, Date.now());
                     _pings.push(pingPong);
                     if (_pings.length > 100) {
@@ -3336,7 +3383,7 @@
                     // Reschedule
                     _pingLater(15000);
                 } else {
-                    log("Ping-'thread': NOT Rescheduling due to state!=SESSION_ESTABLISHED or !connected, 'exiting thread'.");
+                    log("Ping-'thread': NOT sending Ping and NOT Rescheduling due to state!=SESSION_ESTABLISHED or !connected - exiting 'thread'.");
                 }
             }, timeout);
         }
