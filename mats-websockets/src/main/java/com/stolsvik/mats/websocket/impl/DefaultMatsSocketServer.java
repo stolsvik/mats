@@ -16,7 +16,6 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
-import java.util.regex.Pattern;
 
 import javax.websocket.CloseReason;
 import javax.websocket.CloseReason.CloseCode;
@@ -390,9 +389,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         DebugDto debug = new DebugDto();
         debug.smcts = System.currentTimeMillis();
         debug.smcnn = getMyNodename();
-        // TODO move these:
-        debug.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
-        debug.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
 
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
@@ -430,9 +426,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         DebugDto debug = new DebugDto();
         debug.smcts = System.currentTimeMillis();
         debug.smcnn = getMyNodename();
-        // TODO move these:
-        debug.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
-        debug.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
 
         // Create Envelope
         MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
@@ -1039,26 +1032,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
     }
 
-    /**
-     * A "random" number picked by basically hammering on the keyboard and then carefully manually randomize it some
-     * more ;-) - used to string-replace the sending timestamp into the envelope on the WebSocket-forward side. If this
-     * by sheer randomness appears in the actual payload message (as ASCII literals), then it might be accidentally
-     * swapped out. If this happens, sorry - but you should <i>definitely</i> also sell your house and put all proceeds
-     * into all of your country's Lotto systems.
-     */
-    static final long REPLACE_VALUE_TIMESTAMP = 3_945_608_518_157_027_723L;
-    static final Pattern REPLACE_VALUE_TIMESTAMP_REGEX = Pattern.compile(
-            Long.toString(REPLACE_VALUE_TIMESTAMP), Pattern.LITERAL);
-
-    /**
-     * A "random" String made manually by hammering a little on the keyboard, and trying to find a very implausible
-     * string. This will be string-replaced by the sending hostname on the WebSocket-forward side. Must not include
-     * characters that will be JSON-encoded, as the replace will be literal.
-     */
-    static final String REPLACE_VALUE_REPLY_NODENAME = "X&~est,O}@w.h£X";
-    static final Pattern REPLACE_VALUE_REPLY_NODENAME_REGEX = Pattern.compile(
-            REPLACE_VALUE_REPLY_NODENAME, Pattern.LITERAL);
-
     private void mats_replyHandler(ProcessContext<Void> processContext,
             ReplyHandleStateDto state, MatsObject incomingMsg) {
         long matsMessageReplyReceivedTimestamp = System.currentTimeMillis();
@@ -1136,7 +1109,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             // As long as there is ANY DebugOptions, we store the resolved debug options in the DebugDto
             debug.resd = state.resd;
             // :: Timestamps
-            if (debugOptions.contains(DebugOption.TIMINGS)) {
+            if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
                 debug.cmrts = state.cmrts;
                 debug.mmsts = state.mmsts;
                 debug.mmrrts = matsMessageReplyReceivedTimestamp;
@@ -1146,9 +1119,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 debug.cmrnn = state.cmrnn; // The receiving nodename
                 debug.mmrrnn = getMyNodename(); // The Mats-receiving nodename (this processing)
             }
-            // TODO: Move these
-            debug.mscts = REPLACE_VALUE_TIMESTAMP; // Reply Message to Client Timestamp (not yet determined)
-            debug.mscnn = REPLACE_VALUE_REPLY_NODENAME; // The replying nodename (not yet determined)
 
             msReplyEnvelope.debug = debug;
         }

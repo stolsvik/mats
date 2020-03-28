@@ -1483,7 +1483,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         debugOptions.retainAll(_authAllowedDebugOptions);
                         if (!debugOptions.isEmpty()) {
                             DebugDto debug = new DebugDto();
-                            if (debugOptions.contains(DebugOption.TIMINGS)) {
+                            if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
                                 debug.cmrts = clientMessageReceivedTimestamp;
                                 debug.mscts = System.currentTimeMillis();
                             }

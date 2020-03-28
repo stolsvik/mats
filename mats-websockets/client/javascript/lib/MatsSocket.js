@@ -739,7 +739,7 @@
         /**
          * Timing info of the separate phases. Note that time-skew between different nodes must be taken into account.
          */
-        TIMINGS: 0b0000_0001,
+        TIMESTAMPS: 0b0000_0001,
 
         /**
          * Node-name of the handling nodes of the separate phases.
@@ -790,6 +790,9 @@
             this.matsMessageSent = envelope.debug.mmsts;
             this.matsMessageReplyReceived = envelope.debug.mmrrts;
             this.matsMessageReplyReceivedNodename = envelope.debug.mmrrnn;
+
+            this.serverMessageCreated = envelope.debug.smcts;
+            this.serverMessageCreatedNodename = envelope.debug.smcnn;
 
             this.messageSentToClient = envelope.debug.mscts;
             this.messageSentToClientNodename = envelope.debug.mscnn;
@@ -2128,7 +2131,8 @@
         let _forcePipelineProcessing = false;
 
         let _authorization = undefined;
-        let _currentAuthorizationSentToServer = undefined;
+        let _lastAuthorizationSentToServer = undefined;
+        let _lastDebugOptionsSentToServer = undefined;
         let _expirationTimestamp = undefined;
         let _roomForLatencyMillis = undefined;
         let _authorizationExpiredCallback = undefined;
@@ -2263,12 +2267,19 @@
 
             // :: Debug
             // Set to either specific override, or global default.
-            initiation.debug = initiation.debug !== undefined ? initiation.debug : that.debug;
-            // ?: Is the debug set, and not zero?
-            if ((initiation.debug !== undefined) && (initiation.debug !== 0)) {
-                // -> Yes, set and not zero - so send it in request.
+            initiation.debug = (initiation.debug !== undefined ? initiation.debug : (that.debug ? that.debug : 0));
+            // ?: Is the debut not 0?
+            if (initiation.debug !== 0) {
+                // -> Yes, not 0 - so send it in request.
                 envelope.rd = initiation.debug;
             }
+            // ?: If the last transferred was /something/, while now it is 0, then we must sent it over to reset
+            if ((initiation.debug === 0) && (_lastDebugOptionsSentToServer !== 0)) {
+                // -> Yes, was reset to 0 - so must send to server.
+                envelope.rd = 0;
+            }
+            // This is the last known server knows.
+            _lastDebugOptionsSentToServer = initiation.debug;
 
             // Update timestamp of last "information bearing message" sent.
             _lastMessageEnqueuedTimestamp = now;
@@ -2450,11 +2461,11 @@
                 // We will now have sent the HELLO, so do not send it again.
                 _helloSent = true;
                 // We've sent the current auth
-                _currentAuthorizationSentToServer = _authorization;
+                _lastAuthorizationSentToServer = _authorization;
             }
 
             // ?: Have we sent HELLO, i.e. session is "active", but the authorization has changed since last we sent over authorization?
-            if (_helloSent && (_currentAuthorizationSentToServer !== _authorization)) {
+            if (_helloSent && (_lastAuthorizationSentToServer !== _authorization)) {
                 // -> Yes, it has changed, so add it to some envelope - either last in pipeline, or if empty pipe, then make an AUTH message.
                 if (_pipeline.length > 0) {
                     let lastEnvelope = _pipeline[_pipeline.length - 1];
@@ -2465,7 +2476,7 @@
                     _pipeline.push({t: MessageType.AUTH, auth: _authorization});
                 }
                 // The current authorization is now sent
-                _currentAuthorizationSentToServer = _authorization;
+                _lastAuthorizationSentToServer = _authorization;
             }
 
             // We're now doing a round of pipeline processing, so turn of forcing.
@@ -3227,7 +3238,7 @@
                         // ?: Is this a SEND?
                         if (envelope.t === MessageType.SEND) {
                             // Yes, SEND, so invoke the Terminator
-                            let messageEvent = _createMessageEvent(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined);
+                            let messageEvent = _createMessageEventForIncoming(envelope, receivedTimestamp);
                             terminatorOrEndpoint.resolve(messageEvent);
                         } else {
                             // No, this is REQUEST - so invoke the Endpoint to get a Promise, and send its settling using RESOLVE or REJECT.
@@ -3254,7 +3265,7 @@
                             };
 
                             // :: Invoke the Endpoint, getting a Promise back.
-                            let messageEvent = _createMessageEvent(envelope, envelope.t, envelope.smid, envelope.tid, undefined, receivedTimestamp, undefined);
+                            let messageEvent = _createMessageEventForIncoming(envelope, receivedTimestamp);
                             let promise = terminatorOrEndpoint(messageEvent);
 
                             // :: Finally attach the Resolve and Reject handler
@@ -3322,7 +3333,7 @@
                         }
                     }
                 } catch (err) {
-                    error("message", "Got error while handling incoming envelope.cmid [" + envelope.cmid + "], type '" + envelope.t + "': " + JSON.stringify(envelope), err);
+                    error("message", "Got error while handling incoming envelope of type '" + envelope.t + "': " + JSON.stringify(envelope), err);
                 }
             }
         }
@@ -3454,13 +3465,13 @@
             }
         }
 
-        function _createMessageEvent(incomingEnvelope, messageEventType, messageId, traceId, sentTimestamp, receivedTimestamp, roundTripMillis) {
-            let debugInfo = new DebugInformation(sentTimestamp, incomingEnvelope, receivedTimestamp);
-
-            let messageEvent = new MessageEvent(messageEventType, incomingEnvelope.msg, traceId, messageId, receivedTimestamp);
-            messageEvent.clientRequestTimestamp = sentTimestamp;
-            messageEvent.roundTripMillis = roundTripMillis;
-            messageEvent.debug = debugInfo;
+        function _createMessageEventForIncoming(envelope, receivedTimestamp) {
+            let messageEvent = new MessageEvent(envelope.t, envelope.msg, envelope.tid, envelope.smid, receivedTimestamp);
+            // ?: Do we have a debug object in the envelope?
+            if (envelope.debug) {
+                // -> Yes, so then created it for MessageEvent too.
+                messageEvent.debug = new DebugInformation(undefined, undefined, envelope, receivedTimestamp);
+            }
             return messageEvent;
         }
 
@@ -3474,9 +3485,15 @@
             delete _outstandingRequests[request.envelope.cmid];
 
             // Create the event
-            let event = _createMessageEvent(incomingEnvelope, messageEventType, request.envelope.cmid, request.envelope.tid, request.initiation.sentTimestamp, receivedTimestamp, performanceNow - request.initiation.messageSent_PerformanceNow);
+            let event = new MessageEvent(messageEventType, incomingEnvelope.msg, request.envelope.tid, request.envelope.cmid, receivedTimestamp);
+            event.clientRequestTimestamp = request.initiation.sentTimestamp;
+            event.roundTripMillis = performanceNow - request.initiation.messageSent_PerformanceNow;
             // .. add CorrelationInformation from request if requestReplyTo
             event.correlationInformation = request.correlationInformation;
+            // Add DebugInformation if relevant
+            if (request.initiation.debug !== 0) {
+                event.debug = new DebugInformation(request.initiation.sentTimestamp, request.initiation.debug, incomingEnvelope, receivedTimestamp);
+            }
 
             // Invoke InitiationProcessedEvent listeners (Both adding to matsSocket.initiations and firing of listeners is done sync, thus done before settling).
             _issueMessageProcessedEvent(request.initiation, request.replyToTerminatorId, event);

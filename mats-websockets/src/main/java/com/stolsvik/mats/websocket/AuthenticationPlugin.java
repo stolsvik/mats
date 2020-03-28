@@ -20,8 +20,8 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestCon
  * provides, and evaluates whether it is good, and if so returns a Principal and a UserId.
  * <p/>
  * <i>Thread Safety:</i> Concurrency issues wrt. to multiple threads accessing a {@link SessionAuthenticator}: Only one
- * thread will access any of the authenticate methods at any one time (i.e. the {@link SessionAuthenticator} instance
- * is <i>effectively</i> synchronized on), and memory consistency is handled.
+ * thread will access any of the authenticate methods at any one time (i.e. the {@link SessionAuthenticator} instance is
+ * <i>effectively</i> synchronized on), and memory consistency is handled.
  *
  * @author Endre Stølsvik 2020-01-10 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -348,9 +348,10 @@ public interface AuthenticationPlugin {
      */
     enum DebugOption {
         /**
-         * Timing info of the separate phases. Note that time-skew between different nodes must be taken into account.
+         * Timestamp info for the separate phases. Note that time-skew between different nodes must be taken into
+         * account.
          */
-        TIMINGS(0b0000_0001),
+        TIMESTAMPS(0b0000_0001),
 
         /**
          * Node-name of the handling nodes of the separate phases.

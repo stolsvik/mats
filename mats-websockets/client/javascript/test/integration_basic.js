@@ -474,17 +474,105 @@
         });
 
         describe("debug object", function () {
-            it("When the user is allowed to debug, the debug object should be present and filled", function (done) {
+            function testDebugEnabled(done, config, assert, userId = 'enableAllDebugOptions') {
+                // Set special userId that gives us all DebugOptions
+                setAuth(userId);
+
+                let receivedEventReceived;
+                config.receivedCallback = function (receivedEvent) {
+                    standardStateAssert();
+                    receivedEventReceived = receivedEvent;
+                };
+                matsSocket.request("Test.single", "Request_DebugObject_" + config.debug + "_" + matsSocket.debug + "_" + matsSocket.id(6), {}, config)
+                    .then(function (messageEvent) {
+                        standardStateAssert();
+                        chai.assert.isDefined(receivedEventReceived);
+
+                        chai.assert.isDefined(messageEvent.debug);
+
+                        assert(messageEvent.debug);
+
+                        done();
+                    });
+
+            }
+
+            function assertNodes(debug) {
+                chai.assert.isString(debug.clientMessageReceivedNodename);
+                chai.assert.isString(debug.matsMessageReplyReceivedNodename);
+                chai.assert.isString(debug.messageSentToClientNodename);
+            }
+
+            function assertNodesUndefined(debug) {
+                chai.assert.isUndefined(debug.clientMessageReceivedNodename);
+                chai.assert.isUndefined(debug.matsMessageReplyReceivedNodename);
+                chai.assert.isUndefined(debug.messageSentToClientNodename);
+            }
+
+            function assertTimestamps(debug) {
+                chai.assert.isNumber(debug.clientMessageSent);
+                chai.assert.isNumber(debug.clientMessageReceived);
+                chai.assert.isNumber(debug.matsMessageSent);
+                chai.assert.isNumber(debug.matsMessageReplyReceived);
+                chai.assert.isNumber(debug.messageSentToClient);
+                chai.assert.isNumber(debug.messageReceived);
+            }
+
+            function assertTimestampsFromServerAreUndefined(debug) {
+                chai.assert.isNumber(debug.clientMessageSent);
+                chai.assert.isUndefined(debug.clientMessageReceived);
+                chai.assert.isUndefined(debug.matsMessageSent);
+                chai.assert.isUndefined(debug.matsMessageReplyReceived);
+                chai.assert.isUndefined(debug.messageSentToClient);
+                chai.assert.isNumber(debug.messageReceived);
+            }
+
+            it("When the user is allowed to debug, and request all via matsSocket.debug, the debug object should be present and all filled", function (done) {
+                matsSocket.debug = mats.DebugOption.NODES | mats.DebugOption.TIMESTAMPS;
+                testDebugEnabled(done, {}, function (debug) {
+                    assertNodes(debug);
+                    assertTimestamps(debug);
+                });
+            });
+
+            it("When the user is allowed to debug, and request DebugOption.NODES via matsSocket.debug, the debug object should be present and filled with just nodes, not timestamps", function (done) {
+                matsSocket.debug = mats.DebugOption.NODES;
+                testDebugEnabled(done, {}, function (debug) {
+                    assertNodes(debug);
+                    assertTimestampsFromServerAreUndefined(debug);
+                });
+            });
+
+            it("When the user is allowed to debug, and request DebugOption.TIMINGS via matsSocket.debug, the debug object should be present and filled with just timestamps, not nodes", function (done) {
+                matsSocket.debug = mats.DebugOption.TIMESTAMPS;
+                testDebugEnabled(done, {}, function (debug) {
+                    assertNodesUndefined(debug);
+                    assertTimestamps(debug);
+                });
+            });
+
+            it("When the user is allowed to debug, and request all via message-specific config, while matsSocket.debug='undefined', the debug object should be present and all filled", function (done) {
+                matsSocket.debug = undefined;
+                testDebugEnabled(done, {debug: mats.DebugOption.NODES | mats.DebugOption.TIMESTAMPS}, function (debug) {
+                    assertNodes(debug);
+                    assertTimestamps(debug);
+                });
+            });
+
+            it("When the user is NOT allowed to debug, and request all via matsSocket.debug, the debug object should just have the Client-side filled stuff", function (done) {
+                matsSocket.debug = mats.DebugOption.NODES | mats.DebugOption.TIMESTAMPS;
+                testDebugEnabled(done, {}, function (debug) {
+                    assertNodesUndefined(debug);
+                    assertTimestampsFromServerAreUndefined(debug);
+                }, "userWithoutDebugOptions");
+            });
+
+            it("When the user is allowed to debug, but do not request any debug (undefined), there should not be a debug object", function (done) {
                 // Set special userId that gives us all DebugOptions
                 setAuth('enableAllDebugOptions');
 
-                matsSocket.logging = false;
-
-                // Request all DebugOptions
-                matsSocket.debug = mats.DebugOption.NODES | mats.DebugOption.TIMINGS;
-
                 let receivedEventReceived;
-                matsSocket.request("Test.single", "Request_DebugObject_matsSocket.debug=ALL_" + matsSocket.id(6), {},
+                matsSocket.request("Test.single", "Request_DebugObject_non_requested_" + matsSocket.id(6), {},
                     function (receivedEvent) {
                         standardStateAssert();
                         receivedEventReceived = receivedEvent;
@@ -492,11 +580,140 @@
                     .then(function (messageEvent) {
                         standardStateAssert();
                         chai.assert.isDefined(receivedEventReceived);
-
-                        chai.assert.isDefined(messageEvent.debug);
-
+                        chai.assert.isUndefined(messageEvent.debug);
                         done();
                     });
+            });
+
+            it("When the user is allowed to debug, but do not request any debug (0), there should not be a debug object", function (done) {
+                // Set special userId that gives us all DebugOptions
+                setAuth('enableAllDebugOptions');
+
+                matsSocket.debug = 0;
+
+                let receivedEventReceived;
+                matsSocket.request("Test.single", "Request_DebugObject_non_requested_" + matsSocket.id(6), {},
+                    function (receivedEvent) {
+                        standardStateAssert();
+                        receivedEventReceived = receivedEvent;
+                    })
+                    .then(function (messageEvent) {
+                        standardStateAssert();
+                        chai.assert.isDefined(receivedEventReceived);
+                        chai.assert.isUndefined(messageEvent.debug);
+                        done();
+                    });
+            });
+
+
+            function testServerSend(debugOptions, done) {
+                // Set special userId that gives us all DebugOptions
+                setAuth('enableAllDebugOptions');
+
+                let traceId = "MatsSocketServer.DebugOptions_server.send_" + matsSocket.id(6);
+
+                // These will become the server's initiation requested DebugOptions upon the subsequent 'send'
+                matsSocket.debug = debugOptions;
+
+                matsSocket.terminator("ClientSide.terminator", (msg) => {
+                    chai.assert.strictEqual(msg.data.number, Math.E);
+                    chai.assert.strictEqual(msg.traceId, traceId + ":SentFromThread");
+
+                    // This is a server-initiated message, so these should be undefined in MessageEvent
+                    chai.assert.isUndefined(msg.clientRequestTimestamp);
+                    chai.assert.isUndefined(msg.roundTripMillis);
+
+                    // :: Assert debug
+                    // It should be present in MessageEvent, since it should be in the message from the server
+                    chai.assert.isDefined(msg.debug);
+                    // These should be set
+                    if ((debugOptions & mats.DebugOption.TIMESTAMPS) > 0) {
+                        chai.assert.isNumber(msg.debug.serverMessageCreated);
+                        chai.assert.isNumber(msg.debug.messageSentToClient);
+                    }
+                    else {
+                        chai.assert.isUndefined(msg.debug.serverMessageCreated);
+                        chai.assert.isUndefined(msg.debug.messageSentToClient);
+                    }
+                    if ((debugOptions & mats.DebugOption.NODES) > 0) {
+                        chai.assert.isDefined(msg.debug.serverMessageCreatedNodename);
+                        chai.assert.isDefined(msg.debug.messageSentToClientNodename);
+                    }
+                    else {
+                        chai.assert.isUndefined(msg.debug.serverMessageCreatedNodename);
+                        chai.assert.isUndefined(msg.debug.messageSentToClientNodename);
+                    }
+                    // While all other should not be set
+                    chai.assert.isUndefined(msg.debug.clientMessageSent);
+                    chai.assert.isUndefined(msg.debug.clientMessageReceived);
+                    chai.assert.isUndefined(msg.debug.clientMessageReceivedNodename);
+                    chai.assert.isUndefined(msg.debug.matsMessageSent);
+                    chai.assert.isUndefined(msg.debug.matsMessageReplyReceived);
+                    chai.assert.isUndefined(msg.debug.matsMessageReplyReceivedNodename);
+
+                    // This is not a request from Client, so there is no requested debug options.
+                    chai.assert.isUndefined(msg.debug.requestedDebugOptions);
+                    // This is the resolved from what we asked server to use above, and what we are allowed to.
+                    chai.assert.equal(msg.debug.resolvedDebugOptions, matsSocket.debug);
+                    done()
+                });
+
+                matsSocket.send("Test.server.send.thread", traceId, {
+                    number: Math.E
+                })
+
+            }
+            it('Server initiated messages should have debug object if user asks for it - with the all server-sent stuff filled.', function (done) {
+                testServerSend(mats.DebugOption.NODES | mats.DebugOption.TIMESTAMPS, done);
+            });
+            it('Server initiated messages should have debug object if user asks for just nodes - with just the nodes filled.', function (done) {
+                testServerSend(mats.DebugOption.NODES, done);
+            });
+            it('Server initiated messages should have debug object if user asks for just timestamps - with just the timestamps filled.', function (done) {
+                testServerSend(mats.DebugOption.TIMESTAMPS, done);
+            });
+
+            function serverInitiated(done, debugOptions) {
+                // Set special userId that gives us all DebugOptions
+                setAuth('enableAllDebugOptions');
+
+                let traceId = "MatsSocketServer.DebugOptions_server.send_" + matsSocket.id(6);
+
+                matsSocket.terminator("ClientSide.terminator", (msg) => {
+                    chai.assert.strictEqual(msg.data.number, Math.E);
+                    chai.assert.strictEqual(msg.traceId, traceId + ":SentFromThread");
+
+                    // This is a server-initiated message, so these should be undefined in MessageEvent
+                    chai.assert.isUndefined(msg.clientRequestTimestamp);
+                    chai.assert.isUndefined(msg.roundTripMillis);
+
+                    // :: Assert debug
+                    // Since this is server-initiated, '0' will not give debug object - i.e. the server does not have difference between '0' and 'undefined'.
+                    chai.assert.isUndefined(msg.debug);
+                    done()
+                });
+
+                // :: These will become the server's initiation requested DebugOptions upon the subsequent 'send'
+                // First set it to "all the things!"
+                matsSocket.debug = 255;
+
+                matsSocket.send("Test.single", "DebugOptions_set_to_all", {
+                    number: Math.E
+                });
+
+                // Then set it to none (0 or undefined), which should result in NO debug object from server-initiated messages
+                matsSocket.debug = debugOptions;
+
+                matsSocket.send("Test.server.send.thread", traceId, {
+                    number: Math.E
+                })
+
+            }
+            it('Server initiated messages should NOT have debug object if user ask for \'0\'.', function (done) {
+                serverInitiated(done, 0);
+            });
+            it('Server initiated messages should NOT have debug object if user ask for \'undefined\'.', function (done) {
+                serverInitiated(done, undefined);
             });
         });
     });

@@ -240,7 +240,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                 // Find which resolved DebugOptions are in effect for this message
                                 EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(envelope.debug.resd);
                                 // Add timestamp and nodename depending on options
-                                if (debugOptions.contains(DebugOption.TIMINGS)) {
+                                if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
                                     envelope.debug.mscts = now;
                                 }
                                 if (debugOptions.contains(DebugOption.NODES)) {
@@ -266,11 +266,19 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                     // Set which flags are resolved
                                     envelope.debug.resd = DebugOption.flags(debugOptions);
                                     // Add timestamp and nodename depending on options
-                                    if (debugOptions.contains(DebugOption.TIMINGS)) {
+                                    if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
                                         envelope.debug.mscts = now;
+                                    }
+                                    else {
+                                        // Need to null this out, since set unconditionally upon server send/request
+                                        envelope.debug.smcts = null;
                                     }
                                     if (debugOptions.contains(DebugOption.NODES)) {
                                         envelope.debug.mscnn = _matsSocketServer.getMyNodename();
+                                    }
+                                    else {
+                                        // Need to null this out, since set unconditionally upon server send/request
+                                        envelope.debug.smcnn = null;
                                     }
                                 }
                             }
