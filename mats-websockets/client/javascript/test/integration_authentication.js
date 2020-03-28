@@ -116,6 +116,7 @@
         describe('authorization invalid when Server about to receive or send out information bearing message', function () {
             beforeEach(() => {
                 createMatsSocket();
+                matsSocket.logging = logging;
             });
 
             afterEach(() => {
@@ -135,11 +136,10 @@
                 });
                 let req = {
                     string: "test",
-                    number: 15,
-                    sleepTime: 10
+                    number: Math.E,
+                    sleepTime: 0
                 };
                 let receivedCallbackInvoked = 0;
-                // Request to a service that will reply AFTER A DELAY that is long enough that auth shall be expired!
                 matsSocket.request("Test.slow", "REQUEST_authentication_from_server_" + matsSocket.id(6), req,
                     function () {
                         receivedCallbackInvoked++;
@@ -182,6 +182,7 @@
             it('When preconnectoperations=true, we should get the initial AuthorizationValue presented in Cookie in the authPlugin.checkHandshake(..) function Server-side', function (done) {
                 // This is what we're going to test. Cannot be done in Node.js, as there is no common Cookie-jar there.
                 matsSocket.preconnectoperation = true;
+                matsSocket.logging = logging;
 
                 // .. skip if in Node.js
                 if (typeof (XMLHttpRequest) === 'undefined') {
@@ -204,7 +205,7 @@
             it('When the test-server\'s PreConnectOperation HTTP Auth-to-Cookie Servlet repeatedly returns [400 <= status <= 599], we should eventually get SessionClosedEvent.VIOLATED_POLICY.', function (done) {
                 // This is what we're going to test. Cannot be done in Node.js, as there is no common Cookie-jar there.
                 matsSocket.preconnectoperation = true;
-                matsSocket.maxConsecutiveFailsOrErrors = 2;
+                matsSocket.maxConsecutiveFailsOrErrors = 2; // "Magic option" that is just meant for integration testing.
                 matsSocket.logging = logging;
 
                 // .. skip if in Node.js
@@ -236,7 +237,7 @@
             it('When the test-server\'s authPlugin.checkHandshake(..) repeatedly returns false, we should eventually get SessionClosedEvent.VIOLATED_POLICY.', function (done) {
                 // This is what we're going to test. Cannot be done in Node.js, as there is no common Cookie-jar there.
                 matsSocket.preconnectoperation = true;
-                matsSocket.maxConsecutiveFailsOrErrors = 2;
+                matsSocket.maxConsecutiveFailsOrErrors = 2; // "Magic option" that is just meant for integration testing.
                 matsSocket.logging = logging;
 
                 // .. skip if in Node.js

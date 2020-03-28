@@ -124,7 +124,7 @@
 
             it('Should invoke authorization callback when room for latency expired', async function () {
                 const matsSocket = new MatsSocket("Test", "1.0", ["ws://localhost:8080/"], config);
-                matsSocket.logging = true;
+                matsSocket.logging = logging;
 
                 let authCallbackCalled = false;
                 matsSocket.setCurrentAuthorization("Test", Date.now() + 1000, 2000);

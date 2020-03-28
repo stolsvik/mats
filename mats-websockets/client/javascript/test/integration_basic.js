@@ -470,8 +470,36 @@
                         done();
                     }
                 });
-            })
-            ;
+            });
+        });
+
+        describe("debug object", function () {
+            it("When the user is allowed to debug, the debug object should be present and filled", function (done) {
+                // Set special userId that gives us all DebugOptions
+                setAuth('enableAllDebugOptions');
+
+                matsSocket.logging = true;
+
+                // Request all DebugOptions
+                matsSocket.debug = mats.DebugOption.NODES | mats.DebugOption.TIMINGS;
+
+                let receivedEventReceived;
+                matsSocket.request("Test.single", "Request_DebugObject_matsSocket.debug=ALL_" + matsSocket.id(6), {},
+                    function (receivedEvent) {
+                        console.log(receivedEvent);
+                        standardStateAssert();
+                        receivedEventReceived = receivedEvent;
+                    })
+                    .then(function (messageEvent) {
+                        console.log(messageEvent);
+                        standardStateAssert();
+                        chai.assert.isDefined(receivedEventReceived);
+
+                        chai.assert.isDefined(messageEvent.debug);
+
+                        done();
+                    });
+            });
         });
     });
 }));

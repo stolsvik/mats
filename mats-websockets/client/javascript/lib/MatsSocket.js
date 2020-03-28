@@ -28,6 +28,7 @@
 
         root.MessageEvent = root.mats.MessageEvent;
         root.MessageEventType = root.mats.MessageEventType;
+        root.DebugOption = root.mats.DebugOption;
 
         root.InitiationProcessedEvent = root.mats.InitiationProcessedEvent;
         root.InitiationProcessedEventType = root.mats.InitiationProcessedEventType;
@@ -399,6 +400,17 @@
 
     /**
      * Event object for {@link MatsSocket#addConnectionEventListener(function)}.
+     * <p />
+     * <b>Note on timings</b>: {@link ConnectionEvent}s are delivered ASAP. This means that for events that the
+     * client controls, they are issued <i/>before</i> the operation they describe commences:
+     * {@link ConnectionEventType#CONNECTING CONNECTING} and {@link ConnectionEventType#SESSION_ESTABLISHED
+     * SESSION_ESTABLISHED}. However, for events where the client is "reacting", e.g. when the WebSocket abruptly
+     * closes, they are issued ASAP when the Client gets to know about it: {@link ConnectionEventType#CONNECTED
+      * CONNECTED}, {@link ConnectionEventType#LOST_CONNECTION LOST_CONNECTION},
+     * {@link ConnectionEventType#CONNECTION_ERROR CONNECTION_ERROR} and {@link ConnectionEventType#WAITING WAITING}.
+     * For {@link ConnectionEventType#COUNTDOWN}, there is not much to say wrt. timing, other than you won't typically
+     * get a 'countdown'-event with 0 seconds left, as that is when we transition into 'connecting' again. For events
+     * that also describe {@link ConnectionState}s, the {@link MatsSocket#state} is updated before the event is fired.
      *
      * @param {string} type
      * @param {string} webSocketUrl
@@ -674,8 +686,10 @@
         this.roundTripMillis = undefined;
 
         /**
-         * An instance of {@link DebugInformation}, potentially containing interesting meta-information about the
-         * call.
+         * If debugging is requested, by means of {@link MatsSocket#debug} or the config object in the send, request and
+         * requestReplyTo, this will contain a {@link DebugInformation} instance. However, the contents of that object
+         * is decided by what you request, and what the authorized user is allowed to get as decided by the
+         * AuthenticationPlugin when authenticating the user.
          */
         this.debug = undefined;
     }
@@ -713,6 +727,46 @@
         SESSION_CLOSED: "sessionclosed"
     });
 
+
+    /**
+     * <b>Copied directly from AuthenticationPlugin.java</b>:
+     * Types of debug information you can request, read more at {@link MatsSocket#debug} and {@link MessageEvent#debug}.
+     *
+     * @enum {string}
+     * @readonly
+     */
+    const DebugOption = Object.freeze({
+        /**
+         * Timing info of the separate phases. Note that time-skew between different nodes must be taken into account.
+         */
+        TIMINGS: 0b0000_0001,
+
+        /**
+         * Node-name of the handling nodes of the separate phases.
+         */
+        NODES: 0b0000_0010,
+
+        /**
+         * <code>AuthenticationPlugin</code>-specific "Option A" - this is not used by MatsSocket itself, but can be employed
+         * and given a meaning by the <code>AuthenticationPlugin</code>.
+         * <p/>
+         * Notice: You might be just as well off by implementing such functionality on the <code>Principal</code> returned by
+         * the <code>AuthenticationPlugin</code> ("this user is allowed to request these things") - and on the request DTOs
+         * from the Client ("I would like to request these things").
+         */
+        CUSTOM_A: 0b0100_0000,
+
+        /**
+         * <code>AuthenticationPlugin</code>-specific "Option B" - this is not used by MatsSocket itself, but can be employed
+         * and given a meaning by the <code>AuthenticationPlugin</code>.
+         * <p/>
+         * Notice: You might be just as well off by implementing such functionality on the <code>Principal</code> returned by
+         * the <code>AuthenticationPlugin</code> ("this user is allowed to request these things") - and on the request DTOs
+         * from the Client ("I would like to request these things").
+         */
+        CUSTOM_B: 0b1000_0000
+    });
+
     /**
      * Meta-information for the call, availability depends on the allowed debug options for the authenticated user,
      * and which information is requested in client. Notice that Client side and Server side might have wildly differing
@@ -721,10 +775,15 @@
      *
      * @constructor
      */
-    function DebugInformation(sentTimestamp, envelope, receivedTimestamp) {
+    function DebugInformation(sentTimestamp, requestedDebugOptions, envelope, receivedTimestamp) {
         this.clientMessageSent = sentTimestamp;
+        this.requestedDebugOptions = requestedDebugOptions;
+        this.resolvedDebugOptions = envelope.debug ? envelope.debug.resd : 0;
 
         if (envelope.debug) {
+            this.resolvedDebugOptions = envelope.debug.resd;
+            this.description = envelope.debug.desc;
+
             this.clientMessageReceived = envelope.debug.cmrts;
             this.clientMessageReceivedNodename = envelope.debug.cmrnn;
 
@@ -844,7 +903,19 @@
      * </ul>
      * You may "subscribe" to <code>InitiationProcessedEvents</code> using
      * {@link MatsSocket#addInitiationProcessedEventListener()}, and you may get the latest such events from the
-     * property {@link MatsSocket#messages}.
+     * property {@link MatsSocket#initiations}.
+     * <p />
+     * Note on timings:
+     * <ul>
+     *     <li>send: An {@link InitiationProcessedEvent} is added to {@link MatsSocket#initiations}, and
+     *         then all {@link InitiationProcessedEvent} listeners are invoked, and both of these are done
+     *         <i>before</i> {@link ReceivedEvent} is issued.</li>
+     *     <li>request/requestReplyTo: First {@link ReceivedEvent} is issued (i.e. ack/nack), then when the reply
+     *     comes back to the server, an {@link InitiationProcessedEvent} is added to {@link MatsSocket#initiations}, and
+     *     then all {@link InitiationProcessedEvent} listeners are invoked, and finally the {@link MessageEvent} is
+     *     delivered, either as settling of the return Reply-Promise (for 'request'), or invocation of the Terminator's
+     *     message- or rejectCallbacks (for 'requestReplyTo').
+     * </ul>
      *
      * @param {string} endpointId
      * @param {string} clientMessageId
@@ -1132,11 +1203,11 @@
         this.preconnectoperation = false;
 
         /**
-         * A bit field requesting different types of debug information - it is read each time an information bearing
-         * message is added to the pipeline, and if not 'undefined' or 0, the debug options flags is added to the
-         * message. The server may then add {@link DebugInformation} to outgoing messages depending on whether the
-         * authorized user is allowed to ask for it, most obviously on Replies to Client Requests, but also Server
-         * initiated SENDs and REQUESTs.
+         * A bit field requesting different types of debug information, the bits defined in {@link DebugOption}. It is
+         * read each time an information bearing message is added to the pipeline, and if not 'undefined' or 0, the
+         * debug options flags is added to the message. The server may then add {@link DebugInformation} to outgoing
+         * messages depending on whether the authorized user is allowed to ask for it, most obviously on Replies to
+         * Client Requests, but also Server initiated SENDs and REQUESTs.
          * <p/>
          * The debug options on the outgoing Client-to-Server requests are tied to that particular request flow -
          * but to facilitate debug information also on Server initiated messages, the <i>last set</i> debug options is
@@ -1148,8 +1219,11 @@
          * from Server-to-Client which happens to be performed in the timespan between the request and the subsequent
          * message which resets the debug flags will therefore also have debug information attached).
          * <p/>
-         * The value is a bit field, so you bitwise-or (or add) together the different things you want. Undefined, or 0,
-         * means "no debug info".
+         * The value is a bit field (values in {@link DebugOption}, so you bitwise-or (or simply add) together the
+         * different things you want. Difference between <code>undefined</code> and <code>0</code> is that undefined
+         * turns debug totally off (the {@link DebugInformation} instance won't be present in the {@link MessageEvent},
+         * while 0 means that the server is not requested to add debug info - but the Client will still create the
+         * {@link DebugInformation} instance and populate it with what any local debug information.
          * <p/>
          * The value from the client is bitwise-and'ed together with the debug capabilities the authenticated user has
          * gotten by the AuthenticationPlugin on the Server side.
@@ -1241,12 +1315,12 @@
          * Lost, trying to reconnect in 2 seconds"</i> to keep him in the loop of why the application's data fetching
          * seems to be lagging. There are suggestions of how to approach this with each of the enum values of
          * {@link ConnectionEventType}.
-         * <p/>
+         * <p />
          * The registered event listener functions are called when this client library performs WebSocket connection
          * operations, including connection closed events that are not "Session Close" style. This includes the simple
          * situation of "lost connection, reconnecting" because you passed through an area with limited or no
          * connectivity.
-         * <p/>
+         * <p />
          * Read more at {@link ConnectionEvent} and {@link ConnectionEventType}.
          *
          * @param {function<ConnectionEvent>} connectionEventListener a function that is invoked when the library issues
@@ -1279,7 +1353,7 @@
 
             // Evaluate whether there are stuff in the pipeline that should be sent now.
             // (Not-yet-sent HELLO does not count..)
-            _evaluatePipelineSend();
+            that.flush();
         };
 
         /**
@@ -1320,21 +1394,17 @@
             _authorization = authorizationValue;
             _expirationTimestamp = expirationTimestamp;
             _roomForLatencyMillis = roomForLatencyMillis;
-            _sendAuthorizationToServer = true;
             // ?: Should we send it now?
             if (_authExpiredCallbackInvoked_EventType === AuthorizationRequiredEventType.REAUTHENTICATE) {
-                log("Immediate send of AUTH due to SERVER_REQUEST");
-                let authMsg = {t: MessageType.AUTH};
-                _addEnvelopeToPipeline_EvaluatePipelineLater(authMsg);
-                // NOTE! We do this "sync", not "setTimeout-style", as if we have a "AUTH", we want this sent ASAP.
-                this.flush();
+                log("Immediate send of new authentication due to REAUTHENTICATE");
+                _forcePipelineProcessing = true;
             }
             // We're now back to "normal", i.e. not outstanding authorization request.
             _authExpiredCallbackInvoked_EventType = undefined;
 
             // Evaluate whether there are stuff in the pipeline that should be sent now.
             // (Not-yet-sent HELLO does not count..)
-            _evaluatePipelineSend();
+            that.flush();
         };
 
         /**
@@ -1583,7 +1653,7 @@
          * <p/>
          * The config object has a single key - <i>which is optional</i>:
          * <ul>
-         *     <li>suppressInitiationProcessedEvent: if <code>true</code>, no event will be sent to listeners added
+         *     <li>suppressInitiationProcessedEvent: If <code>true</code>, no event will be sent to listeners added
          *         using {@link #addInitiationProcessedEventListener()}.</li>
          * </ul>
          *
@@ -1633,19 +1703,25 @@
          * <p/>
          * The config object has keys as such - <i>all are optional</i>:
          * <ul>
-         *     <li>receivedCallback: {function} invoked when the Server receives the event and either ACK or NACKs it
+         *     <li><b><code>receivedCallback</code></b>: {function} invoked when the Server receives the event and either ACK or NACKs it
          *         - or when {@link MessageEventType#TIMEOUT} or {@link MessageEventType#SESSION_CLOSED} happens.
          *         This overrides the ack- and nackCallbacks.</li>
-         *     <li>ackCallback: {function} invoked when the Server receives the event and ACKs it.</li>
-         *     <li>nackCallback: {function} invoked when the Server receives the event and NACKs it
+         *     <li><b><code>ackCallback</code></b>: {function} invoked when the Server receives the event and ACKs it.</li>
+         *     <li><b><code>nackCallback</code></b>: {function} invoked when the Server receives the event and NACKs it
          *         - or when {@link MessageEventType#TIMEOUT} or {@link MessageEventType#SESSION_CLOSED} happens.</li>
-         *     <li>timeout: number of milliseconds before the Client times out the Server reply. When this happens,
+         *     <li><b><code>timeout</code></b>: number of milliseconds before the Client times out the Server reply. When this happens,
          *         the 'nackCallback' (or receivedCallback if this is used) is invoked with a {@link ReceivedEvent} of
          *         type {@link ReceivedEventType#TIMEOUT}, and the Request's Promise will be <i>rejected</i> with a
          *         {@link MessageEvent} of type {@link MessageEventType#TIMEOUT}.</li>
-         *     <li>suppressInitiationProcessedEvent: if <code>true</code>, no event will be sent to listeners added
+         *     <li><b><code>suppressInitiationProcessedEvent</code></b>: if <code>true</code>, no event will be sent to listeners added
          *         using {@link #addInitiationProcessedEventListener()}.</li>
+         *     <li><b><code>debug</code></b>: If set, this specific call flow overrides the global {@link MatsSocket#debug} setting, read
+         *         more about debug and {@link DebugOption}s there.</li>
          * </ul>
+         * <p />
+         * Note on timings: {@link ReceivedEvent}s shall always be delivered <i>before</i> {@link MessageEvent}s. For a
+         * <i>request</i>, any receivedCallback (or ack- or nackCallback) shall be invoked <i>before</i> the
+         * return Reply-Promise will be settled.
          *
          * @param endpointId the Server MatsSocket Endpoint that this message should go to.
          * @param traceId the TraceId for this message - will go through all parts of the call, including the Mats flow.
@@ -1717,6 +1793,11 @@
                         initiation.suppressInitiationProcessedEvent = true;
                     }
 
+                    // ?: 'debug' setting?
+                    if (configOrCallback.debug !== undefined) {
+                        initiation.debug = configOrCallback.debug;
+                    }
+
                     // ?: Is the 'configOrCallback' /undefined/?
                 } else if (typeof (configOrCallback) === 'undefined') {
                     // -> Yes, undefined - which is default, and legal!
@@ -1754,13 +1835,19 @@
          * <p/>
          * The config object has keys as such - <i>all are optional</i>:
          * <ul>
-         *     <li>timeout: number of milliseconds before the Client times out the Server reply. When this happens,
+         *     <li><b><code>timeout</code></b>: number of milliseconds before the Client times out the Server reply. When this happens,
          *         the returned Promise is <i>rejected</> with a {@link ReceivedEvent} of
          *         type {@link ReceivedEventType#TIMEOUT}, and the specified Client Terminator will have its
          *         rejectCallback invoked with a {@link MessageEvent} of type {@link MessageEventType#TIMEOUT}.</li>
-         *     <li>suppressInitiationProcessedEvent: if <code>true</code>, no event will be sent to listeners added
+         *     <li><b><code>suppressInitiationProcessedEvent</code></b>: if <code>true</code>, no event will be sent to listeners added
          *         using {@link #addInitiationProcessedEventListener()}.</li>
+         *     <li><b><code>debug</code></b>: If set, this specific call flow overrides the global {@link MatsSocket#debug} setting, read
+         *         more about debug and {@link DebugOption}s there.</li>
          * </ul>
+         * <p />
+         * Note on timings: {@link ReceivedEvent}s shall always be delivered before {@link MessageEvent}s. For a
+         * <i>requestReplyTo</i>, this means that the returned Received-Promise shall be settled <i>before</i> the
+         * Terminator gets its resolve- or rejectCallback invoked.
          *
          * @param endpointId the Server MatsSocket Endpoint that this message should go to.
          * @param traceId the TraceId for this message - will go through all parts of the call, including the Mats flow.
@@ -1804,6 +1891,11 @@
                     // ?: 'suppressInitiationProcessedEvent' setting?
                     if (config.suppressInitiationProcessedEvent) {
                         initiation.suppressInitiationProcessedEvent = true;
+                    }
+
+                    // ?: 'debug' setting?
+                    if (config.debug !== undefined) {
+                        initiation.debug = config.debug;
                     }
                 }
 
@@ -2033,11 +2125,10 @@
         let _state = ConnectionState.NO_SESSION;
 
         let _helloSent = false;
-        let _reconnect_ForceSendHello = false;
+        let _forcePipelineProcessing = false;
 
         let _authorization = undefined;
         let _currentAuthorizationSentToServer = undefined;
-        let _sendAuthorizationToServer = false;
         let _expirationTimestamp = undefined;
         let _roomForLatencyMillis = undefined;
         let _authorizationExpiredCallback = undefined;
@@ -2170,9 +2261,13 @@
             let thisMessageSequenceId = _messageSequenceId++;
             envelope.cmid = thisMessageSequenceId;
 
-            // If debug != undefined || 0, then store it in envelope
-            if (that.debug && (that.debug !== 0)) {
-                envelope.rd = debug;
+            // :: Debug
+            // Set to either specific override, or global default.
+            initiation.debug = initiation.debug !== undefined ? initiation.debug : that.debug;
+            // ?: Is the debug set, and not zero?
+            if ((initiation.debug !== undefined) && (initiation.debug !== 0)) {
+                // -> Yes, set and not zero - so send it in request.
+                envelope.rd = initiation.debug;
             }
 
             // Update timestamp of last "information bearing message" sent.
@@ -2217,13 +2312,15 @@
                     }
                     // Complete the Future with MessageEventType.TIMEOUT
                     /*
-                     * NOTE: Hack: If this is issues with a requestReplyTo, then the Received NACK above is async in
-                     * nature, since a requestReplyTo returns a Promise. The completing of the requestReplyTo is then
-                     * done using callbacks of a Terminator - but this is done using setTimeout(.., 0). However,
-                     * sometimes the integration tests of timeout with requestReplyTo fails - due to the Received
-                     * Promise reject has NOT gotten run before the Terminator's rejectCallback is invoked.
+                     * NOTE: Hack: If this is issued with a requestReplyTo, then the Received NACK above is async in
+                     * nature, since a requestReplyTo returns a Promise<ReceivedEvent>. Also, with a requestReplyTo,
+                     * the completing of the requestReplyTo is then done on a Terminator, using its specified callbacks
+                     * - and this is done using setTimeout(.., 0). However, sometimes the integration tests of timeout
+                     * with requestReplyTo fails - due to the Received Promise's reject has NOT gotten run before the
+                     * Terminator's rejectCallback is invoked. (The relationship between Promise settling and
+                     * setTimeout(..,0) is not explicit in the JavaScript specs, evidently).
                      *   However, we can control that '0' in the parameter to setTimeout(..), so setting it to a bit
-                     * more here to be pretty sure that the Received Promise has settled before the Terminator's
+                     * higher here to be pretty sure that the Received Promise has settled before the Terminator's
                      * rejectCallback is invoked.
                      *   Remember: Timeouts should rarely happen, so this won't have any material impact on performance.
                      */
@@ -2243,13 +2340,6 @@
          * invokeLater-style so as to get "auth-pipelining". Use flush() to get sync send.
          */
         function _addEnvelopeToPipeline_EvaluatePipelineLater(envelope, prePipeline = false) {
-            // ?: Have we sent hello, i.e. session is "active", but the authorization has changed since last we sent over authorization?
-            if (_helloSent && (_currentAuthorizationSentToServer !== _authorization)) {
-                // -> Yes, it has changed, so add it to envelope of this next message, and store it as sent.
-                if (that.logging) log("Authorization has changed, so we add it to the envelope about to be enqueued, of type [" + envelope.t + "].");
-                envelope.auth = _authorization;
-                _currentAuthorizationSentToServer = _authorization;
-            }
             // ?: Should we add it to the pre-pipeline, or the ordinary?
             if (prePipeline) {
                 // -> To pre-pipeline
@@ -2280,14 +2370,15 @@
          * Sends pipelined messages
          */
         function _evaluatePipelineSend() {
-            // ?: Are there any messages in pipeline, or should we force processing to get HELLO due to reconnect.
-            if ((_pipeline.length === 0) && !_reconnect_ForceSendHello) {
-                // -> No, no message in pipeline, and we should not force processing to get HELLO
+            // ?: Are there any messages in pipeline, or should we force pipeline processing (either to get AUTH or HELLO over)
+            if ((_pipeline.length === 0) && !_forcePipelineProcessing) {
+                // -> No, no message in pipeline, and we should not force processing to get HELLO or AUTH over
                 // Nothing to do, drop out.
                 return;
             }
             // ?: Is the MatsSocket open yet? (I.e. an information-bearing message has been enqueued)
             if (!_matsSocketOpen) {
+                // -> No, so ignore this invocation - come back when there is something to send!
                 log("evaluatePipelineSend(), but MatsSocket is not open - ignoring.");
                 return;
             }
@@ -2311,7 +2402,7 @@
                 return;
             }
 
-            // ----- Not pipelining, and auth is present.
+            // ----- We have good authentication, and should send pipeline.
 
             // ?: Are we trying to open websocket?
             if (_webSocketConnecting) {
@@ -2358,12 +2449,27 @@
                 _prePipeline.unshift(helloMessage);
                 // We will now have sent the HELLO, so do not send it again.
                 _helloSent = true;
-                // .. and again, we will now have sent the HELLO - If this was a RECONNECT, we have now done the immediate reconnect HELLO.
-                // (As opposed to initial connection, where we do not send before having an actual information bearing message in pipeline)
-                _reconnect_ForceSendHello = false;
                 // We've sent the current auth
                 _currentAuthorizationSentToServer = _authorization;
             }
+
+            // ?: Have we sent HELLO, i.e. session is "active", but the authorization has changed since last we sent over authorization?
+            if (_helloSent && (_currentAuthorizationSentToServer !== _authorization)) {
+                // -> Yes, it has changed, so add it to some envelope - either last in pipeline, or if empty pipe, then make an AUTH message.
+                if (_pipeline.length > 0) {
+                    let lastEnvelope = _pipeline[_pipeline.length - 1];
+                    if (that.logging) log("Authorization has changed, and there is a message in pipeline of type [" + lastEnvelope.t + "], so so we add 'auth' to it.");
+                    lastEnvelope.auth = _authorization;
+                } else {
+                    if (that.logging) log("Authorization has changed, but there is no message in pipeline, so we add an AUTH message now.");
+                    _pipeline.push({t: MessageType.AUTH, auth: _authorization});
+                }
+                // The current authorization is now sent
+                _currentAuthorizationSentToServer = _authorization;
+            }
+
+            // We're now doing a round of pipeline processing, so turn of forcing.
+            _forcePipelineProcessing = false;
 
             // :: Send PRE-pipeline messages, if there are any
             // (Before the HELLO is sent and sessionId is established, the max size of message is low on the server)
@@ -2886,7 +2992,7 @@
                 _clearWebSocketStateAndInfrastructure();
 
                 // :: This is a reconnect - so we should do pipeline processing right away, to get the HELLO over.
-                _reconnect_ForceSendHello = true;
+                _forcePipelineProcessing = true;
 
                 // :: Synchronously notify our ConnectionEvent listeners.
                 _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.LOST_CONNECTION, _currentWebSocketUrl, closeEvent, undefined, undefined));
@@ -3058,7 +3164,7 @@
                                 // -> Yes, this was a REQUEST that got an !ACK
                                 // We have to reject the REQUEST too - it was never processed, and will thus never get a Reply
                                 // (Note: This is either a reject for a Promise, or errorCallback on Endpoint).
-                                _completeRequest(request, MessageEventType.REJECT, envelope, receivedTimestamp);
+                                _completeRequest(request, MessageEventType.REJECT, {}, receivedTimestamp);
                             }
                         }
 
@@ -3317,7 +3423,11 @@
             let performanceNow = performance.now();
             initiation.messageAcked_PerformanceNow = performanceNow;
 
-            // :: Invoke any interested party about this ReceivedEvent
+            // ?: Should we issue InitiationProcessedEvent?
+            if (initiation.envelope.t === MessageType.SEND) {
+                // -> Yes, we should issue - and we do this synchronously, /before/ informing interested parties about ack/nack.
+                _issueMessageProcessedEvent(initiation);
+            }
 
             // NOTICE! We do this SYNCHRONOUSLY, to ensure that we come in front of Request Promise settling (specifically, Promise /rejection/ if NACK).
             delete _outboxInitiations[initiation.envelope.cmid];
@@ -3341,12 +3451,6 @@
                         error("received_nack", "When trying to NACK the initiation with ReceivedEvent [" + receivedEventType + "], we got error.", err);
                     }
                 }
-            }
-
-            // ?: Should we issue InitiationProcessedEvent?
-            if (initiation.envelope.t === MessageType.SEND) {
-                // -> Yes, we should issue - and we do it after we've done the actual received-handling.
-                _issueMessageProcessedEvent(initiation);
             }
         }
 
@@ -3374,7 +3478,7 @@
             // .. add CorrelationInformation from request if requestReplyTo
             event.correlationInformation = request.correlationInformation;
 
-            // Invoke InitiationProcessedEvent listeners (Adding to matsSocket.initiations is sync, thus done before settling, but firing of InitiationProcessedEvent listeners is done using 'setTimeout(.., 0)').
+            // Invoke InitiationProcessedEvent listeners (Both adding to matsSocket.initiations and firing of listeners is done sync, thus done before settling).
             _issueMessageProcessedEvent(request.initiation, request.replyToTerminatorId, event);
 
             // ?: Is this a RequestReplyTo, as indicated by the request having a replyToEndpoint?
@@ -3439,20 +3543,19 @@
                 return;
             }
 
+            // Firing to listeners, synchronous.
             for (let i = 0; i < _initiationProcessedEventListeners.length; i++) {
-                setTimeout(function () {
-                    try {
-                        let registration = _initiationProcessedEventListeners[i];
-                        let initiationMessageIncluded = (registration.includeInitiationMessage ? initiation.envelope.msg : undefined);
-                        let replyMessageEventIncluded = (registration.includeReplyMessageEvent ? replyMessageEvent : undefined);
-                        let initiationProcessedEvent = new InitiationProcessedEvent(initiation.envelope.eid, initiation.envelope.cmid, initiation.sentTimestamp, sessionEstablishedOffsetMillis,
-                            initiation.envelope.tid, initiationMessageIncluded, acknowledgeRoundTripTime, replyMessageEventType, replyToTerminatorId, requestRoundTripTime, replyMessageEventIncluded);
-                        if (that.logging) log("Sending InitiationProcessedEvent to listener [" + (i + 1) + "/" + _initiationProcessedEventListeners.length + "]", initiationProcessedEvent);
-                        registration.listener(initiationProcessedEvent);
-                    } catch (err) {
-                        error("notify initiationprocessedevent listeners", "Caught error when notifying one of the [" + _initiationProcessedEventListeners.length + "] InitiationClosedEvent listeners.", err);
-                    }
-                }, 0);
+                try {
+                    let registration = _initiationProcessedEventListeners[i];
+                    let initiationMessageIncluded = (registration.includeInitiationMessage ? initiation.envelope.msg : undefined);
+                    let replyMessageEventIncluded = (registration.includeReplyMessageEvent ? replyMessageEvent : undefined);
+                    let initiationProcessedEvent = new InitiationProcessedEvent(initiation.envelope.eid, initiation.envelope.cmid, initiation.sentTimestamp, sessionEstablishedOffsetMillis,
+                        initiation.envelope.tid, initiationMessageIncluded, acknowledgeRoundTripTime, replyMessageEventType, replyToTerminatorId, requestRoundTripTime, replyMessageEventIncluded);
+                    if (that.logging) log("Sending InitiationProcessedEvent to listener [" + (i + 1) + "/" + _initiationProcessedEventListeners.length + "]", initiationProcessedEvent);
+                    registration.listener(initiationProcessedEvent);
+                } catch (err) {
+                    error("notify initiationprocessedevent listeners", "Caught error when notifying one of the [" + _initiationProcessedEventListeners.length + "] InitiationClosedEvent listeners.", err);
+                }
             }
         }
 
@@ -3512,6 +3615,7 @@
 
     exports.MessageEvent = MessageEvent;
     exports.MessageEventType = MessageEventType;
+    exports.DebugOption = DebugOption;
 
     exports.InitiationProcessedEvent = InitiationProcessedEvent;
     exports.InitiationProcessedEventType = InitiationProcessedEventType;

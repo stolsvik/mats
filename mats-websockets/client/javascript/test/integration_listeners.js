@@ -51,13 +51,12 @@
             beforeEach(() => setAuth());
 
             function runSendTest(includeInitiationMessage, done) {
-                let traceId = "InitiationProcessedEvent_send_" + matsSocket.id(6);
+                let traceId = "InitiationProcessedEvent_send_" + includeInitiationMessage + "_" + matsSocket.id(6);
                 let msg = {
                     string: "The String",
                     number: Math.PI
                 };
 
-                let receivedRoundTripMillisFromReceived;
 
                 function assertCommon(init) {
                     chai.assert.equal(init.type, mats.InitiationProcessedEventType.SEND);
@@ -66,7 +65,6 @@
                     chai.assert.isTrue(init.sessionEstablishedOffsetMillis < 0); // Since sent before WELCOME
                     chai.assert.equal(init.traceId, traceId);
                     chai.assert.isTrue(init.acknowledgeRoundTripMillis >= 1); // Should probably take more than 1 ms.
-                    chai.assert.strictEqual(init.acknowledgeRoundTripMillis, receivedRoundTripMillisFromReceived);
                     // These are undefined for 'send':
                     chai.assert.isUndefined(init.replyMessageEventType);
                     chai.assert.isUndefined(init.replyToTerminatorId);
@@ -74,9 +72,22 @@
                     chai.assert.isUndefined(init.replyMessageEvent);
                 }
 
+                /*
+                 *  This is a send. Order should be:
+                 *  - InitiationProcessedEvent on matsSocket.initiations
+                 *  - InitiationProcessedEvent on listeners
+                 *  - ReceivedEvent, by settling the returned Received-Promise from invocation of 'send'.
+                 */
+
+                let initiationProcessedEventFromListener;
                 matsSocket.addInitiationProcessedEventListener(function (processedEvent) {
                     // Assert common between matsSocket.initiations and listener event.
                     assertCommon(processedEvent);
+
+                    // The matsSocket.initiations should be there
+                    chai.assert.equal(matsSocket.initiations.length, 1);
+
+                    initiationProcessedEventFromListener = processedEvent;
 
                     // ?: Is initiationMessage included?
                     if (includeInitiationMessage) {
@@ -87,7 +98,6 @@
                         chai.assert.isUndefined(processedEvent.initiationMessage);
                     }
 
-                    bothPresent();
                 }, includeInitiationMessage, false);
 
                 // First assert that there is no elements in 'initiations' before sending
@@ -98,9 +108,6 @@
                     // Note: Adding to matsSocket.initiations is sync, thus done before settling, but firing of InitiationProcessedEvent listeners is done using 'setTimeout(.., 0)'.
                     chai.assert.strictEqual(1, matsSocket.initiations.length);
 
-                    // The received roundTripTime should be equal to the one in InitiationProcessedEvent
-                    receivedRoundTripMillisFromReceived = receivedEvent.roundTripMillis;
-
                     let initiation = matsSocket.initiations[0];
 
                     // Assert common between matsSocket.initiations and listener event.
@@ -109,18 +116,15 @@
                     // On matsSocket.initiations, the initiationMessage should always be present.
                     chai.assert.equal(initiation.initiationMessage, msg);
 
-                    bothPresent();
+                    // The event listener should have been fired ack/nack
+                    chai.assert.isDefined(initiationProcessedEventFromListener, "InitiationProcessedEvent listeners should have been invoked /before/ send's Received-Promise settled.");
+
+                    // The received roundTripTime should be equal to the one in InitiationProcessedEvent
+                    chai.assert.strictEqual(initiationProcessedEventFromListener.acknowledgeRoundTripMillis, receivedEvent.roundTripMillis);
+                    chai.assert.strictEqual(initiation.acknowledgeRoundTripMillis, receivedEvent.roundTripMillis);
+
+                    done();
                 });
-
-                // Since we cannot be certain which of these are invoked first, we'll just have to wait for both
-                let count = 0;
-
-                function bothPresent() {
-                    count++;
-                    if (count === 2) {
-                        done();
-                    }
-                }
             }
 
             it('send: event should be present on matsSocket.initiations, and be issued to listener (with includeInitiationMessage=false).', function (done) {
@@ -138,9 +142,7 @@
                     number: Math.E
                 };
 
-                let initiationProcessedEventFromListener;
                 let receivedRoundTripMillisFromReceived;
-                let repliedMessageEvent;
 
                 function assertCommon(init) {
                     chai.assert.equal(init.type, mats.InitiationProcessedEventType.REQUEST);
@@ -154,9 +156,24 @@
                     chai.assert.isTrue(init.requestReplyRoundTripMillis >= 1); // Should probably take more than 1 ms.
                 }
 
+                /*
+                 *  This is a 'request'. Order should be:
+                 *  - ReceivedEvent - invoked on receivedCallback supplied in 'request'-invocation.
+                 *  - InitiationProcessedEvent on matsSocket.initiations
+                 *  - InitiationProcessedEvent on listeners
+                 *  - MessageEvent, by settling the returned Reply-Promise from invocation of 'request'.
+                 */
+
+                let initiationProcessedEventFromListener;
+
                 matsSocket.addInitiationProcessedEventListener(function (processedEvent) {
                     // Assert common between matsSocket.initiations and listener event.
                     assertCommon(processedEvent);
+
+                    // The matsSocket.initiations should be there
+                    chai.assert.equal(matsSocket.initiations.length, 1);
+
+                    assertCommon(matsSocket.initiations[0]);
 
                     initiationProcessedEventFromListener = processedEvent;
 
@@ -169,55 +186,48 @@
                         chai.assert.isUndefined(processedEvent.initiationMessage);
                     }
 
-                    bothPresent();
                 }, includeStash, includeStash);
 
                 // First assert that there is no elements in 'initiations' before sending
                 chai.assert.strictEqual(0, matsSocket.initiations.length);
 
+
                 matsSocket.request("Test.single", traceId, msg, function (receivedEvent) {
+                    // Ack should have been invoked BEFORE the InitiationProcessedEvent placed and listeners invoked.
+                    chai.assert.equal(matsSocket.initiations.length, 0);
+                    chai.assert.isUndefined(initiationProcessedEventFromListener);
+
                     // The received roundTripTime should be equal to the one in InitiationProcessedEvent
                     receivedRoundTripMillisFromReceived = receivedEvent.roundTripMillis;
                 }).then(messageEvent => {
                     // There should now be ONE initiation
-                    // Note: Adding to matsSocket.initiations is sync, thus done before settling, but firing of InitiationProcessedEvent listeners is done using 'setTimeout(.., 0)'.
-                    chai.assert.strictEqual(1, matsSocket.initiations.length);
+                    // Note: Adding to matsSocket.initiations is sync, thus done before settling,
+                    chai.assert.strictEqual(matsSocket.initiations.length, 1);
 
-                    // The MessageEvent should be same object as the one in InitiationProcessedEvent
-                    repliedMessageEvent = messageEvent;
+                    // The listener should have been invoked
+                    chai.assert.isDefined(initiationProcessedEventFromListener);
 
                     let initiation = matsSocket.initiations[0];
 
                     // Assert common between matsSocket.initiations and listener event.
                     assertCommon(initiation);
 
+                    // This is not a requestReplyTo
                     chai.assert.isUndefined(initiation.replyToTerminatorId);
-                    chai.assert.strictEqual(initiation.replyMessageEvent, messageEvent);
-
                     // On matsSocket.initiations, the initiationMessage should always be present.
                     chai.assert.equal(initiation.initiationMessage, msg);
+                    // On matsSocket.initiations, the replyMessageEvent should always be present.
+                    chai.assert.strictEqual(initiation.replyMessageEvent, messageEvent);
 
-                    bothPresent();
-                });
-
-                // Since we cannot be certain which of these are invoked first, we'll just have to wait for both
-                let count = 0;
-
-                function bothPresent() {
-                    count++;
-                    if (count === 2) {
-                        assertAlike();
-                    }
-                }
-
-                function assertAlike() {
+                    // ?: If we asked to include it for listener, then the replyMessageEvent should be the same object as we got here
                     if (includeStash) {
-                        chai.assert.strictEqual(initiationProcessedEventFromListener.replyMessageEvent, repliedMessageEvent);
+                        chai.assert.strictEqual(initiationProcessedEventFromListener.replyMessageEvent, messageEvent);
                     } else {
                         chai.assert.isUndefined(initiationProcessedEventFromListener.replyMessageEvent);
                     }
+
                     done();
-                }
+                });
             }
 
             it('request: event should be present on matsSocket.initiations, and be issued to listener (with includeInitiationMessage, includeReplyMessageEvent=false).', function (done) {
@@ -235,9 +245,7 @@
                     number: Math.E
                 };
 
-                let initiationProcessedEventFromListener;
                 let receivedRoundTripMillisFromReceived;
-                let repliedMessageEvent;
 
                 function assertCommon(init) {
                     chai.assert.equal(init.type, mats.InitiationProcessedEventType.REQUEST_REPLY_TO);
@@ -251,9 +259,24 @@
                     chai.assert.isTrue(init.requestReplyRoundTripMillis >= 1); // Should probably take more than 1 ms.
                 }
 
+                /*
+                 *  This is a 'requestReplyTo'. Order should be:
+                 *  - ReceivedEvent - on returned Received-Promise from invocation of 'requestReplyTo'
+                 *  - InitiationProcessedEvent on matsSocket.initiations
+                 *  - InitiationProcessedEvent on listeners
+                 *  - MessageEvent, sent to Terminator by invocation of its 'messageCallback'
+                 */
+                let initiationProcessedEventFromListener;
+                let repliedMessageEvent;
+
                 matsSocket.addInitiationProcessedEventListener(function (processedEvent) {
                     // Assert common between matsSocket.initiations and listener event.
                     assertCommon(processedEvent);
+
+                    // The matsSocket.initiations should be there
+                    chai.assert.equal(matsSocket.initiations.length, 1);
+
+                    assertCommon(matsSocket.initiations[0]);
 
                     initiationProcessedEventFromListener = processedEvent;
 
@@ -265,8 +288,6 @@
                         // -> No, so then it should be undefined
                         chai.assert.isUndefined(processedEvent.initiationMessage);
                     }
-
-                    bothPresent();
                 }, includeStash, includeStash);
 
                 matsSocket.terminator("Test-terminator", function (messageEvent) {
@@ -279,16 +300,19 @@
 
                     let initiation = matsSocket.initiations[0];
 
-                    // Assert common between matsSocket.initiations and listener event.
-                    assertCommon(initiation);
-
                     chai.assert.equal(initiation.replyToTerminatorId, "Test-terminator");
                     chai.assert.strictEqual(initiation.replyMessageEvent, messageEvent);
 
                     // On matsSocket.initiations, the initiationMessage should always be present.
                     chai.assert.equal(initiation.initiationMessage, msg);
 
-                    bothPresent();
+                    if (includeStash) {
+                        chai.assert.strictEqual(initiationProcessedEventFromListener.replyMessageEvent, repliedMessageEvent);
+                    } else {
+                        chai.assert.isUndefined(initiationProcessedEventFromListener.replyMessageEvent);
+                    }
+
+                    done();
                 });
 
                 // First assert that there is no elements in 'initiations' before sending
@@ -296,28 +320,14 @@
 
                 matsSocket.requestReplyTo("Test.single", traceId, msg, "Test-terminator", undefined)
                     .then(receivedEvent => {
+                        // Ack should have been invoked BEFORE the InitiationProcessedEvent placed and listeners invoked.
+                        chai.assert.equal(matsSocket.initiations.length, 0);
+                        chai.assert.isUndefined(initiationProcessedEventFromListener);
+
                         // The received roundTripTime should be equal to the one in InitiationProcessedEvent
                         receivedRoundTripMillisFromReceived = receivedEvent.roundTripMillis;
                     });
 
-                // Since we cannot be certain which of these are invoked first, we'll just have to wait for both
-                let count = 0;
-
-                function bothPresent() {
-                    count++;
-                    if (count === 2) {
-                        assertAlike();
-                    }
-                }
-
-                function assertAlike() {
-                    if (includeStash) {
-                        chai.assert.strictEqual(initiationProcessedEventFromListener.replyMessageEvent, repliedMessageEvent);
-                    } else {
-                        chai.assert.isUndefined(initiationProcessedEventFromListener.replyMessageEvent);
-                    }
-                    done();
-                }
             }
 
             it('requestReplyTo: event should be present on matsSocket.initiations, and be issued to listener (with includeInitiationMessage, includeReplyMessageEvent=false).', function (done) {

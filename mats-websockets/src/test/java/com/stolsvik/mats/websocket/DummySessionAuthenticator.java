@@ -5,6 +5,7 @@ import java.security.Principal;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,6 +15,7 @@ import javax.websocket.Session;
 import javax.websocket.server.HandshakeRequest;
 import javax.websocket.server.ServerEndpointConfig;
 
+import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,12 +58,13 @@ class DummySessionAuthenticator implements SessionAuthenticator {
         String[] cookieSplit = cookies.get(0).split(";");
         Optional<String> authorizationCookieString = Arrays.stream(cookieSplit)
                 .map(String::trim)
-                .filter(c -> c.startsWith(AUTHORIZATION_COOKIE_NAME+"="))
+                .filter(c -> c.startsWith(AUTHORIZATION_COOKIE_NAME + "="))
                 .findFirst();
 
         // Clear the AuthCookie, do a Set-Cookie="null" on response.
         Map<String, List<String>> responseHeaders = response.getHeaders();
-        responseHeaders.put("Set-Cookie", Collections.singletonList(AUTHORIZATION_COOKIE_NAME+"=; Expires=Sun, 22-Mar-2020 20:00:00 GMT"));
+        responseHeaders.put("Set-Cookie", Collections.singletonList(AUTHORIZATION_COOKIE_NAME
+                + "=; Expires=Sun, 22-Mar-2020 20:00:00 GMT"));
 
         // :: Find if we're expected to find a Cookie here.
         List<String> preConnectParameters = parameters.get("preconnect");
@@ -139,7 +142,12 @@ class DummySessionAuthenticator implements SessionAuthenticator {
         // Create Principal to return
         Principal princial = new DummyAuthPrincipal(_authorizationFromCookie, userId, authorizationHeader);
         // This was a good authentication
-        return context.authenticated(princial, userId);
+        if (userId.equals("enableAllDebugOptions")) {
+            return context.authenticated(princial, userId, EnumSet.allOf(DebugOption.class));
+        }
+        else {
+            return context.authenticated(princial, userId);
+        }
     }
 
     @Override
