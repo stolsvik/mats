@@ -478,7 +478,7 @@
                 // Set special userId that gives us all DebugOptions
                 setAuth('enableAllDebugOptions');
 
-                matsSocket.logging = true;
+                matsSocket.logging = false;
 
                 // Request all DebugOptions
                 matsSocket.debug = mats.DebugOption.NODES | mats.DebugOption.TIMINGS;
@@ -486,12 +486,10 @@
                 let receivedEventReceived;
                 matsSocket.request("Test.single", "Request_DebugObject_matsSocket.debug=ALL_" + matsSocket.id(6), {},
                     function (receivedEvent) {
-                        console.log(receivedEvent);
                         standardStateAssert();
                         receivedEventReceived = receivedEvent;
                     })
                     .then(function (messageEvent) {
-                        console.log(messageEvent);
                         standardStateAssert();
                         chai.assert.isDefined(receivedEventReceived);
 

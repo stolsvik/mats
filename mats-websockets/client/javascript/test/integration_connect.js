@@ -389,10 +389,10 @@
                 // :: We add a SessionClosedEvent listener, which will be invoked when we MatsSocket endpoint closes us.
                 let sessionClosed = 0;
                 matsSocket.addSessionClosedEventListener(function (closeEvent) {
-                    chai.assert.equal(closeEvent.code, MatsSocketCloseCodes.CLOSE_SESSION, "WebSocket CloseEvent's CloseCode should be MatsSocketCloseCodes.CLOSE_SESSION");
+                    chai.assert.equal(closeEvent.code, mats.MatsSocketCloseCodes.CLOSE_SESSION, "WebSocket CloseEvent's CloseCode should be MatsSocketCloseCodes.CLOSE_SESSION");
                     chai.assert.equal(closeEvent.codeName, "CLOSE_SESSION", "WebSocket CloseEvent should have 'codeName'==\"CLOSE_SESSION\".");
                     chai.assert.isFalse(matsSocket.connected, "MatsSocket should NOT be connected");
-                    chai.assert.equal(matsSocket.state, ConnectionState.NO_SESSION, "MatsSocket.state should be ConnectionState.NO_SESSION");
+                    chai.assert.equal(matsSocket.state, mats.ConnectionState.NO_SESSION, "MatsSocket.state should be ConnectionState.NO_SESSION");
                     sessionClosed++;
                 });
 
