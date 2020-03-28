@@ -249,8 +249,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                             }
                             // ?: Is this a Server-initiated message (SEND or REQUEST)?
                             if ((MessageType.SEND == storedMessage.getType())
-                                    || MessageType.REJECT == storedMessage.getType()) {
-                                // -> Yes, Server-to-Client (SEND or REJECT)
+                                    || MessageType.REQUEST == storedMessage.getType()) {
+                                // -> Yes, Server-to-Client (SEND or REQUEST)
                                 // Find what the client requests along with what authentication allows
                                 EnumSet<DebugOption> debugOptions = matsSocketSessionAndMessageHandler
                                         .getCurrentResolvedServerToClientDebugOptions();
@@ -262,7 +262,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                     envelope.debug = null;
                                 }
                                 else {
-                                    // -> Client requests, and is user is allowed, to query for something.
+                                    // -> Client requests, and user is allowed, to query for some DebugOptions.
                                     // Set which flags are resolved
                                     envelope.debug.resd = DebugOption.flags(debugOptions);
                                     // Add timestamp and nodename depending on options
