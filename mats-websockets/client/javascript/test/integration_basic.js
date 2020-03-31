@@ -605,5 +605,53 @@
                     });
             });
         });
+
+        describe("ErrorEvent listener", function () {
+            // Set a valid authorization before each request
+            beforeEach(() => setAuth());
+
+            it("Throwing an error in InitiationProcesseEvent should invoke ErrorEvent listeners", function (done) {
+                let err = {error: "test error!"};
+
+                function assertErrorEvent(errorEvent) {
+                    chai.assert.strictEqual(errorEvent.type, "notify InitiationProcessedEvent listeners");
+                    chai.assert.isTrue(errorEvent.message.includes("InitiationProcessedEvent"));
+                    chai.assert.strictEqual(errorEvent.reference, err);
+                }
+
+                let numberOfListenersInvoked = 0;
+                matsSocket.addErrorEventListener(function (errorEvent) {
+                    assertErrorEvent(errorEvent);
+                    numberOfListenersInvoked++;
+                    doneWhenTwo();
+                });
+                matsSocket.addErrorEventListener(function (errorEvent) {
+                    assertErrorEvent(errorEvent);
+                    numberOfListenersInvoked++;
+                    doneWhenTwo();
+                });
+
+                matsSocket.addInitiationProcessedEventListener(function (initiationProcessedEvent) {
+                    // We throw here, which should invoke our two ErrorEvent listeners.
+                    throw err;
+                });
+
+                function doneWhenTwo() {
+                    if (numberOfListenersInvoked === 2) {
+                        done();
+                    }
+                }
+
+                let received = false;
+                let promise = matsSocket.request("Test.resolveInIncomingHandler", "ErrorEvent-listener_" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.then(function () {
+                    standardStateAssert();
+                    chai.assert(received, "The received-callback should have been invoked.");
+                });
+            });
+        });
     });
 }));

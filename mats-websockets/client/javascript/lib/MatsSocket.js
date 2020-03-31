@@ -1154,6 +1154,39 @@
     });
 
     /**
+     * The Event object supplied to listeners added via {@link MatsSocket#addErrorEventListener()}.
+     *
+     * @param type {string}
+     * @param message {string}
+     * @param object {Object}
+     * @constructor
+     */
+    function ErrorEvent(type, message, object) {
+        /**
+         * Type of error - describes the situation where the error occurred. Currently has no event-type enum.
+         *
+         * @type {string}.
+         */
+        this.type = type;
+
+        /**
+         * The error message
+         *
+         * @type {string}.
+         */
+        this.message = message;
+
+        /**
+         * Some errors supply a relevant object: Event for WebSocket errors, The attempted processed MatsSocket Envelope
+         * when envelope processing fails, or the caught Error in a try-catch (typically when invoking event listeners).
+         *
+         * @type {Object}.
+         */
+        this.reference = object;
+    }
+
+
+    /**
      * Creates a MatsSocket, requiring the using Application's name and version, and which URLs to connect to.
      *
      * Note: Public, Private and Privileged modelled after http://crockford.com/javascript/private.html
@@ -1441,6 +1474,24 @@
                 throw Error("SubscriptionEvent listener must be a function");
             }
             _subscriptionEventListeners.push(subscriptionEventListener);
+        };
+
+        /**
+         * Some 25 places within the MatsSocket client catches errors of different kinds, typically where listeners
+         * cough up errors, or if the library catches mistakes with the protocol, or if the WebSocket emits an error.
+         * Add a ErrorEvent listener to get hold of these, and send them back to your server for
+         * inspection - it is best to do this via out-of-band means, e.g. via HTTP. For browsers, consider
+         * window.sendBeacon(..).
+         * <p />
+         * The event object is {@link ErrorEvent}.
+         *
+         * @param {function<ErrorEvent>} errorEventListener
+         */
+        this.addErrorEventListener = function (errorEventListener) {
+            if (!(typeof errorEventListener === 'function')) {
+                throw Error("ErrorEvent listener must be a function");
+            }
+            _errorEventListeners.push(errorEventListener);
         };
 
         /**
@@ -2343,6 +2394,17 @@
         }
 
         function error(type, msg, err) {
+            let event = new ErrorEvent(type, msg, err);
+            // Notify ErrorEvent listeners, synchronously.
+            for (let i = 0; i < _errorEventListeners.length; i++) {
+                try {
+                    _errorEventListeners[i](event);
+                } catch (err) {
+                    // NOTICE! NOT using error(..) - THIS method - to notify about errors, in fear of ending up with infinite recursion
+                    console.error("Caught error when notifying one of the [" + _errorEventListeners.length + "] ErrorEvent listeners - NOT notifying using ErrorEvent in fear of creating infinite recursion.", err);
+                }
+            }
+
             if (err) {
                 console.error(type + ": " + msg, err);
             } else {
@@ -2384,6 +2446,7 @@
         let _subscriptionEventListeners = [];
         let _pingPongListeners = [];
         let _initiationProcessedEventListeners = [];
+        let _errorEventListeners = [];
 
         let _state = ConnectionState.NO_SESSION;
 
@@ -3240,7 +3303,7 @@
         }
 
         function _onerror(event) {
-            error("websocket.onerror, instanceId:[" + event.target.webSocketInstanceId + "]", "Got 'onerror' event from WebSocket.", event);
+            error("websocket.onerror", "Got 'onerror' event from WebSocket, instanceId:[" + event.target.webSocketInstanceId + "].", event);
             // :: Synchronously notify our ConnectionEvent listeners.
             _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTION_ERROR, _currentWebSocketUrl, event, undefined, undefined));
         }
@@ -3342,7 +3405,7 @@
                             }
                             initiation.attempt++;
                             if (initiation.attempt > 10) {
-                                error("toomanyretries", "Upon reconnect: Too many attempts at sending Initiation [" + initiationEnvelope.t + "] with cmid:[" + initiationEnvelope.cmid + "], TraceId[" + initiationEnvelope.tid + "], size:[" + JSON.stringify(initiationEnvelope).length + "].");
+                                error("toomanyretries", "Upon reconnect: Too many attempts at sending Initiation [" + initiationEnvelope.t + "] with cmid:[" + initiationEnvelope.cmid + "], TraceId[" + initiationEnvelope.tid + "], size:[" + JSON.stringify(initiationEnvelope).length + "].", initiationEnvelope);
                                 continue;
                             }
                             // NOTICE: Won't delete it here - that is done when we process the ACK from server
@@ -3361,7 +3424,7 @@
                             let replyEnvelope = reply.envelope;
                             reply.attempt++;
                             if (reply.attempt > 10) {
-                                error("toomanyretries", "Upon reconnect: Too many attempts at sending Reply [" + replyEnvelope.t + "] with smid:[" + replyEnvelope.smid + "], TraceId[" + replyEnvelope.tid + "], size:[" + JSON.stringify(replyEnvelope).length + "].");
+                                error("toomanyretries", "Upon reconnect: Too many attempts at sending Reply [" + replyEnvelope.t + "] with smid:[" + replyEnvelope.smid + "], TraceId[" + replyEnvelope.tid + "], size:[" + JSON.stringify(replyEnvelope).length + "].", replyEnvelope);
                                 continue;
                             }
                             // NOTICE: Won't delete it here - that is done when we process the ACK from server
@@ -3386,7 +3449,7 @@
                             let initiationEnvelope = initiation.envelope;
                             initiation.attempt++;
                             if (initiation.attempt > 10) {
-                                error("toomanyretries", "Upon RETRY-request: Too many attempts at sending [" + initiationEnvelope.t + "] with cmid:[" + initiationEnvelope.cmid + "], TraceId[" + initiationEnvelope.tid + "], size:[" + JSON.stringify(initiationEnvelope).length + "].");
+                                error("toomanyretries", "Upon RETRY-request: Too many attempts at sending [" + initiationEnvelope.t + "] with cmid:[" + initiationEnvelope.cmid + "], TraceId[" + initiationEnvelope.tid + "], size:[" + JSON.stringify(initiationEnvelope).length + "].", initiationEnvelope);
                                 continue;
                             }
                             // Note: the retry-cycles will start at attempt=2, since we initialize it with 1, and have already increased it by now.
@@ -3404,7 +3467,7 @@
                             let replyEnvelope = reply.envelope;
                             reply.attempt++;
                             if (reply.attempt > 10) {
-                                error("toomanyretries", "Upon RETRY-request: Too many attempts at sending [" + replyEnvelope.t + "] with smid:[" + replyEnvelope.smid + "], TraceId[" + replyEnvelope.tid + "], size:[" + JSON.stringify(replyEnvelope).length + "].");
+                                error("toomanyretries", "Upon RETRY-request: Too many attempts at sending [" + replyEnvelope.t + "] with smid:[" + replyEnvelope.smid + "], TraceId[" + replyEnvelope.tid + "], size:[" + JSON.stringify(replyEnvelope).length + "].", replyEnvelope);
                                 continue;
                             }
                             // Note: the retry-cycles will start at attempt=2, since we initialize it with 1, and have already increased it by now.
@@ -3482,7 +3545,7 @@
 
                         if (envelope.smid === undefined) {
                             // -> No, we do not have this. Programming error from Server.
-                            error(envelope.t.toLowerCase() + "_missing_smid", "The " + envelope.t + " envelope is missing 'smid'", envelope);
+                            error(envelope.t.toLowerCase() + " missing smid", "The " + envelope.t + " envelope is missing 'smid'", envelope);
                             continue;
                         }
 
@@ -3496,7 +3559,7 @@
                         // ?: Do we have the desired Terminator?
                         if (terminatorOrEndpoint === undefined) {
                             // -> No, we do not have this. Programming error from app.
-                            error("missing_client_" + termOrEndp.toLowerCase(), "The Client " + termOrEndp + " [" + envelope.eid + "] does not exist!!", envelope);
+                            error("client " + termOrEndp.toLowerCase() + " does not exist", "The Client " + termOrEndp + " [" + envelope.eid + "] does not exist!!", envelope);
                             continue;
                         }
                         // E-> We found the Terminator to tell
@@ -3608,7 +3671,7 @@
                             try {
                                 _subscriptionEventListeners[i](event);
                             } catch (err) {
-                                error("notify subscriptionevent listeners", "Caught error when notifying one of the [" + _subscriptionEventListeners.length + "] SubscriptionEvent listeners.", err);
+                                error("notify SubscriptionEvent listeners", "Caught error when notifying one of the [" + _subscriptionEventListeners.length + "] SubscriptionEvent listeners.", err);
                             }
                         }
 
@@ -3629,7 +3692,7 @@
                             try {
                                 subs.listeners[i](event);
                             } catch (err) {
-                                error("notify subscriptionevent listeners", "Caught error when notifying one of the [" + _subscriptionEventListeners.length + "] SubscriptionEvent listeners.", err);
+                                error("dispatch topic message", "Caught error when notifying one of the [" + subs.listeners.length + "] subscription listeners for Topic [" + envelope.eid + "].", err);
                             }
                         }
 
@@ -3650,12 +3713,13 @@
                             try {
                                 _pingPongListeners[i](pingPong);
                             } catch (err) {
-                                error("notify initiationprocessedevent listeners", "Caught error when notifying one of the [" + _initiationProcessedEventListeners.length + "] InitiationClosedEvent listeners.", err);
+                                error("notify pingpongevent listeners", "Caught error when notifying one of the [" + _pingPongListeners.length + "] PingPongEvent listeners.", err);
                             }
                         }
                     }
                 } catch (err) {
-                    error("message", "Got error while handling incoming envelope of type '" + envelope.t + "': " + JSON.stringify(envelope), err);
+                    let stringified = JSON.stringify(envelope);
+                    error("envelope processing", "Got unexoected error while handling incoming envelope of type '" + envelope.t + "': " + (stringified.length > 1024 ? stringified.substring(0, 1021) + "..." : stringified), err);
                 }
             }
         }
@@ -3772,7 +3836,7 @@
                     try {
                         initiation.ack(receivedEvent);
                     } catch (err) {
-                        error("received_ack", "When trying to ACK the initiation with ReceivedEvent [" + receivedEventType + "], we got error.", err);
+                        error("received ack", "When trying to ACK the initiation with ReceivedEvent [" + receivedEventType + "], we got error.", err);
                     }
                 }
             } else {
@@ -3781,7 +3845,7 @@
                     try {
                         initiation.nack(receivedEvent);
                     } catch (err) {
-                        error("received_nack", "When trying to NACK the initiation with ReceivedEvent [" + receivedEventType + "], we got error.", err);
+                        error("received nack", "When trying to NACK the initiation with ReceivedEvent [" + receivedEventType + "], we got error.", err);
                     }
                 }
             }
@@ -3831,7 +3895,7 @@
                         try {
                             terminator.resolve(event);
                         } catch (err) {
-                            error("replytoterminator_resolve", "When trying to pass a RESOLVE to Terminator [" + request.replyToTerminatorId + "], an exception was raised.", err);
+                            error("replytoterminator resolve", "When trying to pass a RESOLVE to Terminator [" + request.replyToTerminatorId + "], an exception was raised.", err);
                         }
                     } else {
                         // ?: Do we actually have a Reject-function (not necessarily, app decides whether to register it)
@@ -3840,7 +3904,7 @@
                             try {
                                 terminator.reject(event);
                             } catch (err) {
-                                error("replytoterminator_reject", "When trying to pass a [" + messageEventType + "] to Terminator [" + request.replyToTerminatorId + "], an exception was raised.", err);
+                                error("replytoterminator reject", "When trying to pass a [" + messageEventType + "] to Terminator [" + request.replyToTerminatorId + "], an exception was raised.", err);
                             }
                         }
                     }
@@ -3893,7 +3957,7 @@
                     if (that.logging) log("Sending InitiationProcessedEvent to listener [" + (i + 1) + "/" + _initiationProcessedEventListeners.length + "]", initiationProcessedEvent);
                     registration.listener(initiationProcessedEvent);
                 } catch (err) {
-                    error("notify initiationprocessedevent listeners", "Caught error when notifying one of the [" + _initiationProcessedEventListeners.length + "] InitiationClosedEvent listeners.", err);
+                    error("notify InitiationProcessedEvent listeners", "Caught error when notifying one of the [" + _initiationProcessedEventListeners.length + "] InitiationProcessedEvent listeners.", err);
                 }
             }
         }

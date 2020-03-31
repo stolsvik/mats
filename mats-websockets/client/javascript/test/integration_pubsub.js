@@ -59,8 +59,6 @@
 
             it('Sub/Pub - preliminary.', function (done) {
                 setAuth();
-                matsSocket.logging = true;
-
                 matsSocket.subscribe("Test.topic", function(messageEvent) {
                     done();
                 });
