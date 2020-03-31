@@ -51,9 +51,6 @@
             beforeEach(() => setAuth());
 
             function runSendTest(includeInitiationMessage, done) {
-
-                matsSocket.logging = true;
-
                 let traceId = "InitiationProcessedEvent_send_" + includeInitiationMessage + "_" + matsSocket.id(6);
                 let msg = {
                     string: "The String",
@@ -64,7 +61,7 @@
                     chai.assert.equal(init.type, mats.InitiationProcessedEventType.SEND);
                     chai.assert.equal(init.endpointId, "Test.single");
                     chai.assert.isTrue(init.sentTimestamp > 1585259649178);
-                    chai.assert.isTrue(init.sessionEstablishedOffsetMillis < 0); // Since sent before WELCOME
+                    chai.assert.isTrue(init.sessionEstablishedOffsetMillis < 0, "sessionEstablishedOffsetMillis should be negative since sent before WELCOME, was [" + init.sessionEstablishedOffsetMillis + "]");
                     chai.assert.equal(init.traceId, traceId);
                     chai.assert.isTrue(init.acknowledgeRoundTripMillis >= 1); // Should probably take more than 1 ms.
                     // These are undefined for 'send':
@@ -151,7 +148,7 @@
                     chai.assert.equal(init.type, mats.InitiationProcessedEventType.REQUEST);
                     chai.assert.equal(init.endpointId, "Test.single");
                     chai.assert.isTrue(init.sentTimestamp > 1585259649178);
-                    chai.assert.isTrue(init.sessionEstablishedOffsetMillis < 0); // Since sent before WELCOME
+                    chai.assert.isTrue(init.sessionEstablishedOffsetMillis < 0, "sessionEstablishedOffsetMillis should be negative since sent before WELCOME, was [" + init.sessionEstablishedOffsetMillis + "]");
                     chai.assert.equal(init.traceId, traceId);
                     chai.assert.isTrue(init.acknowledgeRoundTripMillis >= 1); // Should probably take more than 1 ms.
                     chai.assert.strictEqual(init.acknowledgeRoundTripMillis, receivedRoundTripMillisFromReceived);
@@ -264,7 +261,7 @@
                     chai.assert.equal(init.type, mats.InitiationProcessedEventType.REQUEST_REPLY_TO);
                     chai.assert.equal(init.endpointId, "Test.single");
                     chai.assert.isTrue(init.sentTimestamp > 1585259649178);
-                    chai.assert.isTrue(init.sessionEstablishedOffsetMillis < 0); // Since sent before WELCOME
+                    chai.assert.isTrue(init.sessionEstablishedOffsetMillis < 0, "sessionEstablishedOffsetMillis should be negative since sent before WELCOME, was [" + init.sessionEstablishedOffsetMillis + "]");
                     chai.assert.equal(init.traceId, traceId);
                     chai.assert.isTrue(init.acknowledgeRoundTripMillis >= 1); // Should probably take more than 1 ms.
                     chai.assert.strictEqual(init.acknowledgeRoundTripMillis, receivedRoundTripMillisFromReceived);
@@ -378,7 +375,7 @@
                     chai.assert.equal(init.type, mats.InitiationProcessedEventType.REQUEST_REPLY_TO);
                     chai.assert.equal(init.endpointId, "Test.slow");
                     chai.assert.isTrue(init.sentTimestamp > 1585259649178);
-                    chai.assert.isTrue(init.sessionEstablishedOffsetMillis < 0); // Since sent before WELCOME
+                    chai.assert.isTrue(init.sessionEstablishedOffsetMillis < 0, "sessionEstablishedOffsetMillis should be negative since sent before WELCOME, was [" + init.sessionEstablishedOffsetMillis + "]");
                     chai.assert.equal(init.traceId, traceId);
                     chai.assert.isTrue(init.acknowledgeRoundTripMillis >= 1); // Should probably take more than 1 ms.
                     chai.assert.strictEqual(init.acknowledgeRoundTripMillis, receivedRoundTripMillisFromReceived);
@@ -422,10 +419,10 @@
                 }, includeStash, includeStash);
 
                 let messageCallbackInvoked = false;
-                matsSocket.terminator("Test-terminator", function(messageEvent) {
+                matsSocket.terminator("Test-terminator", function (messageEvent) {
                     console.log("TERMINATOR WAS RESOLVED (messageCallback!) - this should NOT happen!", messageEvent);
                     messageCallbackInvoked = true;
-                },function (messageEvent) {
+                }, function (messageEvent) {
                     // The messageCallback shall not have been invoked
                     chai.assert.isFalse(messageCallbackInvoked, "messageCallback should NOT have been invoked");
 
@@ -488,19 +485,19 @@
                 runRequestReplyToWithTimeoutTest(false, 0, done);
             });
             it('requestReplyTo with timeout: (worst case wrt. event-issuing order) Event should be present on matsSocket.initiations, and be issued to listener (with replyTimeout=0, with includeInitiationMessage, includeReplyMessageEvent=true).', function (done) {
-                runRequestReplyToWithTimeoutTest(true, 0,  done);
+                runRequestReplyToWithTimeoutTest(true, 0, done);
             });
             it('requestReplyTo with timeout: (worst case wrt. event-issuing order) Event should be present on matsSocket.initiations, and be issued to listener (with replyTimeout=25, includeInitiationMessage, includeReplyMessageEvent=false).', function (done) {
                 runRequestReplyToWithTimeoutTest(false, 25, done);
             });
             it('requestReplyTo with timeout: (worst case wrt. event-issuing order) Event should be present on matsSocket.initiations, and be issued to listener (with replyTimeout=25, with includeInitiationMessage, includeReplyMessageEvent=true).', function (done) {
-                runRequestReplyToWithTimeoutTest(true, 25,  done);
+                runRequestReplyToWithTimeoutTest(true, 25, done);
             });
             it('requestReplyTo with timeout: (worst case wrt. event-issuing order) Event should be present on matsSocket.initiations, and be issued to listener (with replyTimeout=50, with includeInitiationMessage, includeReplyMessageEvent=false).', function (done) {
                 runRequestReplyToWithTimeoutTest(false, 50, done);
             });
             it('requestReplyTo with timeout: (worst case wrt. event-issuing order) Event should be present on matsSocket.initiations, and be issued to listener (with replyTimeout=50, with includeInitiationMessage, includeReplyMessageEvent=true).', function (done) {
-                runRequestReplyToWithTimeoutTest(true, 50,  done);
+                runRequestReplyToWithTimeoutTest(true, 50, done);
             });
 
         });
