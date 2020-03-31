@@ -1179,10 +1179,36 @@
         /**
          * Some errors supply a relevant object: Event for WebSocket errors, The attempted processed MatsSocket Envelope
          * when envelope processing fails, or the caught Error in a try-catch (typically when invoking event listeners).
+         * <b>For submitting errors back to the home server, check out {@link #referenceAsString}.</b>
          *
          * @type {Object}.
          */
         this.reference = object;
+
+        /**
+         * Makes a string (<b>chopped to max 1024 chars</b>) out of the {@link #reference} Object, which
+         * might be useful if you want to send this back over HTTP - consider
+         * <code>encodeURIComponent(referenceAsString)</code> if you want to send it over the URL. First tries to use
+         * <code>JSON.stringify(reference)</code>, failing that, it uses <code>""+reference</code>. Then chops to max
+         * 1024, using "..." to denote the chop.
+         *
+         * @type {string}.
+         */
+        Object.defineProperty(this, "referenceAsString", {
+            get: function () {
+                let result;
+                try {
+                    result = JSON.stringify(this.reference);
+                } catch (err) {
+                    /* no-op */
+                }
+                if (typeof result !== 'string') {
+                    result = "" + this.reference;
+                }
+                return (result.length > 1024 ? result.substring(0, 1021) + "..." : result);
+            }
+        });
+
     }
 
 
