@@ -45,6 +45,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         setupSocket_ReplyWithCookieAuthorization(matsSocketServer);
 
         setupSocket_CloseThisSession(matsSocketServer);
+
+        setupSocket_Publish(matsSocketServer);
     }
 
     // ===== "Standard Endpoint".
@@ -346,6 +348,17 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                         }
                         matsSocketServer.closeSession(ctx.getMatsSocketSessionId());
                     }, "Mats CloseThisSession").start();
+                });
+    }
+
+    private static void setupSocket_Publish(MatsSocketServer matsSocketServer) {
+        matsSocketServer.matsSocketTerminator("Test.publish",
+                String.class, Void.class,
+                (ctx, principal, msg) -> {
+                    new Thread(() -> {
+                        matsSocketServer.publish("Test 1 2 3", "Test.topic", new MatsDataTO(Math.PI, "Test from Java!",
+                                42));
+                    }, "Send message").start();
                 });
     }
 

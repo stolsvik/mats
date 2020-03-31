@@ -73,7 +73,6 @@ class MatsSocketEnvelopeDto {
         int resd; // Resolved DebugOptions
 
         // :: Timings and Nodenames
-//        Long cmcts; // Client Message Created TimeStamp (when message was created on Client side, Client timestamp)
         Long cmrts; // Client Message Received Timestamp (when message was received on Server side, Server timestamp)
         String cmrnn; // Client Message Received on NodeName (and Mats message is also sent from this)
 

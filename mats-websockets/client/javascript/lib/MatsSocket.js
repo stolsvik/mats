@@ -120,6 +120,40 @@
         REJECT: "REJECT",
 
         /**
+         * Request from Client: The Client want to subscribe to a Topic, the TopicId is specified in 'eid'.
+         */
+        SUB: "SUB",
+
+        /**
+         * Request from Client: The Client want to unsubscribe to a Topic, the TopicId is specified in 'eid'.
+         */
+        UNSUB: "UNSUB",
+
+        /**
+         * Reply from Server: Subscription was OK. If this is a reconnect, this indicates that any messages that was
+         * lost "while offline" will now be delivered/"replayed".
+         */
+        SUB_OK: "SUB_OK",
+
+        /**
+         * Reply from Server: Subscription went OK, but you've lost messages: The messageId that was referenced in the
+         * {@link #SUB} was not known to the server, implying that there are at least one message that has expired, and
+         * as such it can be many - so you won't get any "replayed".
+         */
+        SUB_LOST: "SUB_LOST",
+
+        /**
+         * Reply from Server: Subscription was not authorized - no messages for this Topic will be delivered.
+         */
+        SUB_NO_AUTH: "SUB_NO_AUTH",
+
+        /**
+         * Topic message from Server: A message is issued on Topic, the TopicId is specified in 'eid', while the message
+         * is in 'msg'.
+         */
+        PUB: "PUB",
+
+        /**
          * The server requests that the Client re-authenticates, where the Client should immediately get a fresh
          * authentication and send it back using either any message it has pending, or in a separate {@link #AUTH}
          * message. Message processing - both processing of received messages, and sending of outgoing messages (i.e.
@@ -594,10 +628,11 @@
     });
 
     /**
-     * Message Event - the event emitted for a Requests's Promise resolve() and reject() (i.e. then() and catch()), and
-     * to a {@link MatsSocket#terminator terminator} resolveCallback and rejectCallback functions for replies due to
-     * requestReplyTo, and for Server initiated sends, and for the event to a {@link MatsSocket#endpoint endpoint} upon
-     * a Server initiated request.
+     * Message Event - the event emitted for a {@link MatsSocket#request() Requests}'s Promise resolve() and reject()
+     * (i.e. then() and catch()), and to a {@link MatsSocket#terminator() Terminator}'s resolveCallback and
+     * rejectCallback functions for replies due to {@link MatsSocket#requestReplyTo() requestReplyTo}, and for Server
+     * initiated Sends (to Terminators), and for the event to a {@link MatsSocket#endpoint() Endpoint} upon a Server
+     * initiated Request, and for the event sent to a {@link MatsSocket#subscribe() Subscription}.
      */
     function MessageEvent(type, data, traceId, messageId, receivedTimestamp) {
         /**
@@ -709,6 +744,8 @@
 
         REQUEST: "request",
 
+        PUB: "pub",
+
         /**
          * "Synthetic" event in that it is not a message from Server: A Client-to-Server
          * {@link MatsSocket#request() Request} was not replied to by the server within the
@@ -800,6 +837,60 @@
 
         this.messageReceived = receivedTimestamp;
     }
+
+    /**
+     * Information about how a subscription went on the server side. If you do two subscriptions to the same Topic,
+     * you will still only get one such message - thus if you want one for each, you'd better add two listeners too,
+     * <i>before</i> doing any of the subscribes.
+     * <p />
+     * Note: this also fires upon every reconnect. <b>Make note of the {@link SubscriptionEventType#LOST_MESSAGES}!</b>
+     *
+     * @param type {SubscriptionEventType}
+     * @param topicId {string}
+     * @constructor
+     */
+    function SubscriptionEvent(type, topicId) {
+        /**
+         * How the subscription fared.
+         *
+         * @type {SubscriptionEventType}
+         */
+        this.type = type;
+
+        /**
+         * What TopicIc this relates to.
+         *
+         * @type {string}
+         */
+        this.topicId = topicId;
+
+    }
+
+    /**
+     * Type of {@link SubscriptionEvent}.
+     *
+     * @enum {string}
+     * @readonly
+     */
+    const SubscriptionEventType = Object.freeze({
+        /**
+         * The subscription on the server side went ok. If reconnect, any missing messages are now being sent.
+         */
+        OK: "ok",
+
+        /**
+         * You were not authorized to subscribe to this Topic.
+         */
+        NOT_AUTHORIZED: "notauthorized",
+
+        /**
+         * Upon reconnect, the "last message Id" was not known to the server, implying that there are lost messages.
+         * Since you will now have to handle this situation by other means anyway (e.g. do a request for all stock ticks
+         * between the last know timestamp and now), you will thus not get any of the lost messages even if the server
+         * has some.
+         */
+        LOST_MESSAGES: "lostmessages"
+    });
 
     /**
      * @param {string} type type of the event, one of {@link AuthorizationRequiredEvent}.
@@ -1061,7 +1152,6 @@
          */
         REQUEST_REPLY_TO: "requestreplyto"
     });
-
 
     /**
      * Creates a MatsSocket, requiring the using Application's name and version, and which URLs to connect to.
@@ -1337,6 +1427,23 @@
         };
 
         /**
+         * <b>Note: If you use {@link #subscribe() subscriptions}, you <i>should</i> register a
+         * {@link SubscriptionEvent} listener, as you should be concerned about {@link SubscriptionEventType#NOT_AUTHORIZED}
+         * and {@link SubscriptionEventType#LOST_MESSAGES}.</b>
+         * <p />
+         * Read more at {@link SubscriptionEvent} and {@link SubscriptionEventType}.
+         *
+         * @param {function<SubscriptionEvent>} subscriptionEventListener a function that is invoked when the library
+         * gets information from the Server wrt. subscriptions.
+         */
+        this.addSubscriptionEventListener = function (subscriptionEventListener) {
+            if (!(typeof subscriptionEventListener === 'function')) {
+                throw Error("SubscriptionEvent listener must be a function");
+            }
+            _subscriptionEventListeners.push(subscriptionEventListener);
+        };
+
+        /**
          * If this MatsSockets client realizes that the expiration time (minus the room for latency) of the authorization
          * has passed when about to send a message, it will invoke this callback function. A new authorization must then
          * be provided by invoking the 'setCurrentAuthorization' function - only when this is invoked, the MatsSocket
@@ -1596,27 +1703,35 @@
          * the target for Server-to-Client SENDs, and the Server's REPLYs from invocations of
          * <code>requestReplyTo(terminatorId ..)</code> where the terminatorId points to this Terminator.
          * <p />
-         * Note: You cannot register any Terminators or Endpoints starting with "MatsSocket".
+         * Note: You cannot register any Terminators, Endpoints or Subscriptions starting with "MatsSocket".
          *
-         * @param endpointId the id of this client side Terminator.
+         * @param terminatorId the id of this client side Terminator.
          * @param messageCallback receives an Event when everything went OK, containing the message on the "data" property.
          * @param rejectCallback is relevant if this endpoint is set as the replyTo-target on a requestReplyTo(..) invocation, and will
          * get invoked with the Event if the corresponding Promise-variant would have been rejected.
          */
-        this.terminator = function (endpointId, messageCallback, rejectCallback) {
+        this.terminator = function (terminatorId, messageCallback, rejectCallback) {
             // :: Assert for double-registrations
-            if (_terminators[endpointId] !== undefined) {
-                throw new Error("Cannot register more than one Terminator to same endpointId [" + endpointId + "], existing: " + _terminators[endpointId]);
+            if (_terminators[terminatorId] !== undefined) {
+                throw new Error("Cannot register more than one Terminator to same terminatorId [" + terminatorId + "], existing: " + _terminators[terminatorId]);
             }
-            if (_endpoints[endpointId] !== undefined) {
-                throw new Error("Cannot register a Terminator to same endpointId [" + endpointId + "] as an Endpoint, existing: " + _endpoints[endpointId]);
+            if (_endpoints[terminatorId] !== undefined) {
+                throw new Error("Cannot register a Terminator to same terminatorId [" + terminatorId + "] as an Endpoint's endpointId, existing: " + _endpoints[terminatorId]);
             }
             // :: Assert that the namespace "MatsSocket" is not used
-            if (endpointId.startsWith("MatsSocket")) {
-                throw new Error('The namespace "MatsSocket" is reserved, TerminatorId [' + endpointId + '] is illegal.');
+            if (terminatorId.startsWith("MatsSocket")) {
+                throw new Error('The namespace "MatsSocket" is reserved, terminatorId [' + terminatorId + '] is illegal.');
             }
-            log("Registering Terminator on id [" + endpointId + "]:\n #messageCallback: " + messageCallback + "\n #rejectCallback: " + rejectCallback);
-            _terminators[endpointId] = {
+            // :: Assert that the messageCallback is a function
+            if (typeof messageCallback !== 'function') {
+                throw new Error("The 'messageCallback' must be a function.");
+            }
+            // :: Assert that the rejectCallback is either undefined or a function
+            if ((rejectCallback !== undefined) && (typeof rejectCallback !== 'function')) {
+                throw new Error("The 'rejectCallback' must either be undefined or a function.");
+            }
+            log("Registering Terminator on id [" + terminatorId + "]:\n #messageCallback: " + messageCallback + "\n #rejectCallback: " + rejectCallback);
+            _terminators[terminatorId] = {
                 resolve: messageCallback,
                 reject: rejectCallback
             };
@@ -1628,7 +1743,7 @@
          * (the incoming REQUEST) and produces a Promise, whose return (resolve or reject) is the return value of the
          * endpoint.
          * <p />
-         * Note: You cannot register any Terminators or Endpoints starting with "MatsSocket".
+         * Note: You cannot register any Terminators, Endpoints or Subscriptions starting with "MatsSocket".
          *
          * @param endpointId the id of this client side Endpoint.
          * @param {function} promiseProducer a function that takes a Message Event and returns a Promise which when
@@ -1646,8 +1761,151 @@
             if (endpointId.startsWith("MatsSocket")) {
                 throw new Error('The namespace "MatsSocket" is reserved, EndpointId [' + endpointId + '] is illegal.');
             }
+            // :: Assert that the promiseProducer is a function
+            if (typeof promiseProducer !== 'function') {
+                throw new Error("The 'promiseProducer' must be a function.");
+            }
             log("Registering Endpoint on id [" + endpointId + "]:\n #promiseProducer: " + promiseProducer);
             _endpoints[endpointId] = promiseProducer;
+        };
+
+        /**
+         * Subscribes to a Topic. The Server may do an authorization check for the subscription. If you are not allowed,
+         * a {@link SubscriptionEvent} of type {@link SubscriptionEventType#NOT_AUTHORIZED} is issued, and the callback
+         * will not get any messages. Otherwise, the event type is {@link SubscriptionEventType#OK}.
+         * <p />
+         * Note: If the 'messageCallback' was already registered, an error is emitted, but the method otherwise returns
+         * silently.
+         * <p />
+         * Note: You will not get messages that was issued before the subscription initially is registered with the
+         * server, which means that you by definition cannot get any messages issued earlier than the initial
+         * {@link ConnectionEventType#SESSION_ESTABLISHED}. Code accordingly. <i>Tip for a "ticker stream" or "cache
+         * update stream" or similar: Make sure you have some concept of event sequence number on updates. Do the MatsSocket
+         * connect with the Subscription in place, but for now just queue up any updates. Do the request for "full initial load", whose reply
+         * contains the last applied sequence number. Now process the queued events that arrived while getting the
+         * initial load (i.e. in front, or immediately after), taking into account which event sequence numbers that
+         * already was applied in the initial load: Discard the earlier and same, apply the later. Finally, go over to
+         * immediate processing of the events. If you get a reconnect telling you that messages was lost (next "Note"!),
+         * you could start this process over.</i>
+         * <p />
+         * Note: Reconnects are somewhat catered for, in that a "re-subscription" after re-establishing the session will
+         * contain the latest messageId the client has received, and the server will then send along all the messages
+         * <i>after</i> this that was lost - up to some limit specified on the server. If the messageId is not known by the server,
+         * implying that the client has been gone for too long time, a {@link SubscriptionEvent} of type
+         * {@link SubscriptionEventType#LOST_MESSAGES} is issued. Otherwise, the event type is
+         * {@link SubscriptionEventType#OK}.
+         * <p />
+         * Note: You should preferably add all "static" subscriptions in the "configuration phase" while setting up
+         * your MatsSocket, before starting it (i.e. sending first message). However, dynamic adding and
+         * {@link #deleteSubscription() deleting} is also supported.
+         * <p />
+         * Note: Pub/sub is not designed to be as reliable as send/request - but it should be pretty ok anyway!
+         * <p />
+         * Wrt. to how many topics a client can subscribe to: Mainly bandwidth constrained wrt. to the total number of
+         * messages, although there is a slight memory and CPU usage to consider too (several hundred should not really
+         * be a problem). In addition, the client needs to send over the actual subscriptions, and if these number in
+         * the thousands, the connect and any reconnects could end up with tens or hundreds of kilobytes of "system
+         * information" passed over the WebSocket.
+         * <p />
+         * Wrt. to how many topics that can exist: Mainly memory constrained on the server based on the number of topics
+         * multiplied by the number of subscriptions per topic, in addition to the number of messages passed in total
+         * as each node in the cluster will have to listen to either the full total of messages, or at least a
+         * substantial subset of the messages - and it will also retain these messages for hours to allow for client
+         * reconnects.
+         * <p />
+         * Note: You cannot register any Terminators, Endpoints or Subscriptions starting with "MatsSocket".
+         */
+        this.subscribe = function (topicId, messageCallback) {
+            // :: Assert that the namespace "MatsSocket" is not used
+            if (topicId.startsWith("MatsSocket")) {
+                throw new Error('The namespace "MatsSocket" is reserved, Topic [' + topicId + '] is illegal.');
+            }
+            if (topicId.startsWith("!")) {
+                throw new Error('Topic cannot start with "!" (and why would you use chars like that anyway?!), Topic [' + topicId + '] is illegal.');
+            }
+            // :: Assert that the messageCallback is a function
+            if (typeof messageCallback !== 'function') {
+                throw new Error("The 'messageCallback' must be a function.");
+            }
+            log("Registering Subscription on Topic [" + topicId + "]:\n #messageCallback: " + messageCallback);
+            // ?: Check if we have an active subscription holder here already
+            let subs = _subscriptions[topicId];
+            if (!subs) {
+                // -> No, we do not have subscription holder going
+                // Add a holder
+                subs = {
+                    listeners: [],
+                    lastSmid: undefined,
+                    subscriptionSentToServer: false
+                };
+                _subscriptions[topicId] = subs;
+            }
+            // :: Assert that the messageCallback is not already there
+            for (let i = 0; i < subs.listeners.length; i++) {
+                if (subs.listeners[i] === messageCallback) {
+                    error("subscription_already_exists", "The specified messageCallback [" + messageCallback + "] was already subscribed to Topic [" + topicId + "].");
+                    return;
+                }
+            }
+            // Add the present messageCallback to the subscription holder
+            subs.listeners.push(messageCallback);
+
+            // :: Handle dynamic subscription
+
+            // ?: Have we NOT already subscribed with Server, AND 'HELLO' is sent?
+            if ((!subs.subscriptionSentToServer) && _helloSent) {
+                // -> Yes, so do stuff dynamic (Handling of Topics with HELLO-handling won't help us..!)
+                // Subscribe this TopicId with the server - using PRE-pipeline to get it done ASAP
+                _addEnvelopeToPipeline_EvaluatePipelineLater({
+                    t: MessageType.SUB,
+                    eid: topicId
+                }, true);
+                // Flush to get it over ASAP.
+                that.flush();
+                // The subscription is now sent to Server
+                subs.subscriptionSentToServer = true;
+            }
+        };
+
+        /**
+         * Removes a previously added {@link #subscribe() subscription}. If there are no more listeners for this topic,
+         * it is de-subscribed from the server. If the 'messageCallback' was not already registered, an error is
+         * emitted, but the method otherwise returns silently.
+         *
+         * @param topicId
+         * @param messageCallback
+         */
+        this.deleteSubscription = function (topicId, messageCallback) {
+            let subs = _subscriptions[topicId];
+            if (!subs) {
+                throw new Error("The topicId [" + topicId + "] had no subscriptions! (thus definitely not this [" + messageCallback + "].");
+            }
+            let found = false;
+            for (let i = 0; i < subs.listeners.length; i++) {
+                if (subs.listeners[i] === messageCallback) {
+                    found = true;
+                    subs.listeners = subs.listeners.splice(i, 1);
+                    break;
+                }
+            }
+            if (!found) {
+                error("subscription_not_found", "The specified messageCallback [" + messageCallback + "] was not subscribed with Topic [" + topicId + "].");
+                return;
+            }
+
+            // :: Handle dynamic de-subscription
+
+            // ?: Are we empty of listeners, AND we are already subscribed with Server, AND 'HELLO' is sent?
+            if ((subs.listeners.length === 0) && subs.subscriptionSentToServer && _helloSent) {
+                // -> Yes, so do stuff dynamic (Handling of Topic subscriptions at HELLO-handling won't help us..!)
+                // De-subscribe this TopicId with the server - using PRE-pipeline since subscriptions are using that, and we need subs and de-subs in sequential correct order
+                _addEnvelopeToPipeline_EvaluatePipelineLater({
+                    t: MessageType.UNSUB,
+                    eid: topicId
+                }, true);
+                // Remove locally
+                delete _subscriptions[topicId];
+            }
         };
 
         /**
@@ -2017,8 +2275,8 @@
                 throw new Error("There is no live WebSocket to close with RECONNECT closeCode!");
             }
             // Hack for Node: Node is too fast wrt. handling the reply message, so one of the integration tests fails.
-            // This tests reconnect in face of having the test RESOLVE in the incomingHandler, which exercises the
-            // double-delivery catching when getting a direct RESOLVE instead of an ACK from the server.
+            // The test in question reconnect in face of having the test RESOLVE in the incomingHandler, which exercises
+            // the double-delivery catching when getting a direct RESOLVE instead of an ACK from the server.
             // However, the following RECONNECT-close is handled /after/ the RESOLVE message comes in, and ok's the test.
             // So then, MatsSocket dutifully starts reconnecting - /after/ the test is finished. Thus, Node sees the
             // outstanding timeout "thread" which pings, and never exits. To better emulate an actual lost connection,
@@ -2119,9 +2377,11 @@
         let _pipeline = [];
         let _terminators = Object.create(null);
         let _endpoints = Object.create(null);
+        let _subscriptions = Object.create(null);
 
         let _sessionClosedEventListeners = [];
         let _connectionEventListeners = [];
+        let _subscriptionEventListeners = [];
         let _pingPongListeners = [];
         let _initiationProcessedEventListeners = [];
 
@@ -2232,9 +2492,7 @@
 
             // :: NACK all outstanding messages
             for (let cmid in _outboxInitiations) {
-                // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                 let initiation = _outboxInitiations[cmid];
-                // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                 delete _outboxInitiations[cmid];
 
                 if (that.logging) log("Close Session: Clearing outstanding Initiation [" + initiation.envelope.t + "] to [" + initiation.envelope.eid + "], cmid:[" + initiation.envelope.cmid + "], TraceId:[" + initiation.envelope.tid + "].");
@@ -2243,9 +2501,7 @@
 
             // :: Reject all Requests
             for (let cmid in _outstandingRequests) {
-                // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                 let request = _outstandingRequests[cmid];
-                // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                 delete _outstandingRequests[cmid];
 
                 if (that.logging) log("Close Session: Clearing outstanding REQUEST to [" + request.envelope.eid + "], cmid:[" + request.envelope.cmid + "], TraceId:[" + request.envelope.tid + "].", request);
@@ -2381,8 +2637,8 @@
          * Sends pipelined messages
          */
         function _evaluatePipelineSend() {
-            // ?: Are there any messages in pipeline, or should we force pipeline processing (either to get AUTH or HELLO over)
-            if ((_pipeline.length === 0) && !_forcePipelineProcessing) {
+            // ?: Are there any messages in pipeline or PRE-pipeline, or should we force pipeline processing (either to get AUTH or HELLO over)
+            if ((_pipeline.length === 0) && (_prePipeline.length === 0) && !_forcePipelineProcessing) {
                 // -> No, no message in pipeline, and we should not force processing to get HELLO or AUTH over
                 // Nothing to do, drop out.
                 return;
@@ -2462,6 +2718,30 @@
                 _helloSent = true;
                 // We've sent the current auth
                 _lastAuthorizationSentToServer = _authorization;
+
+                // :: Handle subscriptions
+                for (let topicId in _subscriptions) {
+                    let subs = _subscriptions[topicId];
+                    // ?: Do we have subscribers, but not sent to server?
+                    if ((subs.listeners.length > 0) && (!subs.subscriptionSentToServer)) {
+                        // -> Yes, so we need to subscribe
+                        _prePipeline.push({
+                            t: MessageType.SUB,
+                            eid: topicId,
+                            smid: subs.lastSmid
+                        });
+                    }
+                    // ?: Do we NOT have subscribers, but sub is sent to Server?
+                    if ((subs.listeners.length === 0) && (subs.subscriptionSentToServer)) {
+                        // -> Yes, so we need to unsubscribe - and delete the subscription
+                        _prePipeline.push({
+                            t: MessageType.UNSUB,
+                            eid: topicId
+                        });
+                        // Delete this local subscription.
+                        delete _subscriptions[topicId];
+                    }
+                }
             }
 
             // ?: Have we sent HELLO, i.e. session is "active", but the authorization has changed since last we sent over authorization?
@@ -3051,7 +3331,6 @@
 
                         // :: Outstanding SENDs and REQUESTs
                         for (let key in _outboxInitiations) {
-                            // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                             let initiation = _outboxInitiations[key];
                             let initiationEnvelope = initiation.envelope;
                             // ?: Is the RetransmitGuard the same as we currently have?
@@ -3078,7 +3357,6 @@
                         // A Request from the Server cannot possibly come in before WELCOME (as that is by protcol definition the first message we get from the Server),
                         // so there will "axiomatically" not be any outstanding Replies with the same RetransmitGuard as we currently have: Therefore, /all should be retransmitted/).
                         for (let key in _outboxReplies) {
-                            // noinspection JSUnfilteredForInLoop: Using Object.create(null)
                             let reply = _outboxReplies[key];
                             let replyEnvelope = reply.envelope;
                             reply.attempt++;
@@ -3313,6 +3591,50 @@
                         });
                         // Send it immediately
                         that.flush();
+
+                    } else if ((envelope.t === MessageType.SUB_OK) || (envelope.t === MessageType.SUB_LOST) || (envelope.t === MessageType.SUB_NO_AUTH)) {
+                        // -> Result of SUB
+                        // Notify PingPong listeners, synchronously.
+                        let eventType;
+                        if (envelope.t === MessageType.SUB_OK) {
+                            eventType = SubscriptionEventType.OK;
+                        } else if (envelope.t === MessageType.SUB_LOST) {
+                            eventType = SubscriptionEventType.LOST_MESSAGES;
+                        } else {
+                            eventType = SubscriptionEventType.NOT_AUTHORIZED;
+                        }
+                        let event = new SubscriptionEvent(eventType, envelope.eid);
+                        for (let i = 0; i < _subscriptionEventListeners.length; i++) {
+                            try {
+                                _subscriptionEventListeners[i](event);
+                            } catch (err) {
+                                error("notify subscriptionevent listeners", "Caught error when notifying one of the [" + _subscriptionEventListeners.length + "] SubscriptionEvent listeners.", err);
+                            }
+                        }
+
+                    } else if (envelope.t === MessageType.PUB) {
+                        // -> Server publishes a Topic message
+                        let event = new MessageEvent(MessageEventType.PUB, envelope.msg, envelope.tid, envelope.smid, receivedTimestamp);
+
+                        let subs = _subscriptions[envelope.eid];
+                        // ?: Did we find any listeners?
+                        if (!subs) {
+                            // -> No. Strange.
+                            error("message for unwanted topic", "We got a PUB message for Topic [" + envelope.eid + "], but we have no subscribers for it.");
+                            continue;
+                        }
+
+                        // Issue message to all listeners for this Topic.
+                        for (let i = 0; i < subs.listeners.length; i++) {
+                            try {
+                                subs.listeners[i](event);
+                            } catch (err) {
+                                error("notify subscriptionevent listeners", "Caught error when notifying one of the [" + _subscriptionEventListeners.length + "] SubscriptionEvent listeners.", err);
+                            }
+                        }
+
+                        // Make note of the latest message id processed for this Topic
+                        subs.lastSmid = envelope.smid;
 
                     } else if (envelope.t === MessageType.PONG) {
                         // -> Response to a PING

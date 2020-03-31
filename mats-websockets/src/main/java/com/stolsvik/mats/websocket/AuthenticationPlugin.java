@@ -13,15 +13,37 @@ import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
 
 /**
- * Plugin that must evaluate whether a MatsSocket connection is authenticated. It receives the String that the client
- * provides, and evaluates whether it is good, and if so returns a Principal and a UserId.
+ * Plugin that must evaluate whether a WebSocket connection shall be allowed, and then authenticate the resulting
+ * MatsSocketSession.
+ * <ol>
+ * <li>Upon WebSocket connection, the methods {@link SessionAuthenticator#checkOrigin(String) checkOrigin(..)},
+ * {@link SessionAuthenticator#checkHandshake(ServerEndpointConfig, HandshakeRequest, HandshakeResponse)
+ * checkHandshake(..)} and {@link SessionAuthenticator#onOpen(Session, ServerEndpointConfig) onOpen(..)} are invoked in
+ * succession.</li>
+ * <li>During the initial set of messages received from the MatsSocket Client, the
+ * {@link SessionAuthenticator#initialAuthentication(AuthenticationContext, String) initialAuthentication(..)} is
+ * invoked, which evaluates whether the supplied Authorization "Header" value is good, and if so returns a Principal and
+ * a UserId.</li>
+ * <li>During the life of the MatsSocketSession, the two methods
+ * {@link SessionAuthenticator#reevaluateAuthentication(AuthenticationContext, String, Principal)
+ * reevaluateAuthentication(..)} and
+ * {@link SessionAuthenticator#reevaluateAuthenticationForOutgoingMessage(AuthenticationContext, String, Principal, long)
+ * reevaluateAuthenticationForOutgoingMessage(..)} may be invoked several times.</li>
+ * <li>When the Client tries to subscribe to a Topic, the method
+ * {@link SessionAuthenticator#authorizeUserForTopic(AuthenticationContext, String, Principal, String)
+ * authorizeUserForTopic(..)} is invoked to decide whether to allow or deny the subscription.</li>
+ * </ol>
+ * <b>Read through all methods' JavaDoc in succession to get an understanding of how it works!</b>
  * <p/>
- * <i>Thread Safety:</i> Concurrency issues wrt. to multiple threads accessing a {@link SessionAuthenticator}: Only one
- * thread will access any of the authenticate methods at any one time (i.e. the {@link SessionAuthenticator} instance is
- * <i>effectively</i> synchronized on), and memory consistency is handled.
+ * <i>Thread Safety:</i> Concurrency issues wrt. to multiple threads accessing a {@link SessionAuthenticator}: Seen from
+ * the {@link MatsSocketServer}, only one thread will ever access any of the methods at any one time, and memory
+ * consistency is handled (i.e. the {@link SessionAuthenticator} instance is <i>effectively</i> synchronized on): You do
+ * not need to synchronize on anything within an instance of {@link SessionAuthenticator}, and any fields set on the
+ * instance by some method will be correctly available for subsequent invocations of the same or any other methods.
  *
  * @author Endre Stølsvik 2020-01-10 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -53,7 +75,7 @@ public interface AuthenticationPlugin {
          * is however one step later in the establishing of the socket (response is already sent, so if you decide
          * against the session there, the socket will be opened, then immediately closed).
          * <p/>
-         * The default implementation returns <code>true</code>, i.e. letting all connections through this step.
+         * <b>The default implementation returns <code>true</code>, i.e. letting all connections through this step.</b>
          *
          * @param originHeaderValue
          *            which Origin the client connects from - this is mandatory for web browsers to set.
@@ -84,7 +106,7 @@ public interface AuthenticationPlugin {
          * domain as the WebSocket, which can move the Authorization header to a Cookie, which will be sent along with
          * the WebSocket Handshake request - and can thus be checked here.
          * <p />
-         * The default implementation return <code>true</code>, i.e. letting all connections through this step.
+         * <b>The default implementation returns <code>true</code>, i.e. letting all connections through this step.</b>
          *
          * @param config
          *            the {@link ServerEndpointConfig} instance.
@@ -113,7 +135,7 @@ public interface AuthenticationPlugin {
          * message. The same goes for {@link Session#setMaxTextMessageBufferSize(int) max text message buffer size}, as
          * that is also set low until authenticated: 20KiB.
          * <p />
-         * The default implementation return <code>true</code>, i.e. letting all connections through this step.
+         * <b>The default implementation returns <code>true</code>, i.e. letting all connections through this step.</b>
          *
          * @param webSocketSession
          *            the WebSocket API {@link Session} instance.
@@ -126,11 +148,29 @@ public interface AuthenticationPlugin {
         }
 
         /**
-         * Invoked when the MatsSocket connects over WebSocket, and is first authenticated by the Authorization string
-         * typically supplied via the initial "HELLO" message from the client - we obviously do not then have a
-         * Principal yet, so this {@link SessionAuthenticator} needs to supply it. All subsequent authentication
-         * evaluations is done using {@link #reevaluateAuthentication(AuthenticationContext, String, Principal)
-         * reevaluateAuthentication(...)}.
+         * Invoked when the MatsSocket initially connects (or reconnects) over WebSocket, and needs to be authenticated
+         * by the Authorization string supplied via the initial set ("pipeline") of message from the client, typically
+         * in the HELLO message (which needs to present in the initial pipeline). At this point, there is obviously do
+         * not a Principal yet, so this {@link SessionAuthenticator} needs to supply it.
+         * <p />
+         * <b>For every next incoming pipeline of messages</b>, the method
+         * {@link #reevaluateAuthentication(AuthenticationContext, String, Principal) reevaluateAuthentication(...)} is
+         * invoked - which, depending on authentication scheme in use, might just always reply
+         * {@link AuthenticationContext#stillValid() "stillValid"}, thus trusting the initial authentication - or for
+         * e.g. OAuth schemes where the token has an expiry time, actually evaluate this expiry time. If that method
+         * decides that the current Authorization value isn't good enough, the Client will be asked to provide a new one
+         * (refresh the token).
+         * <p />
+         * <b>For outgoing messages from the Server</b> (that is, Replies to Client-to-Server Requests, and
+         * Server-to-Client Sends and Requests), the method
+         * {@link #reevaluateAuthenticationForOutgoingMessage(AuthenticationContext, String, Principal, long)} is
+         * invoked. Again, it depends on the authentication scheme in use: Either trust the initial authentication, or
+         * re-evaluate whether the current token which the Server has is valid enough. And again, if that method decides
+         * that the current Authorization value isn't good enough, the Client will be asked to provide a new one
+         * (refresh the token).
+         * <p />
+         * Note: If this method returns {@link AuthenticationContext#invalidAuthentication(String)}, the connection is
+         * immediately closed with {@link MatsSocketCloseCodes#VIOLATED_POLICY}.
          * <p />
          * <b>NOTE!</b> Read the JavaDoc for
          * {@link #checkHandshake(ServerEndpointConfig, HandshakeRequest, HandshakeResponse) checkHandshake(..)} wrt.
@@ -159,6 +199,14 @@ public interface AuthenticationPlugin {
          * decided to not default-implement this solution in the interface, so that you should consider the implications
          * of this.
          * <p />
+         * If the method returns {@link AuthenticationContext#invalidAuthentication(String) invalidAuthentication()},
+         * the server will not process the incoming pipeline, and instead ask the client for re-auth, and when this
+         * comes in and is valid, the processing will ensue (it holds the already provided messages so that client does
+         * not need to deliver them again). <b>Notice: As opposed to the
+         * {@link #initialAuthentication(AuthenticationContext, String) initialAuthentication}, replying
+         * invalidAuthentication() does NOT immediately close the WebSocket</b>, but only implies that the client needs
+         * to supply a new authorization headers before processing will go on.
+         * <p />
          * <b>NOTE!</b> You might want to hold on to the 'authorizationHeader' between the invocations to quickly
          * evaluate whether it has changed: In e.g. an OAuth setting, where the authorizationHeader is a bearer access
          * token, you could shortcut evaluation: If it has not changed, then you might be able to just evaluate whether
@@ -184,14 +232,16 @@ public interface AuthenticationPlugin {
 
         /**
          * This method is invoked each time the server wants to send a message to the client - either a REPLY to a
-         * request from the Client, or a {@link MatsSocketServer#send(String, String, String, Object) SEND} or
-         * {@link MatsSocketServer#request(String, String, String, Object, String, String, byte[])} REQUEST} from the
-         * server. If the method returns {@link AuthenticationContext#invalidAuthentication(String)
-         * invalidAuthentication()}, the server will now hold this delivery, and instead ask the client for re-auth, and
-         * when this comes in and is valid, the delivery will ensue. <b>Notice: As opposed to the other methods,
-         * replying invalidAuthentication() does NOT immediately close the WebSocket</b>, but only implies that the
-         * client needs to supply a new authorization headers before getting the outbound messages.
-         * <p/>
+         * request from the Client, or a Server-to-Client {@link MatsSocketServer#send(String, String, String, Object)
+         * SEND} or {@link MatsSocketServer#request(String, String, String, Object, String, String, byte[])} REQUEST}.
+         * <p />
+         * If the method returns {@link AuthenticationContext#invalidAuthentication(String) invalidAuthentication()},
+         * the server will now hold this delivery, and instead ask the client for re-auth, and when this comes in and is
+         * valid, the delivery will ensue. <b>Notice: As opposed to the
+         * {@link #initialAuthentication(AuthenticationContext, String) initialAuthentication}, replying
+         * invalidAuthentication() does NOT immediately close the WebSocket</b>, but only implies that the client needs
+         * to supply a new authorization headers before getting the outbound messages.
+         * <p />
          * It is default-implemented to invoke
          * {@link #reevaluateAuthentication(AuthenticationContext, String, Principal) reevaluateAuthentication(..)}, but
          * the reason for separating this out in (yet a) different method is that you might want to add a bit more slack
@@ -206,15 +256,15 @@ public interface AuthenticationPlugin {
          * (otherwise it would have had to do full initial auth), one could argue that a Reply should have some extra
          * room wrt. expiry. For Server-to-Client messages SEND and REQUEST, the same mechanism is employed, and I'd
          * argue that the same arguments hold: This {@code SessionAuthenticator} was happy with the authentication some
-         * X minutes ago and the connection has not broken in the meantime, so you should work pretty hard to set up a
+         * few minutes ago and the connection has not broken in the meantime, so you should work pretty hard to set up a
          * situation where a REQUEST from the Server or some data using SEND from the Server would be a large security
          * consideration.
          * <p/>
          * You get provided the last time this {@code SessionAuthenticator} was happy with this exact Authorization
-         * Header as parameter 'lastAuthenticatedTimestamp' - that is, this timestamp is reset each time
+         * value as parameter 'lastAuthenticatedTimestamp' - that is, this timestamp is reset each time
          * {@link #initialAuthentication(AuthenticationContext, String) initialAuthentication(..)} and
          * {@link #reevaluateAuthentication(AuthenticationContext, String, Principal) reevaluateAuthentication} answers
-         * any of the {@link AuthenticationContext#authenticated(Principal, String) authenticated} or
+         * any of {@link AuthenticationContext#authenticated(Principal, String) authenticated} or
          * {@link AuthenticationContext#stillValid()}.
          * <p/>
          * An ok implementation is therefore to simply answer {@link AuthenticationContext#stillValid() stillValid()} if
@@ -247,6 +297,34 @@ public interface AuthenticationPlugin {
         default AuthenticationResult reevaluateAuthenticationForOutgoingMessage(AuthenticationContext context,
                 String authorizationHeader, Principal existingPrincipal, long lastAuthenticatedTimestamp) {
             return reevaluateAuthentication(context, authorizationHeader, existingPrincipal);
+        }
+
+        /**
+         * Decide whether the specified Principal/User should be allowed to subscribe to the specified Topic.
+         * <p />
+         * Note: The 'authorizationHeader' is already validated by one of the <i>authentication</i> methods, which have
+         * supplied the provided Principal and userId. Both this, and the {@link AuthenticationContext}, is just
+         * provided in the method call in case you'd want to use them for the decision.
+         * <p />
+         * <b>The default implementation return <code>true</code>, i.e. letting all users subscribe to all Topics.</b>
+         *
+         * @param context
+         *            the {@link AuthenticationContext} for reference
+         * @param authorizationHeader
+         *            the Authorization value that was used by the <i>authentication</i> methods to supply the Principal
+         *            and userId.
+         * @param principal
+         *            the current authenticated Principal
+         * @param userId
+         *            the current authenticated userId
+         * @param topicId
+         *            the Id of the Topic the client tries to subscribe to
+         * @return <code>true</code> if the user should be allowed to subscribe to the Topic, <code>false</code> if the
+         *         user should not be allowed to subscribe - he will then not get any messages sent over the Topic.
+         */
+        default boolean authorizeUserForTopic(AuthenticationContext context, String authorizationHeader,
+                Principal principal, String userId, String topicId) {
+            return true;
         }
     }
 

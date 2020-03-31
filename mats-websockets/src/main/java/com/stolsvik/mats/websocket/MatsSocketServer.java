@@ -236,6 +236,15 @@ public interface MatsSocketServer {
             String replyToMatsSocketTerminatorId, String correlationString, byte[] correlationBinary);
 
     /**
+     * Publish a Message to the specified Topic, with the specified TraceId.
+     *
+     * @param traceId traceId for the flow.
+     * @param topicId which Topic to Publish on.
+     * @param messageDto the message to Publish.
+     */
+    void publish(String traceId, String topicId, Object messageDto);
+
+    /**
      * Closes the specified MatsSocket Session - to be used for out-of-band closing of Session if the WebSocket is down.
      *
      * @param sessionId
@@ -537,6 +546,40 @@ public interface MatsSocketServer {
          * with either a REJECT or {@link #RESOLVE}.
          */
         REJECT,
+
+        /**
+         * Request from Client: The Client want to subscribe to a Topic, the TopicId is specified in 'eid'.
+         */
+        SUB,
+
+        /**
+         * Request from Client: The Client want to unsubscribe from a Topic, the TopicId is specified in 'eid'.
+         */
+        UNSUB,
+
+        /**
+         * Reply from Server: Subscription was OK. If this is a reconnect, this indicates that any messages that was
+         * lost "while offline" will now be delivered/"replayed".
+         */
+        SUB_OK,
+
+        /**
+         * Reply from Server: Subscription went OK, but you've lost messages: The messageId that was referenced in the
+         * {@link #SUB} was not known to the server, implying that there are at least one message that has expired, but
+         * we don't know whether it was 1 or 1 million - so you won't get any "replayed".
+         */
+        SUB_LOST,
+
+        /**
+         * Reply from Server: Subscription was not authorized - no messages for this Topic will be delivered.
+         */
+        SUB_NO_AUTH,
+
+        /**
+         * Topic message from Server: A message is issued on Topic, the TopicId is specified in 'eid', while the message
+         * is in 'msg'.
+         */
+        PUB,
 
         /**
          * The server requests that the Client re-authenticates, where the Client should immediately get a fresh

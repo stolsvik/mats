@@ -145,7 +145,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                     // Forward to new home (Note: It can theoretically be us, in another MatsSocketMessageHandler,
                     // .. due to race wrt. close & reconnect)
-                    _matsSocketServer.notifyHomeNodeIfAnyAboutNewMessage(matsSocketSessionId);
+                    _matsSocketServer.newMessageOnWrongNode_NotifyCorrectHome(matsSocketSessionId);
                     // We're done, exit.
                     return;
                 }
