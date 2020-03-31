@@ -273,8 +273,12 @@
                     // Assert common between matsSocket.initiations and listener event.
                     assertCommon(processedEvent);
 
-                    // The matsSocket.initiations should be there
-                    chai.assert.equal(matsSocket.initiations.length, 1);
+                    // ReceivedEvent shall have been processed, as that is the first in order
+                    chai.assert.isDefined(receivedRoundTripMillisFromReceived, "Violated ordering, shall be: {ReceivedEvent, InitiationProcessedEvent {matsSocket.initiations, then listeners}, MessageEvent}: experienced InitiationProcessedEvent (listener) before ReceivedEvent");
+                    // The matsSocket.initiations should be there, as listeners are after
+                    chai.assert.equal(matsSocket.initiations.length, 1, "Violated ordering, shall be: {ReceivedEvent, InitiationProcessedEvent {matsSocket.initiations, then listeners}, MessageEvent}: experienced InitiationProcessedEvent (listener) before InitiationProcessedEvent (matsSocket.initiations)");
+                    // The MessageEvent shall not have come yet, we are earlier.
+                    chai.assert.isUndefined(repliedMessageEvent, "Violated ordering, shall be: {ReceivedEvent, InitiationProcessedEvent {matsSocket.initiations, then listeners}, MessageEvent}: experienced InitiationProcessedEvent (listener) AFTER MessageEvent");
 
                     assertCommon(matsSocket.initiations[0]);
 
@@ -291,9 +295,10 @@
                 }, includeStash, includeStash);
 
                 matsSocket.terminator("Test-terminator", function (messageEvent) {
-                    // There should now be ONE initiation
-                    // Note: Adding to matsSocket.initiations is sync, thus done before settling, but firing of InitiationProcessedEvent listeners is done using 'setTimeout(.., 0)'.
-                    chai.assert.strictEqual(1, matsSocket.initiations.length);
+                    // ReceivedEvent shall have been processed, as that is the first in order
+                    chai.assert.isDefined(receivedRoundTripMillisFromReceived, "Violated ordering, shall be: {ReceivedEvent, InitiationProcessedEvent {matsSocket.initiations, then listeners}, MessageEvent}: experienced MessageEvent before ReceivedEvent");
+                    // There should now be ONE initiation, as MessageEvent shall be the latest
+                    chai.assert.strictEqual(1, matsSocket.initiations.length, "Violated ordering, shall be: {ReceivedEvent, InitiationProcessedEvent {matsSocket.initiations, then listeners}, MessageEvent}: experienced MessageEvent before InitiationProcessedEvent (matsSocket.initiations)");
 
                     // The MessageEvent should be same object as the one in InitiationProcessedEvent
                     repliedMessageEvent = messageEvent;
@@ -307,7 +312,7 @@
                     chai.assert.equal(initiation.initiationMessage, msg);
 
                     if (includeStash) {
-                        chai.assert.strictEqual(initiationProcessedEventFromListener.replyMessageEvent, repliedMessageEvent);
+                        chai.assert.strictEqual(initiationProcessedEventFromListener.replyMessageEvent, messageEvent);
                     } else {
                         chai.assert.isUndefined(initiationProcessedEventFromListener.replyMessageEvent);
                     }
@@ -320,9 +325,10 @@
 
                 matsSocket.requestReplyTo("Test.single", traceId, msg, "Test-terminator", undefined)
                     .then(receivedEvent => {
-                        // Ack should have been invoked BEFORE the InitiationProcessedEvent placed and listeners invoked.
-                        chai.assert.equal(matsSocket.initiations.length, 0);
-                        chai.assert.isUndefined(initiationProcessedEventFromListener);
+                        // ORDERING: ReceivedEvent shall be first in line, before InitiationProcessedEvent and MessageEvent.
+                        chai.assert.isUndefined(repliedMessageEvent, "Violated ordering, shall be: {ReceivedEvent, InitiationProcessedEvent {matsSocket.initiations, then listeners}, MessageEvent}: experienced ReceivedEvent AFTER MessageEvent");
+                        chai.assert.equal(matsSocket.initiations.length, 0, "Violated ordering, shall be: {ReceivedEvent, InitiationProcessedEvent {matsSocket.initiations, then listeners}, MessageEvent}: experienced ReceivedEvent AFTER InitiationProcessedEvent (matsSocket.initiations)");
+                        chai.assert.isUndefined(initiationProcessedEventFromListener, "Violated ordering, shall be: {ReceivedEvent, InitiationProcessedEvent {matsSocket.initiations, then listeners}, MessageEvent}: experienced ReceivedEvent AFTER InitiationProcessedEvent (listeners)");
 
                         // The received roundTripTime should be equal to the one in InitiationProcessedEvent
                         receivedRoundTripMillisFromReceived = receivedEvent.roundTripMillis;

@@ -3846,10 +3846,10 @@
             let performanceNow = performance.now();
             initiation.messageAcked_PerformanceNow = performanceNow;
 
-            // ?: Should we issue InitiationProcessedEvent?
+            // ?: Should we issue InitiationProcessedEvent? (SEND is finished processed at ACK time, while REQUEST waits for REPLY)
             if (initiation.envelope.t === MessageType.SEND) {
                 // -> Yes, we should issue - and we do this synchronously, /before/ informing interested parties about ack/nack.
-                _issueMessageProcessedEvent(initiation);
+                _issueInitiationProcessedEvent(initiation);
             }
 
             // NOTICE! We do this SYNCHRONOUSLY, to ensure that we come in front of Request Promise settling (specifically, Promise /rejection/ if NACK).
@@ -3908,7 +3908,7 @@
             }
 
             // Invoke InitiationProcessedEvent listeners (Both adding to matsSocket.initiations and firing of listeners is done sync, thus done before settling).
-            _issueMessageProcessedEvent(request.initiation, request.replyToTerminatorId, event);
+            _issueInitiationProcessedEvent(request.initiation, request.replyToTerminatorId, event);
 
             // ?: Is this a RequestReplyTo, as indicated by the request having a replyToEndpoint?
             if (request.replyToTerminatorId) {
@@ -3953,7 +3953,7 @@
             return Math.round(millis * 100) / 100;
         }
 
-        function _issueMessageProcessedEvent(initiation, replyToTerminatorId = undefined, replyMessageEvent = undefined) {
+        function _issueInitiationProcessedEvent(initiation, replyToTerminatorId = undefined, replyMessageEvent = undefined) {
             let sessionEstablishedOffsetMillis = _roundTiming(initiation.messageSent_PerformanceNow - _initialSessionEstablished_PerformanceNow);
             let acknowledgeRoundTripTime = _roundTiming(initiation.messageAcked_PerformanceNow - initiation.messageSent_PerformanceNow);
             let requestRoundTripTime = (replyMessageEvent ? _roundTiming(performance.now() - initiation.messageSent_PerformanceNow) : undefined);
