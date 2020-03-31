@@ -4018,7 +4018,8 @@
         }
 
         function _issueInitiationProcessedEvent(initiation, replyToTerminatorId = undefined, replyMessageEvent = undefined) {
-            let sessionEstablishedOffsetMillis = _roundTiming(initiation.messageSent_PerformanceNow - _initialSessionEstablished_PerformanceNow);
+            // Handle when initationProcessed /before/ session established: Setting to 0. (Can realistically only happen in testing.)
+            let sessionEstablishedOffsetMillis = (_initialSessionEstablished_PerformanceNow ? _roundTiming(initiation.messageSent_PerformanceNow - _initialSessionEstablished_PerformanceNow) : 0);
             let acknowledgeRoundTripTime = _roundTiming(initiation.messageAcked_PerformanceNow - initiation.messageSent_PerformanceNow);
             let requestRoundTripTime = (replyMessageEvent ? _roundTiming(performance.now() - initiation.messageSent_PerformanceNow) : undefined);
             let replyMessageEventType = (replyMessageEvent ? replyMessageEvent.type : undefined);

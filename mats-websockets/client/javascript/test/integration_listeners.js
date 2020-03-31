@@ -375,7 +375,8 @@
                     chai.assert.equal(init.type, mats.InitiationProcessedEventType.REQUEST_REPLY_TO);
                     chai.assert.equal(init.endpointId, "Test.slow");
                     chai.assert.isTrue(init.sentTimestamp > 1585259649178);
-                    chai.assert.isTrue(init.sessionEstablishedOffsetMillis < 0, "sessionEstablishedOffsetMillis should be negative since sent before WELCOME, was [" + init.sessionEstablishedOffsetMillis + "]");
+                    // Note: Will be zero if session is not established yet.
+                    chai.assert.isTrue(init.sessionEstablishedOffsetMillis <= 0, "sessionEstablishedOffsetMillis should be zero or negative, since sent before WELCOME, was [" + init.sessionEstablishedOffsetMillis + "]");
                     chai.assert.equal(init.traceId, traceId);
                     chai.assert.isTrue(init.acknowledgeRoundTripMillis >= 1); // Should probably take more than 1 ms.
                     chai.assert.strictEqual(init.acknowledgeRoundTripMillis, receivedRoundTripMillisFromReceived);
