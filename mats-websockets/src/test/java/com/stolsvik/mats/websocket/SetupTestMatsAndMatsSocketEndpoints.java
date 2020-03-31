@@ -190,6 +190,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         matsSocketServer.matsSocketEndpoint("Test.slow",
                 MatsDataTO.class, MatsDataTO.class, MatsDataTO.class,
                 (ctx, principal, msg) -> {
+                    log.info("SLEEPING " + msg.sleepIncoming + " ms BEFORE FORWARDING TO MATS!");
                     try {
                         Thread.sleep(msg.sleepIncoming);
                     }

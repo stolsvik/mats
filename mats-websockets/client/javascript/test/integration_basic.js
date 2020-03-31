@@ -623,8 +623,6 @@
 
                 let numberOfListenersInvoked = 0;
                 matsSocket.addErrorEventListener(function (errorEvent) {
-                    console.log(errorEvent.reference);
-                    console.log(errorEvent.referenceAsString);
                     assertErrorEvent(errorEvent);
                     numberOfListenersInvoked++;
                 });

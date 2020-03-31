@@ -2118,7 +2118,7 @@
                     }
 
                     // ?: Do we have a timeout configured?
-                    if (configOrCallback.timeout) {
+                    if (configOrCallback.timeout !== undefined) {
                         // -> Yes, there was a timeout configured - assert that it is a number, then override default.
                         if (typeof (configOrCallback.timeout) !== 'number') {
                             throw new Error("The 'configOrCallback.timeout' is not a number.");
@@ -2219,7 +2219,10 @@
                     if (typeof (config) !== 'object') {
                         throw new Error("The 'config' parameter wasn't an object.");
                     }
-                    if (config.timeout) {
+
+                    // ?: Do we have a timeout configured?
+                    if (config.timeout !== undefined) {
+                        // -> Yes, there was a timeout configured - assert that it is a number, then override default.
                         if (typeof (config.timeout) !== 'number') {
                             throw new Error("The 'config.timeout' is not a number.");
                         }
@@ -2664,24 +2667,45 @@
                     // ?: Was the initiation still present?
                     if (initiation) {
                         // -> Yes, still present, so we have not gotten the ACK/NACK from Server yet, thus NACK it with ReceivedEventType.TIMEOUT
+                        delete _outboxInitiations[thisMessageSequenceId];
                         _completeReceived(ReceivedEventType.TIMEOUT, initiation, Date.now());
                     }
-                    // Complete the Future with MessageEventType.TIMEOUT
-                    /*
-                     * NOTE: Hack: If this is issued with a requestReplyTo, then the Received NACK above is async in
-                     * nature, since a requestReplyTo returns a Promise<ReceivedEvent>. Also, with a requestReplyTo,
-                     * the completing of the requestReplyTo is then done on a Terminator, using its specified callbacks
-                     * - and this is done using setTimeout(.., 0). However, sometimes the integration tests of timeout
-                     * with requestReplyTo fails - due to the Received Promise's reject has NOT gotten run before the
-                     * Terminator's rejectCallback is invoked. (The relationship between Promise settling and
-                     * setTimeout(..,0) is not explicit in the JavaScript specs, evidently).
-                     *   However, we can control that '0' in the parameter to setTimeout(..), so setting it to a bit
-                     * higher here to be pretty sure that the Received Promise has settled before the Terminator's
-                     * rejectCallback is invoked.
-                     *   Remember: Timeouts should rarely happen, so this won't have any material impact on performance.
-                     */
-                    _completeRequest(request, MessageEventType.TIMEOUT, {}, Date.now(), 15);
 
+                    // :: Complete the Request with MessageEventType.TIMEOUT
+
+                    /*
+                     * NOTICE!! HACK-ALERT! The ordering of events wrt. Requests is as such:
+                     * 1. ReceivedEvent (receivedCallback for requests, and Received-Promise for requestReplyTo)
+                     * 2. InitiationProcessedEvent stored on matsSocket.initiations
+                     * 3. InitiationProcessedEvent listeners
+                     * 4. MessageEvent (Reply-Promise for requests, Terminator callbacks for requestReplyTo)
+                     *
+                     * WITH a requestReplyTo, the ReceivedEvent becomes async in nature, since requestReplyTo returns
+                     * a Promise<ReceivedEvent>. Also, with a requestReplyTo, the completing of the requestReplyTo is
+                     * then done on a Terminator, using its specified callbacks - and this is done using
+                     * setTimeout(.., 0) to "emulate" the same async-ness as a Reply-Promise with ordinary requests.
+                     * However, the timing between the ReceivedEvent and InitiationProcessedEvent then becomes
+                     * rather shaky. Therefore, IF the initiation is still in place (ReceivedEvent not yet issued),
+                     * AND this is a requestReplyTo, THEN we delay the completion of the Request (i.e. issue
+                     * InitiationProcessedEvent and MessageEvent) to be more certain that the ReceivedEvent is
+                     * processed before the rest.
+                     */
+                    // ?: Did we still have the initiation in place, AND this is a requestReplyTo?
+                    if (initiation && request.replyToTerminatorId) {
+                        // -> Yes, the initiation was still in place (i.e. ReceivedEvent not issued), and this was
+                        // a requestReplyTo:
+                        // Therefore we delay the entire completion of the request (InitiationProcessedEvent and
+                        // MessageEvent), to be sure that they happen AFTER the ReceivedEvent issued above.
+                        setTimeout(function () {
+                            _completeRequest(request, MessageEventType.TIMEOUT, {}, Date.now());
+                        }, 20);
+                    } else {
+                        // -> No, either the initiation was already gone (ReceivedEvent already issued), OR it was
+                        // not a requestReplyTo:
+                        // Therefore, we run the completion right away (InitiationProcessedEvent is sync, while
+                        // MessageEvent is a Promise settling).
+                        _completeRequest(request, MessageEventType.TIMEOUT, {}, Date.now());
+                    }
                 }, request.timeout);
 
                 // Request state created - store this outstanding Request.
@@ -3667,9 +3691,46 @@
                             continue;
                         }
 
+                        // Ensure that the timeout is killed now. NOTICE: MUST do this here, since we might delay the delivery even more, check crazy stuff below.
+                        clearTimeout(request.timeoutId);
+
                         // Complete the Promise on a REQUEST-with-Promise, or messageCallback/errorCallback on Endpoint for REQUEST-with-ReplyTo
                         let messageEventType = (envelope.t === MessageType.RESOLVE ? MessageEventType.RESOLVE : MessageEventType.REJECT);
-                        _completeRequest(request, messageEventType, envelope, receivedTimestamp);
+
+                        /*
+                         * NOTICE!! HACK-ALERT! The ordering of events wrt. Requests is as such:
+                         * 1. ReceivedEvent (receivedCallback for requests, and Received-Promise for requestReplyTo)
+                         * 2. InitiationProcessedEvent stored on matsSocket.initiations
+                         * 3. InitiationProcessedEvent listeners
+                         * 4. MessageEvent (Reply-Promise for requests, Terminator callbacks for requestReplyTo)
+                         *
+                         * WITH a requestReplyTo, the ReceivedEvent becomes async in nature, since requestReplyTo returns
+                         * a Promise<ReceivedEvent>. Also, with a requestReplyTo, the completing of the requestReplyTo is
+                         * then done on a Terminator, using its specified callbacks - and this is done using
+                         * setTimeout(.., 0) to "emulate" the same async-ness as a Reply-Promise with ordinary requests.
+                         * However, the timing between the ReceivedEvent and InitiationProcessedEvent then becomes
+                         * rather shaky. Therefore, IF the initiation is still in place (ReceivedEvent not yet issued),
+                         * AND this is a requestReplyTo, THEN we delay the completion of the Request (i.e. issue
+                         * InitiationProcessedEvent and MessageEvent) to be more certain that the ReceivedEvent is
+                         * processed before the rest.
+                         */
+                        // ?: Did we still have the initiation in place, AND this is a requestReplyTo?
+                        if (initiation && request.replyToTerminatorId) {
+                            // -> Yes, the initiation was still in place (i.e. ReceivedEvent not issued), and this was
+                            // a requestReplyTo:
+                            // Therefore we delay the entire completion of the request (InitiationProcessedEvent and
+                            // MessageEvent), to be sure that they happen AFTER the ReceivedEvent issued above.
+                            setTimeout(function () {
+                                _completeRequest(request, messageEventType, envelope, receivedTimestamp);
+                            }, 20);
+                        } else {
+                            // -> No, either the initiation was already gone (ReceivedEvent already issued), OR it was
+                            // not a requestReplyTo:
+                            // Therefore, we run the completion right away (InitiationProcessedEvent is sync, while
+                            // MessageEvent is a Promise settling).
+                            _completeRequest(request, messageEventType, envelope, receivedTimestamp);
+                        }
+
 
                     } else if (envelope.t === MessageType.PING) {
                         // -> PING request, respond with a PONG
@@ -3846,12 +3907,6 @@
             let performanceNow = performance.now();
             initiation.messageAcked_PerformanceNow = performanceNow;
 
-            // ?: Should we issue InitiationProcessedEvent? (SEND is finished processed at ACK time, while REQUEST waits for REPLY)
-            if (initiation.envelope.t === MessageType.SEND) {
-                // -> Yes, we should issue - and we do this synchronously, /before/ informing interested parties about ack/nack.
-                _issueInitiationProcessedEvent(initiation);
-            }
-
             // NOTICE! We do this SYNCHRONOUSLY, to ensure that we come in front of Request Promise settling (specifically, Promise /rejection/ if NACK).
             delete _outboxInitiations[initiation.envelope.cmid];
             let receivedEvent = new ReceivedEvent(receivedEventType, initiation.envelope.tid, initiation.sentTimestamp, receivedTimestamp, _roundTiming(performanceNow - initiation.messageSent_PerformanceNow), description);
@@ -3875,6 +3930,15 @@
                     }
                 }
             }
+
+            // ?: Should we issue InitiationProcessedEvent? (SEND is finished processed at ACK time, while REQUEST waits for REPLY)
+            if (initiation.envelope.t === MessageType.SEND) {
+                // -> Yes, we should issue - and to get this in a order where "Received is always invoked before
+                // InitiationProcessedEvents", we'll have to delay it, as the Promise settling above is async)
+                setTimeout(function() {
+                    _issueInitiationProcessedEvent(initiation);
+                }, 10);
+            }
         }
 
         function _createMessageEventForIncoming(envelope, receivedTimestamp) {
@@ -3887,7 +3951,7 @@
             return messageEvent;
         }
 
-        function _completeRequest(request, messageEventType, incomingEnvelope, receivedTimestamp, requestReplyToDelay = 0) {
+        function _completeRequest(request, messageEventType, incomingEnvelope, receivedTimestamp) {
             // We're finishing it now, so it shall not be timed out.
             clearTimeout(request.timeoutId);
 
@@ -3934,7 +3998,7 @@
                             }
                         }
                     }
-                }, requestReplyToDelay);
+                }, 0);
             } else {
                 // -> No, this is a REQUEST-with-Promise (missing (client) EndpointId)
                 // Delete the outstanding request, as we will complete it now.
