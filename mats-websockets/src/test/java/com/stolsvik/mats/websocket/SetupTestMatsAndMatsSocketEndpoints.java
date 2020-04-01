@@ -47,6 +47,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         setupSocket_CloseThisSession(matsSocketServer);
 
         setupSocket_Publish(matsSocketServer);
+
+        setupSocket_MatsSocket_renewAuth(matsSocketServer);
     }
 
     // ===== "Standard Endpoint".
@@ -57,18 +59,18 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         // :: Make default MatsSocket Endpoint
         matsSocketServer.matsSocketEndpoint(STANDARD_ENDPOINT,
                 MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                (ctx, principal, msIncoming) -> {
+                (ctx, principal, msg) -> {
                     log.info("Got MatsSocket request on MatsSocket EndpointId: " +
                             ctx.getMatsSocketEndpointId());
                     log.info(" \\- Authorization: " + ctx.getAuthorizationValue());
                     log.info(" \\- Principal:     " + ctx.getPrincipal());
                     log.info(" \\- UserId:        " + ctx.getUserId());
-                    log.info(" \\- Message:       " + msIncoming);
-                    ctx.forwardCustom(new MatsDataTO(msIncoming.number, msIncoming.string),
-                            msg -> msg.to(ctx.getMatsSocketEndpointId())
+                    log.info(" \\- Message:       " + msg);
+                    ctx.forwardCustom(new MatsDataTO(msg.number, msg.string),
+                            init -> init.to(ctx.getMatsSocketEndpointId())
                                     .interactive()
                                     .nonPersistent()
-                                    .setTraceProperty("requestTimestamp", msIncoming.requestTimestamp));
+                                    .setTraceProperty("requestTimestamp", msg.requestTimestamp));
                 },
                 (ctx, matsReply) -> {
                     log.info("Adapting message: " + matsReply);
@@ -106,7 +108,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         matsSocketServer.matsSocketDirectReplyEndpoint("Test.ignoreInIncomingHandler",
                 MatsSocketRequestDto.class, MatsSocketReplyDto.class,
                 // IGNORE - i.e. do nothing
-                (ctx, principal, msIncoming) -> {
+                (ctx, principal, msg) -> {
                 });
     }
 
@@ -114,7 +116,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         matsSocketServer.matsSocketDirectReplyEndpoint("Test.denyInIncomingHandler",
                 MatsSocketRequestDto.class, MatsSocketReplyDto.class,
                 // DENY
-                (ctx, principal, msIncoming) -> ctx.deny());
+                (ctx, principal, msg) -> ctx.deny());
     }
 
     private static void setupSocket_ResolveInIncoming(MatsSocketServer matsSocketServer) {
@@ -129,15 +131,15 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         matsSocketServer.matsSocketDirectReplyEndpoint("Test.rejectInIncomingHandler",
                 MatsSocketRequestDto.class, MatsSocketReplyDto.class,
                 // REJECT
-                (ctx, principal, msIncoming) -> ctx.reject(
-                        new MatsSocketReplyDto(3, 4, msIncoming.requestTimestamp)));
+                (ctx, principal, msg) -> ctx.reject(
+                        new MatsSocketReplyDto(3, 4, msg.requestTimestamp)));
     }
 
     private static void setupSocket_ThrowsInIncoming(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketDirectReplyEndpoint("Test.throwsInIncomingHandler",
                 MatsSocketRequestDto.class, MatsSocketReplyDto.class,
                 // THROW
-                (ctx, principal, msIncoming) -> {
+                (ctx, principal, msg) -> {
                     throw new IllegalStateException("Exception in IncomingAuthorizationAndAdapter should REJECT");
                 });
     }
@@ -147,8 +149,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setupSocket_IgnoreInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.ignoreInReplyAdapter",
                 MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
-                        msg -> msg.to(STANDARD_ENDPOINT)),
+                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
+                        init -> init.to(STANDARD_ENDPOINT)),
                 // IGNORE - i.e. do nothing
                 (ctx, matsReply) -> {
                 });
@@ -157,8 +159,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setupSocket_ResolveInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.resolveInReplyAdapter",
                 MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
-                        msg -> msg.to(STANDARD_ENDPOINT)),
+                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
+                        init -> init.to(STANDARD_ENDPOINT)),
                 // RESOLVE
                 (ctx, matsReply) -> ctx.resolve(new MatsSocketReplyDto(1, 2, 123)));
     }
@@ -166,8 +168,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setupSocket_RejectInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.rejectInReplyAdapter",
                 MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(2, "string2"),
-                        msg -> msg.to(STANDARD_ENDPOINT)),
+                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(2, "string2"),
+                        init -> init.to(STANDARD_ENDPOINT)),
                 // REJECT
                 (ctx, matsReply) -> ctx.reject(new MatsSocketReplyDto(1, 2, 123)));
     }
@@ -175,8 +177,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setupSocket_ThrowsInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.throwsInReplyAdapter",
                 MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(3, "string3"),
-                        msg -> msg.to(STANDARD_ENDPOINT)),
+                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(3, "string3"),
+                        init -> init.to(STANDARD_ENDPOINT)),
                 // THROW
                 (ctx, matsReply) -> {
                     throw new IllegalStateException("Exception in ReplyAdapter should REJECT.");
@@ -223,12 +225,12 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setup_ServerPush_Send(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
         matsSocketServer.matsSocketTerminator("Test.server.send.matsStage",
                 MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(msIncoming.number,
+                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(msg.number,
                         ctx.getMatsSocketSessionId(), 1), init -> init.to("Test.server.send")));
 
         matsSocketServer.matsSocketTerminator("Test.server.send.thread",
                 MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msIncoming) -> ctx.forwardCustom(new MatsDataTO(msIncoming.number,
+                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(msg.number,
                         ctx.getMatsSocketSessionId(), 2), init -> init.to("Test.server.send")));
 
         // :: Simple endpoint that does a MatsSocketServer.send(..), either inside MatsStage, or in separate thread.
@@ -361,6 +363,24 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                                 42));
                     }, "Send message").start();
                 });
+    }
+
+    private static void setupSocket_MatsSocket_renewAuth(MatsSocketServer matsSocketServer) {
+        matsSocketServer.matsSocketTerminator("Test.renewAuth",
+                MatsDataTO.class, MatsDataTO.class,
+                (ctx, principal, msg) -> matsSocketServer.request(ctx.getMatsSocketSessionId(), ctx.getTraceId(),
+                        "MatsSocket.renewAuth", "", "Test.renewAuth_reply", "123", new byte[] { 1, 2, 3 }));
+
+        matsSocketServer.matsSocketTerminator("Test.renewAuth_reply",
+                MatsDataTO.class, MatsDataTO.class,
+                (ctx, principal, msg) -> {
+                    Assert.assertEquals("123", ctx.getCorrelationString());
+                    Assert.assertArrayEquals(new byte[] { 1, 2, 3 }, ctx.getCorrelationBinary());
+
+                    matsSocketServer.send(ctx.getMatsSocketSessionId(), ctx.getTraceId(),
+                            "Client.renewAuth_terminator", ctx.getAuthorizationValue());
+                });
+
     }
 
     /**

@@ -2315,7 +2315,7 @@
             }
 
             // Close Session and clear all state of this MatsSocket.
-            _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages("From Client: " + reason);
+            _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages();
 
             // :: Out-of-band Session Close
             // ?: Do we have a sessionId?
@@ -2514,6 +2514,22 @@
         let _numberOfInitiationsKept = 10;
         const _initiationProcessedEvents = [];
 
+        // ==== Register "system" endpoints
+
+        _endpoints['MatsSocket.renewAuth'] = function (messageEvent) {
+            return new Promise(function (resolve, _) {
+                // Immediately ask for new Authorization
+                _requestNewAuthorizationFromApp("MatsSocket.renewAuth was invoked", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.REAUTHENTICATE, undefined));
+                // .. then immediately resolve the server side request.
+                // This will add a message to the pipeline, but the pipeline will not be sent until new auth present.
+                // When the new auth comes in, the message will be sent, and resolve on the server side - and new auth
+                // is then "magically" present on the incoming-context.
+                resolve({});
+            });
+        };
+
+        // ==== Implementation ====
+
         function _invokeLater(that) {
             setTimeout(that, 0);
         }
@@ -2568,7 +2584,7 @@
             _webSocket = undefined;
         }
 
-        function _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages(reason) {
+        function _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages() {
             log("closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages(). Current WebSocket:" + _webSocket);
             // Clear state
             delete (that.sessionId);
@@ -2765,14 +2781,14 @@
             // ?: Do we have authorization?!
             if (_authorization === undefined) {
                 // -> No, authorization not present.
-                _requestNewAuthorizationFromApp("not present", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.NOT_PRESENT, undefined));
+                _requestNewAuthorizationFromApp("Authorization not present", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.NOT_PRESENT, undefined));
                 return;
             }
             // ?: Check whether we have expired authorization
             if ((_expirationTimestamp !== undefined) && (_expirationTimestamp !== -1)
                 && ((_expirationTimestamp - _roomForLatencyMillis) < Date.now())) {
                 // -> Yes, authorization is expired.
-                _requestNewAuthorizationFromApp("expired", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.EXPIRED, _expirationTimestamp));
+                _requestNewAuthorizationFromApp("Authorization is expired", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.EXPIRED, _expirationTimestamp));
                 return;
             }
             // ?: Check that we are not already waiting for new auth
@@ -2896,17 +2912,37 @@
             // ?: Have we already asked app for new auth?
             if (_authExpiredCallbackInvoked_EventType) {
                 // -> Yes, so just return.
-                log("Authorization was " + what + ", but we've already asked app for it due to: [" + _authExpiredCallbackInvoked_EventType + "].");
+                log(what + ", but we've already asked app for it due to: [" + _authExpiredCallbackInvoked_EventType + "].");
                 return;
             }
             // E-> No, not asked for auth - so do it.
-            log("Authorization was " + what + ". Will not send pipeline until gotten. Invoking 'authorizationExpiredCallback', type:[" + event.type + "].");
+            log(what + ". Will not send pipeline until gotten. Invoking 'authorizationExpiredCallback', type:[" + event.type + "].");
             // We will have asked for auth after this.
             _authExpiredCallbackInvoked_EventType = event.type;
             // Assert that we have callback
             if (!_authorizationExpiredCallback) {
                 // -> We do not have callback! This is actually disaster.
-                error("missingauthcallback", "Was about to ask app for new Authorization header, but the 'authorizationExpiredCallback' is not present.");
+                let reason = "From Client: Need new authorization, but missing 'authorizationExpiredCallback'. This is fatal, cannot continue.";
+                error("missingauthcallback", reason);
+                // !! We need to close down
+                if (_webSocket) {
+                    // -> Yes, so close WebSocket with MatsSocket-specific CloseCode CLOSE_SESSION 4000.
+                    log(" \\-> WebSocket is open, so we perform in-band Session Close by closing the WebSocket with MatsSocketCloseCode.CLOSE_SESSION (4000).");
+                    // Perform the close
+                    _webSocket.close(MatsSocketCloseCodes.CLOSE_SESSION, reason);
+                }
+                let outstandingInitiations = Object.keys(_outboxInitiations).length;
+                // Close Session and clear all state of this MatsSocket.
+                _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages();
+                // Notify SessionClosedEventListeners - with a fake CloseEvent
+                _notifySessionClosedEventListeners({
+                    type: "close",
+                    code: MatsSocketCloseCodes.VIOLATED_POLICY,
+                    codeName: "VIOLATED_POLICY",
+                    reason: reason,
+                    outstandingInitiations: outstandingInitiations
+                });
+
                 return;
             }
             // E-> We do have 'authorizationExpiredCallback', so ask app for new auth
@@ -3130,7 +3166,7 @@
                     // Cancel the "connection timeout" thingy
                     clearTimeout(countdownId);
                     // Request new auth
-                    _requestNewAuthorizationFromApp("expired", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.EXPIRED, _expirationTimestamp));
+                    _requestNewAuthorizationFromApp("Authorization is expired", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.EXPIRED, _expirationTimestamp));
                     return;
                 }
 
@@ -3280,7 +3316,8 @@
                 // ?: Have we had to many auth failures (in PreConnectOperation) or WebSocket error events upon WebSocket creation?
                 if (_consecutiveAuthFailOrWebSocketErrors >= _maxConsecutiveFailsOrErrors()) {
                     // -> Yes, too much fails or errors - stop nagging server.
-                    if (that.logging) log("Too many consecutive PreConnectOperation fails or WebSocket errors [" + _consecutiveAuthFailOrWebSocketErrors + "].");
+                    let reason = "Trying to create WebSocket: Too many consecutive PreConnectionOperation failures or WebSocket errors [" + _consecutiveAuthFailOrWebSocketErrors + "]";
+                    error("too many consecutive connection attempts", reason);
                     // Hold on to how many outstanding initiations there are now
                     let outstandingInitiations = Object.keys(_outboxInitiations).length;
                     // Abort connecting
@@ -3288,8 +3325,7 @@
                     // Cancel the "reconnect scheduler" thingy.
                     clearTimeout(countdownId);
                     // Close Session
-                    let reason = "Trying to create WebSocket: Too many consecutive PreConnectionOperation failures or WebSocket errors [" + _consecutiveAuthFailOrWebSocketErrors + "]";
-                    _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages(reason);
+                    _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages();
                     // Notify SessionClosedEventListeners - with a fake CloseEvent
                     _notifySessionClosedEventListeners({
                         type: "close",
@@ -3485,7 +3521,7 @@
 
                     } else if (envelope.t === MessageType.REAUTH) {
                         // -> Server asks us to get new Authentication, as the one he has "on hand" is too old to send us outgoing messages
-                        _requestNewAuthorizationFromApp("requested new by server", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.REAUTHENTICATE, undefined));
+                        _requestNewAuthorizationFromApp("Server demands new Authorization", new AuthorizationRequiredEvent(AuthorizationRequiredEventType.REAUTHENTICATE, undefined));
 
 
                     } else if (envelope.t === MessageType.RETRY) {
@@ -3935,7 +3971,7 @@
             if (initiation.envelope.t === MessageType.SEND) {
                 // -> Yes, we should issue - and to get this in a order where "Received is always invoked before
                 // InitiationProcessedEvents", we'll have to delay it, as the Promise settling above is async)
-                setTimeout(function() {
+                setTimeout(function () {
                     _issueInitiationProcessedEvent(initiation);
                 }, 10);
             }

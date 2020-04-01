@@ -652,7 +652,7 @@
             it("Missing AuthenticationCallback should invoke ErrorEvent listeners", function (done) {
                 function assertErrorEvent(errorEvent) {
                     chai.assert.strictEqual(errorEvent.type, "missingauthcallback");
-                    chai.assert.isTrue(errorEvent.message.includes("the 'authorizationExpiredCallback' is not present"));
+                    chai.assert.isTrue(errorEvent.message.includes("missing 'authorizationExpiredCallback'"));
                     chai.assert.isUndefined(errorEvent.reference);
                 }
 
