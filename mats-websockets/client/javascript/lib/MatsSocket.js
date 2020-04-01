@@ -435,14 +435,14 @@
     /**
      * Event object for {@link MatsSocket#addConnectionEventListener(function)}.
      * <p />
-     * <b>Note on timings</b>: {@link ConnectionEvent}s are delivered ASAP. This means that for events that the
+     * <b>Note on event ordering</b>: {@link ConnectionEvent}s are delivered ASAP. This means that for events that the
      * client controls, they are issued <i/>before</i> the operation they describe commences:
-     * {@link ConnectionEventType#CONNECTING CONNECTING} and {@link ConnectionEventType#SESSION_ESTABLISHED
-     * SESSION_ESTABLISHED}. However, for events where the client is "reacting", e.g. when the WebSocket abruptly
-     * closes, they are issued ASAP when the Client gets to know about it: {@link ConnectionEventType#CONNECTED
-      * CONNECTED}, {@link ConnectionEventType#LOST_CONNECTION LOST_CONNECTION},
+     * {@link ConnectionEventType#CONNECTING CONNECTING} and
+     * {@link ConnectionEventType#SESSION_ESTABLISHED SESSION_ESTABLISHED}. However, for events where the client is
+     * "reacting", e.g. when the WebSocket connects, or abruptly closes, they are issued ASAP when the Client gets to know about it:
+     * {@link ConnectionEventType#CONNECTED CONNECTED}, {@link ConnectionEventType#LOST_CONNECTION LOST_CONNECTION},
      * {@link ConnectionEventType#CONNECTION_ERROR CONNECTION_ERROR} and {@link ConnectionEventType#WAITING WAITING}.
-     * For {@link ConnectionEventType#COUNTDOWN}, there is not much to say wrt. timing, other than you won't typically
+     * For {@link ConnectionEventType#COUNTDOWN COUNTDOWN}, there is not much to say wrt. timing, other than you won't typically
      * get a 'countdown'-event with 0 seconds left, as that is when we transition into 'connecting' again. For events
      * that also describe {@link ConnectionState}s, the {@link MatsSocket#state} is updated before the event is fired.
      *
@@ -999,11 +999,10 @@
      * {@link MatsSocket#addInitiationProcessedEventListener()}, and you may get the latest such events from the
      * property {@link MatsSocket#initiations}.
      * <p />
-     * Note on timings:
+     * <b>Note on event ordering</b>:
      * <ul>
-     *     <li>send: An {@link InitiationProcessedEvent} is added to {@link MatsSocket#initiations}, and
-     *         then all {@link InitiationProcessedEvent} listeners are invoked, and both of these are done
-     *         <i>before</i> {@link ReceivedEvent} is issued.</li>
+     *     <li>send: First {@link ReceivedEvent} is issued. Then nn {@link InitiationProcessedEvent} is added to
+     *         {@link MatsSocket#initiations}, and then all {@link InitiationProcessedEvent} listeners are invoked</li>
      *     <li>request/requestReplyTo: First {@link ReceivedEvent} is issued (i.e. ack/nack), then when the reply
      *     comes back to the server, an {@link InitiationProcessedEvent} is added to {@link MatsSocket#initiations}, and
      *     then all {@link InitiationProcessedEvent} listeners are invoked, and finally the {@link MessageEvent} is
@@ -2057,9 +2056,10 @@
          *         more about debug and {@link DebugOption}s there.</li>
          * </ul>
          * <p />
-         * Note on timings: {@link ReceivedEvent}s shall always be delivered <i>before</i> {@link MessageEvent}s. For a
-         * <i>request</i>, any receivedCallback (or ack- or nackCallback) shall be invoked <i>before</i> the
-         * return Reply-Promise will be settled.
+         * <b>Note on event ordering:</b> {@link ReceivedEvent}s shall always be delivered <i>before</i> {@link MessageEvent}s.
+         * This means that for a <i>request</i>, if receivedCallback (or ack- or nackCallback) is provided, it shall be
+         * invoked <i>before</i> the return Reply-Promise will be settled. For more on event ordering wrt. message
+         * processing, read {@link InitiationProcessedEvent}.
          *
          * @param endpointId the Server MatsSocket Endpoint that this message should go to.
          * @param traceId the TraceId for this message - will go through all parts of the call, including the Mats flow.
@@ -2183,9 +2183,10 @@
          *         more about debug and {@link DebugOption}s there.</li>
          * </ul>
          * <p />
-         * Note on timings: {@link ReceivedEvent}s shall always be delivered before {@link MessageEvent}s. For a
-         * <i>requestReplyTo</i>, this means that the returned Received-Promise shall be settled <i>before</i> the
-         * Terminator gets its resolve- or rejectCallback invoked.
+         * <b>Note on event ordering:</b> {@link ReceivedEvent}s shall always be delivered before {@link MessageEvent}s. This means
+         * that for a <i>requestReplyTo</i>, the returned Received-Promise shall be settled <i>before</i> the
+         * Terminator gets its resolve- or rejectCallback invoked. For more on event ordering wrt. message
+         * processing, read {@link InitiationProcessedEvent}.
          *
          * @param endpointId the Server MatsSocket Endpoint that this message should go to.
          * @param traceId the TraceId for this message - will go through all parts of the call, including the Mats flow.
