@@ -4091,7 +4091,8 @@
         function _startPinger() {
             log("Starting PING'er!");
             // Start the pinger with a random 5 +/-2 seconds, in case of mass reconnect.
-            _pingLater(3000 + Math.random() * 4000);
+            // Notice the "magic property" here, used in integration tests
+            _pingLater(that.initialPingDelay ? that.initialPingDelay : 3000 + Math.random() * 4000);
         }
 
         function _stopPinger() {
@@ -4105,7 +4106,7 @@
         let _pinger_TimeoutId;
         let _pingId = 0;
 
-        function _pingLater(timeout) {
+        function _pingLater(initialPingDelay) {
             _pinger_TimeoutId = setTimeout(function () {
                 if (that.logging) log("Ping-'thread': About to send ping. ConnectionState:[" + that.state + "], matsSocketOpen:[" + _matsSocketOpen + "].");
                 if ((that.state === ConnectionState.SESSION_ESTABLISHED) && _matsSocketOpen) {
@@ -4122,7 +4123,7 @@
                 } else {
                     log("Ping-'thread': NOT sending Ping and NOT Rescheduling due to state!=SESSION_ESTABLISHED or !connected - exiting 'thread'.");
                 }
-            }, timeout);
+            }, initialPingDelay);
         }
     }
 

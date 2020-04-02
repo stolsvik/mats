@@ -385,7 +385,7 @@
                 setAuth();
             });
 
-            it("Sends a message to a Server endpoint, which in a Thread closes this session.", function (done) {
+            it("Sends a message to a Server endpoint, which in a Thread closes this session - which should issue a SessionClosedEvent, and the closeEvent.code should be MatsSocketCloseCodes.CLOSE_SESSION.", function (done) {
                 // :: We add a SessionClosedEvent listener, which will be invoked when we MatsSocket endpoint closes us.
                 let sessionClosed = 0;
                 matsSocket.addSessionClosedEventListener(function (closeEvent) {

@@ -40,11 +40,31 @@
             let toClose = matsSocket;
             setTimeout(function () {
                 toClose.close("Test done");
-            }, 500);
+            }, 250);
         });
 
         // TODO: Check ConnectionEventListeners, including matsSocket.state
-        // TODO: Check SessionClosedEventListener
+
+        // ===================================================================================
+        // == NOTE: SessionClosedEventListener is tested in "connect, reconnect and close". ==
+        // ===================================================================================
+
+        describe('PingPing listeners', function () {
+            // Set a valid authorization before each request
+            beforeEach(() => setAuth());
+
+            it('PingPong listener.', function (done) {
+                matsSocket.initialPingDelay = 50;
+                matsSocket.addPingPongListener(function(pingPong) {
+                    chai.assert.equal(pingPong.pingId, 0);
+                    chai.assert.isTrue(pingPong.sentTimestamp > 1585856935097);
+                    chai.assert.isTrue(pingPong.roundTripMillis >= 0);  // Might take 0.4ms, and Firefox will round that to 0.
+                    done();
+                });
+                matsSocket.send("Test.ignoreInIncomingHandler", "PingPong_listener_"+matsSocket.id(6), {});
+            });
+
+        });
 
         describe('InitiationProcessedEvent listeners', function () {
             // Set a valid authorization before each request
