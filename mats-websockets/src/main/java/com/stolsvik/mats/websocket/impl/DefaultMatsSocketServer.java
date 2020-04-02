@@ -14,6 +14,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
@@ -377,6 +379,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     existing._registrationPoint);
         }
         return matsSocketRegistration;
+    }
+
+    @Override
+    public SortedMap<String, MatsSocketEndpoint<?, ?, ?>> getMatsSocketEndpoints() {
+        return new TreeMap<>(_matsSocketEndpointsByMatsSocketEndpointId);
     }
 
     @Override
@@ -871,16 +878,24 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     + "]");
         }
 
-        String getMatsSocketEndpointId() {
+        @Override
+        public String getMatsSocketEndpointId() {
             return _matsSocketEndpointId;
         }
 
-        public Class<I> getMatsSocketIncomingClass() {
+        @Override
+        public Class<I> getIncomingClass() {
             return _msIncomingClass;
         }
 
-        public Class<R> getMatsSocketReplyClass() {
+        @Override
+        public Class<R> getReplyClass() {
             return _msReplyClass;
+        }
+
+        @Override
+        public Class<MR> getMatsReplyClass() {
+            return _matsReplyClass;
         }
 
         IncomingAuthorizationAndAdapter<I, R> getIncomingAuthEval() {

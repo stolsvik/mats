@@ -2,6 +2,7 @@ package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
 import java.util.EnumSet;
+import java.util.SortedMap;
 
 import javax.websocket.CloseReason.CloseCode;
 import javax.websocket.CloseReason.CloseCodes;
@@ -173,7 +174,34 @@ public interface MatsSocketServer {
      *            type of the outgoing MatsSocket message ("Reply")
      */
     interface MatsSocketEndpoint<I, MR, R> {
+        /**
+         * @return the Id of the MatsSocketEndpoint / MatsSocketTerminator (remember, a "Terminator" is just a special
+         *         case of an endpoint, one which does not Reply).
+         */
+        String getMatsSocketEndpointId();
+
+        /**
+         * @return the expected type of incoming messages (coming in over the WebSocket, from the MatsSocket Client).
+         */
+        Class<I> getIncomingClass();
+
+        /**
+         * @return the expected type of Replies from the invoked/forwarded-to Mats endpoint. Will be
+         *         <code>Void.class</code> for Terminators.
+         */
+        Class<MR> getMatsReplyClass();
+
+        /**
+         * @return the type of the Replies from this endpoint, if any (being sent back over the WebSocket, to the
+         *         MatsSocket Client). Will be <code>Void.class</code> for Terminators.
+         */
+        Class<R> getReplyClass();
     }
+
+    /**
+     * @return all registered MatsSocketEndpoints, as a <code>SortedMap[endpointId, endpoint]</code>.
+     */
+    SortedMap<String, MatsSocketEndpoint<?, ?, ?>> getMatsSocketEndpoints();
 
     /**
      * Sends a message to the specified MatsSocketSession, to the specified Client TerminatorId. This is "fire into the

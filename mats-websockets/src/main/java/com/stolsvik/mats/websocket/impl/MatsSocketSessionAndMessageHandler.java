@@ -1452,8 +1452,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 MatsSocketEndpointRegistration<?, ?, ?> registration = registrationO.get();
 
                 // -> Developer-friendliness assert for Client REQUESTs going to a Terminator (which won't ever Reply).
-                if ((type == REQUEST) && ((registration.getMatsSocketReplyClass() == Void.class)
-                        || (registration.getMatsSocketReplyClass() == void.class))) {
+                if ((type == REQUEST) && ((registration.getReplyClass() == Void.class)
+                        || (registration.getReplyClass() == void.class))) {
                     handledEnvelope[0].t = NACK;
                     handledEnvelope[0].desc = "An incoming " + envelope.t
                             + " envelope targeted a MatsSocketEndpoint which is a Terminator, i.e. won't ever reply";
@@ -1467,7 +1467,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
                 // Deserialize the message with the info from the registration
                 Object msg = deserializeIncomingMessage((String) envelope.msg, registration
-                        .getMatsSocketIncomingClass());
+                        .getIncomingClass());
 
                 // :: Actually invoke the IncomingAuthorizationAndAdapter.handleIncoming(..)
                 // .. create the Context
