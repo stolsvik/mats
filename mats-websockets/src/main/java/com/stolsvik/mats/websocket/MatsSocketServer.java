@@ -75,20 +75,20 @@ public interface MatsSocketServer {
      * endpoint before being fed back to the MatsSocket - and also decide whether to resolve or reject the waiting
      * Client Promise.
      */
-    <I, MI, MR, R> MatsSocketEndpoint<I, MI, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter);
+    <I, MR, R> MatsSocketEndpoint<I, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
+            Class<I> msIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
+            IncomingAuthorizationAndAdapter<I, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter);
 
     /**
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Endpoint where there is no replyAdapter -
      * the reply from the Mats endpoint is directly fed back (as "resolved") to the MatsSocket. The Mats Reply class and
      * MatsSocket Reply class is thus the same.
      */
-    default <I, MI, R> MatsSocketEndpoint<I, MI, R, R> matsSocketEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<R> replyClass,
-            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval) {
+    default <I, R> MatsSocketEndpoint<I, R, R> matsSocketEndpoint(String matsSocketEndpointId,
+            Class<I> msIncomingClass, Class<R> replyClass,
+            IncomingAuthorizationAndAdapter<I, R> incomingAuthEval) {
         // Create an endpoint having the MR and R both being the same class, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, matsIncomingClass, replyClass, replyClass,
+        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, replyClass, replyClass,
                 incomingAuthEval, null);
     }
 
@@ -96,11 +96,11 @@ public interface MatsSocketServer {
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Endpoint meant for situations where you
      * intend to reply directly in the {@link IncomingAuthorizationAndAdapter} without forwarding to Mats.
      */
-    default <I, R> MatsSocketEndpoint<I, Void, Void, R> matsSocketDirectReplyEndpoint(String matsSocketEndpointId,
+    default <I, R> MatsSocketEndpoint<I, Void, R> matsSocketDirectReplyEndpoint(String matsSocketEndpointId,
             Class<I> msIncomingClass, Class<R> msReplyClass,
-            IncomingAuthorizationAndAdapter<I, Void, R> incomingAuthEval) {
+            IncomingAuthorizationAndAdapter<I, R> incomingAuthEval) {
         // Create an endpoint having the MI and MR both being Void, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, Void.class, Void.class, msReplyClass,
+        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, Void.class, msReplyClass,
                 incomingAuthEval, null);
     }
 
@@ -109,11 +109,10 @@ public interface MatsSocketServer {
      * "SEND" and "REPLY" (reply to a Server-to-Client
      * {@link #request(String, String, String, Object, String, String, byte[])} request}) operations from the Client.
      */
-    default <I, MI> MatsSocketEndpoint<I, MI, Void, Void> matsSocketTerminator(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<MI> matsIncomingClass,
-            IncomingAuthorizationAndAdapter<I, MI, Void> incomingAuthEval) {
+    default <I> MatsSocketEndpoint<I, Void, Void> matsSocketTerminator(String matsSocketEndpointId,
+            Class<I> msIncomingClass, IncomingAuthorizationAndAdapter<I, Void> incomingAuthEval) {
         // Create an endpoint having the MR and R both being Void, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, matsIncomingClass, Void.class, Void.class,
+        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, Void.class, Void.class,
                 incomingAuthEval, null);
     }
 
@@ -139,8 +138,8 @@ public interface MatsSocketServer {
      * never considered state changing!)
      */
     @FunctionalInterface
-    interface IncomingAuthorizationAndAdapter<I, MI, R> {
-        void handleIncoming(MatsSocketEndpointRequestContext<I, MI, R> ctx, Principal principal, I msg);
+    interface IncomingAuthorizationAndAdapter<I, R> {
+        void handleIncoming(MatsSocketEndpointRequestContext<I, R> ctx, Principal principal, I msg);
     }
 
     /**
@@ -168,14 +167,12 @@ public interface MatsSocketServer {
      *
      * @param <I>
      *            type of the incoming MatsSocket message ("Incoming")
-     * @param <MI>
-     *            type of the forwarded Mats message ("Mats Incoming")
      * @param <MR>
      *            type of the returned Mats message ("Mats Reply")
      * @param <R>
      *            type of the outgoing MatsSocket message ("Reply")
      */
-    interface MatsSocketEndpoint<I, MI, MR, R> {
+    interface MatsSocketEndpoint<I, MR, R> {
     }
 
     /**
@@ -202,7 +199,7 @@ public interface MatsSocketServer {
 
     /**
      * Initiates a request to the specified MatsSocketSession, to the specified Client EndpointId, with a replyTo
-     * specified to (typically) a {@link #matsSocketTerminator(String, Class, Class, IncomingAuthorizationAndAdapter)
+     * specified to (typically) a {@link #matsSocketTerminator(String, Class, IncomingAuthorizationAndAdapter)
      * MatsSocket terminator} - which includes a String "correlationString" and byte array "correlationBinary" which can
      * be used to correlate the reply to the request (available
      * {@link MatsSocketEndpointRequestContext#getCorrelationString() here} and
@@ -238,9 +235,12 @@ public interface MatsSocketServer {
     /**
      * Publish a Message to the specified Topic, with the specified TraceId.
      *
-     * @param traceId traceId for the flow.
-     * @param topicId which Topic to Publish on.
-     * @param messageDto the message to Publish.
+     * @param traceId
+     *            traceId for the flow.
+     * @param topicId
+     *            which Topic to Publish on.
+     * @param messageDto
+     *            the message to Publish.
      */
     void publish(String traceId, String topicId, Object messageDto);
 
@@ -266,7 +266,7 @@ public interface MatsSocketServer {
         String getMatsSocketEndpointId();
     }
 
-    interface MatsSocketEndpointRequestContext<I, MI, R> extends MatsSocketEndpointContext {
+    interface MatsSocketEndpointRequestContext<I, R> extends MatsSocketEndpointContext {
         /**
          * @return current <i>Authorization Value</i> in effect for the MatsSocket that delivered the message. This
          *         String is what resolves to the {@link #getPrincipal() current Principal} and {@link #getUserId()
@@ -363,7 +363,7 @@ public interface MatsSocketServer {
          * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
          * will be a Mats send(..) message.
          */
-        void forwardInteractiveUnreliable(MI matsMessage);
+        void forwardInteractiveUnreliable(Object matsMessage);
 
         /**
          * <b>For requests or sends whose call flow can potentially change state in the system</b>: The "interactive"
@@ -376,7 +376,7 @@ public interface MatsSocketServer {
          * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
          * will be a Mats send(..) message.
          */
-        void forwardInteractivePersistent(MI matsMessage);
+        void forwardInteractivePersistent(Object matsMessage);
 
         /**
          * <b>Customized Mats message creation:</b> Using this method, you can customize how the Mats message will be
@@ -396,7 +396,7 @@ public interface MatsSocketServer {
          *            the {@link InitiateLambda} instance where you can customize the Mats message - read more at
          *            {@link MatsInitiator#initiate(InitiateLambda)}.
          */
-        void forwardCustom(MI matsMessage, InitiateLambda customInit);
+        void forwardCustom(Object matsMessage, InitiateLambda customInit);
 
         /**
          * Using the returned {@link MatsInitiate MatsInitiate} instance, which is the same as the

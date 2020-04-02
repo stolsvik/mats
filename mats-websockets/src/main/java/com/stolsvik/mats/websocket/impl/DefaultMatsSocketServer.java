@@ -266,7 +266,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private final AuthenticationPlugin _authenticationPlugin;
 
     // In-line init
-    private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?, ?>> _matsSocketEndpointsByMatsSocketEndpointId = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?>> _matsSocketEndpointsByMatsSocketEndpointId = new ConcurrentHashMap<>();
     private final Map<String, MatsSocketSessionAndMessageHandler> _activeSessionsByMatsSocketSessionId_x = new LinkedHashMap<>();
 
     private DefaultMatsSocketServer(MatsFactory matsFactory, ClusterStoreAndForward clusterStoreAndForward,
@@ -358,15 +358,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     @Override
-    public <I, MI, MR, R> MatsSocketEndpoint<I, MI, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-            IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter) {
+    public <I, MR, R> MatsSocketEndpoint<I, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
+            Class<I> msIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
+            IncomingAuthorizationAndAdapter<I, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter) {
         // :: Create it
-        MatsSocketEndpointRegistration<I, MI, MR, R> matsSocketRegistration = new MatsSocketEndpointRegistration<>(
-                matsSocketEndpointId, msIncomingClass, matsIncomingClass, matsReplyClass, msReplyClass,
+        MatsSocketEndpointRegistration<I, MR, R> matsSocketRegistration = new MatsSocketEndpointRegistration<>(
+                matsSocketEndpointId, msIncomingClass, matsReplyClass, msReplyClass,
                 incomingAuthEval, replyAdapter);
         // Register it.
-        MatsSocketEndpointRegistration<?, ?, ?, ?> existing = _matsSocketEndpointsByMatsSocketEndpointId.putIfAbsent(
+        MatsSocketEndpointRegistration<?, ?, ?> existing = _matsSocketEndpointsByMatsSocketEndpointId.putIfAbsent(
                 matsSocketEndpointId, matsSocketRegistration);
         // Assert that there was no existing mapping
         if (existing != null) {
@@ -473,7 +473,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     void deregisterMatsSocketSessionFromTopic(String topicId, String connectionId) {
 
-
         // TODO: Deregister upon close or reregister
         // TODO: Deregister upon timeout:
         // 1. When timing out, find the node that had the session, tell it to clean
@@ -549,7 +548,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         subs.values().forEach(session -> session.publishToTopic(msg.topicId, msg.env, msg.msg));
 
     }
-
 
     @Override
     public void closeSession(String matsSocketSessionId) {
@@ -670,11 +668,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         });
     }
 
-    Optional<MatsSocketEndpointRegistration<?, ?, ?, ?>> getMatsSocketEndpointRegistration(String endpointId) {
+    Optional<MatsSocketEndpointRegistration<?, ?, ?>> getMatsSocketEndpointRegistration(String endpointId) {
         if (endpointId == null) {
             throw new NullPointerException("endpointId");
         }
-        MatsSocketEndpointRegistration<?, ?, ?, ?> registration = _matsSocketEndpointsByMatsSocketEndpointId.get(
+        MatsSocketEndpointRegistration<?, ?, ?> registration = _matsSocketEndpointsByMatsSocketEndpointId.get(
                 endpointId);
         return Optional.ofNullable(registration);
     }
@@ -844,30 +842,26 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
      *
      * @param <I>
      *            incoming MatsSocket DTO
-     * @param <MI>
-     *            incoming Mats DTO
      * @param <MR>
      *            reply Mats DTO
      * @param <R>
      *            reply MatsSocket DTO
      */
-    static class MatsSocketEndpointRegistration<I, MI, MR, R> implements MatsSocketEndpoint<I, MI, MR, R> {
+    static class MatsSocketEndpointRegistration<I, MR, R> implements MatsSocketEndpoint<I, MR, R> {
         private final String _matsSocketEndpointId;
         private final Class<I> _msIncomingClass;
-        private final Class<MI> _matsIncomingClass;
         private final Class<MR> _matsReplyClass;
         private final Class<R> _msReplyClass;
-        private final IncomingAuthorizationAndAdapter<I, MI, R> _incomingAuthEval;
+        private final IncomingAuthorizationAndAdapter<I, R> _incomingAuthEval;
         private final ReplyAdapter<MR, R> _replyAdapter;
 
         private final DebugStackTrace _registrationPoint;
 
-        public MatsSocketEndpointRegistration(String matsSocketEndpointId, Class<I> msIncomingClass,
-                Class<MI> matsIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-                IncomingAuthorizationAndAdapter<I, MI, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter) {
+        public MatsSocketEndpointRegistration(String matsSocketEndpointId,
+                Class<I> msIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
+                IncomingAuthorizationAndAdapter<I, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter) {
             _matsSocketEndpointId = matsSocketEndpointId;
             _msIncomingClass = msIncomingClass;
-            _matsIncomingClass = matsIncomingClass;
             _matsReplyClass = matsReplyClass;
             _msReplyClass = msReplyClass;
             _incomingAuthEval = incomingAuthEval;
@@ -889,7 +883,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             return _msReplyClass;
         }
 
-        IncomingAuthorizationAndAdapter<I, MI, R> getIncomingAuthEval() {
+        IncomingAuthorizationAndAdapter<I, R> getIncomingAuthEval() {
             return _incomingAuthEval;
         }
     }
@@ -1128,7 +1122,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         long matsMessageReplyReceivedTimestamp = System.currentTimeMillis();
 
         // Find the MatsSocketEndpoint for this reply
-        Optional<MatsSocketEndpointRegistration<?, ?, ?, ?>> regO = getMatsSocketEndpointRegistration(state.ms_eid);
+        Optional<MatsSocketEndpointRegistration<?, ?, ?>> regO = getMatsSocketEndpointRegistration(state.ms_eid);
         if (!regO.isPresent()) {
             throw new AssertionError("The MatsSocketEndpoint has disappeared since this message was initiated."
                     + " This can literally only happen if the server has been restarted with new code in between the"

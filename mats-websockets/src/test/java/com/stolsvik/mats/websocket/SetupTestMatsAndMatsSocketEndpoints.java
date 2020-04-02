@@ -58,7 +58,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setup_StandardTestSingle(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
         // :: Make default MatsSocket Endpoint
         matsSocketServer.matsSocketEndpoint(STANDARD_ENDPOINT,
-                MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class,
                 (ctx, principal, msg) -> {
                     log.info("Got MatsSocket request on MatsSocket EndpointId: " +
                             ctx.getMatsSocketEndpointId());
@@ -91,7 +91,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setup_SimpleMats(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
         // :: Make "Test.simpleMats" MatsSocket Endpoint
         matsSocketServer.matsSocketEndpoint("Test.simpleMats",
-                MatsDataTO.class, MatsDataTO.class, MatsDataTO.class,
+                MatsDataTO.class, MatsDataTO.class,
                 (ctx, principal, msg) -> ctx.forwardInteractivePersistent(msg));
 
         // :: Make "Test.simpleMats" Endpoint
@@ -148,7 +148,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setupSocket_IgnoreInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.ignoreInReplyAdapter",
-                MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class,
                 (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
                         init -> init.to(STANDARD_ENDPOINT)),
                 // IGNORE - i.e. do nothing
@@ -158,7 +158,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setupSocket_ResolveInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.resolveInReplyAdapter",
-                MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class,
                 (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
                         init -> init.to(STANDARD_ENDPOINT)),
                 // RESOLVE
@@ -167,7 +167,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setupSocket_RejectInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.rejectInReplyAdapter",
-                MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class,
                 (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(2, "string2"),
                         init -> init.to(STANDARD_ENDPOINT)),
                 // REJECT
@@ -176,7 +176,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setupSocket_ThrowsInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.throwsInReplyAdapter",
-                MatsSocketRequestDto.class, MatsDataTO.class, MatsDataTO.class, MatsSocketReplyDto.class,
+                MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class,
                 (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(3, "string3"),
                         init -> init.to(STANDARD_ENDPOINT)),
                 // THROW
@@ -190,7 +190,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setup_TestSlow(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
         // :: Forwards directly to Mats, no replyAdapter
         matsSocketServer.matsSocketEndpoint("Test.slow",
-                MatsDataTO.class, MatsDataTO.class, MatsDataTO.class,
+                MatsDataTO.class, MatsDataTO.class,
                 (ctx, principal, msg) -> {
                     log.info("SLEEPING " + msg.sleepIncoming + " ms BEFORE FORWARDING TO MATS!");
                     try {
@@ -224,13 +224,11 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setup_ServerPush_Send(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
         matsSocketServer.matsSocketTerminator("Test.server.send.matsStage",
-                MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(msg.number,
+                MatsDataTO.class, (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(msg.number,
                         ctx.getMatsSocketSessionId(), 1), init -> init.to("Test.server.send")));
 
         matsSocketServer.matsSocketTerminator("Test.server.send.thread",
-                MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(msg.number,
+                MatsDataTO.class, (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(msg.number,
                         ctx.getMatsSocketSessionId(), 2), init -> init.to("Test.server.send")));
 
         // :: Simple endpoint that does a MatsSocketServer.send(..), either inside MatsStage, or in separate thread.
@@ -256,8 +254,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         // Receives the "start", which starts the cascade - and performs a Server-to-Client Request to Client Endpoint,
         // setting the replyTo to the following MatsSocket endpoint.
         matsSocketServer.matsSocketTerminator("Test.server.request.direct",
-                MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msg) -> {
+                MatsDataTO.class, (ctx, principal, msg) -> {
                     // Send request Server-to-Client, passing the message directly on.
                     // NOTE: Client side will add a bit to it!
                     matsSocketServer.request(ctx.getMatsSocketSessionId(), ctx.getTraceId(),
@@ -268,8 +265,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
         // .. which gets the Reply from Client, and forwards it to the following Mats endpoint
         matsSocketServer.matsSocketTerminator("Test.server.request.replyReceiver.direct",
-                MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msg) -> {
+                MatsDataTO.class, (ctx, principal, msg) -> {
                     // Assert the Correlation information
                     Assert.assertEquals("CorrelationString", ctx.getCorrelationString());
                     Assert.assertArrayEquals("CorrelationBinary".getBytes(StandardCharsets.UTF_8),
@@ -285,7 +281,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setup_ServerPush_Request_Via_Mats(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
         // Receives the "start", which starts the cascade - and forwards to the following Mats endpoint
         matsSocketServer.matsSocketTerminator("Test.server.request.viaMats",
-                MatsDataTO.class, MatsDataTO.class,
+                MatsDataTO.class,
                 // Pass the message directly on
                 (ctx, principal, msg) -> ctx.forwardCustom(msg,
                         init -> init.to("Test.server.requestToClient.viaMats")));
@@ -303,8 +299,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
         // .. which gets the Reply from Client, and forwards it to the following Mats endpoint
         matsSocketServer.matsSocketTerminator("Test.server.request.replyReceiver.viaMats",
-                MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msg) -> {
+                MatsDataTO.class, (ctx, principal, msg) -> {
                     // Assert the Correlation information
                     Assert.assertEquals("CorrelationString", ctx.getCorrelationString());
                     Assert.assertArrayEquals("CorrelationBinary".getBytes(StandardCharsets.UTF_8),
@@ -339,7 +334,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setupSocket_CloseThisSession(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketTerminator("Test.closeThisSession",
-                MatsDataTO.class, Void.class,
+                MatsDataTO.class,
                 // Perform 'server.closeSession(thisSession)' in a new Thread.
                 (ctx, principal, msg) -> {
                     new Thread(() -> {
@@ -356,8 +351,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setupSocket_Publish(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketTerminator("Test.publish",
-                String.class, Void.class,
-                (ctx, principal, msg) -> {
+                String.class, (ctx, principal, msg) -> {
                     new Thread(() -> {
                         matsSocketServer.publish("Test 1 2 3", "Test.topic", new MatsDataTO(Math.PI, "Test from Java!",
                                 42));
@@ -367,13 +361,12 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setupSocket_MatsSocket_renewAuth(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketTerminator("Test.renewAuth",
-                MatsDataTO.class, MatsDataTO.class,
+                MatsDataTO.class,
                 (ctx, principal, msg) -> matsSocketServer.request(ctx.getMatsSocketSessionId(), ctx.getTraceId(),
                         "MatsSocket.renewAuth", "", "Test.renewAuth_reply", "123", new byte[] { 1, 2, 3 }));
 
         matsSocketServer.matsSocketTerminator("Test.renewAuth_reply",
-                MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msg) -> {
+                MatsDataTO.class, (ctx, principal, msg) -> {
                     Assert.assertEquals("123", ctx.getCorrelationString());
                     Assert.assertArrayEquals(new byte[] { 1, 2, 3 }, ctx.getCorrelationBinary());
 
