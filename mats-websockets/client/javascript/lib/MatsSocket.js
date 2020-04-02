@@ -1015,7 +1015,7 @@
      * @param {int} sentTimestamp
      * @param {float} sessionEstablishedOffsetMillis
      * @param {string} traceId
-     * @param {object} initiationMessage
+     * @param {Object} initiationMessage
      * @param {float} acknowledgeRoundTripMillis
      * @param {MessageEventType} replyMessageEventType
      * @param {string} replyToTerminatorId
@@ -1079,7 +1079,7 @@
         /**
          * The message object that was sent with the initiation, i.e. on send(), request() or requestReplyTo()  (outgoing envelope's 'msg').
          *
-         * @type {object}
+         * @type {Object}
          */
         this.initiationMessage = initiationMessage;
 
@@ -1185,29 +1185,27 @@
         this.reference = object;
 
         /**
-         * Makes a string (<b>chopped to max 1024 chars</b>) out of the {@link #reference} Object, which
-         * might be useful if you want to send this back over HTTP - consider
+         * Makes a string (<b>chopped the specified max number of characters, default 1024 chars</b>) out of the
+         * {@link #reference} Object, which might be useful if you want to send this back over HTTP - consider
          * <code>encodeURIComponent(referenceAsString)</code> if you want to send it over the URL. First tries to use
          * <code>JSON.stringify(reference)</code>, failing that, it uses <code>""+reference</code>. Then chops to max
          * 1024, using "..." to denote the chop.
          *
-         * @type {string}.
+         * @param {number} maxLength the max number of characters that will be returned, with any chop denoted by "...".
+         * @returns {string}
          */
-        Object.defineProperty(this, "referenceAsString", {
-            get: function () {
-                let result;
-                try {
-                    result = JSON.stringify(this.reference);
-                } catch (err) {
-                    /* no-op */
-                }
-                if (typeof result !== 'string') {
-                    result = "" + this.reference;
-                }
-                return (result.length > 1024 ? result.substring(0, 1021) + "..." : result);
+        this.referenceAsString = function (maxLength = 1024) {
+            let result;
+            try {
+                result = JSON.stringify(this.reference);
+            } catch (err) {
+                /* no-op */
             }
-        });
-
+            if (typeof result !== 'string') {
+                result = "" + this.reference;
+            }
+            return (result.length > maxLength ? result.substring(0, maxLength - 3) + "..." : result);
+        };
     }
 
 

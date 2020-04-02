@@ -618,7 +618,7 @@
                     chai.assert.equal(errorEvent.type, "notify InitiationProcessedEvent listeners");
                     chai.assert.isTrue(errorEvent.message.includes("InitiationProcessedEvent"));
                     chai.assert.strictEqual(errorEvent.reference, err);
-                    chai.assert.equal(errorEvent.referenceAsString, "{\"error\":\"test error!\",\"test\":\"test again!\"}");
+                    chai.assert.equal(errorEvent.referenceAsString(), "{\"error\":\"test error!\",\"test\":\"test again!\"}");
                 }
 
                 let numberOfListenersInvoked = 0;
