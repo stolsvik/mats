@@ -195,7 +195,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         /**
          * @return the class expected for incoming messages to this endpoint (decided by the first {@link MatsStage}).
          */
-        Class<?> getIncomingMessageClass();
+        Class<?> getIncomingClass();
 
         /**
          * @return a List of {@link MatsStage}s, representing all the stages of the endpoint. The order is the same as

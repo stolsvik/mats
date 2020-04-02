@@ -188,7 +188,7 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
         }
 
         @Override
-        public Class<?> getIncomingMessageClass() {
+        public Class<?> getIncomingClass() {
             return _stages.get(0).getStageConfig().getIncomingMessageClass();
         }
 
