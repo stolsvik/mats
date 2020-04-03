@@ -28,7 +28,6 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 public class Test_TraceProperties extends MatsBasicTest {
     private String _stringProp_service;
     private DataTO _objectProp_service;
-    private String _objectPropAsString_service;
 
     private String _stringProp_terminator;
     private DataTO _objectProp_terminator;
@@ -51,9 +50,6 @@ public class Test_TraceProperties extends MatsBasicTest {
                     _stringProp_service = context.getTraceProperty("stringProp", String.class);
                     // Get the Object prop
                     _objectProp_service = context.getTraceProperty("objectProp", DataTO.class);
-
-                    // Get the Object prop as a String
-                    _objectPropAsString_service = context.getTraceProperty("objectProp", String.class);
 
                     // Add a new Object prop
                     context.setTraceProperty("objectPropFromService", new DataTO(Math.PI, "xyz"));
@@ -132,8 +128,6 @@ public class Test_TraceProperties extends MatsBasicTest {
         // :: Assert all the properties when read from Service
         Assert.assertEquals("xyz", _stringProp_service);
         Assert.assertEquals(new DataTO(Math.E, "abc"), _objectProp_service);
-        Assert.assertEquals("{\"number\":2.718281828459045,\"string\":\"abc\",\"multiplier\":0}",
-                _objectPropAsString_service);
 
         // :: Assert all the properties when read from Terminator
         Assert.assertEquals("xyz", _stringProp_terminator);

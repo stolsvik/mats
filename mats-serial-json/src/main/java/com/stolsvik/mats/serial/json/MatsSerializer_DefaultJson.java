@@ -46,7 +46,7 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  * fields that aren't used in that client scenario, and to handle <i>widening conversions<i> for incoming DTOs), and to
  * use string serialization for dates (and handle the JSR310 new dates):
  * <p>
- * 
+ *
  * <pre>
  * ObjectMapper mapper = new ObjectMapper();
  * mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
@@ -80,7 +80,7 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
     /**
      * Constructs a MatsSerializer, using the specified Compression Level - refer to {@link Deflater}'s constants and
      * levels.
-     * 
+     *
      * @param compressionLevel
      *            the compression level given to {@link Deflater} to use.
      */
@@ -323,9 +323,6 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
         if (object == null) {
             return null;
         }
-        if (object instanceof String) {
-            return (String) object;
-        }
         try {
             return _objectMapper.writeValueAsString(object);
         }
@@ -338,12 +335,6 @@ public class MatsSerializer_DefaultJson implements MatsSerializer<String> {
     public <T> T deserializeObject(String serialized, Class<T> type) {
         if (serialized == null) {
             return null;
-        }
-        if (type == String.class) {
-            // Well, this is certainly pretty obviously correct.
-            @SuppressWarnings("unchecked")
-            T ret = (T) serialized;
-            return ret;
         }
         try {
             return _objectMapper.readValue(serialized, type);
