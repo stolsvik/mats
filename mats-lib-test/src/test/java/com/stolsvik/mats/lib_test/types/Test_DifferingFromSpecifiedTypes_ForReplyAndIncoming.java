@@ -23,6 +23,9 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * DataTO. And then Reply with DataTO, Receiving SubDataTO. Replying with DataTO, Receiving DataTO is the normal case,
  * and is tested many times other places.
  *
+ * @see Test_ReplyClass_Object
+ * @see Test_ServiceInvokedWithDifferentClass
+ *
  * @author Endre Stølsvik - 2016-06-04 - http://endre.stolsvik.com
  */
 public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBasicTest {
@@ -31,7 +34,7 @@ public class Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming extends MatsBa
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
                 (context, dto) -> {
                     if (dto.string.equals("SubDataTO")) {
-                        // Replying with Covariant (i.e. more specialized, narrower) type than specified
+                        // Covariant reply (i.e. more specialized, narrower) type than specified
                         return new SubDataTO(dto.number * 2, dto.string + ":FromService_SubDataTO",
                                 "SubDataTO_Specific");
                     }

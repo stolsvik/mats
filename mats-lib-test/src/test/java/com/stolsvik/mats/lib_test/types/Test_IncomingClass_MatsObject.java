@@ -17,7 +17,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  *
  * @author Endre Stølsvik 2019-08-25 00:49 - http://stolsvik.com/, endre@stolsvik.com
  */
-public class Test_MatsObject extends MatsBasicTest {
+public class Test_IncomingClass_MatsObject extends MatsBasicTest {
     private volatile IllegalArgumentException _exception;
 
     @Before

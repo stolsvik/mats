@@ -10,7 +10,13 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
  * Tests that a Service can be invoked with a different class than it specifies - the "contract" is really the
- * underlying JSON.
+ * underlying JSON, and any coinciding fields between the incoming message and the receiving Endpoints will be set (i.e.
+ * the resulting Incoming object's set fields will be the intersection between the Reply class and the expected Incoming
+ * class). This is barring type clashes - if the Reply specifies 'camels' as an int, while the receiving
+ * endpoint/terminator expects 'camels' to be a List&lt;Camel&gt;, then expect a DLQ.
+ *
+ * @see Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming
+ * @see Test_ReplyClass_Object
  *
  * @author Endre Stølsvik - 2016-06-20 - http://endre.stolsvik.com
  */
