@@ -57,6 +57,7 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredMessage;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.WrongUserException;
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_Authenticated;
@@ -1455,15 +1456,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 if ((type == REQUEST) && ((registration.getReplyClass() == Void.class)
                         || (registration.getReplyClass() == void.class))) {
                     handledEnvelope[0].t = NACK;
-                    handledEnvelope[0].desc = "An incoming " + envelope.t
-                            + " envelope targeted a MatsSocketEndpoint which is a Terminator, i.e. won't ever reply";
+                    handledEnvelope[0].desc = "An incoming REQUEST envelope targeted a MatsSocketEndpoint which is a"
+                            + " Terminator, i.e. it won't ever reply";
                     log.warn("MatsSocketEndpointId targeted by Client REQUEST is a Terminator [" + targetEndpointId
                             + "] for incoming envelope " + envelope);
                     // Return from Mats-initiate lambda - We're done here.
                     return;
                 }
-
-                IncomingAuthorizationAndAdapter incomingAuthEval = registration.getIncomingAuthEval();
 
                 // Deserialize the message with the info from the registration
                 Object msg = deserializeIncomingMessage((String) envelope.msg, registration
@@ -1471,13 +1470,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
                 // :: Actually invoke the IncomingAuthorizationAndAdapter.handleIncoming(..)
                 // .. create the Context
-                MatsSocketEndpointRequestContextImpl<?, ?> requestContext = new MatsSocketEndpointRequestContextImpl(
+                @SuppressWarnings({ "unchecked", "rawtypes" })
+                MatsSocketEndpointRequestContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointRequestContextImpl(
                         _matsSocketServer, registration, _matsSocketSessionId, init, envelope,
                         clientMessageReceivedTimestamp, _authorization, _principal, _userId, _authAllowedDebugOptions,
                         type, correlationString, correlationBinary, msg);
 
                 // .. invoke the incoming handler
-                incomingAuthEval.handleIncoming(requestContext, _principal, msg);
+                invokeHandleIncoming(registration, msg, requestContext);
 
                 // :: Based on the situation in the RequestContext, we return ACK/NACK/RETRY/RESOLVE/REJECT
                 switch (requestContext._handled) {
@@ -1653,6 +1653,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         // This went OK (seen from the "message handled adequately" standpoint, not wrt. ACN/NACK/REJECT or otherwise)
         // Return our produced ACK/NACK/RETRY/RESOLVE/REJECT
         return handledEnvelope[0];
+    }
+
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+    private void invokeHandleIncoming(MatsSocketEndpointRegistration<?, ?, ?> registration, Object msg,
+            MatsSocketEndpointRequestContextImpl<?, ?, ?> requestContext) {
+        IncomingAuthorizationAndAdapter incomingAuthEval = registration.getIncomingAuthEval();
+        incomingAuthEval.handleIncoming(requestContext, _principal, msg);
     }
 
     private void handleSub(List<MatsSocketEnvelopeDto> replyEnvelopes, MatsSocketEnvelopeDto envelope) {
@@ -1890,10 +1897,10 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         FORWARDED
     }
 
-    private static class MatsSocketEndpointRequestContextImpl<I, R> implements
-            MatsSocketEndpointRequestContext<I, R> {
+    private static class MatsSocketEndpointRequestContextImpl<I, MR, R> implements
+            MatsSocketEndpointRequestContext<I, MR, R> {
         private final DefaultMatsSocketServer _matsSocketServer;
-        private final MatsSocketEndpointRegistration _matsSocketEndpointRegistration;
+        private final MatsSocketEndpointRegistration<I, MR, R> _matsSocketEndpointRegistration;
 
         private final String _matsSocketSessionId;
 
@@ -1914,7 +1921,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         private final MessageType _messageType;
 
         public MatsSocketEndpointRequestContextImpl(DefaultMatsSocketServer matsSocketServer,
-                MatsSocketEndpointRegistration matsSocketEndpointRegistration, String matsSocketSessionId,
+                MatsSocketEndpointRegistration<I, MR, R> matsSocketEndpointRegistration, String matsSocketSessionId,
                 MatsInitiate matsInitiate,
                 MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp, String authorization,
                 Principal principal, String userId, EnumSet<DebugOption> allowedDebugOptions,
@@ -1943,8 +1950,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         private Processed _handled = Processed.IGNORED;
 
         @Override
-        public String getMatsSocketEndpointId() {
-            return _envelope.eid;
+        public MatsSocketEndpoint<I, MR, R> getMatsSocketEndpoint() {
+            return _matsSocketEndpointRegistration;
         }
 
         @Override
@@ -2016,7 +2023,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         @Override
         public void forwardInteractiveUnreliable(Object matsMessage) {
             forwardCustom(matsMessage, customInit -> {
-                customInit.to(getMatsSocketEndpointId());
+                customInit.to(getMatsSocketEndpoint().getMatsSocketEndpointId());
                 if (_envelope.to != null) {
                     customInit.nonPersistent(_envelope.to + 5000);
                 }
@@ -2030,7 +2037,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         @Override
         public void forwardInteractivePersistent(Object matsMessage) {
             forwardCustom(matsMessage, customInit -> {
-                customInit.to(getMatsSocketEndpointId());
+                customInit.to(getMatsSocketEndpoint().getMatsSocketEndpointId());
                 customInit.interactive();
             });
         }
@@ -2040,6 +2047,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             if (_handled != Processed.IGNORED) {
                 throw new IllegalStateException("Already handled.");
             }
+
             _handled = Processed.FORWARDED;
 
             MatsInitiate init = _matsInitiate;

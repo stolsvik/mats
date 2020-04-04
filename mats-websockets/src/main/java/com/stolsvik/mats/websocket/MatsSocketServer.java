@@ -8,6 +8,8 @@ import javax.websocket.CloseReason.CloseCode;
 import javax.websocket.CloseReason.CloseCodes;
 
 import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
+import com.stolsvik.mats.MatsEndpoint.MatsObject;
+import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
@@ -75,45 +77,83 @@ public interface MatsSocketServer {
      * Registers a MatsSocket Endpoint, including a {@link ReplyAdapter} which can adapt the reply from the Mats
      * endpoint before being fed back to the MatsSocket - and also decide whether to resolve or reject the waiting
      * Client Promise.
+     * <p />
+     * NOTE: If you supply {@link MatsObject MatsObject} as the type 'MR', you will get such an instance, and can decide
+     * yourself what to deserialize it to - it will be like having a Java method taking Object as argument. However,
+     * there is no "instanceof" functionality, so you will need to know what type of object it is by other means, e.g.
+     * by putting some up-flow information on the Mats {@link ProcessContext ProcessContext} as a
+     * {@link ProcessContext#setTraceProperty(String, Object) TraceProperty}.
+     * <p />
+     * NOTE: You need not be specific with the 'R' type being created in the {@link ReplyAdapter} - it can be any
+     * superclass of your intended Reply DTO(s), up to {@link Object}. However, the introspection aspects will take a
+     * hit, i.e. when listing {@link #getMatsSocketEndpoints() all MatsSocketEndpoints} on some monitoring/introspection
+     * page. This is also a bit like with Java: Methods returning Object as return type are annoying, but can
+     * potentially be of value in certain convoluted scenarios.
      */
     <I, MR, R> MatsSocketEndpoint<I, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-            IncomingAuthorizationAndAdapter<I, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter);
+            Class<I> incomingClass, Class<MR> matsReplyClass, Class<R> replyClass,
+            IncomingAuthorizationAndAdapter<I, MR, R> incomingAuthEval, ReplyAdapter<I, MR, R> replyAdapter);
 
     /**
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Endpoint where there is no replyAdapter -
      * the reply from the Mats endpoint is directly fed back (as "resolved") to the MatsSocket. The Mats Reply class and
      * MatsSocket Reply class is thus the same.
+     * <p />
+     * Types: <code>MR = R</code>
+     * <p />
+     * NOTE: In this case, you cannot specify {@link Object} as the 'R' type - this is due to technical limitations with
+     * how MatsSocket interacts with Mats: You probably have an idea of using a Mats endpoint that "returns Object",
+     * i.e. can return whatever type of DTO it wants, and then feed the output of this directly over as the Reply of the
+     * MatsSocket and over to the Client. However, Mats's and MatsSocket's serialization mechanisms are not the same,
+     * and can potentially be completely different. Therefore, there needs to be an intermediary that deserializes
+     * whatever comes out of Mats, and (re-)serializes this to the MatsSocket Endpoint's Reply. This can EITHER be
+     * accomplished by specifying a specific class, in which case MatsSocket can handle this task itself by asking Mats
+     * to deserialize to this specified type, and then returning the resulting instance as the MatsSocket Endpoint Reply
+     * (which then will be serialized using the MatsSocket serialization mechanism). With this solution, there is no
+     * need for ReplyAdapter, which is the very intent of the present variant of the endpoint-creation methods.
+     * OTHERWISE, this can be accomplished using user-supplied code, i.e. the ReplyAdapter. The MatsSocket endpoint can
+     * then forward to one, or one of several, Mats endpoints that return a Reply of one of a finite set of types. The
+     * ReplyAdapter would then have to choose which type to deserialize the Reply into (using the
+     * {@link MatsObject#toClass(Class)} functionality), and then return the resulting instance (which, again, will be
+     * serialized using the MatsSocket serialization mechanism).
      */
     default <I, R> MatsSocketEndpoint<I, R, R> matsSocketEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<R> replyClass,
-            IncomingAuthorizationAndAdapter<I, R> incomingAuthEval) {
+            Class<I> incomingClass, Class<R> replyClass,
+            IncomingAuthorizationAndAdapter<I, R, R> incomingAuthEval) {
         // Create an endpoint having the MR and R both being the same class, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, replyClass, replyClass,
+        return matsSocketEndpoint(matsSocketEndpointId, incomingClass, replyClass, replyClass,
                 incomingAuthEval, null);
     }
 
     /**
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Endpoint meant for situations where you
      * intend to reply directly in the {@link IncomingAuthorizationAndAdapter} without forwarding to Mats.
+     * <p />
+     * Types: <code>MR = Void</code>
+     * <p />
+     * NOTE: In this case, it is possible to specify 'R' = {@link Object}. This is because you do not intend to
+     * interface with Mats at all, so there is no need for MatsSocket Server to know which type any Mats Reply is.
      */
     default <I, R> MatsSocketEndpoint<I, Void, R> matsSocketDirectReplyEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<R> msReplyClass,
-            IncomingAuthorizationAndAdapter<I, R> incomingAuthEval) {
+            Class<I> incomingClass, Class<R> replyClass,
+            IncomingAuthorizationAndAdapter<I, Void, R> incomingAuthEval) {
         // Create an endpoint having the MI and MR both being Void, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, Void.class, msReplyClass,
+        return matsSocketEndpoint(matsSocketEndpointId, incomingClass, Void.class, replyClass,
                 incomingAuthEval, null);
     }
 
     /**
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Terminator (no reply), specifically for
-     * "SEND" and "REPLY" (reply to a Server-to-Client
+     * Client-to-Server "SEND", and "REPLY" from a Server-to-Client "REQUEST".
+     * <p />
+     * Types: <code>MR = R = Void</code>>
+     *
      * {@link #request(String, String, String, Object, String, String, byte[])} request}) operations from the Client.
      */
     default <I> MatsSocketEndpoint<I, Void, Void> matsSocketTerminator(String matsSocketEndpointId,
-            Class<I> msIncomingClass, IncomingAuthorizationAndAdapter<I, Void> incomingAuthEval) {
+            Class<I> incomingClass, IncomingAuthorizationAndAdapter<I, Void, Void> incomingAuthEval) {
         // Create an endpoint having the MR and R both being Void, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, msIncomingClass, Void.class, Void.class,
+        return matsSocketEndpoint(matsSocketEndpointId, incomingClass, Void.class, Void.class,
                 incomingAuthEval, null);
     }
 
@@ -139,8 +179,8 @@ public interface MatsSocketServer {
      * never considered state changing!)
      */
     @FunctionalInterface
-    interface IncomingAuthorizationAndAdapter<I, R> {
-        void handleIncoming(MatsSocketEndpointRequestContext<I, R> ctx, Principal principal, I msg);
+    interface IncomingAuthorizationAndAdapter<I, MR, R> {
+        void handleIncoming(MatsSocketEndpointRequestContext<I, MR, R> ctx, Principal principal, I msg);
     }
 
     /**
@@ -159,8 +199,8 @@ public interface MatsSocketServer {
      * never considered state changing!)
      */
     @FunctionalInterface
-    interface ReplyAdapter<MR, R> {
-        void adaptReply(MatsSocketEndpointReplyContext<MR, R> ctx, MR matsReply);
+    interface ReplyAdapter<I, MR, R> {
+        void adaptReply(MatsSocketEndpointReplyContext<I, MR, R> ctx, MR matsReply);
     }
 
     /**
@@ -287,14 +327,14 @@ public interface MatsSocketServer {
      */
     void stop(int gracefulShutdownMillis);
 
-    interface MatsSocketEndpointContext {
+    interface MatsSocketEndpointContext<I, MR, R> {
         /**
-         * @return the WebSocket-facing endpoint Id.
+         * @return the {@link MatsSocketEndpoint} for which this context relates - has e.g. the endpointId.
          */
-        String getMatsSocketEndpointId();
+        MatsSocketEndpoint<I, MR, R> getMatsSocketEndpoint();
     }
 
-    interface MatsSocketEndpointRequestContext<I, R> extends MatsSocketEndpointContext {
+    interface MatsSocketEndpointRequestContext<I, MR, R> extends MatsSocketEndpointContext<I, MR, R> {
         /**
          * @return current <i>Authorization Value</i> in effect for the MatsSocket that delivered the message. This
          *         String is what resolves to the {@link #getPrincipal() current Principal} and {@link #getUserId()
@@ -469,11 +509,16 @@ public interface MatsSocketServer {
         void reject(R matsSocketRejectMessage);
     }
 
-    interface MatsSocketEndpointReplyContext<MR, R> extends MatsSocketEndpointContext {
+    interface MatsSocketEndpointReplyContext<I, MR, R> extends MatsSocketEndpointContext<I, MR, R> {
         /**
          * @return the {@link DetachedProcessContext} of the Mats incoming handler.
          */
         DetachedProcessContext getMatsContext();
+
+        /**
+         * @return the reply from Mats, which is to be adapted to the MatsSocketReply.
+         */
+        MR getMatsReplyMessage();
 
         /**
          * Send "Resolve" reply (resolves the client side Promise) to the MatsSocket directly, i.e. without forward to

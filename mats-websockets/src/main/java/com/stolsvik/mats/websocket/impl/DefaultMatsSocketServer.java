@@ -361,11 +361,21 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     @Override
     public <I, MR, R> MatsSocketEndpoint<I, MR, R> matsSocketEndpoint(String matsSocketEndpointId,
-            Class<I> msIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-            IncomingAuthorizationAndAdapter<I, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter) {
+            Class<I> incomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
+            IncomingAuthorizationAndAdapter<I, MR, R> incomingAuthEval, ReplyAdapter<I, MR, R> replyAdapter) {
+
+        // :: Do some asserts on the parameters - some combos do not make sense.
+        if ((matsReplyClass == Object.class) && (msReplyClass == Object.class) && (replyAdapter == null)) {
+            throw new IllegalArgumentException("Having no ReplyAdapter and at the same time specifying Object"
+                    + " as both matsReplyClass and replyClass makes very little sense due to how MatsSocket interacts"
+                    + " with Mats - you will have to consider another approach to accomplish what you want. Read the"
+                    + " JavaDoc of the different MatsSocket endpoint creation methods carefully,"
+                    + " including any 'Notes'!.");
+        }
+
         // :: Create it
         MatsSocketEndpointRegistration<I, MR, R> matsSocketRegistration = new MatsSocketEndpointRegistration<>(
-                matsSocketEndpointId, msIncomingClass, matsReplyClass, msReplyClass,
+                matsSocketEndpointId, incomingClass, matsReplyClass, msReplyClass,
                 incomingAuthEval, replyAdapter);
         // Register it.
         MatsSocketEndpointRegistration<?, ?, ?> existing = _matsSocketEndpointsByMatsSocketEndpointId.putIfAbsent(
@@ -856,21 +866,21 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
      */
     static class MatsSocketEndpointRegistration<I, MR, R> implements MatsSocketEndpoint<I, MR, R> {
         private final String _matsSocketEndpointId;
-        private final Class<I> _msIncomingClass;
+        private final Class<I> _incomingClass;
         private final Class<MR> _matsReplyClass;
-        private final Class<R> _msReplyClass;
-        private final IncomingAuthorizationAndAdapter<I, R> _incomingAuthEval;
-        private final ReplyAdapter<MR, R> _replyAdapter;
+        private final Class<R> _replyClass;
+        private final IncomingAuthorizationAndAdapter<I, MR, R> _incomingAuthEval;
+        private final ReplyAdapter<I, MR, R> _replyAdapter;
 
         private final DebugStackTrace _registrationPoint;
 
         public MatsSocketEndpointRegistration(String matsSocketEndpointId,
-                Class<I> msIncomingClass, Class<MR> matsReplyClass, Class<R> msReplyClass,
-                IncomingAuthorizationAndAdapter<I, R> incomingAuthEval, ReplyAdapter<MR, R> replyAdapter) {
+                Class<I> incomingClass, Class<MR> matsReplyClass, Class<R> replyClass,
+                IncomingAuthorizationAndAdapter<I, MR, R> incomingAuthEval, ReplyAdapter<I, MR, R> replyAdapter) {
             _matsSocketEndpointId = matsSocketEndpointId;
-            _msIncomingClass = msIncomingClass;
+            _incomingClass = incomingClass;
             _matsReplyClass = matsReplyClass;
-            _msReplyClass = msReplyClass;
+            _replyClass = replyClass;
             _incomingAuthEval = incomingAuthEval;
             _replyAdapter = replyAdapter;
 
@@ -885,12 +895,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         @Override
         public Class<I> getIncomingClass() {
-            return _msIncomingClass;
+            return _incomingClass;
         }
 
         @Override
         public Class<R> getReplyClass() {
-            return _msReplyClass;
+            return _replyClass;
         }
 
         @Override
@@ -898,32 +908,49 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             return _matsReplyClass;
         }
 
-        IncomingAuthorizationAndAdapter<I, R> getIncomingAuthEval() {
+        IncomingAuthorizationAndAdapter<I, MR, R> getIncomingAuthEval() {
             return _incomingAuthEval;
+        }
+
+        @Override
+        public String toString() {
+            return "MatsSocketEndpoint{Id='" + _matsSocketEndpointId + '\'' +
+                    ", incoming=" + _incomingClass.getSimpleName() +
+                    ", matsReply=" + _matsReplyClass.getSimpleName() +
+                    ", reply=" + _replyClass.getSimpleName() + '}';
         }
     }
 
-    private static class MatsSocketEndpointReplyContextImpl<MR, R> implements MatsSocketEndpointReplyContext<MR, R> {
-        private final String _matsSocketEndpointId;
+    private static class MatsSocketEndpointReplyContextImpl<I, MR, R> implements
+            MatsSocketEndpointReplyContext<I, MR, R> {
+        private final MatsSocketEndpoint<I, MR, R> _matsSocketEndpoint;
         private final DetachedProcessContext _detachedProcessContext;
+        private final MR _matsReplyMessage;
 
-        public MatsSocketEndpointReplyContextImpl(String matsSocketEndpointId,
-                DetachedProcessContext detachedProcessContext) {
-            _matsSocketEndpointId = matsSocketEndpointId;
+        public MatsSocketEndpointReplyContextImpl(
+                MatsSocketEndpoint<I, MR, R> matsSocketEndpoint,
+                DetachedProcessContext detachedProcessContext, MR matsReplyMessage) {
+            _matsSocketEndpoint = matsSocketEndpoint;
             _detachedProcessContext = detachedProcessContext;
+            _matsReplyMessage = matsReplyMessage;
         }
 
         private R _matsSocketReplyMessage;
         private Processed _handled = Processed.IGNORED;
 
         @Override
-        public String getMatsSocketEndpointId() {
-            return _matsSocketEndpointId;
+        public MatsSocketEndpoint<I, MR, R> getMatsSocketEndpoint() {
+            return _matsSocketEndpoint;
         }
 
         @Override
         public DetachedProcessContext getMatsContext() {
             return _detachedProcessContext;
+        }
+
+        @Override
+        public MR getMatsReplyMessage() {
+            return _matsReplyMessage;
         }
 
         @Override
@@ -1133,7 +1160,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     private void mats_replyHandler(ProcessContext<Void> processContext,
-            ReplyHandleStateDto state, MatsObject incomingMsg) {
+            ReplyHandleStateDto state, MatsObject matsObject) {
         long matsMessageReplyReceivedTimestamp = System.currentTimeMillis();
 
         // Find the MatsSocketEndpoint for this reply
@@ -1143,33 +1170,37 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     + " This can literally only happen if the server has been restarted with new code in between the"
                     + " request and its reply");
         }
-        MatsSocketEndpointRegistration registration = regO.get();
+        MatsSocketEndpointRegistration<?, ?, ?> registration = regO.get();
 
-        Object matsReply = incomingMsg.toClass(registration._matsReplyClass);
+        Object matsReply = registration._matsReplyClass == MatsObject.class
+                ? matsObject
+                : matsObject.toClass(registration._matsReplyClass);
 
-        MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
+        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
         Object msReply;
-        if (registration._replyAdapter != null) {
-            MatsSocketEndpointReplyContextImpl replyContext = new MatsSocketEndpointReplyContextImpl(
-                    registration._matsSocketEndpointId, processContext);
+        ReplyAdapter<?, ?, ?> replyAdapter = registration._replyAdapter;
+        if (replyAdapter != null) {
             try {
-                registration._replyAdapter.adaptReply(replyContext, matsReply);
+                @SuppressWarnings({ "unchecked", "rawtypes" })
+                MatsSocketEndpointReplyContextImpl<?, ?, ?> replyContext = new MatsSocketEndpointReplyContextImpl(
+                        registration, processContext, matsReply);
+                invokeAdaptReply(matsReply, replyAdapter, replyContext);
 
                 switch (replyContext._handled) {
                     case IGNORED:
                         // -> The user did not invoke neither .resolve() nor .reject().
-                        msReplyEnvelope.t = REJECT;
+                        replyEnvelope.t = REJECT;
                         msReply = null;
                         log.info("adaptReply(..) evidently ignored the Mats message. Responding [REJECT].");
                         break;
                     case SETTLED_RESOLVE:
                     case SETTLED_REJECT:
                         // -> The user settled with .resolve() or .reject()
-                        msReplyEnvelope.t = replyContext._handled == Processed.SETTLED_RESOLVE
+                        replyEnvelope.t = replyContext._handled == Processed.SETTLED_RESOLVE
                                 ? RESOLVE
                                 : REJECT;
                         msReply = replyContext._matsSocketReplyMessage;
-                        log.info("adaptReply(..) settled the reply with [" + msReplyEnvelope.t + "]");
+                        log.info("adaptReply(..) settled the reply with [" + replyEnvelope.t + "]");
                         break;
                     default:
                         throw new AssertionError("Unhandled enum value [" + replyContext._handled + "]");
@@ -1178,28 +1209,29 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             catch (RuntimeException rte) {
                 log.warn("adaptReply(..)  raised [" + rte.getClass().getSimpleName() + "], settling with REJECT", rte);
                 msReply = null;
-                // TODO: If debug enabled for authenticated user, set description to full stacktrace.
-                msReplyEnvelope.t = REJECT;
+                replyEnvelope.t = REJECT;
+                // TODO: DEBUG: If debug enabled for authenticated user, set description to full stacktrace.
+                replyEnvelope.desc = rte.getMessage();
             }
         }
-        else if (registration._matsReplyClass == registration._msReplyClass) {
+        else if (registration._matsReplyClass == registration._replyClass) {
             // -> Return same class
             msReply = matsReply;
             log.info("No ReplyAdapter, so replying with RESOLVE.");
-            msReplyEnvelope.t = RESOLVE;
+            replyEnvelope.t = RESOLVE;
         }
         else {
             throw new AssertionError("No adapter present, but the class from Mats ["
                     + registration._matsReplyClass.getName() + "] != the expected reply from MatsSocketEndpoint ["
-                    + registration._msReplyClass.getName() + "].");
+                    + registration._replyClass.getName() + "].");
         }
 
         String serverMessageId = serverMessageId();
 
         // Create Envelope
-        msReplyEnvelope.smid = serverMessageId;
-        msReplyEnvelope.cmid = state.cmid;
-        msReplyEnvelope.tid = processContext.getTraceId(); // TODO: Chop off last ":xyz", as that is added serverside.
+        replyEnvelope.smid = serverMessageId;
+        replyEnvelope.cmid = state.cmid;
+        replyEnvelope.tid = processContext.getTraceId(); // TODO: Chop off last ":xyz", as that is added serverside.
 
         EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(state.resd);
 
@@ -1220,18 +1252,18 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 debug.mmrrnn = getMyNodename(); // The Mats-receiving nodename (this processing)
             }
 
-            msReplyEnvelope.debug = debug;
+            replyEnvelope.debug = debug;
         }
 
         // Serialize and store the envelope for forward ("StoreAndForward")
-        String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
+        String serializedEnvelope = serializeEnvelope(replyEnvelope);
         // Serialize the actual message
         String serializedMessage = serializeMessageObject(msReply);
 
         Optional<CurrentNode> currentNode;
         try {
             currentNode = _clusterStoreAndForward.storeMessageInOutbox(
-                    state.sid, serverMessageId, msReplyEnvelope.cmid, processContext.getTraceId(), msReplyEnvelope.t,
+                    state.sid, serverMessageId, replyEnvelope.cmid, processContext.getTraceId(), replyEnvelope.t,
                     serializedEnvelope, serializedMessage, null);
         }
         catch (DataAccessException e) {
@@ -1240,6 +1272,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
 
         pingLocalOrRemoteNodeAfterMessageStored(state.sid, currentNode, "MatsSocketServer.reply");
+    }
+
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private void invokeAdaptReply(Object matsReply, ReplyAdapter replyAdapter,
+            MatsSocketEndpointReplyContextImpl replyContext) {
+        replyAdapter.adaptReply(replyContext, matsReply);
     }
 
     private void pingLocalOrRemoteNodeAfterMessageStored(String sessionId, Optional<CurrentNode> currentNode,

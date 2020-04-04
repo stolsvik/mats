@@ -61,13 +61,13 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                 MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class,
                 (ctx, principal, msg) -> {
                     log.info("Got MatsSocket request on MatsSocket EndpointId: " +
-                            ctx.getMatsSocketEndpointId());
+                            ctx.getMatsSocketEndpoint());
                     log.info(" \\- Authorization: " + ctx.getAuthorizationValue());
                     log.info(" \\- Principal:     " + ctx.getPrincipal());
                     log.info(" \\- UserId:        " + ctx.getUserId());
                     log.info(" \\- Message:       " + msg);
                     ctx.forwardCustom(new MatsDataTO(msg.number, msg.string),
-                            init -> init.to(ctx.getMatsSocketEndpointId())
+                            init -> init.to(ctx.getMatsSocketEndpoint().getMatsSocketEndpointId())
                                     .interactive()
                                     .nonPersistent()
                                     .setTraceProperty("requestTimestamp", msg.requestTimestamp));

@@ -2713,7 +2713,7 @@
                         // MessageEvent), to be sure that they happen AFTER the ReceivedEvent issued above.
                         setTimeout(function () {
                             _completeRequest(request, MessageEventType.TIMEOUT, {}, Date.now());
-                        }, 20);
+                        }, 50);
                     } else {
                         // -> No, either the initiation was already gone (ReceivedEvent already issued), OR it was
                         // not a requestReplyTo:
@@ -3966,13 +3966,13 @@
                 }
             }
 
-            // ?: Should we issue InitiationProcessedEvent? (SEND is finished processed at ACK time, while REQUEST waits for REPLY)
+            // ?: Should we issue InitiationProcessedEvent? (SEND is finished processed at ACK time, while REQUEST waits for REPLY from server before finished processing)
             if (initiation.envelope.t === MessageType.SEND) {
                 // -> Yes, we should issue - and to get this in a order where "Received is always invoked before
                 // InitiationProcessedEvents", we'll have to delay it, as the Promise settling above is async)
                 setTimeout(function () {
                     _issueInitiationProcessedEvent(initiation);
-                }, 10);
+                }, 50);
             }
         }
 
