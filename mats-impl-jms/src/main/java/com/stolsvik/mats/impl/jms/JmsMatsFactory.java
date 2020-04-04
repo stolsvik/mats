@@ -141,7 +141,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
             Consumer<? super StageConfig<R, Void, I>> stageConfigLambda,
             ProcessSingleLambda<R, I> processor) {
         // Get a normal Staged Endpoint
-        JmsMatsEndpoint<R, Void, Z> endpoint = staged(endpointId, replyClass, Void.class, endpointConfigLambda);
+        JmsMatsEndpoint<R, Void, Z> endpoint = staged(endpointId, replyClass, Void.TYPE, endpointConfigLambda);
         // :: Wrap the ProcessSingleLambda in a single lastStage-ProcessReturnLambda
         endpoint.lastStage(incomingClass, stageConfigLambda,
                 (processContext, state, incomingDto) -> {
@@ -196,7 +196,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
             ProcessTerminatorLambda<S, I> processor) {
         // Need to create the JmsMatsEndpoint ourselves, since we need to set the queue-parameter.
         JmsMatsEndpoint<Void, S, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, queue, stateClass,
-                Void.class);
+                Void.TYPE);
         addCreatedEndpoint(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
         // :: Wrap the ProcessTerminatorLambda in a single stage that does not return.
@@ -255,6 +255,13 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
     }
 
     void assertOkToInstantiateClass(Class<?> clazz, String what, String whatInstance) {
+        // ?: Void is allowed to "instantiate" - as all places where this is attempted, 'null' will be used instead.
+        if (clazz == Void.TYPE) {
+            return;
+        }
+        if (clazz == Void.class) {
+            return;
+        }
         try {
             _matsSerializer.newInstance(clazz);
         }

@@ -604,7 +604,8 @@ public interface MatsInitiator extends Closeable {
          * @param replyClass
          *            the class which the original stage originally would reply with.
          * @param stateClass
-         *            the class which used for state in the original stage (endpoint) - or Void.class if none.
+         *            the class which used for state in the original stage (endpoint) - or <code>Void.TYPE</code> (i.e.
+         *            <code>void.class</code>) if none.
          * @param incomingClass
          *            the class which the original stage gets as incoming DTO.
          * @param lambda

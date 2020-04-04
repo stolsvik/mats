@@ -14,7 +14,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * is returned will be serialized as the type it is, not what was specified (i.e. Object), which the receiver will
  * receive correctly. And that if it returns null, the receiver will return null.
  * <p />
- * <b>NOTE: If the ReplyClass==Void.class, the only thing you can answer is 'null'.</b>
+ * <b>NOTE: If the ReplyClass==Void.TYPE, the only thing you can answer is 'null'.</b>
  *
  * @see Test_DifferingFromSpecifiedTypes_ForReplyAndIncoming
  * @see Test_ServiceInvokedWithDifferentClass

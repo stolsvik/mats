@@ -365,13 +365,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                             }
 
                             // :: Current State: If null, make an empty object instead, unless Void -> null.
-                            Z currentSerializedState = matsTrace.getCurrentState();
-                            S currentSto = (currentSerializedState == null
-                                    ? (_jmsMatsStage.getStateClass() != Void.class
-                                            ? matsSerializer.newInstance(_jmsMatsStage.getStateClass())
-                                            : null)
-                                    : matsSerializer.deserializeObject(currentSerializedState,
-                                            _jmsMatsStage.getStateClass()));
+                            S currentSto = handleIncomingState(matsSerializer, _jmsMatsStage.getStateClass(),
+                                    matsTrace.getCurrentState());
 
                             // :: Incoming Message DTO
                             I incomingDto = handleIncomingMessageMatsObject(matsSerializer,
@@ -505,7 +500,9 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                 chillWait();
             }
         } // END: OUTER RUN-LOOP
+
         // If we exited out while processing, just clean up so that the final line does not look like it came from msg.
+
         MDC.clear();
         // .. but set the "static" values again
         setStaticMdcValues();

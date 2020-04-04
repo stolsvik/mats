@@ -1454,7 +1454,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
                 // -> Developer-friendliness assert for Client REQUESTs going to a Terminator (which won't ever Reply).
                 if ((type == REQUEST) && ((registration.getReplyClass() == Void.class)
-                        || (registration.getReplyClass() == void.class))) {
+                        || (registration.getReplyClass() == Void.TYPE))) {
                     handledEnvelope[0].t = NACK;
                     handledEnvelope[0].desc = "An incoming REQUEST envelope targeted a MatsSocketEndpoint which is a"
                             + " Terminator, i.e. it won't ever reply";

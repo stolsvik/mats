@@ -51,14 +51,14 @@ public @interface MatsEndpointSetup {
      *
      * @return the <em>State Transfer Object</em> class that should be employed for all of the stages for this endpoint.
      */
-    Class<?> state() default Void.class;
+    Class<?> state() default void.class;
 
     /**
      * The Mats <em>Data Transfer Object</em> class that will be returned by the last stage of the staged endpoint.
      *
      * @return the <em>Data Transfer Object</em> class that will be returned by the last stage of the staged endpoint.
      */
-    Class<?> reply() default Void.class;
+    Class<?> reply() default void.class;
 
     /**
      * Specifies the {@link MatsFactory} to use by means of a specific qualifier annotation type (which thus must be

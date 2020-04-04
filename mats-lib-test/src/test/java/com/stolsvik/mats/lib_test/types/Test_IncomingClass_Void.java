@@ -10,7 +10,7 @@ import com.stolsvik.mats.lib_test.StateTO;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
- * Tests an endpoint specifying incomingClass=Void.class - <b>which results in the incoming message always being
+ * Tests an endpoint specifying incomingClass=Void.TYPE - <b>which results in the incoming message always being
  * null</b>, even if it was sent an actual object.
  *
  * @author Endre Stølsvik 2020-04-03 21:12 - http://stolsvik.com/, endre@stolsvik.com
@@ -24,7 +24,7 @@ public class Test_IncomingClass_Void extends MatsBasicTest {
                 (context, sto, msg) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
 
-                    // When accepting Void.class, we get null as message, whatever is sent in.
+                    // When accepting Void.TYPE (i.e. void.class), we get null as message, whatever is sent in.
                     Assert.assertNull(msg);
 
                     matsTestLatch.resolve(sto, new DataTO(sto.number2, "" + sto.number1));

@@ -38,7 +38,7 @@ public interface JmsMatsStatics {
 
     // MDC-values. Using "mats." prefix for the Mats-specific parts of MDC
     // Capitalization of JMSMessageID as they do in the JMS API.
-    String MDC_MATS_STAGE_ID = "mats.StageId";  // "Static" on Processor
+    String MDC_MATS_STAGE_ID = "mats.StageId"; // "Static" on Processor
     String MDC_MATS_PROCESSOR_ID = "mats.ProcessorId"; // "Static" on Processor
     String MDC_MATS_RECEIVED_FROM = "mats.ReceivedFrom"; // Set by Processor when receiving a message
     String MDC_JMS_MESSAGE_ID_IN = "mats.JMSMessageID.In"; // Set by Processor when receiving a message
@@ -53,8 +53,8 @@ public interface JmsMatsStatics {
     String MDC_MATS_MESSAGE_SEND_AUDIT = "mats.MsgSend.Audit"; // Set when producing and sending a message
 
     // JMS Properties put on the JMSMessage via setStringProperty(..) and setBooleanProperty(..).
-    String JMS_MSG_PROP_FROM = "mats.From";  // String
-    String JMS_MSG_PROP_TO = "mats.To";  // String
+    String JMS_MSG_PROP_FROM = "mats.From"; // String
+    String JMS_MSG_PROP_TO = "mats.To"; // String
     String JMS_MSG_PROP_NO_AUDIT = "mats.NoAudit"; // Boolean: true/not set.
     String JMS_MSG_PROP_MATS_MSG_ID = "mats.MatsMsgId"; // String
     String JMS_MSG_PROP_TRACE_ID = "mats.TraceId"; // String
@@ -319,25 +319,57 @@ public interface JmsMatsStatics {
         }
     }
 
+    default <S, Z> S handleIncomingState(MatsSerializer<Z> matsSerializer, Class<S> stateClass, Z data) {
+        // ?: Is the desired class Void.TYPE/void.class (or Void.class for legacy reasons).
+        if ((stateClass == Void.TYPE) || (stateClass == Void.class)) {
+            // -> Yes, so return null (Void can only be null).
+            return null;
+        }
+        // ?: Is the incoming data null?
+        if (data == null) {
+            // -> Yes, so then we return a fresh new State instance
+            return matsSerializer.newInstance(stateClass);
+        }
+        // E-> We have data, and it is not Void - so then deserialize the State
+        return matsSerializer.deserializeObject(data, stateClass);
+    }
+
     default <I, Z> I handleIncomingMessageMatsObject(MatsSerializer<Z> matsSerializer, Class<I> incomingMessageClass,
             Z data) {
-        @SuppressWarnings(value = "unchecked") // We check that I is indeed MatsObject
-        I incomingDto = incomingMessageClass != MatsObject.class
-                ? matsSerializer.deserializeObject(data, incomingMessageClass)
-                : (I) new MatsObject() {
-                    @Override
-                    public <T> T toClass(Class<T> type) throws IllegalArgumentException {
-                        try {
-                            return matsSerializer.deserializeObject(data, type);
-                        }
-                        catch (Throwable t) {
-                            throw new IllegalArgumentException("Could not deserialize the data"
-                                    + " contained in MatsObject to class [" + type.getName()
-                                    + "].");
-                        }
+        // ?: Is the desired class Void.TYPE/void.class (or Void.class for legacy reasons).
+        if (incomingMessageClass == Void.TYPE || incomingMessageClass == Void.class) {
+            // -> Yes, so return null (Void can only be null).
+            // NOTE! The reason for handling this here, not letting Jackson do it, is that Jackson has a bug, IMHO:
+            // https://github.com/FasterXML/jackson-databind/issues/2679
+            return null;
+        }
+        // ?: Is the desired class the special MatsObject?
+        if (incomingMessageClass == MatsObject.class) {
+            // -> Yes, special MatsObject, so return this "deferred deserialization" type.
+            @SuppressWarnings(value = "unchecked") // We've checked that I is indeed MatsObject
+            I ret = (I) new MatsObject() {
+                @Override
+                public <T> T toClass(Class<T> type) throws IllegalArgumentException {
+                    // ?: Is it the special type Void.TYPE?
+                    if (type == Void.TYPE) {
+                        // -> Yes, Void.TYPE, so return null (Void can only be null).
+                        return null;
                     }
-                };
-        return incomingDto;
+                    // E-> No, not VOID, so deserialize.
+                    try {
+                        return matsSerializer.deserializeObject(data, type);
+                    }
+                    catch (Throwable t) {
+                        throw new IllegalArgumentException("Could not deserialize the data"
+                                + " contained in MatsObject to class [" + type.getName()
+                                + "].");
+                    }
+                }
+            };
+            return ret;
+        }
+        // E-> it is not special MatsObject
+        return matsSerializer.deserializeObject(data, incomingMessageClass);
     }
 
     // 62 points in this alphabeth

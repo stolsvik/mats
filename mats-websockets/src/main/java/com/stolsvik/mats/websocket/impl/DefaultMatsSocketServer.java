@@ -305,7 +305,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         // Register NodeControl subscriptionTerminator (node-specific)
         matsFactory.subscriptionTerminator(_subscriptionTerminatorId_Publish,
-                Void.class, PublishedMessageDto.class, this::mats_publish);
+                Void.TYPE, PublishedMessageDto.class, this::mats_publish);
     }
 
     private volatile boolean _stopped = false;

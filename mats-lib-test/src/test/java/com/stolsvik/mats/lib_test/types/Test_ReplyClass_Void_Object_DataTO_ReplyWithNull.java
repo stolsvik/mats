@@ -17,7 +17,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 public class Test_ReplyClass_Void_Object_DataTO_ReplyWithNull extends MatsBasicTest {
     @Before
     public void setupService_ReplyClass_Void() {
-        matsRule.getMatsFactory().single(SERVICE + ".ReplyClass_Void", Void.class, DataTO.class,
+        matsRule.getMatsFactory().single(SERVICE + ".ReplyClass_Void", Void.TYPE, DataTO.class,
                 (context, dto) -> null);
     }
 

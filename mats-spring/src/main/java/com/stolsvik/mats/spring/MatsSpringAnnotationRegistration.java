@@ -509,7 +509,7 @@ public class MatsSpringAnnotationRegistration implements
         // :: Set up the Endpoint
 
         Class<?> dtoType = params[dtoParam].getType();
-        Class<?> stoType = (stoParam == -1 ? Void.class : params[stoParam].getType());
+        Class<?> stoType = (stoParam == -1 ? Void.TYPE : params[stoParam].getType());
 
         // Make the parameters final, since we'll be using them in lambdas
         final int dtoParamF = dtoParam;
@@ -737,7 +737,7 @@ public class MatsSpringAnnotationRegistration implements
                 continue;
             }
             // ?: ASSERT: Does this non-last Stage return something else than void?
-            if (method.getReturnType() != void.class) {
+            if (method.getReturnType() != Void.TYPE) {
                 // -> Yes, returns non-void -> error.
                 throw new MatsSpringConfigException("The Stage with ordinal [" + ordinal
                         + "] of @MatsClassMapping endpoint at class '" + classNameWithoutPackage(bean)
@@ -751,9 +751,9 @@ public class MatsSpringAnnotationRegistration implements
         // :: Find reply type: Get return type of last Stage
 
         Method lastStageMethod = stagesByOrdinal.get(stagesByOrdinal.lastKey());
-        // .. modify replyClass if it is void.class to Void.class.. Nuances.. They matter..
-        Class<?> replyClass = lastStageMethod.getReturnType() == void.class
-                ? Void.class
+        // .. modify replyClass if it is Void.class to void.class.. Nuances.. They matter.. (void.class == Void.TYPE)
+        Class<?> replyClass = lastStageMethod.getReturnType() == Void.class
+                ? void.class
                 : lastStageMethod.getReturnType();
 
         // :: Find request type: Get DTO-type of first Stage
@@ -1445,7 +1445,7 @@ public class MatsSpringAnnotationRegistration implements
         if (clazz == null) {
             return "<null class>";
         }
-        if (clazz == void.class) {
+        if (clazz == Void.TYPE) {
             return "void";
         }
         if (clazz.isPrimitive()) {

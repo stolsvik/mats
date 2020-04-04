@@ -232,7 +232,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                         ctx.getMatsSocketSessionId(), 2), init -> init.to("Test.server.send")));
 
         // :: Simple endpoint that does a MatsSocketServer.send(..), either inside MatsStage, or in separate thread.
-        matsFactory.terminator("Test.server.send", Void.class, MatsDataTO.class,
+        matsFactory.terminator("Test.server.send", Void.TYPE, MatsDataTO.class,
                 (processContext, state, incomingDto) -> {
                     if (incomingDto.sleepTime == 1) {
                         // Fire the sending off directly within the MatsStage, to prove that this is possible.
@@ -287,7 +287,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                         init -> init.to("Test.server.requestToClient.viaMats")));
 
         // .. which initiates a request to Client Endpoint, asking for Reply to go to the following MatsSocket Endpoint
-        matsFactory.terminator("Test.server.requestToClient.viaMats", Void.class, MatsDataTO.class,
+        matsFactory.terminator("Test.server.requestToClient.viaMats", Void.TYPE, MatsDataTO.class,
                 (processContext, state, msg) -> {
                     String matsSocketSessionId = processContext.getString("matsSocketSessionId");
                     matsSocketServer.request(matsSocketSessionId, processContext.getTraceId(),
@@ -312,7 +312,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                 });
 
         // .. which finally sends the Reply back to the Client Terminator.
-        matsFactory.terminator("Test.server.sendReplyBackToClient.viaMats", Void.class, MatsDataTO.class,
+        matsFactory.terminator("Test.server.sendReplyBackToClient.viaMats", Void.TYPE, MatsDataTO.class,
                 (ctx, state, msg) -> {
                     String matsSocketSessionId = ctx.getString("matsSocketSessionId");
                     // Send to Client, add whether it was a RESOLVE or REJECT in the message.

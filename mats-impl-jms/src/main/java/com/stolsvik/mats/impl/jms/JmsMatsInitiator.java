@@ -551,24 +551,18 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     zstartMatsTrace - zstartSystemMessageId - 1, CHARSET_UTF8);
 
             // :Actual MatsTrace:
-            DeserializedMatsTrace<Z> deserializedMatsTrace = _parentFactory.getMatsSerializer()
+            MatsSerializer<Z> matsSerializer = _parentFactory.getMatsSerializer();
+            DeserializedMatsTrace<Z> deserializedMatsTrace = matsSerializer
                     .deserializeMatsTrace(stash, zstartMatsTrace + 1,
                             stash.length - zstartMatsTrace - 1, matsTraceMeta);
             MatsTrace<Z> matsTrace = deserializedMatsTrace.getMatsTrace();
 
             // :: Current State: If null, make an empty object instead, unless Void, which is null.
-            Z currentSerializedState = matsTrace.getCurrentState();
-
-            S currentSto = (currentSerializedState == null
-                    ? (stateClass != Void.class
-                            ? _parentFactory.getMatsSerializer().newInstance(stateClass)
-                            : null)
-                    : _parentFactory.getMatsSerializer().deserializeObject(currentSerializedState, stateClass));
+            S currentSto = handleIncomingState(matsSerializer, stateClass, matsTrace.getCurrentState());
 
             // :: Current Call, incoming Message DTO
             Call<Z> currentCall = matsTrace.getCurrentCall();
-            I incomingDto = handleIncomingMessageMatsObject(_parentFactory.getMatsSerializer(),
-                    incomingClass, currentCall.getData());
+            I incomingDto = handleIncomingMessageMatsObject(matsSerializer, incomingClass, currentCall.getData());
 
             double millisDeserializing = (System.nanoTime() - nanosStart) / 1_000_000d;
 

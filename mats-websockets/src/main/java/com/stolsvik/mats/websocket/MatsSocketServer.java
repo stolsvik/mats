@@ -134,11 +134,11 @@ public interface MatsSocketServer {
      * NOTE: In this case, it is possible to specify 'R' = {@link Object}. This is because you do not intend to
      * interface with Mats at all, so there is no need for MatsSocket Server to know which type any Mats Reply is.
      */
-    default <I, R> MatsSocketEndpoint<I, Void, R> matsSocketDirectReplyEndpoint(String matsSocketEndpointId,
+    default <I, R> MatsSocketEndpoint<I, ?, R> matsSocketDirectReplyEndpoint(String matsSocketEndpointId,
             Class<I> incomingClass, Class<R> replyClass,
             IncomingAuthorizationAndAdapter<I, Void, R> incomingAuthEval) {
         // Create an endpoint having the MI and MR both being Void, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, incomingClass, Void.class, replyClass,
+        return matsSocketEndpoint(matsSocketEndpointId, incomingClass, Void.TYPE, replyClass,
                 incomingAuthEval, null);
     }
 
@@ -153,7 +153,7 @@ public interface MatsSocketServer {
     default <I> MatsSocketEndpoint<I, Void, Void> matsSocketTerminator(String matsSocketEndpointId,
             Class<I> incomingClass, IncomingAuthorizationAndAdapter<I, Void, Void> incomingAuthEval) {
         // Create an endpoint having the MR and R both being Void, and lacking the AdaptReply.
-        return matsSocketEndpoint(matsSocketEndpointId, incomingClass, Void.class, Void.class,
+        return matsSocketEndpoint(matsSocketEndpointId, incomingClass, Void.TYPE, Void.TYPE,
                 incomingAuthEval, null);
     }
 
@@ -227,13 +227,13 @@ public interface MatsSocketServer {
 
         /**
          * @return the expected type of Replies from the invoked/forwarded-to Mats endpoint. Will be
-         *         <code>Void.class</code> for Terminators.
+         *         <code>Void.TYPE</code> (i.e. <code>void.class</code>) for Terminators.
          */
         Class<MR> getMatsReplyClass();
 
         /**
          * @return the type of the Replies from this endpoint, if any (being sent back over the WebSocket, to the
-         *         MatsSocket Client). Will be <code>Void.class</code> for Terminators.
+         *         MatsSocket Client). Will be <code>Void.TYPE</code> (i.e. <code>void.class</code>)  for Terminators.
          */
         Class<R> getReplyClass();
     }

@@ -20,7 +20,7 @@ public class Test_LateFinishSetup_And_WaitForStarted extends MatsBasicTest {
 
     @Before
     public void setupButDontStartTerminator() {
-        _ep = matsRule.getMatsFactory().staged(TERMINATOR, Void.class, StateTO.class);
+        _ep = matsRule.getMatsFactory().staged(TERMINATOR, Void.TYPE, StateTO.class);
         _ep.stage(DataTO.class, (context, sto, dto) -> {
             log.debug("Stage:\n" + context.toString());
             matsTestLatch.resolve(sto, dto);
