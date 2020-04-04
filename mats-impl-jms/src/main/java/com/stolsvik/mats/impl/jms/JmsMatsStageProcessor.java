@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.function.Supplier;
 
 import javax.jms.Destination;
 import javax.jms.JMSException;
@@ -12,6 +13,8 @@ import javax.jms.Message;
 import javax.jms.MessageConsumer;
 import javax.jms.Session;
 
+import com.stolsvik.mats.MatsInitiator.MatsInitiate;
+import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -414,8 +417,15 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                         + " Pretty crazy.", e);
                             }
 
-                            // :: Invoke the process lambda (the actual user code).
                             List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
+                            LinkedHashMap<String, Object> outgoingProps = new LinkedHashMap<>();
+                            Supplier<MatsInitiate> initiateSupplier = () -> new JmsMatsInitiate<>(getFactory(),
+                                    messagesToSend, jmsMatsMessageContext, doAfterCommitRunnableHolder,
+                                    matsTrace, outgoingProps);
+
+                            __stageDemarcatedMatsInitiate.set(initiateSupplier);
+
+                            // :: Invoke the process lambda (the actual user code).
                             JmsMatsProcessContext<R, S, Z> processContext = new JmsMatsProcessContext<>(
                                     getFactory(),
                                     _jmsMatsStage.getParentEndpoint().getEndpointId(),
@@ -425,8 +435,11 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                     matsTraceBytes, 0, matsTraceBytes.length, matsTraceMeta,
                                     matsTrace,
                                     currentSto,
+                                    initiateSupplier,
                                     incomingBinaries, incomingStrings,
-                                    messagesToSend, jmsMatsMessageContext, doAfterCommitRunnableHolder);
+                                    messagesToSend, jmsMatsMessageContext,
+                                    outgoingProps,
+                                    doAfterCommitRunnableHolder);
 
                             _jmsMatsStage.getProcessLambda().process(processContext, currentSto, incomingDto);
 
@@ -441,6 +454,9 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                 + " the MATS TransactionManager (rollback). Looping to fetch next message.");
                         // No more to do, so loop. Notice that this code is not involved in initiations..
                         continue;
+                    }
+                    finally {
+                        __stageDemarcatedMatsInitiate.remove();
                     }
 
                     // :: Handle the DoAfterCommit lambda.
@@ -467,7 +483,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                  * interrupted status of the thread before the throw, therefore any new actions on any JMS object will
                  * insta-throw InterruptedException again. Therefore, we read (and clear) the interrupted flag here,
                  * since we do actually check whether we should act on anything that legitimately could have interrupted
-                 * us: Wake-up from shutdown.
+                 * us: Interrupt for shutdown.
                  */
                 boolean isThreadInterrupted = Thread.interrupted();
                 /*

@@ -525,6 +525,12 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * {@link MatsStage} which this method is invoked within. Also, the traceId and from-endpointId is predefined,
          * but it is still recommended to set the traceId, as that will append the new string on the existing traceId,
          * making log tracking (e.g. when debugging) better.
+         * <p />
+         * <b>IMPORTANT NOTICE!!</b> The {@link MatsInitiator} returned from {@link MatsFactory#getDefaultInitiator()
+         * MatsFactory.getDefaultInitiator()} is "magic" in that when employed from within a Mats Stage's context
+         * (thread), it works exactly as this method: Any initiations performed participates in the Mats Stage's
+         * transactional demarcation. Read more at the JavaDoc of default initiator's
+         * {@link MatsFactory#getDefaultInitiator() JavaDoc}..
          *
          * @param lambda
          *            provides the {@link MatsInitiate} instance on which to create the message to be sent.

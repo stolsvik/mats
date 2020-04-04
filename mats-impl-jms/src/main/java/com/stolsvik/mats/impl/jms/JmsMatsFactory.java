@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -208,7 +209,68 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
 
     @Override
     public MatsInitiator getDefaultInitiator() {
-        return getOrCreateInitiator("default");
+        final MatsInitiator initiator = getOrCreateInitiator("default");
+
+        return new MatsInitiator() {
+            @Override
+            public String getName() {
+                return "default";
+            }
+
+            @Override
+            public void initiate(InitiateLambda lambda) throws MatsMessageSendException, MatsBackendException {
+                Supplier<MatsInitiate> initiateSupplier = __stageDemarcatedMatsInitiate.get();
+                // ?: Are we within a MatsStage?
+                if (initiateSupplier != null) {
+                    // -> Evidently within a MatsStage, so use the ThreadLocal MatsInitiate.
+                    lambda.initiate(initiateSupplier.get());
+                }
+                else {
+                    // -> No, not within a MatsStage, so use the proper MatsInitiate.
+                    initiator.initiate(lambda);
+                }
+            }
+
+            @Override
+            public void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
+                    MatsMessageSendRuntimeException {
+                Supplier<MatsInitiate> initiateSupplier = __stageDemarcatedMatsInitiate.get();
+                // ?: Are we within a MatsStage?
+                if (initiateSupplier != null) {
+                    // -> Evidently within a MatsStage, so use the ThreadLocal MatsInitiate.
+                    lambda.initiate(initiateSupplier.get());
+                }
+                else {
+                    // -> No, not within a MatsStage, so use the proper MatsInitiate.
+                    initiator.initiateUnchecked(lambda);
+                }
+            }
+
+            @Override
+            public void close() {
+                Supplier<MatsInitiate> initiateSupplier = __stageDemarcatedMatsInitiate.get();
+                // ?: Are we within a MatsStage?
+                if (initiateSupplier != null) {
+                    // -> Evidently within a MatsStage, so point this out pretty harshly.
+                    throw new IllegalStateException("This is the MatsFactory.getDefaultInitiator(), but it was gotten"
+                            + " within a Mats Stage demarcation, and is thus a ThreadLocal Stage-specific wrapper"
+                            + " around ProcessContext.initiate(..). It as such makes absolutely NO SENSE that you"
+                            + " would want to close it: You've gotten the default MatsInitiator, you are within a"
+                            + " Mats Stage context, and then you invoke .close() on it?!");
+                }
+                else {
+                    // -> No, not within a MatsStage, so forward close call.
+                    initiator.close();
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "[Mats-stage transactional demarcation wrapper of MatsFactory.getDefaultInitiator()@" + Integer
+                        .toHexString(System.identityHashCode(this)) + ", wrapped MatsInitiator for use when not"
+                        + " within MatsStage: " + initiator.toString() + "]";
+            }
+        };
     }
 
     @Override

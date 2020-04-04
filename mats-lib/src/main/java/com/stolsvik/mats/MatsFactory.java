@@ -251,13 +251,35 @@ public interface MatsFactory extends StartStoppable {
      * Gets or creates the default Initiator (whose name is 'default') from which to initiate new Mats processes, i.e.
      * send a message from "outside of Mats" to a Mats endpoint - <b>NOTICE: This is an active object that can carry
      * backend resources, and it is Thread Safe: You are not supposed to create one instance per message you send!</b>
-     * <p/>
-     * <b>Observe again: The returned MatsInitiator is Thread Safe, and meant for reuse: You are <em>not</em> supposed
-     * to create one instance of {@link MatsInitiator} per message you need to send, and then close it afterwards -
-     * rather either create one for the entire application, or e.g. for each component:</b> The {@code MatsInitiator}
-     * can have underlying backend resources attached to it - which also means that it needs to be
-     * {@link MatsInitiator#close() closed} for a clean application shutdown (Note that all MatsInitiators are closed
-     * when {@link #stop(int) MatsFactory.stop()} is invoked).
+     * <p />
+     * <b>IMPORTANT NOTICE!!</b> The MatsInitiator returned from this specific method is special when used within a Mats
+     * Stage's context (i.e. the Thread running a Mats Stage): Any initiations performed with it within a Mats Stage
+     * will have the same transactional demarcation as an initiation performed using
+     * {@link ProcessContext#initiate(InitiateLambda) ProcessContext.initiate(..)}. The idea here is that you thus can
+     * create methods that both can be used from the outside of a Mats Stage (thus resulting in an ordinary initiation),
+     * but if the same method is invoked within a Mats Stage, the initiation will partake in the same transactional
+     * demarcation as the rest of what happens within that Mats Stage. Note that you get a bit strange semantics wrt.
+     * the exceptions that {@link MatsInitiator#initiate(InitiateLambda) MatsInitiator.initiate(..)} and
+     * {@link MatsInitiator#initiateUnchecked(InitiateLambda) MatsInitiator.initiateUnchecked(..)} raises: Outside of a
+     * Mats Stage, they can throw in the given situations those exceptions describe. However, within a Mats Stage, they
+     * will never throw those exceptions, since the actual initiation is not performed until the Mats Stage exits. But,
+     * if you want to make such a dual mode method that can be employed both outside and within a Mats Stage, you should
+     * code for the "Outside" mode, handling those Exceptions as you would in an ordinary initiation.
+     * <p />
+     * If you would really NOT want this - i.e. you for some reason want the initiation performed within the stage to
+     * execute even though the Mats Stage fails - you may use {@link #getOrCreateInitiator(String)}, and you can even
+     * request the same underlying default initiator by just supplying that method with the argument "default". Please,
+     * however, make sure you understand the quite heavy consequence of this: If the Mats Stage throws, the
+     * retry-mechanism will kick in, running the Mats Stage one more time, and you will thus potentially send that
+     * message many times - one time per retry - since such an initiation with a NON-default MatsInitiator is
+     * specifically not part of the transactional demarcation.
+     * <p />
+     * <b>Just to ensure that this point comes across: The returned MatsInitiator is Thread Safe, and meant for reuse:
+     * You are <em>not</em> supposed to create one instance of {@link MatsInitiator} per message you need to send, and
+     * then close it afterwards - rather either create one for the entire application, or e.g. for each component:</b>
+     * The {@code MatsInitiator} can have underlying backend resources attached to it - which also means that it needs
+     * to be {@link MatsInitiator#close() closed} for a clean application shutdown (Note that all MatsInitiators are
+     * closed when {@link #stop(int) MatsFactory.stop()} is invoked).
      *
      * @return the default <code>MatsInitiator</code>, whose name is 'default', on which messages can be
      *         {@link MatsInitiator#initiate(InitiateLambda) initiated}.
@@ -268,17 +290,20 @@ public interface MatsFactory extends StartStoppable {
      * Gets or creates a new Initiator from which to initiate new Mats processes, i.e. send a message from "outside of
      * Mats" to a Mats endpoint - <b>NOTICE: This is an active object that can carry backend resources, and it is Thread
      * Safe: You are not supposed to create one instance per message you send!</b>
-     * <p/>
+     * <p />
      * A reason for wanting to make more than one {@link MatsInitiator} could be that each initiator might have its own
      * connection to the underlying message broker. You also might want to name the initiators based on what part of the
      * application uses it.
-     * <p/>
-     * <b>Observe again: The returned MatsInitiator is Thread Safe, and meant for reuse: You are <em>not</em> supposed
-     * to create one instance of {@link MatsInitiator} per message you need to send, and then close it afterwards -
-     * rather either create one for the entire application, or e.g. for each component:</b> The {@code MatsInitiator}
-     * can have underlying backend resources attached to it - which also means that it needs to be
-     * {@link MatsInitiator#close() closed} for a clean application shutdown (Note that all MatsInitiators are closed
-     * when {@link #stop(int) MatsFactory.stop()} is invoked).
+     * <p />
+     * <b>IMPORTANT NOTICE!!</b> Please read the JavaDoc of {@link #getDefaultInitiator()} for important information
+     * wrt. transactional demarcation when employing a NON-default MatsInitiator <i>within a Mats Stage</i>.
+     * <p />
+     * <b>Just to ensure that this point comes across: The returned MatsInitiator is Thread Safe, and meant for reuse:
+     * You are <em>not</em> supposed to create one instance of {@link MatsInitiator} per message you need to send, and
+     * then close it afterwards - rather either create one for the entire application, or e.g. for each component:</b>
+     * The {@code MatsInitiator} can have underlying backend resources attached to it - which also means that it needs
+     * to be {@link MatsInitiator#close() closed} for a clean application shutdown (Note that all MatsInitiators are
+     * closed when {@link #stop(int) MatsFactory.stop()} is invoked).
      *
      * @return a {@link MatsInitiator}, on which messages can be {@link MatsInitiator#initiate(InitiateLambda)
      *         initiated}.

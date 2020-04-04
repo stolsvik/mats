@@ -5,19 +5,20 @@ import java.sql.Connection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
-import com.stolsvik.mats.serial.MatsTrace.Call;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
+import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsInitiator.MessageReference;
 import com.stolsvik.mats.MatsStage;
-import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MessageReferenceImpl;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
+import com.stolsvik.mats.serial.MatsTrace.Call;
 import com.stolsvik.mats.serial.MatsTrace.Call.Channel;
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
 
@@ -46,9 +47,12 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     private final LinkedHashMap<String, byte[]> _incomingBinaries;
     private final LinkedHashMap<String, String> _incomingStrings;
     private final S _incomingAndOutgoingState;
+    private final Supplier<MatsInitiate> _initiateSupplier;
     private final List<JmsMatsMessage<Z>> _messagesToSend;
     private final JmsMatsMessageContext _jmsMatsMessageContext;
     private final DoAfterCommitRunnableHolder _doAfterCommitRunnableHolder;
+
+    private final LinkedHashMap<String, Object> _outgoingProps;
 
     JmsMatsProcessContext(JmsMatsFactory<Z> parentFactory,
             String endpointId,
@@ -58,9 +62,11 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
             byte[] incomingSerializedMatsTrace, int mtSerOffset, int mtSerLength,
             String incomingSerializedMatsTraceMeta,
             MatsTrace<Z> incomingMatsTrace, S incomingAndOutgoingState,
+            Supplier<MatsInitiate> initiateSupplier,
             LinkedHashMap<String, byte[]> incomingBinaries, LinkedHashMap<String, String> incomingStrings,
             List<JmsMatsMessage<Z>> out_messagesToSend,
             JmsMatsMessageContext jmsMatsMessageContext,
+            LinkedHashMap<String, Object> outgoingProps,
             DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
         _parentFactory = parentFactory;
 
@@ -77,8 +83,10 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         _incomingBinaries = incomingBinaries;
         _incomingStrings = incomingStrings;
         _incomingAndOutgoingState = incomingAndOutgoingState;
+        _initiateSupplier = initiateSupplier;
         _messagesToSend = out_messagesToSend;
         _jmsMatsMessageContext = jmsMatsMessageContext;
+        _outgoingProps = outgoingProps;
         _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
     }
 
@@ -99,7 +107,6 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         }
     }
 
-    private final LinkedHashMap<String, Object> _outgoingProps = new LinkedHashMap<>();
     private final LinkedHashMap<String, byte[]> _outgoingBinaries = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> _outgoingStrings = new LinkedHashMap<>();
 
@@ -390,8 +397,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     @Override
     public void initiate(InitiateLambda lambda) {
-        lambda.initiate(new JmsMatsInitiate<>(_parentFactory, _messagesToSend, _jmsMatsMessageContext, _doAfterCommitRunnableHolder,
-                _incomingMatsTrace, _outgoingProps));
+        lambda.initiate(_initiateSupplier.get());
     }
 
     @Override

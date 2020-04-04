@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -572,9 +573,16 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     + "], NextStageId:[" + nextStageId + "] - deserializing took ["
                     + millisDeserializing + " ms]");
 
+            LinkedHashMap<String, Object> outgoingProps = new LinkedHashMap<>();
+            Supplier<MatsInitiate> initiateSupplier = () -> new JmsMatsInitiate<>(_parentFactory,
+                    _messagesToSend, _jmsMatsMessageContext, _doAfterCommitRunnableHolder,
+                    matsTrace, outgoingProps);
+
+            __stageDemarcatedMatsInitiate.set(initiateSupplier);
+
             // :: Invoke the process lambda (the actual user code).
             try {
-                lambda.process(new JmsMatsProcessContext<>(
+                JmsMatsProcessContext<R, S, Z> processContext = new JmsMatsProcessContext<>(
                         _parentFactory,
                         endpointId,
                         stageId,
@@ -582,14 +590,20 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                         nextStageId,
                         stash, zstartMatsTrace + 1, stash.length - zstartMatsTrace - 1,
                         matsTraceMeta, matsTrace,
-                        currentSto, new LinkedHashMap<>(), new LinkedHashMap<>(),
-                        _messagesToSend, _jmsMatsMessageContext, _doAfterCommitRunnableHolder),
-                        currentSto, incomingDto);
+                        currentSto, initiateSupplier,
+                        new LinkedHashMap<>(), new LinkedHashMap<>(),
+                        _messagesToSend, _jmsMatsMessageContext,
+                        outgoingProps,
+                        _doAfterCommitRunnableHolder);
+                lambda.process(processContext, currentSto, incomingDto);
             }
             catch (MatsRefuseMessageException e) {
                 throw new IllegalStateException("Cannot throw MatsRefuseMessageException when unstash()'ing!"
                         + " You should have done that when you first received the message, before"
                         + " stash()'ing it.", e);
+            }
+            finally {
+                __stageDemarcatedMatsInitiate.remove();
             }
 
             // No need to reset() here, as we've not touched the _from, _to, etc..

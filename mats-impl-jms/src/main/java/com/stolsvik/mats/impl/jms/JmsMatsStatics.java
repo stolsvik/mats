@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
 
 import javax.jms.DeliveryMode;
 import javax.jms.Destination;
@@ -13,6 +14,7 @@ import javax.jms.MapMessage;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 
+import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import org.slf4j.Logger;
 import org.slf4j.MDC;
 
@@ -437,4 +439,6 @@ public interface JmsMatsStatics {
     default double ms3(double ms) {
         return Math.round(ms * 1000d) / 1000d;
     }
+
+    ThreadLocal<Supplier<MatsInitiate>> __stageDemarcatedMatsInitiate = new ThreadLocal<>();
 }
