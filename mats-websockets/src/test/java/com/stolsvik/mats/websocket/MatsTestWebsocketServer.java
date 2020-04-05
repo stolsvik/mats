@@ -250,7 +250,7 @@ public class MatsTestWebsocketServer {
             String sessonId = req.getParameter("session_id");
             MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext().getAttribute(
                     MatsSocketServer.class.getName());
-            matsSocketServer.closeSession(sessonId);
+            matsSocketServer.closeSession(sessonId, "Out-of-band close_session");
         }
     }
 

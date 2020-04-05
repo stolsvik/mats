@@ -166,9 +166,9 @@ public interface MatsSocketServer {
      * that the type for the incoming MatsSocket message and the type of the incoming Mats message seldom will be
      * identical.
      * <p/>
-     * <b>Note / Warning: Do remember that the MatsSocket is live connected directly to the Internet and ANY data coming in as the
-     * incoming message can be utter garbage, or worse, methodically designed to hack your system! Act and code
-     * accordingly!</b>
+     * <b>Note / Warning: Do remember that the MatsSocket is live connected directly to the Internet and ANY data coming
+     * in as the incoming message can be utter garbage, or worse, methodically designed to hack your system! Act and
+     * code accordingly!</b>
      * <p/>
      * <b>Note: This should <i>preferentially</i> only be pure and quick Java code, without much database access or
      * lengthy computations</b> - such things should happen in the Mats stages. You hold up the incoming WebSocket
@@ -321,8 +321,10 @@ public interface MatsSocketServer {
      *
      * @param sessionId
      *            the id of the Session to close.
+     * @param reason
+     *            a short descriptive String of why it was closed.
      */
-    void closeSession(String sessionId);
+    void closeSession(String sessionId, String reason);
 
     /**
      * Closes all WebSockets with {@link CloseCodes#SERVICE_RESTART} (assuming that a MatsSocket service will never

@@ -27,6 +27,7 @@ import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import javax.websocket.MessageHandler.Whole;
 import javax.websocket.RemoteEndpoint.Basic;
@@ -98,23 +99,28 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     private String _clientLibAndVersion;
     private String _appNameAndVersion;
 
-    // SYNC: All Auth-fields are only modified and read while holding sync on _sessionAuthenticator.
+    // SYNC: All Auth-fields are only modified while holding sync on _sessionAuthenticator, read by WebSocket threads.
     private String _authorization; // nulled upon close
     private Principal _principal; // nulled upon close
     private String _userId; // nulled upon close
 
     private EnumSet<DebugOption> _authAllowedDebugOptions;
-    // CONCURRENCY: Set by this class, read by Forwarder.
+    // CONCURRENCY: Set by WebSocket threads, read by Forwarder.
     private volatile EnumSet<DebugOption> _currentResolvedServerToClientDebugOptions = EnumSet.noneOf(
             DebugOption.class);
 
-    // CONCURRENCY: Set to System.currentTimeMillis() each time (re)evaluated OK by this class, read by Forwarder
+    // CONCURRENCY: Set to System.currentTimeMillis() each time (re)evaluated OK by WebSocket threads, read by Forwarder
     private volatile long _lastAuthenticatedTimestamp;
-    // CONCURRENCY: Set true (and read) by Forwarder, Cleared by this class.
+    // CONCURRENCY: Set true (and read) by Forwarder, Cleared by WebSocket threads
     private volatile boolean _holdOutgoingMessages;
 
-    // CONCURRENCY: Set and read by this class, read by Forwarder.
+    // CONCURRENCY: Set and read by WebSocket threads, read by Forwarder.
     private volatile MatsSocketSessionState _state = MatsSocketSessionState.UNVERIFIED;
+
+    // CONCURRENCY: Set and read by WebSocket threads, read by OnClose (which probably also is a WebSocket thread).
+    private CopyOnWriteArrayList<String> _subscribedTopics = new CopyOnWriteArrayList<>();
+
+    private static final int MAX_SIZE_OF_TOPIC = 1024;
 
     MatsSocketSessionAndMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
             String connectionId, HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
@@ -197,11 +203,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         return _currentResolvedServerToClientDebugOptions;
     }
 
-    private List<String> _subscribedTopics = new ArrayList<>();
-
+    // Handling of "REAUTH" - only from WebSocket threads
     private List<MatsSocketEnvelopeDto> _heldEnvelopesWaitingForReauth = new ArrayList<>();
     private boolean _askedClientForReauth = false;
-
     private int _numberOfInformationBearingIncomingWhileWaitingForReauth = 0;
 
     @Override
@@ -328,7 +332,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // Remove it from the pipeline
                     it.remove();
                     // Assert that we've had HELLO already processed
-                    // NOTICE! We will handle PINGs without valid Authorization, but only if we've already established
+                    // NOTICE! We will handle PONGs without valid Authorization, but only if we've already established
                     // Session, as checked by seeing if we've processed HELLO
                     if (!isActive()) {
                         closeSessionAndWebSocketWithProtocolError(
@@ -354,6 +358,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     if ((envelope.smid == null) && (envelope.ids == null)) {
                         closeSessionAndWebSocketWithProtocolError("Received " + envelope.t
                                 + " message with missing 'smid' or 'ids'.");
+                        return;
+                    }
+                    // Assert that we've had HELLO already processed
+                    // NOTICE! We will handle ACK/NACKs without valid Authorization, but only if we've already
+                    // established Session, as checked by seeing if we've processed HELLO
+                    if (!isActive()) {
+                        closeSessionAndWebSocketWithProtocolError(
+                                "Cannot process " + envelope.t + " before HELLO and session established");
                         return;
                     }
                     if (clientAcks == null) {
@@ -414,6 +426,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // ?: Is this a ACK2 for a ACK/NACK from us?
                 if (envelope.t == ACK2) {
                     it.remove();
+                    // Assert that we've had HELLO already processed
+                    // NOTICE! We will handle ACK2s without valid Authorization, but only if we've already established
+                    // Session, as checked by seeing if we've processed HELLO
+                    if (!isActive()) {
+                        closeSessionAndWebSocketWithProtocolError(
+                                "Cannot process ACK2 before HELLO and session established");
+                        return;
+                    }
                     if ((envelope.cmid == null) && (envelope.ids == null)) {
                         closeSessionAndWebSocketWithProtocolError("Received ACK2 envelope with missing 'cmid'"
                                 + " or 'ids'.");
@@ -466,21 +486,18 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // :: 5. Evaluate Authentication by Authorization header - do this before HELLO handling
             AuthenticationHandlingResult authenticationHandlingResult = doAuthentication(newAuthorization);
-            // ?: Did this go OK?
+
+            // ?: Was the AuthenticationHandlingResult == BAD, indicating that initial auth went bad?
+            if (authenticationHandlingResult == AuthenticationHandlingResult.BAD) {
+                // -> Yes, BAD - and then doAuthentication() has already closed session and websocket and the lot.
+                return;
+            }
+
+            // ?: Was the AuthenticationHandlingResult == REAUTH, indicating that the token was expired?
             if (authenticationHandlingResult == AuthenticationHandlingResult.REAUTH) {
-                // -> We are not allowed to process further messages until better auth present.
+                // -> Yes, We are not allowed to process further messages until better auth present.
                 // NOTE: There shall only be information-bearing messages left in the pipeline now.
                 // NOTE: Also, it cannot be HELLO, as initial auth fail would have given BAD, not REAUTH.
-
-                // :: Assert that we have 'cmid' on all the remaining messages, as they shall all be information-bearing
-                // messages from the Client, and thus contain 'cmid'.
-                for (MatsSocketEnvelopeDto envelope : envelopes) {
-                    if (envelope.cmid == null) {
-                        closeSessionAndWebSocketWithProtocolError("Missing 'cmid' on message of type [" + envelope.t
-                                + "]");
-                        return;
-                    }
-                }
 
                 // Keep count of how many information bearing messages we've gotten without replying to any.
                 _numberOfInformationBearingIncomingWhileWaitingForReauth += envelopes.size();
@@ -522,6 +539,37 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                  * happening right away again. So instead, we hold the big message, ask for REAUTH, and then process it
                  * when the auth comes in.
                  */
+                // :: First hold all SUB and UNSUB, as we cannot reply "RETRY" to these
+                for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                    MatsSocketEnvelopeDto envelope = it.next();
+                    if ((envelope.t == SUB) || (envelope.t == UNSUB)) {
+                        // ?: Is the topicId too long?
+                        if (envelope.eid.length() > MAX_SIZE_OF_TOPIC) {
+                            closeSessionAndWebSocketWithPolicyViolation("TopicId length > " + MAX_SIZE_OF_TOPIC);
+                        }
+                        _heldEnvelopesWaitingForReauth.add(envelope);
+                        // :: A DOS-preventive measure:
+                        // ?: Do we have WAY too many held messages
+                        // (this can only happen due to SUB & UNSUB, because we stop at 100 below)
+                        if (_heldEnvelopesWaitingForReauth.size() > 3000) {
+                            // -> Yes, and this is a ridiculous amount of SUBs and UNSUBs
+                            closeSessionAndWebSocketWithPolicyViolation("Way too many held messages.");
+                        }
+                        // Now remove it from incoming list (since we hold it!)
+                        it.remove();
+                    }
+                }
+                // :: There should only be information bearing messages left.
+                // :: Assert that we have 'cmid' on all the remaining messages, as they shall all be information bearing
+                // messages from the Client, and thus contain 'cmid'.
+                for (MatsSocketEnvelopeDto envelope : envelopes) {
+                    if (envelope.cmid == null) {
+                        closeSessionAndWebSocketWithProtocolError("Missing 'cmid' on message of type ["
+                                + envelope.t + "]");
+                        return;
+                    }
+                }
+                // :: Now hold all messages until we pass some rather arbitrary size limits
                 for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                     // :: Do some DOS-preventive measures:
                     // ?: Do we have more than some limit of held messages?
@@ -574,20 +622,18 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // We're finished handling all Envelopes in incoming WebSocket Message that was blocked by REAUTH
                 return;
             }
-            // ?: Was it BAD Auth result?
-            else if (authenticationHandlingResult == AuthenticationHandlingResult.BAD) {
-                // -> Yes, BAD - and then doAuthentication() has already closed session and websocket and the lot.
-                return;
-            }
+
+            // ---- Not BAD nor REAUTH AuthenticationHandlingResult
+
             // ?: .. okay, this MUST then be OK Auth Result - just assert this
-            else if (authenticationHandlingResult != AuthenticationHandlingResult.OK) {
+            if (authenticationHandlingResult != AuthenticationHandlingResult.OK) {
                 log.error("Unknown AuthenticationHandlingResult [" + authenticationHandlingResult
                         + "], what on earth is this?!");
                 closeSessionAndWebSocketWithProtocolError("Internal Server error.");
                 return;
             }
 
-            // :: 6. Are we authenticated? (I.e. Authorization Header must sent along in the very first pipeline..)
+            // :: 7. Are we authenticated? (I.e. Authorization Header must sent along in the very first pipeline..)
 
             if (_authorization == null) {
                 log.error("We have not got Authorization header!");
@@ -605,7 +651,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 return;
             }
 
-            // :: 7. look for a HELLO message
+            // :: 8. look for a HELLO message
 
             // (should be first/alone, but we will reply to it immediately even if part of pipeline).
             for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
@@ -638,7 +684,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 }
             }
 
-            // :: 8. Assert state: All present: SessionId, Authorization, Principal and UserId.
+            // :: 9. Assert state: All present: SessionId, Authorization, Principal and UserId.
 
             if ((_matsSocketSessionId == null)
                     || (_authorization == null)
@@ -653,7 +699,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 return;
             }
 
-            // :: 9. Now go through and handle all the rest of the messages
+            // :: 10. Now go through and handle all the rest of the messages
 
             // First drain the held messages into the now-being-processed list
             if (!_heldEnvelopesWaitingForReauth.isEmpty()) {
@@ -696,14 +742,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     }
 
                     // ?: Is this a SUB?
-                    if (envelope.t == SUB) {
+                    else if (envelope.t == SUB) {
                         handleSub(replyEnvelopes, envelope);
                         // The message is handled, so go to next message.
                         continue;
                     }
-
                     // ?: Is this an UNSUB?
-                    if (envelope.t == UNSUB) {
+                    else if (envelope.t == UNSUB) {
                         handleUnsub(envelope);
                         // The message is handled, so go to next message.
                         continue;
@@ -856,6 +901,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         DefaultMatsSocketServer.closeWebSocket(_webSocketSession, closeCode, reason);
 
         // Perform the instance close
+        // Note: This might end up being invoked twice, since the above WebSocket close will invoke onClose
         closeSession();
     }
 
@@ -908,6 +954,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         _subscribedTopics.forEach(topicId -> {
             _matsSocketServer.deregisterMatsSocketSessionFromTopic(topicId, getConnectionId());
         });
+        _subscribedTopics.clear();
     }
 
     boolean isHoldOutgoingMessages() {
@@ -1252,8 +1299,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         _state = MatsSocketSessionState.ACTIVE;
 
         // Increase timeout to "prod timeout", now that client has said HELLO
-        // TODO: Increase timeout, e.g. 75 seconds.
-        _webSocketSession.setMaxIdleTimeout(30_000);
+        _webSocketSession.setMaxIdleTimeout(75_000);
         // Set high limit for text, as we don't want to be held back on the protocol side of things.
         _webSocketSession.setMaxTextMessageBufferSize(50 * 1024 * 1024);
 
@@ -1667,6 +1713,10 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             closeSessionAndWebSocketWithProtocolError("SUB: Topic is null or empty.");
             return;
         }
+        if (envelope.eid.length() > MAX_SIZE_OF_TOPIC) {
+            closeSessionAndWebSocketWithPolicyViolation("TopicId length > " + MAX_SIZE_OF_TOPIC);
+        }
+
         // ?: Already subscribed to this topic?
         if (_subscribedTopics.contains(envelope.eid)) {
             // -> Yes, already subscribed - client shall handle multi-subscriptions to same topic.

@@ -246,8 +246,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void storeMessageIdInInbox(String matsSocketSessionId,
-            String clientMessageId) throws ClientMessageIdAlreadyExistsException, DataAccessException {
+    public void storeMessageIdInInbox(String matsSocketSessionId, String clientMessageId)
+            throws ClientMessageIdAlreadyExistsException, DataAccessException {
         try (Connection con = _dataSource.getConnection()) {
             PreparedStatement insert = con.prepareStatement("INSERT INTO " + inboxTableName(matsSocketSessionId)
                     + " (session_id, cmid, stored_timestamp)"

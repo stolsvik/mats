@@ -344,7 +344,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                         catch (InterruptedException e) {
                             throw new RuntimeException(e);
                         }
-                        matsSocketServer.closeSession(ctx.getMatsSocketSessionId());
+                        matsSocketServer.closeSession(ctx.getMatsSocketSessionId(),
+                                "Invoked via MatsSocket server-side Terminator Test.closeThisSession");
                     }, "Mats CloseThisSession").start();
                 });
     }

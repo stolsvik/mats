@@ -7,6 +7,7 @@ import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RESOLVE;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.SEND;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -489,14 +490,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     void deregisterMatsSocketSessionFromTopic(String topicId, String connectionId) {
-
-        // TODO: Deregister upon close or reregister
-        // TODO: Deregister upon timeout:
-        // 1. When timing out, find the node that had the session, tell it to clean
-        // 2. Do periodic cleanout
-        // 3. Upon "Onclose", do sweep-clean
-        // 3. Upon publish, if one get across closed sockets, clean out
-
         _topicSubscriptions.computeIfPresent(topicId, (x, currentSubs) -> {
             currentSubs.remove(connectionId);
             return currentSubs.isEmpty() ? null : currentSubs;
@@ -567,7 +560,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     @Override
-    public void closeSession(String matsSocketSessionId) {
+    public void closeSession(String matsSocketSessionId, String reason) {
         log.info("server.closeSession(..): Got instructed to Close MatsSocketSessionId: [" + matsSocketSessionId
                 + "].");
         if (matsSocketSessionId == null) {
@@ -591,7 +584,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                         .from("MatsSocketServer.closeSession")
                         .traceId("ServerCloseSession[" + matsSocketSessionId + "]" + rnd(5))
                         .to(nodeSubscriptionTerminatorId_NodeControl_ForNode(currentNode.get().getNodename()))
-                        .publish(new NodeControl_CloseSessionDto(matsSocketSessionId),
+                        .publish(new NodeControl_CloseSessionDto(matsSocketSessionId, reason),
                                 new NodeControlStateDto(NodeControlStateDto.CLOSE_SESSION)));
                 return;
             }
@@ -845,6 +838,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         log.info("Closing WebSocket SessionId [" + webSocketSession.getId() + "]: code: [" + closeCode
                 + "(" + closeCode.getCode() + ")], reason:[" + reasonPhrase + "]");
         try {
+            while (reasonPhrase != null && reasonPhrase.getBytes(StandardCharsets.UTF_8).length > 123) {
+                reasonPhrase = reasonPhrase.substring(0, reasonPhrase.length() - 1);
+            }
             webSocketSession.close(new CloseReason(closeCode, reasonPhrase));
         }
         catch (IOException e) {
@@ -1014,13 +1010,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     private static class NodeControl_CloseSessionDto {
         String sid;
+        String reason;
 
         public NodeControl_CloseSessionDto() {
             /* for Jackson */
         }
 
-        public NodeControl_CloseSessionDto(String sessionId) {
+        public NodeControl_CloseSessionDto(String sessionId, String reason) {
             this.sid = sessionId;
+            this.reason = reason;
         }
     }
 
@@ -1058,7 +1056,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
         if (NodeControlStateDto.CLOSE_SESSION.equals(state.t)) {
             NodeControl_CloseSessionDto dto = incomingMsg.toClass(NodeControl_CloseSessionDto.class);
-            nodeControl_closeSession(dto.sid);
+            nodeControl_closeSession(dto.sid, dto.reason);
         }
         if (NodeControlStateDto.CLOSE_WEBSOCKET.equals(state.t)) {
             NodeControl_CloseWebSocketDto dto = incomingMsg.toClass(NodeControl_CloseWebSocketDto.class);
@@ -1066,13 +1064,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
     }
 
-    private void nodeControl_closeSession(String matsSocketSessionId) {
+    private void nodeControl_closeSession(String matsSocketSessionId, String reason) {
         // Find local session
         Optional<MatsSocketSessionAndMessageHandler> localSession = getRegisteredLocalMatsSocketSession(
                 matsSocketSessionId);
         // Close the session if we have it.
         localSession.ifPresent(msmh -> msmh.closeSessionAndWebSocket(MatsSocketCloseCodes.CLOSE_SESSION,
-                "Server side CloseSession"));
+                "Server Side: " + reason));
 
         // :: Close it from the CSAF
         try {
