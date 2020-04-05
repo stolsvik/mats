@@ -398,10 +398,12 @@
                     // Note: Will be zero if session is not established yet.
                     chai.assert.isTrue(init.sessionEstablishedOffsetMillis <= 0, "sessionEstablishedOffsetMillis should be zero or negative, since sent before WELCOME, was [" + init.sessionEstablishedOffsetMillis + "]");
                     chai.assert.equal(init.traceId, traceId);
-                    chai.assert.isTrue(init.acknowledgeRoundTripMillis >= 1); // Should probably take more than 1 ms.
+                    // Evidently, we sometimes get 0 ms - probably only when doing timeout with 0 ms in this test.
+                    chai.assert.isTrue(init.acknowledgeRoundTripMillis >= 0);
                     chai.assert.strictEqual(init.acknowledgeRoundTripMillis, receivedRoundTripMillisFromReceived);
                     chai.assert.equal(init.replyMessageEventType, mats.MessageEventType.TIMEOUT);
-                    chai.assert.isTrue(init.requestReplyRoundTripMillis >= 1); // Should probably take more than 1 ms.
+                    // Might sometimes get 0 ms - probably only when doing timeout with 0 ms in this test.
+                    chai.assert.isTrue(init.requestReplyRoundTripMillis >= 0); // Evidently, we sometimes get 0 ms
                 }
 
                 /*
