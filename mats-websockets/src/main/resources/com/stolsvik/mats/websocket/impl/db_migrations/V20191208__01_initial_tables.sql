@@ -11,9 +11,11 @@
 CREATE TABLE mats_socket_session
 (
     session_id           VARCHAR(255) NOT NULL,
-    user_id              VARCHAR(255) NOT NULL, -- An id for the owning user of this session, supplied by the AuthenticationPlugin
     connection_id        VARCHAR(255),          -- NULL if no node has this session anymore. An id for the physical connection, to avoid accidental session deletion upon races. Read above.
     nodename             VARCHAR(255),          -- NULL if no node has this session anymore. The row is deleted when session is closed. Which node ("server") has the live connection.
+    user_id              VARCHAR(255) NOT NULL, -- An id for the owning user of this session, supplied by the AuthenticationPlugin
+    app_name             VARCHAR(255) NOT NULL, -- The AppName of the accessing Client app
+    app_version          VARCHAR(255) NOT NULL, -- The AppVersion of the accessing Client app
     created_timestamp    BIGINT       NOT NULL, -- millis since epoch. When the session was originally created.
     liveliness_timestamp BIGINT       NOT NULL, -- millis since epoch. Should be updated upon node-attach, and periodically.
 

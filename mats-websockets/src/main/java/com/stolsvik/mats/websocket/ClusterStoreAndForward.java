@@ -61,13 +61,17 @@ public interface ClusterStoreAndForward {
      *            an id that is unique for this specific WebSocket Session (i.e. TCP Connection), so that if it closes,
      *            a new registration will not be deregistered by the old MatsSocketSession realizing that it is closed
      *            and then invoking {@link #deregisterSessionFromThisNode(String, String)}
+     * @param appName
+     *            the AppName of the accessing Client app
+     * @param appVersion
+     *            the AppVersion of the accessing Client app
      * @throws WrongUserException
      *             if the userId provided does not match the original userId that created the session.
      * @throws DataAccessException
      *             if problems with underlying data store.
      */
-    void registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId)
-            throws WrongUserException, DataAccessException;
+    void registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId,
+            String appName, String appVersion) throws WrongUserException, DataAccessException;
 
     /**
      * @param matsSocketSessionId

@@ -1223,7 +1223,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         try {
             // Register in CSAF
             _matsSocketServer.getClusterStoreAndForward().registerSessionAtThisNode(_matsSocketSessionId, _userId,
-                    _connectionId);
+                    _connectionId, appName, appVersion);
 
             // Clear attempted delivery mark, to perform retransmission of these.
             _matsSocketServer.getClusterStoreAndForward().outboxMessagesUnmarkAttemptedDelivery(_matsSocketSessionId);
