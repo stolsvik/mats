@@ -102,20 +102,21 @@ public interface MatsSocketServer {
      * Types: <code>MR = R</code>
      * <p />
      * NOTE: In this case, you cannot specify {@link Object} as the 'R' type - this is due to technical limitations with
-     * how MatsSocket interacts with Mats: You probably have an idea of using a Mats endpoint that "returns Object",
-     * i.e. can return whatever type of DTO it wants, and then feed the output of this directly over as the Reply of the
-     * MatsSocket and over to the Client. However, Mats's and MatsSocket's serialization mechanisms are not the same,
-     * and can potentially be completely different. Therefore, there needs to be an intermediary that deserializes
-     * whatever comes out of Mats, and (re-)serializes this to the MatsSocket Endpoint's Reply. This can EITHER be
-     * accomplished by specifying a specific class, in which case MatsSocket can handle this task itself by asking Mats
-     * to deserialize to this specified type, and then returning the resulting instance as the MatsSocket Endpoint Reply
-     * (which then will be serialized using the MatsSocket serialization mechanism). With this solution, there is no
-     * need for ReplyAdapter, which is the very intent of the present variant of the endpoint-creation methods.
-     * OTHERWISE, this can be accomplished using user-supplied code, i.e. the ReplyAdapter. The MatsSocket endpoint can
-     * then forward to one, or one of several, Mats endpoints that return a Reply of one of a finite set of types. The
-     * ReplyAdapter would then have to choose which type to deserialize the Reply into (using the
-     * {@link MatsObject#toClass(Class)} functionality), and then return the resulting instance (which, again, will be
-     * serialized using the MatsSocket serialization mechanism).
+     * how MatsSocket interacts with Mats: You probably have something in mind where a Mats endpoint is configured to
+     * "return Object", i.e. can return whatever type of DTO it wants, and then feed the output of this directly over as
+     * the Reply of the MatsSocket endpoint, and over to the Client. However, Mats's and MatsSocket's serialization
+     * mechanisms are not the same, and can potentially be completely different. Therefore, there needs to be an
+     * intermediary that deserializes whatever comes out of Mats, and (re-)serializes this to the MatsSocket Endpoint's
+     * Reply. This can EITHER be accomplished by specifying a specific class, in which case MatsSocket can handle this
+     * task itself by asking Mats to deserialize to this specified type, and then returning the resulting instance as
+     * the MatsSocket Endpoint Reply (which then will be serialized using the MatsSocket serialization mechanism). With
+     * this solution, there is no need for ReplyAdapter, which is the very intent of the present variant of the
+     * endpoint-creation methods. OTHERWISE, this can be accomplished using user-supplied code, i.e. the ReplyAdapter.
+     * The MatsSocket endpoint can then forward to one, or one of several, Mats endpoints that return a Reply with one
+     * of a finite set of types. The ReplyAdapter would then have to choose which type to deserialize the Mats Reply
+     * into (using the {@link MatsObject#toClass(Class) matsObject.toClass(&lt;class&gt;)} functionality), and then
+     * return the desired MatsSocket Reply (which, again, will be serialized using the MatsSocket serialization
+     * mechanism).
      */
     default <I, R> MatsSocketEndpoint<I, R, R> matsSocketEndpoint(String matsSocketEndpointId,
             Class<I> incomingClass, Class<R> replyClass,
@@ -144,7 +145,7 @@ public interface MatsSocketServer {
 
     /**
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Terminator (no reply), specifically for
-     * Client-to-Server "SEND", and "REPLY" from a Server-to-Client "REQUEST".
+     * Client-to-Server "SEND", and to accept a "REPLY" from a Server-to-Client "REQUEST".
      * <p />
      * Types: <code>MR = R = Void</code>>
      *
@@ -161,10 +162,13 @@ public interface MatsSocketServer {
      * Should handle (preliminary) Authorization evaluation on the supplied
      * {@link MatsSocketEndpointRequestContext#getPrincipal() Principal} and decide whether this message should be
      * forwarded to the Mats fabric (or directly resolved, rejected or denied). If it decides to forward to Mats, it
-     * then adapt the incoming MatsSocket message to a message that can be forwarded to the Mats fabric.
+     * then adapt the incoming MatsSocket message to a message that can be forwarded to the Mats fabric - it is assumed
+     * that the type for the incoming MatsSocket message and the type of the incoming Mats message seldom will be
+     * identical.
      * <p/>
-     * <b>Note: Do remember that the MatsSocket is "live connected directly to the Internet" and ANY data coming in as
-     * the incoming message can be utter garbage, or methodically designed to hack your system! Act accordingly!</b>
+     * <b>Note / Warning: Do remember that the MatsSocket is live connected directly to the Internet and ANY data coming in as the
+     * incoming message can be utter garbage, or worse, methodically designed to hack your system! Act and code
+     * accordingly!</b>
      * <p/>
      * <b>Note: This should <i>preferentially</i> only be pure and quick Java code, without much database access or
      * lengthy computations</b> - such things should happen in the Mats stages. You hold up the incoming WebSocket
@@ -233,7 +237,7 @@ public interface MatsSocketServer {
 
         /**
          * @return the type of the Replies from this endpoint, if any (being sent back over the WebSocket, to the
-         *         MatsSocket Client). Will be <code>Void.TYPE</code> (i.e. <code>void.class</code>)  for Terminators.
+         *         MatsSocket Client). Will be <code>Void.TYPE</code> (i.e. <code>void.class</code>) for Terminators.
          */
         Class<R> getReplyClass();
     }
