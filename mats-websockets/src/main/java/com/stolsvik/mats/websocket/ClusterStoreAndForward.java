@@ -69,8 +69,10 @@ public interface ClusterStoreAndForward {
      *             if the userId provided does not match the original userId that created the session.
      * @throws DataAccessException
      *             if problems with underlying data store.
+     * @return the created timestamp - which is either "now" if this is the first register, or if it a "reconnect", when
+     *         this MatsSocketSession was previously created
      */
-    void registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId,
+    long registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId,
             String appName, String appVersion) throws WrongUserException, DataAccessException;
 
     /**
@@ -141,7 +143,7 @@ public interface ClusterStoreAndForward {
     void updateMessageInInbox(String matsSocketSessionId, String clientMessageId, String messageJson,
             byte[] messageBinary) throws DataAccessException;
 
-    StoredMessage getMessageFromInbox(String matsSocketSessionId, String clientMessageId) throws DataAccessException;
+    StoredInMessage getMessageFromInbox(String matsSocketSessionId, String clientMessageId) throws DataAccessException;
 
     /**
      * Deletes the incoming message Ids, as we've established that the client will never try to send this particular
@@ -201,11 +203,11 @@ public interface ClusterStoreAndForward {
      *            the maximum number of messages to fetch.
      * @return a list of json encoded messages destined for the WebSocket.
      */
-    List<StoredMessage> getMessagesFromOutbox(String matsSocketSessionId, int maxNumberOfMessages)
+    List<StoredOutMessage> getMessagesFromOutbox(String matsSocketSessionId, int maxNumberOfMessages)
             throws DataAccessException;
 
     /**
-     * Marks the specified messages as attempted delivered and notches the {@link StoredMessage#getDeliveryCount()} one
+     * Marks the specified messages as attempted delivered and notches the {@link StoredOutMessage#getDeliveryCount()} one
      * up. If {@link #outboxMessagesUnmarkAttemptedDelivery(String)} is invoked (typically on reconnect), the mark will
      * be unset, but the delivery count will stay in place - this is to be able to abort delivery attempts if there is
      * something wrong with the message.
@@ -221,8 +223,8 @@ public interface ClusterStoreAndForward {
     /**
      * When this method is invoked, {@link #getMessagesFromOutbox(String, int)} will again return messages that has
      * previously been marked as attempted delivered with {@link #outboxMessagesAttemptedDelivery(String, Collection)}.
-     * Notice that the {@link StoredMessage#getDeliveryCount()} will not be reset, but the
-     * {@link StoredMessage#getAttemptTimestamp()} will now again return null.
+     * Notice that the {@link StoredOutMessage#getDeliveryCount()} will not be reset, but the
+     * {@link StoredOutMessage#getAttemptTimestamp()} will now again return null.
      *
      * @param matsSocketSessionId
      *            the matsSocketSessionId whose messages now shall be attempted.
@@ -262,8 +264,8 @@ public interface ClusterStoreAndForward {
     // ---------- Exceptions and DTOs ----------
 
     /**
-     * Thrown from {@link #registerSessionAtThisNode(String, String, String)} if the userId does not match the original
-     * userId that created this session.
+     * Thrown from {@link #registerSessionAtThisNode(String, String, String, String, String)} if the userId does not
+     * match the original userId that created this session.
      */
     class WrongUserException extends Exception {
         public WrongUserException(String message) {
@@ -446,7 +448,61 @@ public interface ClusterStoreAndForward {
         }
     }
 
-    interface StoredMessage {
+    interface StoredInMessage {
+        String getMatsSocketSessionId();
+
+        String getClientMessageId();
+
+        long getStoredTimestamp();
+
+        Optional<String> getFullEnvelope();
+
+        Optional<byte[]> getMessageBinary();
+    }
+
+    class SimpleStoredInMessage implements StoredInMessage {
+        private final String matsSocketSessionId;
+        private final String clientMessageId;
+        private final long storedTimeStamp;
+        private final String fullEnvelope;
+        private final byte[] messageBinary;
+
+        public SimpleStoredInMessage(String matsSocketSessionId, String clientMessageId, long storedTimeStamp,
+                String fullEnvelope, byte[] messageBinary) {
+            this.matsSocketSessionId = matsSocketSessionId;
+            this.clientMessageId = clientMessageId;
+            this.storedTimeStamp = storedTimeStamp;
+            this.fullEnvelope = fullEnvelope;
+            this.messageBinary = messageBinary;
+        }
+
+        @Override
+        public String getMatsSocketSessionId() {
+            return matsSocketSessionId;
+        }
+
+        @Override
+        public String getClientMessageId() {
+            return clientMessageId;
+        }
+
+        @Override
+        public long getStoredTimestamp() {
+            return storedTimeStamp;
+        }
+
+        @Override
+        public Optional<String> getFullEnvelope() {
+            return Optional.ofNullable(fullEnvelope);
+        }
+
+        @Override
+        public Optional<byte[]> getMessageBinary() {
+            return Optional.ofNullable(messageBinary);
+        }
+    }
+
+    interface StoredOutMessage {
         String getMatsSocketSessionId();
 
         String getServerMessageId();
@@ -470,7 +526,7 @@ public interface ClusterStoreAndForward {
         byte[] getMessageBinary();
     }
 
-    class SimpleStoredMessage implements StoredMessage {
+    class SimpleStoredOutMessage implements StoredOutMessage {
         private final String _matsSocketSessionId;
         private final String _serverMessageId;
         private final String _clientMessageId;
@@ -485,7 +541,7 @@ public interface ClusterStoreAndForward {
         private final String _messageText;
         private final byte[] _messageBinary;
 
-        public SimpleStoredMessage(String matsSocketSessionId, String serverMessageId,
+        public SimpleStoredOutMessage(String matsSocketSessionId, String serverMessageId,
                 String clientMessageId,
                 long storedTimestamp, Long attemptTimestamp, int deliveryCount, String traceId,
                 MessageType type, String envelope, String messageText, byte[] messageBinary) {

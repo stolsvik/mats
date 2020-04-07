@@ -18,7 +18,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
-import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredMessage;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredOutMessage;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
 import com.stolsvik.mats.websocket.impl.MatsSocketSessionAndMessageHandler.MatsSocketSessionState;
@@ -154,7 +154,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                     // :: Get messages from CSAF
                     long nanos_start_GetMessages = System.nanoTime();
-                    List<StoredMessage> messagesToDeliver;
+                    List<StoredOutMessage> messagesToDeliver;
                     try {
                         messagesToDeliver = _clusterStoreAndForward
                                 .getMessagesFromOutbox(matsSocketSessionId, 20);
@@ -187,7 +187,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     }
 
                     // :: If there are any messages with deliveryCount > 0, then try to send these alone.
-                    List<StoredMessage> redeliveryMessages = messagesToDeliver.stream()
+                    List<StoredOutMessage> redeliveryMessages = messagesToDeliver.stream()
                             .filter(m -> m.getDeliveryCount() > 0)
                             .collect(Collectors.toList());
                     // ?: Did we have any with deliveryCount > 0?
@@ -202,7 +202,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                     // :: Get the MessageIds to deliver (as List, for CSAF) and TraceIds (as String, for logging)
                     List<String> messageIds = messagesToDeliver.stream()
-                            .map(StoredMessage::getServerMessageId)
+                            .map(StoredOutMessage::getServerMessageId)
                             .collect(Collectors.toList());
                     String messageTypesAndTraceIds = messagesToDeliver.stream()
                             .map(msg -> "{" + msg.getType() + "} " + msg.getTraceId())
@@ -211,17 +211,17 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     long now = System.currentTimeMillis();
 
                     // Deserialize envelopes back to DTO, and stick in the message
-                    List<MatsSocketEnvelopeDto> envelopeList = messagesToDeliver.stream().map(storedMessage -> {
+                    List<MatsSocketEnvelopeDto> envelopeList = messagesToDeliver.stream().map(storedOutMessage -> {
                         MatsSocketEnvelopeDto envelope;
                         try {
-                            envelope = _matsSocketServer.getEnvelopeObjectReader().readValue(storedMessage
+                            envelope = _matsSocketServer.getEnvelopeObjectReader().readValue(storedOutMessage
                                     .getEnvelope());
                         }
                         catch (JsonProcessingException e) {
                             throw new AssertionError("Could not deserialize Envelope DTO.");
                         }
                         // Set the message onto the envelope, in "raw" mode (it is already json)
-                        envelope.msg = new DirectJsonMessage(storedMessage.getMessageText());
+                        envelope.msg = new DirectJsonMessage(storedOutMessage.getMessageText());
                         // Handle debug
                         if (envelope.debug != null) {
                             /*
@@ -234,8 +234,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                              * client has asked for wrt. Server-initiated.
                              */
                             // ?: Is this a Reply to a Client-to-Server REQUEST? (RESOLVE or REJECT)?
-                            if ((MessageType.RESOLVE == storedMessage.getType())
-                                    || MessageType.REJECT == storedMessage.getType()) {
+                            if ((MessageType.RESOLVE == storedOutMessage.getType())
+                                    || MessageType.REJECT == storedOutMessage.getType()) {
                                 // -> Yes, Reply (RESOLVE or REJECT)
                                 // Find which resolved DebugOptions are in effect for this message
                                 EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(envelope.debug.resd);
@@ -248,8 +248,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                 }
                             }
                             // ?: Is this a Server-initiated message (SEND or REQUEST)?
-                            if ((MessageType.SEND == storedMessage.getType())
-                                    || MessageType.REQUEST == storedMessage.getType()) {
+                            if ((MessageType.SEND == storedOutMessage.getType())
+                                    || MessageType.REQUEST == storedOutMessage.getType()) {
                                 // -> Yes, Server-to-Client (SEND or REQUEST)
                                 // Find what the client requests along with what authentication allows
                                 EnumSet<DebugOption> debugOptions = matsSocketSessionAndMessageHandler
@@ -346,7 +346,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // :: Find messages with too many redelivery attempts (hardcoded 5 now)
                         // (Note: For current code, this should always only be max one..)
                         // (Note: We're using the "old" delivery_count number (before above increase) -> no problem)
-                        List<StoredMessage> dlqMessages = messagesToDeliver.stream()
+                        List<StoredOutMessage> dlqMessages = messagesToDeliver.stream()
                                 .filter(m -> m.getDeliveryCount() > 5)
                                 .collect(Collectors.toList());
                         // ?: Did we have messages above threshold?

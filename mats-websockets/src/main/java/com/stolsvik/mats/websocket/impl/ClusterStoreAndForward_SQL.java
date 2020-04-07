@@ -67,7 +67,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId,
+    public long registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId,
             String appName, String appVersion) throws DataAccessException, WrongUserException {
         try (Connection con = _dataSource.getConnection()) {
             boolean autoCommitPre = con.getAutoCommit();
@@ -137,6 +137,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                     // Commit transaction.
                     con.commit();
                 }
+
+                return createdTimestamp;
             }
             finally {
                 // ?: If we changed the autoCommit to false to get transaction (since it was true), we turn it back now.
@@ -282,12 +284,10 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             updateMsg.execute();
             updateMsg.close();
         });
-
-        // TODO: Change to "envelope_with_message" and own type for StoredInMessage
     }
 
     @Override
-    public StoredMessage getMessageFromInbox(String matsSocketSessionId,
+    public StoredInMessage getMessageFromInbox(String matsSocketSessionId,
             String clientMessageId) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement select = con.prepareStatement("SELECT"
@@ -299,16 +299,9 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             select.setString(2, clientMessageId);
             ResultSet rs = select.executeQuery();
             rs.next();
-            SimpleStoredMessage msg = new SimpleStoredMessage(matsSocketSessionId,
-                    null,
-                    clientMessageId,
-                    rs.getLong(1),
-                    null,
-                    0,
-                    null,
-                    null,
-                    rs.getString(2), // Store the envelope WITH the message in 'envelope'
-                    null,
+
+            SimpleStoredInMessage msg = new SimpleStoredInMessage(matsSocketSessionId,
+                    clientMessageId, rs.getLong(1), rs.getString(2),
                     rs.getBytes(3));
             select.close();
             return msg;
@@ -359,7 +352,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public List<StoredMessage> getMessagesFromOutbox(String matsSocketSessionId, int maxNumberOfMessages)
+    public List<StoredOutMessage> getMessagesFromOutbox(String matsSocketSessionId, int maxNumberOfMessages)
             throws DataAccessException {
         return withConnectionReturn(con -> {
             // The old MS JDBC Driver 'jtds' don't handle parameter insertion for 'TOP' statement.
@@ -372,10 +365,10 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                     + "   AND delivery_count <> " + DLQ_DELIVERY_COUNT_MARKER);
             insert.setString(1, matsSocketSessionId);
             ResultSet rs = insert.executeQuery();
-            List<StoredMessage> list = new ArrayList<>();
+            List<StoredOutMessage> list = new ArrayList<>();
             while (rs.next()) {
                 MessageType type = MessageType.valueOf(rs.getString(7));
-                SimpleStoredMessage sm = new SimpleStoredMessage(matsSocketSessionId, rs.getString(1),
+                SimpleStoredOutMessage sm = new SimpleStoredOutMessage(matsSocketSessionId, rs.getString(1),
                         rs.getString(2), rs.getLong(3), (Long) rs.getObject(4),
                         rs.getInt(5), rs.getString(6), type,
                         rs.getString(8), rs.getString(9), rs.getBytes(10));

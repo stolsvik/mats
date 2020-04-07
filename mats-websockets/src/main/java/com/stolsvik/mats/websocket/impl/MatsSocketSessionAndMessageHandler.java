@@ -34,6 +34,7 @@ import javax.websocket.RemoteEndpoint.Basic;
 import javax.websocket.Session;
 import javax.websocket.server.HandshakeRequest;
 
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredInMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -54,7 +55,7 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.ClientMessageIdAlready
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.RequestCorrelation;
-import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredMessage;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredOutMessage;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.WrongUserException;
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
@@ -467,24 +468,24 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // :: 4. Evaluate whether we should go further.
 
-            // ?: Do we have any more messages in pipeline, or have we gotten new Authorization?
+            // ?: Do we have any more messages in pipeline, any held messages, or have we gotten new Authorization?
             if (envelopes.isEmpty() && _heldEnvelopesWaitingForReauth.isEmpty() && (newAuthorization == null)) {
-                // -> No messages, and no new auth. Thus, all messages that were here was control messages.
+                // -> No messages, no held, and no new auth. Thus, all messages that were here was control messages.
                 // Return, without considering valid existing authentication. Again: It is allowed to send control
                 // messages (in particular PING), and thus keep connection open, without having current valid
                 // authorization. The rationale here is that otherwise we'd have to /continuously/ ask an
                 // OAuth/OIDC/token server about new tokens, which probably would keep the authentication session open.
                 // With the present logic, the only thing you can do without authorization, is keeping the connection
-                // actually open. Once you try to send any information-bearing messages, authentication check will
-                // immediately kick in - and then you better have sent over valid auth, otherwise you're kicked off.
+                // actually open. Once you try to send any information-bearing messages, or SUB/UNSUB, authentication
+                // check will immediately kick in - which either will allow you to pass, or ask for REAUTH.
                 return;
             }
 
-            // ----- We have messages in pipeline that needs Authentication and Authorization to be processed!
+            // ----- We have messages in pipeline that needs Authentication, OR we have new Authorization value.
 
             // === AUTHENTICATION! On every pipeline of messages, we re-evaluate authentication
 
-            // :: 5. Evaluate Authentication by Authorization header - do this before HELLO handling
+            // :: 5. Evaluate Authentication by Authorization header - must be done before HELLO handling
             AuthenticationHandlingResult authenticationHandlingResult = doAuthentication(newAuthorization);
 
             // ?: Was the AuthenticationHandlingResult == BAD, indicating that initial auth went bad?
@@ -492,6 +493,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // -> Yes, BAD - and then doAuthentication() has already closed session and websocket and the lot.
                 return;
             }
+
+            // :: 6. Handle "Hold of messages" if REAUTH
 
             // ?: Was the AuthenticationHandlingResult == REAUTH, indicating that the token was expired?
             if (authenticationHandlingResult == AuthenticationHandlingResult.REAUTH) {
@@ -625,7 +628,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // ---- Not BAD nor REAUTH AuthenticationHandlingResult
 
-            // ?: .. okay, this MUST then be OK Auth Result - just assert this
+            // ?: .. okay, thu MUST then be OK Auth Result - just assert this
             if (authenticationHandlingResult != AuthenticationHandlingResult.OK) {
                 log.error("Unknown AuthenticationHandlingResult [" + authenticationHandlingResult
                         + "], what on earth is this?!");
@@ -699,7 +702,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 return;
             }
 
-            // :: 10. Now go through and handle all the rest of the messages
+            // :: 10. Now go through and handle all the rest of the messages: information bearing, or SUB/UNSUB
 
             // First drain the held messages into the now-being-processed list
             if (!_heldEnvelopesWaitingForReauth.isEmpty()) {
@@ -1442,14 +1445,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
                         // :: Fetch previous answer if present and answer that, otherwise answer default; ACK.
                         try {
-                            StoredMessage messageFromInbox = _matsSocketServer.getClusterStoreAndForward()
+                            StoredInMessage messageFromInbox = _matsSocketServer.getClusterStoreAndForward()
                                     .getMessageFromInbox(_matsSocketSessionId, envelope.cmid);
                             // ?: Did we have a serialized message here?
-                            if (messageFromInbox.getEnvelope() != null) {
+                            if (messageFromInbox.getFullEnvelope().isPresent()) {
                                 // -> Yes, we had the JSON from last processing stored!
-                                log.info("We had an envelope from last time! " + messageFromInbox.getMessageText());
+                                log.info("We had an envelope from last time!");
                                 MatsSocketEnvelopeDto lastTimeEnvelope = _envelopeObjectReader.readValue(
-                                        messageFromInbox.getEnvelope());
+                                        messageFromInbox.getFullEnvelope().get());
                                 // Doctor the deserialized envelope (by magic JSON-holder DirectJsonMessage)
                                 // (The 'msg' field is currently a proper JSON String, we want it directly as-is)
                                 lastTimeEnvelope.msg = DirectJsonMessage.of((String) lastTimeEnvelope.msg);
