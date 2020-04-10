@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +19,7 @@ import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
 
@@ -37,6 +39,7 @@ import javax.websocket.server.ServerEndpointConfig.Configurator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
@@ -66,6 +69,7 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.MatsSocketServer;
+import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent.SessionRemovedEventType;
 import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DebugDto;
 import com.stolsvik.mats.websocket.impl.MatsSocketSessionAndMessageHandler.Processed;
 
@@ -547,6 +551,108 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
     }
 
+    @Override
+    public Map<String, ActiveMatsSocketSession> getNodeLocalActiveMatsSocketSessions() {
+        synchronized (_activeSessionsByMatsSocketSessionId_x) {
+            return new HashMap<>(_activeSessionsByMatsSocketSessionId_x);
+        }
+    }
+
+    private CopyOnWriteArrayList<SessionEstablishedListener> _sessionEstablishedListeners = new CopyOnWriteArrayList<>();
+
+    @Override
+    public void addSessionEstablishedEventListener(SessionEstablishedListener listener) {
+        _sessionEstablishedListeners.add(listener);
+    }
+
+    static class SessionEstablishedEventImpl implements SessionEstablishedEvent {
+
+        private final SessionEstablishedEventType _type;
+        private final ActiveMatsSocketSession _session;
+
+        public SessionEstablishedEventImpl(SessionEstablishedEventType type, ActiveMatsSocketSession session) {
+            _type = type;
+            _session = session;
+        }
+
+        @Override
+        public SessionEstablishedEventType getType() {
+            return _type;
+        }
+
+        @Override
+        public ActiveMatsSocketSession getMatsSocketSession() {
+            return _session;
+        }
+    }
+
+    void invokeSessionEstablishedEventListeners(SessionEstablishedEvent event) {
+        _sessionEstablishedListeners.forEach(listener -> {
+            try {
+                listener.sessionEstablishsed(event);
+            }
+            catch (RuntimeException re) {
+                log.error("SessionEstablishedEvent listener [" + listener + "] raised a ["
+                        + re.getClass().getSimpleName() + "] when invoked.", re);
+            }
+        });
+    }
+
+    private CopyOnWriteArrayList<SessionRemovedListener> _sessionRemovedListeners = new CopyOnWriteArrayList<>();
+
+    @Override
+    public void addSessionRemovedEventListener(SessionRemovedListener listener) {
+        _sessionRemovedListeners.add(listener);
+    }
+
+    static class SessionRemovedEventImpl implements SessionRemovedEvent {
+
+        private final SessionRemovedEventType _type;
+        private final String _matsSocketSessionId;
+        private final Integer _closeCode;
+        private final String _reason;
+
+        public SessionRemovedEventImpl(
+                SessionRemovedEventType type, String matsSocketSessionId, Integer closeCode, String reason) {
+            _type = type;
+            _matsSocketSessionId = matsSocketSessionId;
+            _closeCode = closeCode;
+            _reason = reason;
+        }
+
+        @Override
+        public SessionRemovedEventType getType() {
+            return _type;
+        }
+
+        @Override
+        public String getMatsSocketSessionId() {
+            return _matsSocketSessionId;
+        }
+
+        @Override
+        public Optional<Integer> getCloseCode() {
+            return Optional.ofNullable(_closeCode);
+        }
+
+        @Override
+        public String getReason() {
+            return _reason;
+        }
+    }
+
+    void invokeSessionRemovedEventListeners(SessionRemovedEvent event) {
+        _sessionRemovedListeners.forEach(listener -> {
+            try {
+                listener.sessionRemoved(event);
+            }
+            catch (RuntimeException re) {
+                log.error("SessionRemovedEvent listener [" + listener + "] raised a ["
+                        + re.getClass().getSimpleName() + "] when invoked.", re);
+            }
+        });
+    }
+
     private void mats_publish(ProcessContext<Void> processContext, Void state, PublishedMessageDto msg) {
         ConcurrentHashMap<String, MatsSocketSessionAndMessageHandler> subs = _topicSubscriptions.get(msg.topicId);
         // ?: Was there any subscriptions?
@@ -561,50 +667,69 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     @Override
     public void closeSession(String matsSocketSessionId, String reason) {
-        log.info("server.closeSession(..): Got instructed to Close MatsSocketSessionId: [" + matsSocketSessionId
-                + "].");
-        if (matsSocketSessionId == null) {
-            throw new NullPointerException("matsSocketSessionId");
-        }
-        // :: Check if session is still registered with CSAF
-        Optional<CurrentNode> currentNode;
-        try {
-            currentNode = _clusterStoreAndForward.getCurrentRegisteredNodeForSession(matsSocketSessionId);
-        }
-        catch (DataAccessException e) {
-            // TODO: Fix.
-            throw new AssertionError("Damn.");
-        }
-        // ?: Did we currently have a registered session?
-        if (currentNode.isPresent()) {
-            // -> Yes - Send this request over to that node to kill it both locally there, and in CSAF.
-            // NOTE: It might be this node that is the current node, and that's fine.
+        try { // finally: MDC.remove()
+            MDC.putCloseable(MDC_SESSION_ID, matsSocketSessionId);
+            log.info("server.closeSession(..): Got instructed to Close MatsSocketSessionId: ["
+                    + matsSocketSessionId + "], reason: [" + reason + "]");
+            if (matsSocketSessionId == null) {
+                throw new NullPointerException("matsSocketSessionId");
+            }
+            // :: Check if session is still registered with CSAF
+            Optional<CurrentNode> currentNode;
             try {
-                _matsFactory.getDefaultInitiator().initiate(msg -> msg
-                        .from("MatsSocketServer.closeSession")
-                        .traceId("ServerCloseSession[" + matsSocketSessionId + "]" + rnd(5))
-                        .to(nodeSubscriptionTerminatorId_NodeControl_ForNode(currentNode.get().getNodename()))
-                        .publish(new NodeControl_CloseSessionDto(matsSocketSessionId, reason),
-                                new NodeControlStateDto(NodeControlStateDto.CLOSE_SESSION)));
-                return;
+                // ?: Check if it actually exists?
+                if (!_clusterStoreAndForward.isSessionExists(matsSocketSessionId)) {
+                    // -> No, it does not exist (already closed), so ignore this request.
+                    log.info(" \\- Session [" + matsSocketSessionId
+                            + "] does not exist in CSAF, ignoring server.closeSession(..)");
+                    return;
+                }
+                // Get current node it resides on
+                currentNode = _clusterStoreAndForward.getCurrentRegisteredNodeForSession(matsSocketSessionId);
             }
-            catch (MatsBackendException | MatsMessageSendException e) {
-                log.warn("Server side Close Session, and the MatsSocket Session was still registered"
-                        + " in CSAF, but we didn't manage to communicate with MQ. Will ignore this and close it"
-                        + " from CSAF anyway.", e);
-                // TODO: This is dodgy..
+            catch (DataAccessException e) {
+                // TODO: Fix.
+                throw new AssertionError("Damn.");
+            }
+
+            // ?: Did we currently have a registered session?
+            if (currentNode.isPresent()) {
+                // -> Yes - Send this request over to that node to kill it both locally there, and in CSAF.
+                // NOTE: It might be this node that is the current node, and that's fine.
+                try {
+                    _matsFactory.getDefaultInitiator().initiate(msg -> msg
+                            .from("MatsSocketServer.closeSession")
+                            .traceId("ServerCloseSession[" + matsSocketSessionId + "]" + rnd(5))
+                            .to(nodeSubscriptionTerminatorId_NodeControl_ForNode(currentNode.get().getNodename()))
+                            .publish(new NodeControl_CloseSessionDto(matsSocketSessionId, reason),
+                                    new NodeControlStateDto(NodeControlStateDto.CLOSE_SESSION)));
+                    return;
+                }
+                catch (MatsBackendException | MatsMessageSendException e) {
+                    log.warn("Server side Close Session, and the MatsSocket Session was still registered"
+                            + " in CSAF, but we didn't manage to communicate with MQ. Will ignore this and close it"
+                            + " from CSAF anyway.", e);
+                    // TODO: This is dodgy..
+                }
+            }
+
+            // E-> No currently registered local session, so close it directly in CSAF here.
+
+            // :: Invoke the SessionRemovedListeners
+            invokeSessionRemovedEventListeners(new SessionRemovedEventImpl(SessionRemovedEventType.CLOSE,
+                    matsSocketSessionId, null, reason));
+
+            // :: Close it from the CSAF
+            try {
+                _clusterStoreAndForward.closeSession(matsSocketSessionId);
+            }
+            catch (DataAccessException e) {
+                // TODO: Fix.
+                throw new AssertionError("Damn.");
             }
         }
-
-        // E-> No currently registered local session, so close it directly in CSAF here.
-
-        // :: Close it from the CSAF
-        try {
-            _clusterStoreAndForward.closeSession(matsSocketSessionId);
-        }
-        catch (DataAccessException e) {
-            // TODO: Fix.
-            throw new AssertionError("Damn.");
+        finally {
+            MDC.remove(MDC_SESSION_ID);
         }
     }
 
@@ -663,17 +788,17 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     @Override
     public void stop(int gracefulShutdownMillis) {
         log.info("Asked to shut down MatsSocketServer [" + id(this)
-                + "], containing [" + getCurrentLocalRegisteredMatsSocketSessions() + "] sessions.");
+                + "], containing [" + getCurrentLocalRegisteredMatsSocketSessions().size() + "] active sessions.");
 
         // Hinder further WebSockets connecting to us.
         _stopped = true;
 
-        // Shut down forwarder thread
+        // Shut down forwarder subsystem
         _messageToWebSocketForwarder.shutdown();
 
         // Deregister all MatsSocketSession from us, with SERVICE_RESTART, which asks them to reconnect
-        getCurrentLocalRegisteredMatsSocketSessions().forEach(msmh -> {
-            msmh.deregisterSessionAndCloseWebSocket(MatsSocketCloseCodes.SERVICE_RESTART,
+        getCurrentLocalRegisteredMatsSocketSessions().forEach(session -> {
+            session.deregisterSessionAndCloseWebSocket(MatsSocketCloseCodes.SERVICE_RESTART,
                     "From Server: Server instance is going down, please reconnect.");
         });
     }
@@ -763,73 +888,94 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         @Override
         public void onError(Session session, Throwable thr) {
-            // Deduce if this is a Server side timeout
-            // Note: This is modelled after Jetty. If different with other JSR 356 implementations, please expand.
-            _isTimeoutException = (thr.getCause() instanceof TimeoutException
-                    || ((thr.getMessage() != null) && thr.getMessage().toLowerCase().contains("timeout expired")));
+            try { // finally: MDC.clear()
+                if (_matsSocketSessionAndMessageHandler != null) {
+                    _matsSocketSessionAndMessageHandler.setMDC();
+                }
 
-            // ?: Is it a timeout situation?
-            if (_isTimeoutException) {
-                // -> Yes, timeout. This is handled, and does not constitute a "close session", client might
-                // just have lost connection and want's to reconnect soon. Just log info.
-                log.info("WebSocket @OnError: WebSocket server timed out the connection. MatsSocket SessionId: ["
-                        + (_matsSocketSessionAndMessageHandler == null
-                                ? "no MatsSocketSession"
-                                : _matsSocketSessionAndMessageHandler.getMatsSocketSessionId())
-                        + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this));
+                // Deduce if this is a Server side timeout
+                // Note: This is modelled after Jetty. If different with other JSR 356 implementations, please expand.
+                _isTimeoutException = (thr.getCause() instanceof TimeoutException
+                        || ((thr.getMessage() != null) && thr.getMessage().toLowerCase().contains("timeout expired")));
+
+                // ?: Is it a timeout situation?
+                if (_isTimeoutException) {
+                    // -> Yes, timeout. This is handled, and does not constitute a "close session", client might
+                    // just have lost connection and want's to reconnect soon. Just log info.
+                    log.info("WebSocket @OnError: WebSocket server timed out the connection. MatsSocket SessionId: ["
+                            + (_matsSocketSessionAndMessageHandler == null
+                                    ? "no MatsSocketSession"
+                                    : _matsSocketSessionAndMessageHandler.getMatsSocketSessionId())
+                            + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this));
+                }
+                else {
+                    // -> No, not timeout. So this is some kind of unexpected situation, typically raised from the
+                    // MastSocket implementation on MessageHandler. Log warn. This will close the session.
+                    log.warn("WebSocket @OnError, MatsSocket SessionId: ["
+                            + (_matsSocketSessionAndMessageHandler == null
+                                    ? "no MatsSocketSession"
+                                    : _matsSocketSessionAndMessageHandler.getMatsSocketSessionId())
+                            + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this),
+                            new Exception("MatsSocketServer's webSocket.onError(..) handler", thr));
+                }
             }
-            else {
-                // -> No, not timeout. So this is some kind of unexpected situation, typically raised from the
-                // MastSocket implementation on MessageHandler. Log warn. This will close the session.
-                log.warn("WebSocket @OnError, MatsSocket SessionId: ["
-                        + (_matsSocketSessionAndMessageHandler == null
-                                ? "no MatsSocketSession"
-                                : _matsSocketSessionAndMessageHandler.getMatsSocketSessionId())
-                        + "], WebSocket SessionId:" + session.getId() + ", this:" + id(this),
-                        new Exception("MatsSocketServer's webSocket.onError(..) handler", thr));
+            finally {
+                MDC.clear();
             }
         }
 
         @Override
         public void onClose(Session session, CloseReason closeReason) {
-            log.info("WebSocket @OnClose, code:[" + MatsSocketCloseCodes.getCloseCode(closeReason.getCloseCode()
-                    .getCode()) + "] (timeout:[" + _isTimeoutException + "]), reason:[" + closeReason.getReasonPhrase()
-                    + "], MatsSocket SessionId: [" + (_matsSocketSessionAndMessageHandler == null
-                            ? "no MatsSocketSession"
-                            : _matsSocketSessionAndMessageHandler.getMatsSocketSessionId())
-                    + "], ConnectionId:" + _connectionId + ", this:" + id(this));
+            try { // finally: MDC.clear()
+                if (_matsSocketSessionAndMessageHandler != null) {
+                    _matsSocketSessionAndMessageHandler.setMDC();
+                }
+                log.info("WebSocket @OnClose, code:[" + MatsSocketCloseCodes.getCloseCode(closeReason.getCloseCode()
+                        .getCode()) + "] (timeout:[" + _isTimeoutException + "]), reason:[" + closeReason
+                                .getReasonPhrase()
+                        + "], MatsSocket SessionId: [" + (_matsSocketSessionAndMessageHandler == null
+                                ? "no MatsSocketSession"
+                                : _matsSocketSessionAndMessageHandler.getMatsSocketSessionId())
+                        + "], ConnectionId:" + _connectionId + ", this:" + id(this));
 
-            // ?: Have we gotten MatsSocketSession yet? (In case "onOpen" has not been invoked yet. Can it happen?!).
-            if (_matsSocketSessionAndMessageHandler != null) {
-                // -> Yes, so either close session, or just deregister us from local and CSAF
-                // Is this a GOING_AWAY that is NOT from the server side? (Jetty gives this on timeout)
-                boolean goingAwayFromClientSide = (MatsSocketCloseCodes.GOING_AWAY.getCode() == closeReason
-                        .getCloseCode().getCode()) && (!_isTimeoutException);
-                // ?: Did the client or Server want to actually Close Session?
-                // NOTE: Need to check by the 'code' integers, since no real enum (CloseCode is an interface).
-                if ((MatsSocketCloseCodes.UNEXPECTED_CONDITION.getCode() == closeReason.getCloseCode().getCode())
-                        || (MatsSocketCloseCodes.PROTOCOL_ERROR.getCode() == closeReason.getCloseCode().getCode())
-                        || (MatsSocketCloseCodes.VIOLATED_POLICY.getCode() == closeReason.getCloseCode().getCode())
-                        || (MatsSocketCloseCodes.CLOSE_SESSION.getCode() == closeReason.getCloseCode().getCode())
-                        || (MatsSocketCloseCodes.SESSION_LOST.getCode() == closeReason.getCloseCode().getCode())
-                        || goingAwayFromClientSide) {
-                    // -> Yes, this was a one of the actual-close CloseCodes, or a "GOING AWAY" that was NOT
-                    // initiated from server side, which means that we should actually close this session
-                    log.info("Explicitly Closed MatsSocketSession due to CloseCode ["
-                            + MatsSocketCloseCodes.getCloseCode(closeReason.getCloseCode().getCode())
-                            + "] (timeout:[" + _isTimeoutException + "]), actually closing (terminating) it.");
-                    // Close MatsSocketSession
-                    _matsSocketSessionAndMessageHandler.closeSession();
+                // ?: Have we gotten MatsSocketSession yet?
+                // (Just in case "onOpen" has not been invoked yet. Can it happen?!).
+                if (_matsSocketSessionAndMessageHandler != null) {
+                    // -> Yes, so either close session, or just deregister us from local and CSAF
+                    // Is this a GOING_AWAY that is NOT from the server side? (Jetty gives this on timeout)
+                    boolean goingAwayFromClientSide = (MatsSocketCloseCodes.GOING_AWAY.getCode() == closeReason
+                            .getCloseCode().getCode()) && (!_isTimeoutException);
+                    // ?: Did the client or Server want to actually Close Session?
+                    // NOTE: Need to check by the 'code' integers, since no real enum (CloseCode is an interface).
+                    if ((MatsSocketCloseCodes.UNEXPECTED_CONDITION.getCode() == closeReason.getCloseCode().getCode())
+                            || (MatsSocketCloseCodes.PROTOCOL_ERROR.getCode() == closeReason.getCloseCode().getCode())
+                            || (MatsSocketCloseCodes.VIOLATED_POLICY.getCode() == closeReason.getCloseCode().getCode())
+                            || (MatsSocketCloseCodes.CLOSE_SESSION.getCode() == closeReason.getCloseCode().getCode())
+                            || (MatsSocketCloseCodes.SESSION_LOST.getCode() == closeReason.getCloseCode().getCode())
+                            || goingAwayFromClientSide) {
+                        // -> Yes, this was a one of the actual-close CloseCodes, or a "GOING AWAY" that was NOT
+                        // initiated from server side, which means that we should actually close this session
+                        log.info("Explicitly Closed MatsSocketSession due to CloseCode ["
+                                + MatsSocketCloseCodes.getCloseCode(closeReason.getCloseCode().getCode())
+                                + "] (timeout:[" + _isTimeoutException + "]), actually closing (terminating) it.");
+                        // Close MatsSocketSession
+                        _matsSocketSessionAndMessageHandler.closeSession(closeReason.getCloseCode().getCode(),
+                                closeReason.getReasonPhrase());
+                    }
+                    else {
+                        // -> No, this was a broken connection, or something else like an explicit disconnect w/o close
+                        log.info("Got a non-closing CloseCode [" + MatsSocketCloseCodes.getCloseCode(closeReason
+                                .getCloseCode().getCode()) + "] (timeout:[" + _isTimeoutException
+                                + "]), assuming that Client might want to reconnect - deregistering"
+                                + " MatsSocketSession from CSAF.");
+                        // Deregister MatsSocketSession
+                        _matsSocketSessionAndMessageHandler.deregisterSession(closeReason.getCloseCode().getCode(),
+                                closeReason.getReasonPhrase());
+                    }
                 }
-                else {
-                    // -> No, this was a broken connection, or something else like an explicit disconnect w/o close
-                    log.info("Got a non-closing CloseCode [" + MatsSocketCloseCodes.getCloseCode(closeReason
-                            .getCloseCode().getCode()) + "] (timeout:[" + _isTimeoutException
-                            + "]), assuming that Client might want to reconnect - deregistering"
-                            + " MatsSocketSession from CSAF.");
-                    // Deregister MatsSocketSession
-                    _matsSocketSessionAndMessageHandler.deregisterSession();
-                }
+            }
+            finally {
+                MDC.clear();
             }
         }
     }
@@ -1069,8 +1215,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         Optional<MatsSocketSessionAndMessageHandler> localSession = getRegisteredLocalMatsSocketSession(
                 matsSocketSessionId);
         // Close the session if we have it.
-        localSession.ifPresent(msmh -> msmh.closeSessionAndWebSocket(MatsSocketCloseCodes.CLOSE_SESSION,
+        localSession.ifPresent(session -> session.closeSessionAndWebSocket(MatsSocketCloseCodes.CLOSE_SESSION,
                 "Server Side: " + reason));
+
+        // ?: Was the local session present?
+        if (!localSession.isPresent()) {
+            // -> No, so then the session.closeSessionAndWebSocket(..) invocation won't have invoked listeners.
+            invokeSessionRemovedEventListeners(new SessionRemovedEventImpl(SessionRemovedEventType.CLOSE,
+                    matsSocketSessionId, null, reason));
+        }
 
         // :: Close it from the CSAF
         try {

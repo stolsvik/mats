@@ -9,7 +9,7 @@ public interface MatsSocketStatics {
     String MDC_PRINCIPAL_NAME = "matssocket.principal";
     String MDC_USER_ID = "matssocket.userId";
 
-    String MDC_CLIENT_LIB_AND_VERSIONS = "matssocket.clv";
+    String MDC_CLIENT_LIB_AND_VERSIONS = "matssocket.clientLib";
     String MDC_CLIENT_APP_NAME_AND_VERSION = "matssocket.clientApp";
 
     String MDC_MESSAGE_TYPE = "matssocket.msgType";

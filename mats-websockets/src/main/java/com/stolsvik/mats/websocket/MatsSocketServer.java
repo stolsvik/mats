@@ -2,10 +2,15 @@ package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
 import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.SortedMap;
 
 import javax.websocket.CloseReason.CloseCode;
 import javax.websocket.CloseReason.CloseCodes;
+import javax.websocket.Session;
 
 import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsEndpoint.MatsObject;
@@ -13,7 +18,11 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
+import com.stolsvik.mats.websocket.MatsSocketServer.SessionEstablishedEvent.SessionEstablishedEventType;
+import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent.SessionRemovedEventType;
 
 /**
  * The MatsSocket Java library, along with its several clients libraries, is a WebSocket-"extension" of the Mats library
@@ -65,8 +74,9 @@ import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
  * to be fully transferred before the next one is. This means that if you decide to send over a 200 MB PDF using the
  * MatsSocket instance over a 2G cellular network, any concurrent messages will experience a massive delay. This again
  * means that you should probably not do that: Either you should do such a download or upload using ordinary HTTP
- * solutions, or employ a second MatsSocket instance for this if you just cannot get enough of the MatsSocket API - but
- * you will get more control over e.g. cancellation of the transfer with the HTTP approach.</li>
+ * solutions (which can go concurrent with MatsSocket's WebSocket), or employ a secondary MatsSocket instance for such
+ * larger message if you just cannot get enough of the MatsSocket API - but you would still get more control over e.g.
+ * progress and cancellation of the transfer with the HTTP approach.</li>
  * </ul>
  *
  * @author Endre Stølsvik 2019-11-28 16:15 - http://stolsvik.com/, endre@stolsvik.com
@@ -248,6 +258,192 @@ public interface MatsSocketServer {
     SortedMap<String, MatsSocketEndpoint<?, ?, ?>> getMatsSocketEndpoints();
 
     /**
+     * A MatsSocketSession - either as represented only in the {@link ClusterStoreAndForward}, or an actual
+     * {@link ActiveMatsSocketSession}.
+     */
+    interface MatsSocketSession {
+        String getMatsSocketSessionId();
+
+        String getUserId();
+
+        /**
+         * @return a descriptive String representing which MatsSocket Client lib is in use ("name, version"), with
+         *         additional runtime "name and version" information tacked on separated by ";". For MatsSocket.js, this
+         *         may read as follows: <code>"MatsSocket.js,v0.10.0; User-Agent: {userAgentString}"</code>.
+         */
+        String getClientLibAndVersions();
+
+        /**
+         * @return the "AppName" that the Client registers as, could be something like "MegaCorpWebBank". This should be
+         *         rather long-term, not changing between versions of this particular application. It may be used to
+         *         distinguish between two different apps using the same MatsSocketSession Server, where one of them
+         *         handles Server-to-Client Requests of type "UserInfo.getCurrentGpsPosition", while the other app does
+         *         not have this endpoint.
+         */
+        String getAppName();
+
+        /**
+         * @return the "AppVersion" that the Client registers as, could be something like "1.2.3-2020-04-07_beta". This
+         *         should be something sane, preferably which can be alphanum-compared, so that the server could know
+         *         that at-or-above "1.2.1xxxx", the app "MegaCorpWebBank" handles Server-to-Client Requests of type
+         *         "UserInfo.getCurrentGpsPosition", but before this version, that particular endpoint was not
+         *         available.
+         */
+        String getAppVersion();
+
+        /**
+         * @return the name of the node that holds the {@link ActiveMatsSocketSession} if it is active,
+         *         <code>Optional.empty()</code> if not active. Will always return non-empty on an
+         *         {@link ActiveMatsSocketSession}.
+         */
+        Optional<String> getNodeName();
+    }
+
+    /**
+     * Represents an Active node-local MatsSocketSession - i.e. this instance represents an active MatsSocketSession,
+     * having - or just had - an open WebSocket, which by definition can only be connected to a single node. Note that
+     * this means that in a fairly load balanced 3-node MatsSocketServer cluster, you should get approximately 1/3 of
+     * the ActiveMatsSocketSessions residing on "this" node, while 2/3 of them will reside on the "other" two nodes.
+     * <p/>
+     * <b>NOTE: The underlying instance might well be an "active object" in that it is actually the live representation
+     * which the MatsSocketServer is using to represent the MatsSocketSession.</b> As such, most methods can return
+     * different values between each time you invoke them - and there is no synchronization between the methods, so you
+     * could read ACTIVE using {@link #getState()}, but when you read {@link #getAuthorization()}, it could return an
+     * Optional.empty() - because the user concurrently closed the session.
+     */
+    interface ActiveMatsSocketSession extends MatsSocketSession {
+        /**
+         * @return the current state of this {@link ActiveMatsSocketSession ActiveMatsSocketSession}. You should really
+         *         only ever see {@link MatsSocketSessionState#SESSION_ESTABLISHED SESSION_ESTABLISHED}, but due to the
+         *         concurrency wrt. you getting hold of an ActiveMatsSocketSession instance, and the Client performing a
+         *         {@link SessionRemovedEventType#DEREGISTER DEREGISTER} or {@link SessionRemovedEventType#CLOSE CLOSE},
+         *         you may also observe {@link MatsSocketSessionState#DEREGISTERED DEREGISTERED} and
+         *         {@link MatsSocketSessionState#CLOSED CLOSED}.
+         */
+        MatsSocketSessionState getState();
+
+        /**
+         * @return the WebSocket Session - the JSR 356 Java WebSocket API representation of the actual WebSocket
+         *         connection.
+         */
+        Session getWebSocketSession();
+
+        /**
+         * @return the active Authorization value, when ACTIVE.
+         */
+        Optional<String> getAuthorization();
+
+        /**
+         * @return the active Principal, when ACTIVE.
+         */
+        Optional<Principal> getPrincipal();
+
+        /**
+         * @return which Topic this session has subscribed to.
+         */
+        Set<String> getTopicSubscriptions();
+
+        /**
+         * @return timestamp (millis-since-epoch) of when we the client was last authorized: When
+         *         {@link SessionAuthenticator#initialAuthentication(AuthenticationContext, String)} returned
+         *         {@link AuthenticationContext#authenticated(Principal, String)}, or when
+         *         {@link SessionAuthenticator#reevaluateAuthentication(AuthenticationContext, String, Principal)}
+         *         returned {@link AuthenticationContext#authenticated(Principal, String)} or
+         *         {@link AuthenticationContext#stillValid()}.
+         */
+        long getLastAuthenticatedTimestamp();
+
+        /**
+         * @return timestamp (millis-since-epoch) of when we last received a PING message from the Client.
+         */
+        long getLastClientPingTimestamp();
+
+        /**
+         * @return timestamp (millis-since-epoch) of when the server last received an "information bearing message"
+         *         (SEND, REQUEST, RESOLVE or REJECT) from the client, or when the server last sent an "information
+         *         bearing message" (SEND, REQUEST, RESOLVE, REJECT or PUB) to the client
+         */
+        long getLastActivityTimestamp();
+
+        /**
+         * @return last 200 messages going between client and server - except PINGs.
+         */
+        List<MessageEvent> getLastMessageEvents();
+
+        /**
+         * The state of ActiveMatsSocketSession.
+         */
+        enum MatsSocketSessionState {
+            /**
+             * HELLO not yet processed - only accepts messages up to HELLO. This is the initial state of a
+             * MatsSocketSession, but you will probably never see an instance in this state, as the session is not
+             * registered with the MatsSocketServer until HELLO is processed, and thus the session is
+             * {@link #SESSION_ESTABLISHED}
+             */
+            NO_SESSION(true),
+
+            /**
+             * HELLO is processed and auth verified, and we are processing all kinds of messages.
+             * <p/>
+             * <b>Note: All fields shall be set in this state, i.e. auth string, principal, userId, websocket etc.</b>
+             */
+            SESSION_ESTABLISHED(true),
+
+            /**
+             * This {@link ActiveMatsSocketSession} instance is dead - <b>but the MatsSocketSession that this
+             * {@link ActiveMatsSocketSession} represented is still "live" in the {@link ClusterStoreAndForward data
+             * store}, i.e. it was just DEREGISTERED</b>, and can be "resurrected" by starting a new MatsSocketSession
+             * and include the existing MatsSocketSessionId in the HELLO message. <b>Do understand that it will not be
+             * the same instance of {@link ActiveMatsSocketSession ActiveMatsSocketSession} that is "reanimated" - a new
+             * instance will be created if the client reconnects.</b>
+             * <p/>
+             * <b>Note: Several "active fields" are nulled out when in this state.</b>
+             */
+            DEREGISTERED(false),
+
+            /**
+             * This {@link ActiveMatsSocketSession} instance is dead - <b>and the MatsSocketSession that this
+             * {@link ActiveMatsSocketSession} represented was CLOSED</b> - i.e. the MatsSocketSession is gone forever,
+             * any outstanding replies are dead etc, <b>and the MatsSocketSession cannot be "resurrected".</b>
+             * <p/>
+             * <b>Note: Several "active fields" are nulled out when in this state.</b>
+             */
+            CLOSED(false);
+
+            private final boolean acceptMessages;
+
+            MatsSocketSessionState(boolean acceptMessages) {
+                this.acceptMessages = acceptMessages;
+            }
+
+            /**
+             * @return whether in this state the WebSocket message handler accepts messages
+             *         ({@link #SESSION_ESTABLISHED} and {@link #NO_SESSION}, but for the latter only accepts HELLO) or
+             *         rejects them outright ({@link #DEREGISTERED} and {@link #CLOSED}).
+             */
+            public boolean isAcceptMessages() {
+                return acceptMessages;
+            }
+        }
+    }
+
+    interface MessageEvent {
+        long getTimestamp();
+
+        Direction getDirection();
+
+        MessageType getType();
+
+        String getMessageId();
+
+        enum Direction {
+            CLIENT_TO_SERVER,
+
+            SERVER_TO_CLIENT
+        }
+    }
+
+    /**
      * Sends a message to the specified MatsSocketSession, to the specified Client TerminatorId. This is "fire into the
      * void" style messaging, where you have no idea of whether the client received the message. Usage scenarios include
      * <i>"New information about order progress"</i> which may or may not include said information (if not included, the
@@ -317,7 +513,178 @@ public interface MatsSocketServer {
     void publish(String traceId, String topicId, Object messageDto);
 
     /**
-     * Closes the specified MatsSocket Session - to be used for out-of-band closing of Session if the WebSocket is down.
+     * @return a current snapshot of {@link ActiveMatsSocketSession}s - these are the MatsSocketSessions <b>which are
+     *         live on this node</b> of the set of nodes (i.e. cluster) that represents this <i>instance</i> of
+     *         MatsSocketServer.
+     */
+    Map<String, ActiveMatsSocketSession> getNodeLocalActiveMatsSocketSessions();
+
+    /**
+     * {@link SessionEstablishedEvent SessionEstablishedEvent} listeners will be invoked when an
+     * {@link ActiveMatsSocketSession ActiveMatsSocketSession} is established <b>on this node</b> of the
+     * {@link MatsSocketServer} instance cluster, i.e. the authentication/authorization is accepted, HELLO message from
+     * Client is processed and MatsSocketSessionId is established. Note that this means that in a fairly load balanced
+     * 3-node MatsSocketServer cluster, you should get approximately 1/3 of the SessionEstablishedEvents on "this" node,
+     * while 2/3 of them will come on the "other" two nodes.
+     * <p />
+     * Note: A specific MatsSocketSession with a specific MatsSocketSessionId can be established multiple times, due to
+     * {@link SessionEstablishedEventType#RECONNECT RECONNECT}.
+     * <p />
+     * <b>NOTE: You are advised against keeping hold of the {@link ActiveMatsSocketSession ActiveMatsSocketSession}
+     * instance that is provided in the {@link SessionEstablishedEvent SessionEstablishedEvent}.</b> You can instead get
+     * a view of the currently active sessions for this node by means of
+     * {@link #getNodeLocalActiveMatsSocketSessions()}. If you still decide to hold on to these active sessions
+     * instances, you must be <b><i>very</i></b> certain to remove it from your held instances when getting <b>any</b>
+     * {@link #addSessionRemovedEventListener(SessionRemovedListener) SessionRemovedEvent}, meaning that you must remove
+     * it for any of the {@link SessionRemovedEventType#DEREGISTER DEREGISTER}, {@link SessionRemovedEventType#CLOSE
+     * CLOSE} and {@link SessionRemovedEventType#TIMEOUT TIMEOUT} event types: The instance is <i>dead</i> for all of
+     * these events. If you were to remove it only on CLOSE or TIMEOUT, believing that a DEREGISTER is a "softer"
+     * removal, you have basically misunderstood! You could then get a DEREGISTER (which actually is the server
+     * informing you that it has ditched this ActiveMatsSocketSession and the session is now solely represented in the
+     * {@link ClusterStoreAndForward data store}, while you still stubbornly hold on to it!), and then not get a
+     * corresponding TIMEOUT for the same MatsSocketSessionId until many hours, or days, later. If you fail to remove it
+     * at all, you will eventually get an OutOfMemory situation. The reason here is that an ActiveMatsSocketSession
+     * instance is never "reanimated", even if the MatsSocketSession is just DEREGISTERed: A new ActiveMatsSocketSession
+     * instance is <i>always</i> created upon a {@link SessionEstablishedEvent SessionEstablishedEvent}, both for
+     * {@link SessionEstablishedEventType#NEW NEW} <i>and</i> {@link SessionEstablishedEventType#RECONNECT RECONNECT}
+     *
+     * @see #addSessionRemovedEventListener(SessionRemovedListener)
+     * @see #getNodeLocalActiveMatsSocketSessions()
+     *
+     * @param listener
+     *            the {@link SessionEstablishedListener SessionEstablishedListener} that shall get invoked when
+     *            MatsSocketSessions are established.
+     */
+    void addSessionEstablishedEventListener(SessionEstablishedListener listener);
+
+    @FunctionalInterface
+    interface SessionEstablishedListener {
+        void sessionEstablishsed(SessionEstablishedEvent event);
+    }
+
+    interface SessionEstablishedEvent {
+        SessionEstablishedEventType getType();
+
+        default String getMatsSocketSessionId() {
+            return getMatsSocketSession().getMatsSocketSessionId();
+        }
+
+        ActiveMatsSocketSession getMatsSocketSession();
+
+        enum SessionEstablishedEventType {
+            NEW,
+
+            RECONNECT
+        }
+    }
+
+    /**
+     * {@link SessionRemovedEvent} listeners will be invoked when an {@link ActiveMatsSocketSession} is removed from
+     * this node of the {@link MatsSocketServer} instance cluster - this is both when a MatsSocketSession is
+     * {@link SessionRemovedEventType#DEREGISTER DEREGISTERed}, in which case the Client can still
+     * {@link SessionEstablishedEventType#RECONNECT RECONNECT} to the same MatsSocketSessionId, and when a
+     * MatsSocketSession is {@link SessionRemovedEventType#CLOSE CLOSEd} or {@link SessionRemovedEventType#TIMEOUT
+     * TIMEOUTed}. In the latter cases, any information of the MatsSocketSession and its MatsSocketSessionId are deleted
+     * from the MatsSocketServer, and the session cannot be reconnected again.
+     * <p />
+     * Note: A specific MatsSocketSession can {@link SessionRemovedEventType#DEREGISTER DEREGISTER} multiple times, due
+     * to it can {@link SessionEstablishedEventType#RECONNECT RECONNECT} again after each DEREGISTER. However, once it
+     * has {@link SessionRemovedEventType#CLOSE CLOSE} or {@link SessionRemovedEventType#TIMEOUT TIMEOUT}, the session
+     * cannot RECONNECT ever again, and hence those events are terminal wrt. to that specific MatsSocketSessionId.
+     *
+     * @see #addSessionEstablishedEventListener(SessionEstablishedListener)
+     *
+     * @param listener
+     *            the {@link SessionEstablishedListener SessionEstablishedListener} that shall get invoked when
+     *            MatsSocketSessions are removed (either deregistered, closed or timed out).
+     */
+    void addSessionRemovedEventListener(SessionRemovedListener listener);
+
+    @FunctionalInterface
+    interface SessionRemovedListener {
+        void sessionRemoved(SessionRemovedEvent event);
+    }
+
+    interface SessionRemovedEvent {
+        SessionRemovedEventType getType();
+
+        String getMatsSocketSessionId();
+
+        /**
+         * @return the WebSocket "close code" if relevant (i.e. a WebSocket was actually connected: Won't have been with
+         *         TIMEOUT, can have been with CLOSE, always will have been with DEREGISTER) - the close codes used with
+         *         MatsSocket are detailed in {@link MatsSocketCloseCodes}.
+         */
+        Optional<Integer> getCloseCode();
+
+        /**
+         * @return a "reason phrase" corresponding to the {@link #getCloseCode() close code} in the WebSocket lingo -
+         *         but will also be set to something interesting if a WebSocket connection was not present.
+         */
+        String getReason();
+
+        /**
+         * Type of "remove": Either DEREGISTER, CLOSE or TIMEOUT. You may get one or several invocations for a session:
+         * You may get a CLOSE by itself: The user has logged in, does some stuff, and then "logs out" / closes the tab
+         * (i.e. invoking <code>client.close()</code>), thus actively closing the session explicitly. Or, you may first
+         * get a DEREGISTER e.g. due to the Client driving through a tunnel and loosing connection, in which case the
+         * most likely result is (hopefully) that the Server gets a {@link SessionEstablishedEventType#RECONNECT} - but
+         * if not, the Server may shortly get a CLOSE - or much later a TIMEOUT. Note that since the user may RECONNECT
+         * after a DEREGISTER, you may get multiple DEREGISTER for a single session - and then either a final CLOSE or
+         * TIMEOUT.
+         */
+        enum SessionRemovedEventType {
+            /**
+             * The WebSocket connection was severed without an explicit MatsSocketSession closing, e.g. because the user
+             * driving through a Tunnel or closing the lid of his laptop, or similar things that break the WebSocket
+             * connection. The MatsSocketSession is now still NOT {@link #isSessionClosed() closed}.
+             */
+            DEREGISTER(false),
+
+            /**
+             * The MatsSocketSession was explicitly closed. This may, or may not, have implied that the WebSocket
+             * connection was closed (either it was open, and was closed with this event - or it was already closed
+             * (DEREGISTER)). The MatsSocketSession is now {@link #isSessionClosed() closed}.
+             */
+            CLOSE(true),
+
+            /**
+             * The MatsSocketSession was previously {@link #DEREGISTER}, but was now "cleaned out" by the timeouter. The
+             * MatsSocketSession is now {@link #isSessionClosed() closed}.
+             */
+            TIMEOUT(true);
+
+            private final boolean sessionClosed;
+
+            SessionRemovedEventType(boolean sessionClosed) {
+                this.sessionClosed = sessionClosed;
+            }
+
+            /**
+             * @return whether this event type represents a closing of the session (i.e. removing all traces of it -
+             *         type {@link #CLOSE} or {@link #TIMEOUT}), or if it can still
+             *         {@link SessionEstablishedEventType#RECONNECT RECONNECT} with the same MatsSocketSessionId (type
+             *         {@link #DEREGISTER}).
+             */
+            boolean isSessionClosed() {
+                return sessionClosed;
+            }
+        }
+    }
+
+    /**
+     * Closes the specified MatsSocketSession - can be used to close an active MatsSocketSession (i.e. "kick it off"),
+     * and can also used to perform out-of-band closing of Session if the WebSocket is down (this is used in the
+     * MatsSocket.js Client, where an "onunload"-listener is attached, so that if the user navigates away, every effort
+     * is done to get the MatsSocketSession closed).
+     * <p />
+     * Note: An invocation of any {@link #addSessionRemovedEventListener(SessionRemovedListener) SessionRemoved
+     * listeners} with type {@link SessionRemovedEventType#CLOSE CLOSE} will be issued.
+     * <p />
+     * Note: This can be done on any node of the MatsSocketServer-instance cluster, as the instruction will be forwarded
+     * to the active node if the MatsSocketSession is not active on this node. If it is not active on any node, it will
+     * nevertheless be closed in the {@link ClusterStoreAndForward data store} (i.e. the session cannot reconnect
+     * again).
      *
      * @param sessionId
      *            the id of the Session to close.
@@ -327,9 +694,9 @@ public interface MatsSocketServer {
     void closeSession(String sessionId, String reason);
 
     /**
-     * Closes all WebSockets with {@link CloseCodes#SERVICE_RESTART} (assuming that a MatsSocket service will never
-     * truly go down, thus effectively asking the client to reconnect, hopefully to another instance). Should be invoked
-     * at application shutdown.
+     * Closes all {@link ActiveMatsSocketSession} on this node, closing the WebSocket with
+     * {@link CloseCodes#SERVICE_RESTART} (assuming that a MatsSocket service will never truly go down, thus effectively
+     * asking the client to reconnect, hopefully to another instance). Should be invoked at application shutdown.
      */
     void stop(int gracefulShutdownMillis);
 
@@ -748,8 +1115,8 @@ public interface MatsSocketServer {
          * typically when the user explicitly logs out, or navigates away from web page. All traces of the
          * MatsSocketSession are effectively deleted from the server, including any undelivered replies and messages
          * ("push") from server.</li>
-         * <li>From Server: {@link MatsSocketServer#closeSession(String)} was invoked, and the WebSocket to that client
-         * was still open, so we close it.</li>
+         * <li>From Server: {@link MatsSocketServer#closeSession(String, String)} was invoked, and the WebSocket to that
+         * client was still open, so we close it.</li>
          * </ul>
          */
         CLOSE_SESSION(4000),
@@ -776,10 +1143,15 @@ public interface MatsSocketServer {
 
         /**
          * 4003: From Server side: Currently used in the specific situation where a MatsSocket client connects with the
-         * same MatsSocketSessionId as an existing WebSocket connection. This could happen if the client has realized
-         * that a connection is wonky and wants to ditch it, but the server has not realized the same yet. When the
-         * server then gets the new connect, it'll see that there is an active WebSocket already. It needs to close
-         * that. But the client "must not do anything" other than what it already is doing - reconnecting.
+         * same MatsSocketSessionId as an existing open WebSocket connection. This could happen if the client has
+         * realized that a connection is wonky and wants to ditch it, but the server has not realized the same yet. When
+         * the server then gets the new connect, it'll see that there is an active WebSocket for this
+         * MatsSocketSessionId already existing. This is probably a transitory situation, which would have resolved
+         * itself after a while - but the MatsSocketServer will anyway close that existing connection to clean up - and
+         * uses this close code. (Note that in the current test suite, this double-connection situation is emulated
+         * using two different client instances using the same MatsSocketSessionId, something that shall never happen in
+         * actual use. In this case the "original" client being closed with this close code must not start
+         * reconnecting!)
          */
         DISCONNECT(4003);
 

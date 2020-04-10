@@ -24,9 +24,11 @@ import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import javax.websocket.MessageHandler.Whole;
@@ -34,7 +36,6 @@ import javax.websocket.RemoteEndpoint.Basic;
 import javax.websocket.Session;
 import javax.websocket.server.HandshakeRequest;
 
-import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredInMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -55,18 +56,24 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.ClientMessageIdAlready
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.RequestCorrelation;
-import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredOutMessage;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredInMessage;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.WrongUserException;
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageEvent;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
+import com.stolsvik.mats.websocket.MatsSocketServer.SessionEstablishedEvent.SessionEstablishedEventType;
+import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent.SessionRemovedEventType;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_Authenticated;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_InvalidAuthentication;
 import com.stolsvik.mats.websocket.impl.AuthenticationContextImpl.AuthenticationResult_StillValid;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.MatsSocketEndpointRegistration;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleStateDto;
+import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.SessionEstablishedEventImpl;
+import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.SessionRemovedEventImpl;
 import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DebugDto;
 import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
 
@@ -75,13 +82,13 @@ import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
  *
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
  */
-class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketStatics {
+class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketStatics, ActiveMatsSocketSession {
     private static final Logger log = LoggerFactory.getLogger(MatsSocketSessionAndMessageHandler.class);
 
     // ===== Set in constructor
     // :: From params
     private final DefaultMatsSocketServer _matsSocketServer;
-    private final Session _webSocketSession; // Non-final to be able to null out upon close.
+    private final Session _webSocketSession;
     private final String _connectionId;
     // SYNC upon accessing any methods: itself.
     private final SessionAuthenticator _sessionAuthenticator;
@@ -95,28 +102,36 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     private final ObjectWriter _envelopeListObjectWriter;
 
     // ===== Set later, updated later
-    // Set upon HELLO. Exclusively set and read by this class (although also read by log lines in server).
-    private String _matsSocketSessionId;
-    private String _clientLibAndVersion;
-    private String _appNameAndVersion;
+    // Set upon HELLO. Set and read by this class - and read by introspection.
+    // NOTICE: The MatsSocketSession is not registered with the DefaultMatsSocketServer until HELLO, thus all are set
+    // when registered.
+    private volatile String _matsSocketSessionId;
+    private volatile String _clientLibAndVersions;
+    private volatile String _appName;
+    private volatile String _appVersion;
 
-    // SYNC: All Auth-fields are only modified while holding sync on _sessionAuthenticator, read by WebSocket threads.
-    private String _authorization; // nulled upon close
-    private Principal _principal; // nulled upon close
-    private String _userId; // nulled upon close
+    // Set upon Authorization processed.
+    // SYNC: All Auth-fields are only modified while holding sync on _sessionAuthenticator, read by WebSocket threads
+    // .. - and read by introspection.
+    // NOTICE: The MatsSocketSession is not registered with the DefaultMatsSocketServer until HELLO, thus all are set
+    // when registered.
+    private volatile String _authorization; // nulled upon close
+    private volatile Principal _principal; // nulled upon close
+    private volatile String _userId; // NEVER nulled
 
     private EnumSet<DebugOption> _authAllowedDebugOptions;
     // CONCURRENCY: Set by WebSocket threads, read by Forwarder.
     private volatile EnumSet<DebugOption> _currentResolvedServerToClientDebugOptions = EnumSet.noneOf(
             DebugOption.class);
 
-    // CONCURRENCY: Set to System.currentTimeMillis() each time (re)evaluated OK by WebSocket threads, read by Forwarder
+    // CONCURRENCY: Set to System.currentTimeMillis() each time (re)evaluated OK by WebSocket threads,
+    // .. read by Forwarder - and read by introspection.
     private volatile long _lastAuthenticatedTimestamp;
     // CONCURRENCY: Set true (and read) by Forwarder, Cleared by WebSocket threads
     private volatile boolean _holdOutgoingMessages;
 
-    // CONCURRENCY: Set and read by WebSocket threads, read by Forwarder.
-    private volatile MatsSocketSessionState _state = MatsSocketSessionState.UNVERIFIED;
+    // CONCURRENCY: Set and read by WebSocket threads, read by Forwarder - and read by introspection.
+    private volatile MatsSocketSessionState _state = MatsSocketSessionState.NO_SESSION;
 
     // CONCURRENCY: Set and read by WebSocket threads, read by OnClose (which probably also is a WebSocket thread).
     private CopyOnWriteArrayList<String> _subscribedTopics = new CopyOnWriteArrayList<>();
@@ -139,8 +154,91 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         _envelopeListObjectWriter = _matsSocketServer.getEnvelopeListObjectWriter();
     }
 
-    Session getWebSocketSession() {
+    /**
+     * NOTE: There can <i>potentially</i> be multiple instances of {@link MatsSocketSessionAndMessageHandler} with the
+     * same Id if we're caught by bad asyncness wrt. one connection dropping and the client immediately reconnecting.
+     * The two {@link MatsSocketSessionAndMessageHandler}s would then hey would then have different
+     * {@link #getWebSocketSession() WebSocketSessions}, i.e. differing actual connections. One of them would soon
+     * realize that is was closed. <b>This Id together with {@link #getConnectionId()} is unique</b>.
+     *
+     * @return the MatsSocketSessionId that this {@link MatsSocketSessionAndMessageHandler} instance refers to.
+     */
+    @Override
+    public String getMatsSocketSessionId() {
+        return _matsSocketSessionId;
+    }
+
+    @Override
+    public String getUserId() {
+        return _userId;
+    }
+
+    @Override
+    public String getClientLibAndVersions() {
+        return _clientLibAndVersions;
+    }
+
+    @Override
+    public String getAppName() {
+        return _appName;
+    }
+
+    @Override
+    public String getAppVersion() {
+        return _appVersion;
+    }
+
+    @Override
+    public Optional<String> getNodeName() {
+        return Optional.of(_matsSocketServer.getMyNodename());
+    }
+
+    @Override
+    public MatsSocketSessionState getState() {
+        return _state;
+    }
+
+    @Override
+    public Session getWebSocketSession() {
         return _webSocketSession;
+    }
+
+    @Override
+    public Optional<String> getAuthorization() {
+        return Optional.ofNullable(_authorization);
+    }
+
+    @Override
+    public Optional<Principal> getPrincipal() {
+        return Optional.ofNullable(_principal);
+    }
+
+    @Override
+    public Set<String> getTopicSubscriptions() {
+        return new HashSet<>(_subscribedTopics);
+    }
+
+    @Override
+    public long getLastAuthenticatedTimestamp() {
+        return _lastAuthenticatedTimestamp;
+    }
+
+    @Override
+    public long getLastClientPingTimestamp() {
+        // TODO:
+        return 0;
+    }
+
+    @Override
+    public long getLastActivityTimestamp() {
+        // TODO:
+        return 0;
+    }
+
+    @Override
+    public List<MessageEvent> getLastMessageEvents() {
+        // TODO:
+        return null;
     }
 
     private final Object _webSocketSendSyncObject = new Object();
@@ -158,19 +256,6 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     /**
-     * NOTE: There can <i>potentially</i> be multiple instances of {@link MatsSocketSessionAndMessageHandler} with the
-     * same Id if we're caught by bad asyncness wrt. one connection dropping and the client immediately reconnecting.
-     * The two {@link MatsSocketSessionAndMessageHandler}s would then hey would then have different
-     * {@link #getWebSocketSession() WebSocketSessions}, i.e. differing actual connections. One of them would soon
-     * realize that is was closed. <b>This Id together with {@link #getConnectionId()} is unique</b>.
-     *
-     * @return the MatsSocketSessionId that this {@link MatsSocketSessionAndMessageHandler} instance refers to.
-     */
-    String getMatsSocketSessionId() {
-        return _matsSocketSessionId;
-    }
-
-    /**
      * NOTE: Read JavaDoc of {@link #getMatsSocketSessionId} to understand why this Id is of interest.
      */
     String getConnectionId() {
@@ -185,8 +270,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         return _authAllowedDebugOptions;
     }
 
-    boolean isActive() {
-        return _state == MatsSocketSessionState.ACTIVE;
+    boolean isSessionEstablished() {
+        return _state == MatsSocketSessionState.SESSION_ESTABLISHED;
     }
 
     boolean isWebSocketSessionOpen() {
@@ -209,21 +294,29 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     private boolean _askedClientForReauth = false;
     private int _numberOfInformationBearingIncomingWhileWaitingForReauth = 0;
 
+    void setMDC() {
+        if (_matsSocketSessionId != null) {
+            MDC.put(MDC_SESSION_ID, _matsSocketSessionId);
+        }
+        if (_principal != null) {
+            MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
+        }
+        if (_userId != null) {
+            MDC.put(MDC_USER_ID, _userId);
+        }
+        if ((_appName != null) && (_appVersion != null)) {
+            MDC.put(MDC_CLIENT_APP_NAME_AND_VERSION, _appName + ";" + _appVersion);
+        }
+    }
+
     @Override
     public void onMessage(String message) {
         try { // try-finally: MDC.clear();
+            setMDC();
             long clientMessageReceivedTimestamp = System.currentTimeMillis();
-            if (isActive()) {
-                MDC.put(MDC_SESSION_ID, _matsSocketSessionId);
-                MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
-                MDC.put(MDC_USER_ID, _userId);
-            }
-            if (_appNameAndVersion != null) {
-                MDC.put(MDC_CLIENT_APP_NAME_AND_VERSION, _appNameAndVersion);
-            }
 
             // ?: Do we accept messages?
-            if (!_state.acceptMessages) {
+            if (!_state.isAcceptMessages()) {
                 // -> No, so ignore message.
                 log.info("WebSocket @OnMessage: WebSocket received message on MatsSocketSession with"
                         + " non-message-accepting state [" + _state + "], MatsSocketSessionId ["
@@ -296,7 +389,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // Assert that we've had HELLO already processed
                     // NOTICE! We will handle PINGs without valid Authorization, but only if we've already established
                     // Session, as checked by seeing if we've processed HELLO
-                    if (!isActive()) {
+                    if (!isSessionEstablished()) {
                         closeSessionAndWebSocketWithProtocolError(
                                 "Cannot process PING before HELLO and session established");
                         return;
@@ -335,7 +428,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // Assert that we've had HELLO already processed
                     // NOTICE! We will handle PONGs without valid Authorization, but only if we've already established
                     // Session, as checked by seeing if we've processed HELLO
-                    if (!isActive()) {
+                    if (!isSessionEstablished()) {
                         closeSessionAndWebSocketWithProtocolError(
                                 "Cannot process PING before HELLO and session established");
                         return;
@@ -364,7 +457,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // Assert that we've had HELLO already processed
                     // NOTICE! We will handle ACK/NACKs without valid Authorization, but only if we've already
                     // established Session, as checked by seeing if we've processed HELLO
-                    if (!isActive()) {
+                    if (!isSessionEstablished()) {
                         closeSessionAndWebSocketWithProtocolError(
                                 "Cannot process " + envelope.t + " before HELLO and session established");
                         return;
@@ -430,7 +523,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // Assert that we've had HELLO already processed
                     // NOTICE! We will handle ACK2s without valid Authorization, but only if we've already established
                     // Session, as checked by seeing if we've processed HELLO
-                    if (!isActive()) {
+                    if (!isSessionEstablished()) {
                         closeSessionAndWebSocketWithProtocolError(
                                 "Cannot process ACK2 before HELLO and session established");
                         return;
@@ -665,7 +758,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         // Remove this HELLO envelope from pipeline
                         it.remove();
                         // ?: Have we processed HELLO before for this WebSocket connection, i.e. already ACTIVE?
-                        if (isActive()) {
+                        if (isSessionEstablished()) {
                             // -> Yes, and this is not according to protocol.
                             closeSessionAndWebSocketWithPolicyViolation("Shall only receive HELLO once per MatsSocket"
                                     + " WebSocket connection.");
@@ -697,10 +790,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 return;
             }
 
-            if (!isActive()) {
+            if (!isSessionEstablished()) {
                 closeSessionAndWebSocketWithPolicyViolation("SessionState != ACTIVE.");
                 return;
             }
+
+            // MDC: Just ensure that all MDC stuff is set now after HELLO
+            setMDC();
 
             // :: 10. Now go through and handle all the rest of the messages: information bearing, or SUB/UNSUB
 
@@ -769,6 +865,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 }
                 finally {
                     MDC.remove(MDC_MESSAGE_TYPE);
+                    MDC.remove(MDC_TRACE_ID);
                 }
             }
 
@@ -866,12 +963,19 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
      * <li>Close Session in CSAF</li>
      * </ul>
      */
-    void closeSession() {
-        // We're closed
+    void closeSession(Integer closeCode, String reason) {
+        // ?: Are we already DEREGISTERD or CLOSED?
+        if (!_state.isAcceptMessages()) {
+            // Already deregistered or closed.
+            log.info("session.closeSession(): .. but was already in a state where not accepting messages ["
+                    + _state + "].");
+            return;
+        }
+        // Mark closed
         _state = MatsSocketSessionState.CLOSED;
 
         // Disarm this instance - and unsubscribe all topics.
-        dropAllAuthFields_and_UnsubscribeTopics();
+        dropSomeAuthFields_and_UnsubscribeTopics();
 
         // :: Deregister locally and Close MatsSocket Session in CSAF
         if (_matsSocketSessionId != null) {
@@ -888,6 +992,10 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         + " (only the same user can reconnect, though). However, the session scavenger"
                         + " will clean this lingering session out after some hours.", e);
             }
+
+            // :: Invoke the SessionRemovedEvent listeners - AFTER it is removed from MatsSocketServer
+            _matsSocketServer.invokeSessionRemovedEventListeners(new SessionRemovedEventImpl(
+                    SessionRemovedEventType.CLOSE, _matsSocketSessionId, closeCode, reason));
         }
     }
 
@@ -900,12 +1008,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     void closeSessionAndWebSocket(MatsSocketCloseCodes closeCode, String reason) {
-        // :: Close the actual WebSocket
-        DefaultMatsSocketServer.closeWebSocket(_webSocketSession, closeCode, reason);
-
         // Perform the instance close
         // Note: This might end up being invoked twice, since the above WebSocket close will invoke onClose
-        closeSession();
+        closeSession(closeCode.getCode(), reason);
+
+        // :: Close the actual WebSocket
+        DefaultMatsSocketServer.closeWebSocket(_webSocketSession, closeCode, reason);
     }
 
     /**
@@ -917,12 +1025,19 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
      * <li>Deregister Session in CSAF</li>
      * </ul>
      */
-    void deregisterSession() {
+    void deregisterSession(Integer closeCode, String reason) {
+        // ?: Are we already DEREGISTERD or CLOSED?
+        if (!_state.isAcceptMessages()) {
+            // Already deregistered or closed.
+            log.info("session.deregisterSession(): .. but was already in a state where not accepting messages ["
+                    + _state + "].");
+            return;
+        }
         // Mark deregistered
         _state = MatsSocketSessionState.DEREGISTERED;
 
         // Disarm this instance - and unsubscribe all topics.
-        dropAllAuthFields_and_UnsubscribeTopics();
+        dropSomeAuthFields_and_UnsubscribeTopics();
 
         // Local deregister
         if (_matsSocketSessionId != null) {
@@ -936,27 +1051,32 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 log.warn("Could not deregister MatsSocketSessionId [" + _matsSocketSessionId
                         + "] from CSAF, ignoring.", e);
             }
+            // :: Invoke the SessionRemovedEvent listeners - AFTER it is removed from MatsSocketServer
+            _matsSocketServer.invokeSessionRemovedEventListeners(new SessionRemovedEventImpl(
+                    SessionRemovedEventType.DEREGISTER, _matsSocketSessionId, closeCode, reason));
         }
     }
 
     void deregisterSessionAndCloseWebSocket(MatsSocketCloseCodes closeCode, String reason) {
+        // Perform the instance deregister
+        // Note: This might end up being invoked twice, since the above WebSocket close will invoke onClose
+        deregisterSession(closeCode.getCode(), reason);
+
         // Close WebSocket
         DefaultMatsSocketServer.closeWebSocket(_webSocketSession, closeCode, reason);
-
-        deregisterSession();
     }
 
-    private void dropAllAuthFields_and_UnsubscribeTopics() {
-        // :: Eagerly drop all authorization for session, so that this session object is ensured to be utterly useless.
+    private void dropSomeAuthFields_and_UnsubscribeTopics() {
+        // :: Eagerly drop authorization for session, so that this session object is ensured to be pretty useless.
         _authorization = null;
         _principal = null;
-        _userId = null;
-        _lastAuthenticatedTimestamp = -1;
+        // Note: letting SessionId and userId be, as it is nice for logging.
 
         // Unsubscribe from all topics
         _subscribedTopics.forEach(topicId -> {
             _matsSocketServer.deregisterMatsSocketSessionFromTopic(topicId, getConnectionId());
         });
+        // .. just for general cleanliness, but this instance is dead anyway.
         _subscribedTopics.clear();
     }
 
@@ -1167,12 +1287,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             return false;
         }
 
-        _clientLibAndVersion = envelope.clv;
-        if (_clientLibAndVersion == null) {
+        _clientLibAndVersions = envelope.clv;
+        if (_clientLibAndVersions == null) {
             closeSessionAndWebSocketWithProtocolError("Missing ClientLibAndVersion (clv) in HELLO envelope.");
             return false;
         }
-        MDC.put(MDC_CLIENT_LIB_AND_VERSIONS, _clientLibAndVersion);
+        // NOTE: Setting MDC_CLIENT_LIB_AND_VERSIONS for the rest of this pipeline, but not for every onMessage!
+        MDC.put(MDC_CLIENT_LIB_AND_VERSIONS, _clientLibAndVersions);
         String appName = envelope.an;
         if (appName == null) {
             closeSessionAndWebSocketWithProtocolError("Missing AppName (an) in HELLO envelope.");
@@ -1183,7 +1304,10 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             closeSessionAndWebSocketWithProtocolError("Missing AppVersion (av) in HELLO envelope.");
             return false;
         }
-        _appNameAndVersion = appName + ";" + appVersion;
+        _appName = appName;
+        _appVersion = appVersion;
+        // Ensure MDC is as current as possible
+        setMDC();
 
         // ----- HELLO was good (and authentication is already performed, earlier in process)
 
@@ -1191,6 +1315,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         // ?: Do the client want to reconnecting using existing MatsSocketSessionId
         if (envelope.sid != null) {
+            MDC.put(MDC_SESSION_ID, envelope.sid);
             log.info("MatsSocketSession Reconnect requested to MatsSocketSessionId [" + envelope.sid + "]");
             // -> Yes, try to find it
 
@@ -1220,7 +1345,6 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // You're allowed to use this, since the sessionId was already existing.
                 _matsSocketSessionId = envelope.sid;
                 replyEnvelope.desc = "reconnected - existing local";
-                MDC.put(MDC_SESSION_ID, _matsSocketSessionId);
             }
             else {
                 log.info(" \\- No existing local Session found (i.e. at this node), check CSAF..");
@@ -1261,11 +1385,18 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
 
         // ?: Do we have a MatsSocketSessionId by now?
+        boolean newSession = false;
         if (_matsSocketSessionId == null) {
             // -> No, so make one.
+            newSession = true;
             _matsSocketSessionId = DefaultMatsSocketServer.rnd(16);
         }
-        MDC.put(MDC_SESSION_ID, _matsSocketSessionId);
+
+        // Set state SESSION_ESTABLISHED
+        _state = MatsSocketSessionState.SESSION_ESTABLISHED;
+
+        // Ensure MDC is as current as possible
+        setMDC();
 
         // Register Session at this node
         _matsSocketServer.registerLocalMatsSocketSession(this);
@@ -1298,13 +1429,15 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         // ----- We're now a live MatsSocketSession!
 
-        // Set state ACTIVE
-        _state = MatsSocketSessionState.ACTIVE;
-
         // Increase timeout to "prod timeout", now that client has said HELLO
         _webSocketSession.setMaxIdleTimeout(75_000);
         // Set high limit for text, as we don't want to be held back on the protocol side of things.
         _webSocketSession.setMaxTextMessageBufferSize(50 * 1024 * 1024);
+
+        // :: Notify SessionEstablishedEvent listeners - AFTER it is added to MatsSocketServer
+        _matsSocketServer.invokeSessionEstablishedEventListeners(new SessionEstablishedEventImpl(
+                (newSession ? SessionEstablishedEventType.NEW : SessionEstablishedEventType.RECONNECT),
+                this));
 
         // :: Create reply WELCOME message
 
@@ -1502,8 +1635,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 MatsSocketEndpointRegistration<?, ?, ?> registration = registrationO.get();
 
                 // -> Developer-friendliness assert for Client REQUESTs going to a Terminator (which won't ever Reply).
-                if ((type == REQUEST) && ((registration.getReplyClass() == Void.class)
-                        || (registration.getReplyClass() == Void.TYPE))) {
+                if ((type == REQUEST) &&
+                        ((registration.getReplyClass() == Void.class) || (registration.getReplyClass() == Void.TYPE))) {
                     handledEnvelope[0].t = NACK;
                     handledEnvelope[0].desc = "An incoming REQUEST envelope targeted a MatsSocketEndpoint which is a"
                             + " Terminator, i.e. it won't ever reply";
@@ -1694,7 +1827,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         catch (Throwable t) {
             // Evidently the handleIncoming didn't handle this message. This is a NACK.
             log.warn("handleIncoming(..) raised exception, assuming that it didn't like the incoming message"
-                    + " - replying RECEIVED:NACK to client.", t);
+                    + " - replying NACK to client.", t);
             handledEnvelope[0].t = NACK;
             handledEnvelope[0].desc = t.getClass().getSimpleName() + ": " + t.getMessage();
         }
@@ -1722,7 +1855,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         // ?: Already subscribed to this topic?
         if (_subscribedTopics.contains(envelope.eid)) {
-            // -> Yes, already subscribed - client shall handle multi-subscriptions to same topic.
+            // -> Yes, already subscribed - client shall locally handle multi-subscriptions to same topic.
             closeSessionAndWebSocketWithProtocolError("SUB: Already subscribed to Topic ["
                     + envelope.eid + "]");
             return;
@@ -1748,7 +1881,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     .getClass().getSimpleName() + "] when asked whether the user [" + _userId
                     + "], principal:[" + _principal + "] was allowed to subscribe to Topic ["
                     + envelope.eid + "]");
-            closeSessionAndWebSocketWithPolicyViolation("Authorization of Topic subscription: Got Exception.");
+            closeSessionAndWebSocketWithPolicyViolation("Authorization of Topic subscription: Error.");
             return;
         }
         if (authorized) {
@@ -1882,47 +2015,6 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         public DatabaseRuntimeException(String message, Throwable cause) {
             super(message, cause);
-        }
-    }
-
-    /**
-     * The state of MatsSocketSession (i.e. this class).
-     */
-    enum MatsSocketSessionState {
-        /**
-         * HELLO not yet processed - only accepts messages up to HELLO.
-         */
-        UNVERIFIED(true),
-
-        /**
-         * HELLO is processed and auth verified, and we are processing all kinds of messages.
-         * <p/>
-         * <b>Note: All fields shall be set in this state, i.e. auth string, principal, userId, websocket etc.</b>
-         */
-        ACTIVE(true),
-
-        /**
-         * This {@link MatsSocketSessionAndMessageHandler} instance is dead - <b>and the MatsSocketSession that this
-         * {@link MatsSocketSessionAndMessageHandler} represented was CLOSED</b> - i.e. the MatsSocketSession is gone
-         * forever, any outstanding replies are dead etc, <b>and the MatsSocketSession cannot be "resurrected".</b>
-         * <p/>
-         * <b>Note: Most "active fields" are nulled out when in this state.</b>
-         */
-        CLOSED(false),
-
-        /**
-         * This {@link MatsSocketSessionAndMessageHandler} instance is dead - <b>but the MatsSocketSession that this
-         * {@link MatsSocketSessionAndMessageHandler} represented is still "live"</b>, and can be "resurrected" by
-         * starting a new MatsSocketSession and include the existing MatsSocketSessionId in the HELLO message.
-         * <p/>
-         * <b>Note: Most "active fields" are nulled out when in this state.</b>
-         */
-        DEREGISTERED(false);
-
-        private final boolean acceptMessages;
-
-        MatsSocketSessionState(boolean acceptMessages) {
-            this.acceptMessages = acceptMessages;
         }
     }
 

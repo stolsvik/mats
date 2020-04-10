@@ -2,6 +2,8 @@ package com.stolsvik.mats.websocket;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.junit.Assert;
 import org.slf4j.Logger;
@@ -9,6 +11,9 @@ import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.websocket.DummySessionAuthenticator.DummyAuthPrincipal;
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession;
+import com.stolsvik.mats.websocket.MatsSocketServer.SessionEstablishedEvent;
+import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent;
 
 /**
  * Sets up the test endpoints used from the integration tests (and the HTML test-pages).
@@ -19,6 +24,9 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static final Logger log = LoggerFactory.getLogger(SetupTestMatsAndMatsSocketEndpoints.class);
 
     static void setupMatsAndMatsSocketEndpoints(MatsFactory matsFactory, MatsSocketServer matsSocketServer) {
+        // Add listeners
+        setup_AddListeners(matsSocketServer);
+
         // "Standard" test endpoint
         setup_StandardTestSingle(matsSocketServer, matsFactory);
         setup_SimpleMats(matsSocketServer, matsFactory);
@@ -49,6 +57,34 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         setupSocket_Publish(matsSocketServer);
 
         setupSocket_MatsSocket_renewAuth(matsSocketServer);
+    }
+
+    private static ConcurrentHashMap<String, SessionEstablishedEvent> __sessionMap = new ConcurrentHashMap<>();
+    private static CopyOnWriteArrayList<SessionRemovedEvent> __sessionRemovedEvents = new CopyOnWriteArrayList<>();
+
+    // ===== Listeners:
+
+    private static void setup_AddListeners(MatsSocketServer matsSocketServer) {
+        matsSocketServer.addSessionEstablishedEventListener(event -> {
+            ActiveMatsSocketSession session = event.getMatsSocketSession();
+            log.info("#### LISTENER! SESSION +++ESTABLISHED!+++ [" + event.getType() + "] #### SessionId:" + event
+                    .getMatsSocketSessionId() + ", appName: " + session.getAppName() + ", appVersion:" + session
+                            .getAppVersion()
+                    + ", clientLibAndVersions:" + session.getClientLibAndVersions() + ", authorization:" + session
+                            .getAuthorization());
+            __sessionMap.put(event.getMatsSocketSessionId(), event);
+        });
+
+        matsSocketServer.addSessionRemovedEventListener(event -> {
+            SessionEstablishedEvent removed = __sessionMap.remove(event.getMatsSocketSessionId());
+            log.info("#### LISTENER! SESSION ---REMOVED!!--- [" + event.getType() + "] ["
+                    + (removed != null
+                            ? "Added session as:" + removed.getType()
+                            : "SESSION was already GONE!") + "] #### SessionId:"
+                    + event.getMatsSocketSessionId() + ", reason:" + event.getReason() + ", closeCode" + event
+                            .getCloseCode());
+            __sessionRemovedEvents.add(event);
+        });
     }
 
     // ===== "Standard Endpoint".

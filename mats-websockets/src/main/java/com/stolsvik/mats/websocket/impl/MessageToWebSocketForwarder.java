@@ -19,9 +19,9 @@ import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredOutMessage;
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession.MatsSocketSessionState;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
-import com.stolsvik.mats.websocket.impl.MatsSocketSessionAndMessageHandler.MatsSocketSessionState;
 
 /**
  * Gets a ping from the node-specific Topic, or when the client reconnects.
@@ -129,9 +129,10 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                 }
 
                 // ?: Check if the MatsSocketSessionAndMessageHandler is still active
-                if (!matsSocketSessionAndMessageHandler.isActive()) {
+                if (!matsSocketSessionAndMessageHandler.isSessionEstablished()) {
                     log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
-                            + " Session was not state [" + MatsSocketSessionState.ACTIVE + "], so exit out.");
+                            + " Session was not state [" + MatsSocketSessionState.SESSION_ESTABLISHED
+                            + "], so exit out.");
                     return;
                 }
 
@@ -141,7 +142,9 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                             + " Session was closed. Deregistering this MatsSocketSessionHandler, forwarding"
                             + " notification to new MatsSocketSession home (if any), and exiting handler.");
 
-                    matsSocketSessionAndMessageHandler.deregisterSession();
+                    matsSocketSessionAndMessageHandler.deregisterSession(null,
+                            "About to send messages Server-to-Client, but WebSocket was closed."
+                                    + " Deregistering MatsSocketSession.");
 
                     // Forward to new home (Note: It can theoretically be us, in another MatsSocketMessageHandler,
                     // .. due to race wrt. close & reconnect)
