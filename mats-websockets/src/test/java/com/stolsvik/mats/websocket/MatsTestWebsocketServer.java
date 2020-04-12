@@ -2,12 +2,22 @@ package com.stolsvik.mats.websocket;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.Principal;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -22,6 +32,7 @@ import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.websocket.Session;
 import javax.websocket.server.ServerContainer;
 
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
@@ -38,11 +49,21 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonValue;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.type.TypeFactory;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL_DbMigrations;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL_DbMigrations.Database;
@@ -130,6 +151,132 @@ public class MatsTestWebsocketServer {
             log.info("  \\- ServletContext: " + sce.getServletContext());
             _matsSocketServer.stop(5000);
             _matsFactory.stop(5000);
+        }
+    }
+
+    /**
+     * Servlet utilizing and displaying the introspection functionality of MatsSocketServer.
+     */
+    @WebServlet("/introspection")
+    public static class IntrospectionServlet extends HttpServlet {
+
+        private static DateTimeFormatter SDF = DateTimeFormatter.ISO_DATE_TIME;
+
+        private String dateTime(Instant instant) {
+            return SDF.format(ZonedDateTime.ofInstant(instant, ZoneId.systemDefault()));
+        }
+
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            long nanos_total_start = System.nanoTime();
+            resp.setContentType("text/html");
+            resp.setCharacterEncoding("UTF-8");
+
+            MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext()
+                    .getAttribute(MatsSocketServer.class.getName());
+
+            long nanos_get_start = System.nanoTime();
+            Map<String, ActiveMatsSocketSession> activeMatsSocketSessions = matsSocketServer
+                    .getNodeLocalActiveMatsSocketSessions();
+            long nanos_get_taken = System.nanoTime() - nanos_get_start;
+
+            PrintWriter writer = resp.getWriter();
+            writer.println("<html><body><h1>Introspection</h1>");
+
+            writer.println("<table>");
+            activeMatsSocketSessions.forEach((sessionId, session) -> {
+                writer.println("<tr>");
+
+                writer.println("<td>" + sessionId + "</td>");
+                writer.println("<td>" + session.getUserId() + "</td>");
+                writer.println("<td>" + session.getPrincipal().map(Principal::getName).orElse("[Error! Missing!]")
+                        + "</td>");
+                writer.println("<td>" + dateTime(session.getLastAuthenticatedTimestamp()) + "</td>");
+                writer.println("<td>" + dateTime(session.getLastClientPingTimestamp()) + "</td>");
+                writer.println("<td>" + dateTime(session.getLastActivityTimestamp()) + "</td>");
+                writer.println("<td>" + session.getAuthorization() + "</td>");
+                writer.println("<td>" + session.getAppName() + " : " + session.getAppVersion() + "</td>");
+                writer.println("<td>" + session.getClientLibAndVersions() + "</td>");
+
+                writer.println("</tr>");
+            });
+            writer.println("</table>");
+
+            long nanos_total_taken = System.nanoTime() - nanos_total_start;
+
+            writer.println("Total nanos: [" + nanos_total_taken + "], getNodeLocalActiveMatsSocketSessions() nanos:["
+                    + nanos_get_taken + "].");
+
+            writer.println("</body></html>");
+        }
+    }
+
+    @WebServlet("/introspection.json")
+    public static class IntrospectionJsonServlet extends HttpServlet {
+
+        private static DateTimeFormatter SDF = DateTimeFormatter.ISO_DATE_TIME;
+
+        private String dateTime(long instant) {
+            return SDF.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(instant), ZoneId.systemDefault()));
+        }
+
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            long nanos_total_start = System.nanoTime();
+            resp.setContentType("application/json");
+            resp.setCharacterEncoding("UTF-8");
+
+            MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext()
+                    .getAttribute(MatsSocketServer.class.getName());
+
+            long nanos_get_start = System.nanoTime();
+            Map<String, ActiveMatsSocketSession> activeMatsSocketSessions = matsSocketServer
+                    .getNodeLocalActiveMatsSocketSessions();
+            long nanos_get_taken = System.nanoTime() - nanos_get_start;
+
+
+            // Create the Jackson ObjectMapper
+            ObjectMapper mapper = new ObjectMapper();
+            // Write e.g. Dates as "1975-03-11" instead of timestamp, and instead of array-of-ints [1975, 3, 11].
+            // Uses ISO8601 with milliseconds and timezone (if present).
+            mapper.registerModule(new JavaTimeModule());
+            mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
+            // Handle Optional, OptionalLong, OptionalDouble
+            mapper.registerModule(new Jdk8Module());
+            // :: handle Principal which we do not want serialized fully, and WebSocket, which we want to ignore
+            // To filter, this one shows three approaches: https://stackoverflow.com/a/46391039/39334
+            // To just remove them, could have used https://stackoverflow.com/a/49010463/39334
+
+            // Make a mixin for ignoring WebSocketSession
+            abstract class AnnotatedActiveMatsSocketSession implements ActiveMatsSocketSession {
+                @JsonIgnore
+                abstract public Session getWebSocketSession();
+            }
+            mapper.addMixIn(ActiveMatsSocketSession.class, AnnotatedActiveMatsSocketSession.class);
+
+            // Make a mixin for tailoring Principal's output to only output toString().
+            // Note: Could have used @JsonSerialize with custom serializer for getPrincipal() on the above AMSS mixin
+            abstract class AnnotatedPrincipal implements Principal {
+                @JsonValue
+                abstract public String toString();
+            }
+            mapper.addMixIn(Principal.class, AnnotatedPrincipal.class);
+
+            // Get ObjectWriter for a List of the /interface/ ActiveMatsSocketSession, not the instance class.
+            // Ref: https://stackoverflow.com/a/54594839/39334
+            ObjectWriter objectWriter = mapper.writerFor(TypeFactory.defaultInstance().constructType(
+                    new TypeReference<List<ActiveMatsSocketSession>>() {
+                    })).withDefaultPrettyPrinter();
+
+            List<ActiveMatsSocketSession> sessions = new ArrayList<>(activeMatsSocketSessions.values());
+
+            PrintWriter writer = resp.getWriter();
+            objectWriter.writeValue(writer, sessions);
+
+            long nanos_total_taken = System.nanoTime() - nanos_total_start;
+
+            log.info("Output JSON of ActiveMatsSocketSessions: Total nanos: [" + nanos_total_taken + "], getNodeLocalActiveMatsSocketSessions() nanos:["
+                    + nanos_get_taken + "].");
         }
     }
 
@@ -255,8 +402,8 @@ public class MatsTestWebsocketServer {
     }
 
     /**
-     * Servlet to supply the MatsSocket.js and test files - this only works in development (i.e. running from e.g.
-     * IntelliJ).
+     * Servlet to supply the MatsSocket.js and test files - this only works in development (i.e. running this class from
+     * e.g. IntelliJ).
      */
     @WebServlet("/mats/*")
     public static class MatsSocketLibServlet extends HttpServlet {

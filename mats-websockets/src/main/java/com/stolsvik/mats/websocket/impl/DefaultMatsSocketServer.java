@@ -11,7 +11,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -552,9 +551,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     @Override
-    public Map<String, ActiveMatsSocketSession> getNodeLocalActiveMatsSocketSessions() {
+    public SortedMap<String, ActiveMatsSocketSession> getNodeLocalActiveMatsSocketSessions() {
         synchronized (_activeSessionsByMatsSocketSessionId_x) {
-            return new HashMap<>(_activeSessionsByMatsSocketSessionId_x);
+            return new TreeMap<>(_activeSessionsByMatsSocketSessionId_x);
         }
     }
 

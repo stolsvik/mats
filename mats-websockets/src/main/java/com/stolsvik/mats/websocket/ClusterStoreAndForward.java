@@ -50,8 +50,7 @@ public interface ClusterStoreAndForward {
     /**
      * Registers a Session home to this node - only one node can ever be home, so any old is deleted. When
      * "re-registering" a session, it is asserted that the provided 'userId' is the same UserId as originally registered
-     * - an {@link WrongUserException} is thrown if this does not match (Note that this is an extension of
-     * {@link DataAccessException}, just out of implementation convenience).
+     * - a {@link WrongUserException} is thrown if this does not match.
      *
      * @param matsSocketSessionId
      *            the SessionId for this connection.
@@ -61,6 +60,8 @@ public interface ClusterStoreAndForward {
      *            an id that is unique for this specific WebSocket Session (i.e. TCP Connection), so that if it closes,
      *            a new registration will not be deregistered by the old MatsSocketSession realizing that it is closed
      *            and then invoking {@link #deregisterSessionFromThisNode(String, String)}
+     * @param clientLibAndVersions
+     *            the Client Library and Versions + runtime information for the Client.
      * @param appName
      *            the AppName of the accessing Client app
      * @param appVersion
@@ -70,10 +71,11 @@ public interface ClusterStoreAndForward {
      * @throws DataAccessException
      *             if problems with underlying data store.
      * @return the created timestamp - which is either "now" if this is the first register, or if it a "reconnect", when
-     *         this MatsSocketSession was previously created
+     *         this MatsSocketSession was initially created
      */
     long registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId,
-            String appName, String appVersion) throws WrongUserException, DataAccessException;
+            String clientLibAndVersions, String appName, String appVersion)
+            throws WrongUserException, DataAccessException;
 
     /**
      * @param matsSocketSessionId
@@ -207,10 +209,10 @@ public interface ClusterStoreAndForward {
             throws DataAccessException;
 
     /**
-     * Marks the specified messages as attempted delivered and notches the {@link StoredOutMessage#getDeliveryCount()} one
-     * up. If {@link #outboxMessagesUnmarkAttemptedDelivery(String)} is invoked (typically on reconnect), the mark will
-     * be unset, but the delivery count will stay in place - this is to be able to abort delivery attempts if there is
-     * something wrong with the message.
+     * Marks the specified messages as attempted delivered and notches the {@link StoredOutMessage#getDeliveryCount()}
+     * one up. If {@link #outboxMessagesUnmarkAttemptedDelivery(String)} is invoked (typically on reconnect), the mark
+     * will be unset, but the delivery count will stay in place - this is to be able to abort delivery attempts if there
+     * is something wrong with the message.
      *
      * @param matsSocketSessionId
      *            the matsSocketSessionId that the serverMessageIds refers to.
@@ -264,8 +266,8 @@ public interface ClusterStoreAndForward {
     // ---------- Exceptions and DTOs ----------
 
     /**
-     * Thrown from {@link #registerSessionAtThisNode(String, String, String, String, String)} if the userId does not
-     * match the original userId that created this session.
+     * Thrown from {@link #registerSessionAtThisNode(String, String, String, String, String, String)} if the userId does
+     * not match the original userId that created this session.
      */
     class WrongUserException extends Exception {
         public WrongUserException(String message) {

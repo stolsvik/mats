@@ -1,9 +1,9 @@
 package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
@@ -262,14 +262,29 @@ public interface MatsSocketServer {
      * {@link ActiveMatsSocketSession}.
      */
     interface MatsSocketSession {
+        /**
+         * @return the MatsSocketSessionId of this MatsSocketSession.
+         */
         String getMatsSocketSessionId();
 
+        /**
+         * @return the userId owning this MatsSocketSession.
+         */
         String getUserId();
 
         /**
-         * @return a descriptive String representing which MatsSocket Client lib is in use ("name, version"), with
+         * @return when the MatsSocketSession and its Id was initially created. Will not be reset due to cycles of
+         *         {@link SessionRemovedEventType#DEREGISTER} and {@link SessionEstablishedEventType#RECONNECT}.
+         */
+        Instant getCreatedTimestamp();
+
+        /**
+         * @return a descriptive String representing which MatsSocket Client lib is in use ("name,version"), with
          *         additional runtime "name and version" information tacked on separated by ";". For MatsSocket.js, this
-         *         may read as follows: <code>"MatsSocket.js,v0.10.0; User-Agent: {userAgentString}"</code>.
+         *         may read as follows: <code>"MatsSocket.js,v0.10.0; User-Agent: {userAgentString}"</code>, or
+         *         <code>"MatsSocket.js,v0.10.0; Node.js: {node version}"</code>. For MatsSocket.dart, it could read
+         *         <code>"MatsSocket.dart,v0.10.0; Dart: {dart version}; Flutter: {flutter SDK version}"</code>, or
+         *         <code>"MatsSocket.dart,v0.10.0; Dart: {dart version}; User-Agent: {userAgentString}"</code>
          */
         String getClientLibAndVersions();
 
@@ -329,41 +344,49 @@ public interface MatsSocketServer {
         Session getWebSocketSession();
 
         /**
-         * @return the active Authorization value, when ACTIVE.
+         * @return the active Authorization value, only available when
+         *         {@link MatsSocketSessionState#SESSION_ESTABLISHED}.
          */
         Optional<String> getAuthorization();
 
         /**
-         * @return the active Principal, when ACTIVE.
+         * @return the active Principal, only available when {@link MatsSocketSessionState#SESSION_ESTABLISHED}.
          */
         Optional<Principal> getPrincipal();
 
         /**
-         * @return which Topic this session has subscribed to.
+         * @return which Topics this session has subscribed to.
          */
         Set<String> getTopicSubscriptions();
 
         /**
-         * @return timestamp (millis-since-epoch) of when we the client was last authorized: When
+         * @return when this {@link ActiveMatsSocketSession} was established - as opposed to
+         *         {@link #getCreatedTimestamp()}, this timestamp is "reset" on every
+         *         {@link SessionEstablishedEventType#RECONNECT} (and set on {@link SessionEstablishedEventType#NEW}).
+         */
+        Instant getSessionEstablishedTimestamp();
+
+        /**
+         * @return timestamp (millis-since-epoch) of when we the client was last authenticated: When
          *         {@link SessionAuthenticator#initialAuthentication(AuthenticationContext, String)} returned
          *         {@link AuthenticationContext#authenticated(Principal, String)}, or when
          *         {@link SessionAuthenticator#reevaluateAuthentication(AuthenticationContext, String, Principal)}
          *         returned {@link AuthenticationContext#authenticated(Principal, String)} or
          *         {@link AuthenticationContext#stillValid()}.
          */
-        long getLastAuthenticatedTimestamp();
+        Instant getLastAuthenticatedTimestamp();
 
         /**
          * @return timestamp (millis-since-epoch) of when we last received a PING message from the Client.
          */
-        long getLastClientPingTimestamp();
+        Instant getLastClientPingTimestamp();
 
         /**
-         * @return timestamp (millis-since-epoch) of when the server last received an "information bearing message"
-         *         (SEND, REQUEST, RESOLVE or REJECT) from the client, or when the server last sent an "information
-         *         bearing message" (SEND, REQUEST, RESOLVE, REJECT or PUB) to the client
+         * @return timestamp (millis-since-epoch) of when the Server last received an <i>information bearing message</i>
+         *         (SEND, REQUEST, RESOLVE or REJECT) from the Client, or when the Server last sent an information
+         *         bearing message (SEND, REQUEST, RESOLVE, REJECT or PUB) to the Client
          */
-        long getLastActivityTimestamp();
+        Instant getLastActivityTimestamp();
 
         /**
          * @return last 200 messages going between client and server - except PINGs.
@@ -517,7 +540,7 @@ public interface MatsSocketServer {
      *         live on this node</b> of the set of nodes (i.e. cluster) that represents this <i>instance</i> of
      *         MatsSocketServer.
      */
-    Map<String, ActiveMatsSocketSession> getNodeLocalActiveMatsSocketSessions();
+    SortedMap<String, ActiveMatsSocketSession> getNodeLocalActiveMatsSocketSessions();
 
     /**
      * {@link SessionEstablishedEvent SessionEstablishedEvent} listeners will be invoked when an

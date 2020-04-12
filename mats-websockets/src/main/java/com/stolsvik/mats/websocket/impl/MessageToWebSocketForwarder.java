@@ -293,6 +293,9 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     String jsonEnvelopeList = _matsSocketServer.getEnvelopeListObjectWriter()
                             .writeValueAsString(envelopeList);
 
+                    // Register last activity time
+                    matsSocketSessionAndMessageHandler.registerActivityTimestamp(System.currentTimeMillis());
+
                     // :: Forward message(s) over WebSocket
                     try {
                         // :: Actually send message(s) over WebSocket.

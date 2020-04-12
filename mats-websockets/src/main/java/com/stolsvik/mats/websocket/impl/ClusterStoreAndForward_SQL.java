@@ -68,7 +68,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public long registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId,
-            String appName, String appVersion) throws DataAccessException, WrongUserException {
+            String clientLibAndVersions, String appName, String appVersion)
+            throws WrongUserException, DataAccessException {
         try (Connection con = _dataSource.getConnection()) {
             boolean autoCommitPre = con.getAutoCommit();
             try { // turn back autocommit, just to be sure we've not changed state of connection.
@@ -114,17 +115,18 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
                 // Insert the new current row
                 PreparedStatement insert = con.prepareStatement("INSERT INTO mats_socket_session"
-                        + "(session_id, connection_id, nodename, user_id, app_name, app_version,"
+                        + "(session_id, connection_id, nodename, user_id, client_lib, app_name, app_version,"
                         + " created_timestamp, liveliness_timestamp)"
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 insert.setString(1, matsSocketSessionId);
                 insert.setString(2, connectionId);
                 insert.setString(3, _nodename);
                 insert.setString(4, userId);
-                insert.setString(5, appName);
-                insert.setString(6, appVersion);
-                insert.setLong(7, createdTimestamp);
-                insert.setLong(8, now);
+                insert.setString(5, clientLibAndVersions);
+                insert.setString(6, appName);
+                insert.setString(7, appVersion);
+                insert.setLong(8, createdTimestamp);
+                insert.setLong(9, now);
 
                 // Execute them both
                 delete.execute();

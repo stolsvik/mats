@@ -21,6 +21,7 @@ import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.WELCOME;
 
 import java.io.IOException;
 import java.security.Principal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 import javax.websocket.MessageHandler.Whole;
 import javax.websocket.RemoteEndpoint.Basic;
@@ -86,6 +88,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     private static final Logger log = LoggerFactory.getLogger(MatsSocketSessionAndMessageHandler.class);
 
     // ===== Set in constructor
+
     // :: From params
     private final DefaultMatsSocketServer _matsSocketServer;
     private final Session _webSocketSession;
@@ -94,7 +97,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     private final SessionAuthenticator _sessionAuthenticator;
 
     // :: Derived in constructor
-    private final Basic _webSocketBasicRemote; // Non-final to be able to null out upon close.
+    private final Basic _webSocketBasicRemote;
     private final AuthenticationContext _authenticationContext;
     private final ObjectReader _envelopeObjectReader;
     private final ObjectWriter _envelopeObjectWriter;
@@ -102,7 +105,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     private final ObjectWriter _envelopeListObjectWriter;
 
     // ===== Set later, updated later
-    // Set upon HELLO. Set and read by this class - and read by introspection.
+
+    // Set upon HELLO. Set and read by WebSocket threads - and read by introspection.
     // NOTICE: The MatsSocketSession is not registered with the DefaultMatsSocketServer until HELLO, thus all are set
     // when registered.
     private volatile String _matsSocketSessionId;
@@ -126,7 +130,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
     // CONCURRENCY: Set to System.currentTimeMillis() each time (re)evaluated OK by WebSocket threads,
     // .. read by Forwarder - and read by introspection.
-    private volatile long _lastAuthenticatedTimestamp;
+    private AtomicLong _lastAuthenticatedTimestamp = new AtomicLong();
     // CONCURRENCY: Set true (and read) by Forwarder, Cleared by WebSocket threads
     private volatile boolean _holdOutgoingMessages;
 
@@ -136,7 +140,16 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     // CONCURRENCY: Set and read by WebSocket threads, read by OnClose (which probably also is a WebSocket thread).
     private CopyOnWriteArrayList<String> _subscribedTopics = new CopyOnWriteArrayList<>();
 
-    private static final int MAX_SIZE_OF_TOPIC = 1024;
+    private static final int MAX_LENGTH_OF_TOPIC_NAME = 1024;
+
+    // CONCURRENCY: Set by handleHello, read by introspection
+    private volatile long _createdTimestamp;
+    private volatile long _sessionEstablishedTimestamp;
+
+    // CONCURRENCY: Set by ping-handling, read by introspection
+    private AtomicLong _lastPingTimestamp = new AtomicLong();
+    // CONCURRENCY: Set by handleSendOrRequestOrReply(..) and Forwarder, read by introspection
+    private AtomicLong _lastActivityTimestamp = new AtomicLong();
 
     MatsSocketSessionAndMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
             String connectionId, HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
@@ -171,6 +184,11 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     @Override
     public String getUserId() {
         return _userId;
+    }
+
+    @Override
+    public Instant getCreatedTimestamp() {
+        return Instant.ofEpochMilli(_createdTimestamp);
     }
 
     @Override
@@ -219,20 +237,27 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     @Override
-    public long getLastAuthenticatedTimestamp() {
-        return _lastAuthenticatedTimestamp;
+    public Instant getSessionEstablishedTimestamp() {
+        return Instant.ofEpochMilli(_sessionEstablishedTimestamp);
     }
 
     @Override
-    public long getLastClientPingTimestamp() {
-        // TODO:
-        return 0;
+    public Instant getLastAuthenticatedTimestamp() {
+        return Instant.ofEpochMilli(_lastAuthenticatedTimestamp.get());
     }
 
     @Override
-    public long getLastActivityTimestamp() {
-        // TODO:
-        return 0;
+    public Instant getLastClientPingTimestamp() {
+        return Instant.ofEpochMilli(_lastPingTimestamp.get());
+    }
+
+    @Override
+    public Instant getLastActivityTimestamp() {
+        return Instant.ofEpochMilli(_lastActivityTimestamp.get());
+    }
+
+    public void registerActivityTimestamp(long timestamp) {
+        _lastActivityTimestamp.set(timestamp);
     }
 
     @Override
@@ -394,6 +419,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                                 "Cannot process PING before HELLO and session established");
                         return;
                     }
+                    // :: Update PING timestamp
+                    _lastPingTimestamp.set(clientMessageReceivedTimestamp);
+
                     // :: Create PONG message
                     MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
                     replyEnvelope.t = PONG;
@@ -640,8 +668,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     MatsSocketEnvelopeDto envelope = it.next();
                     if ((envelope.t == SUB) || (envelope.t == UNSUB)) {
                         // ?: Is the topicId too long?
-                        if (envelope.eid.length() > MAX_SIZE_OF_TOPIC) {
-                            closeSessionAndWebSocketWithPolicyViolation("TopicId length > " + MAX_SIZE_OF_TOPIC);
+                        if (envelope.eid.length() > MAX_LENGTH_OF_TOPIC_NAME) {
+                            closeSessionAndWebSocketWithPolicyViolation("TopicId length > " + MAX_LENGTH_OF_TOPIC_NAME);
                         }
                         _heldEnvelopesWaitingForReauth.add(envelope);
                         // :: A DOS-preventive measure:
@@ -1008,8 +1036,11 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     void closeSessionAndWebSocket(MatsSocketCloseCodes closeCode, String reason) {
+        // NOTE: FIRST deregister, so that we do not get more messages our way, THEN close WebSocket, which might lag.
+
         // Perform the instance close
         // Note: This might end up being invoked twice, since the above WebSocket close will invoke onClose
+        // However, such double invocation is handled in close-method
         closeSession(closeCode.getCode(), reason);
 
         // :: Close the actual WebSocket
@@ -1058,8 +1089,11 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     void deregisterSessionAndCloseWebSocket(MatsSocketCloseCodes closeCode, String reason) {
+        // NOTE: FIRST deregister, so that we do not get more messages our way, THEN close WebSocket, which might lag.
+
         // Perform the instance deregister
         // Note: This might end up being invoked twice, since the above WebSocket close will invoke onClose
+        // However, such double invocation is handled in deregister-method
         deregisterSession(closeCode.getCode(), reason);
 
         // Close WebSocket
@@ -1095,7 +1129,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             AuthenticationResult authenticationResult;
             try {
                 authenticationResult = _sessionAuthenticator.reevaluateAuthenticationForOutgoingMessage(
-                        _authenticationContext, _authorization, _principal, _lastAuthenticatedTimestamp);
+                        _authenticationContext, _authorization, _principal, _lastAuthenticatedTimestamp.get());
             }
             catch (RuntimeException re) {
                 log.error("Got Exception when invoking SessionAuthenticator"
@@ -1244,7 +1278,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         _authAllowedDebugOptions = authAllowedDebugOptions;
 
         // Update the timestamp of when the SessionAuthenticator last time was happy with the authentication.
-        _lastAuthenticatedTimestamp = System.currentTimeMillis();
+        _lastAuthenticatedTimestamp.set(System.currentTimeMillis());
         // We have gotten the Auth, so we do not currently have a question outstanding
         _askedClientForReauth = false;
         // ?: Are we on "hold outgoing messages"?
@@ -1403,8 +1437,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         // :: Register Session in CSAF, and reset "attempted delivery" mark.
         try {
             // Register in CSAF
-            _matsSocketServer.getClusterStoreAndForward().registerSessionAtThisNode(_matsSocketSessionId, _userId,
-                    _connectionId, appName, appVersion);
+            _createdTimestamp = _matsSocketServer.getClusterStoreAndForward().registerSessionAtThisNode(
+                    _matsSocketSessionId, _userId, _connectionId, _clientLibAndVersions, _appName, _appVersion);
 
             // Clear attempted delivery mark, to perform retransmission of these.
             _matsSocketServer.getClusterStoreAndForward().outboxMessagesUnmarkAttemptedDelivery(_matsSocketSessionId);
@@ -1428,6 +1462,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
 
         // ----- We're now a live MatsSocketSession!
+
+        // Record timestamp of when this session was established.
+        _sessionEstablishedTimestamp = System.currentTimeMillis();
 
         // Increase timeout to "prod timeout", now that client has said HELLO
         _webSocketSession.setMaxIdleTimeout(75_000);
@@ -1478,6 +1515,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         MessageType type = envelope.t;
 
         log.info("  \\- " + envelope + ", msg:[" + envelope.msg + "].");
+
+        registerActivityTimestamp(clientMessageReceivedTimestamp);
 
         // :: Assert some props.
         if (envelope.cmid == null) {
@@ -1849,8 +1888,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             closeSessionAndWebSocketWithProtocolError("SUB: Topic is null or empty.");
             return;
         }
-        if (envelope.eid.length() > MAX_SIZE_OF_TOPIC) {
-            closeSessionAndWebSocketWithPolicyViolation("TopicId length > " + MAX_SIZE_OF_TOPIC);
+        if (envelope.eid.length() > MAX_LENGTH_OF_TOPIC_NAME) {
+            closeSessionAndWebSocketWithPolicyViolation("TopicId length > " + MAX_LENGTH_OF_TOPIC_NAME);
         }
 
         // ?: Already subscribed to this topic?
@@ -1964,6 +2003,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             }
         }
         float milliDeserializeMessage = msSince(nanos_start_Deserialize);
+
+        registerActivityTimestamp(System.currentTimeMillis());
 
         long nanos_start_Serialize = System.nanoTime();
         String jsonEnvelopeList;
@@ -2205,9 +2246,10 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // -> Yes, this is a REQUEST, so we should forward as Mats .request(..)
                 // :: Need to make state so that receiving terminator know what to do.
 
+                // Handle the resolved DebugOptions for this flow
                 EnumSet<DebugOption> resolvedDebugOptions = getResolvedDebugOptions();
                 Integer debugFlags = DebugOption.flags(resolvedDebugOptions);
-                // Hack to save a tiny bit of space for this that mostly will be 0
+                // Hack to save a tiny bit of space for these flags that mostly will be 0 (null serializes "not there")
                 if (debugFlags == 0) {
                     debugFlags = null;
                 }
