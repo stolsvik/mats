@@ -24,7 +24,8 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
 
 /**
- * Gets a ping from the node-specific Topic, or when the client reconnects.
+ * Gets a ping from the node-specific Topic with information about new messages, and also if the client reconnects, and
+ * also if we are "on hold" due to awaiting new authentication from Client.
  *
  * @author Endre Stølsvik 2019-12 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -90,8 +91,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                 + "]");
         // :: Check if there is an existing handler for this MatsSocketSession
         String uniqueId = matsSocketSessionAndMessageHandler.getMatsSocketSessionId()
-                + matsSocketSessionAndMessageHandler
-                        .getConnectionId();
+                + matsSocketSessionAndMessageHandler.getConnectionId();
         boolean[] fireOffNewHandler = new boolean[1];
 
         _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
@@ -124,20 +124,26 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
             RENOTIFY: while (true) { // LOOP: "Re-notifications"
                 // ?: Should we hold outgoing messages? (Waiting for "AUTH" answer from Client to our "REAUTH" request)
                 if (matsSocketSessionAndMessageHandler.isHoldOutgoingMessages()) {
-                    // -> Yes, so bail out
+                    // -> Yes, holding outgoing messages, so bail out
                     return;
                 }
 
                 // ?: Check if the MatsSocketSessionAndMessageHandler is still active
                 if (!matsSocketSessionAndMessageHandler.isSessionEstablished()) {
+                    // -> Not SESSION_ESTABLISHED - forward to new home if relevant
                     log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
                             + " Session was not state [" + MatsSocketSessionState.SESSION_ESTABLISHED
-                            + "], so exit out.");
+                            + "], forwarding to new MatsSocketSession home (if any), and existing handler.");
+                    // Forward to new home (Note: It can theoretically be us, in another MatsSocketMessageHandler,
+                    // .. due to race wrt. close & reconnect)
+                    _matsSocketServer.newMessageOnWrongNode_NotifyCorrectHome(matsSocketSessionId);
+                    // We're done, exit.
                     return;
                 }
 
                 // ?: Check if WebSocket Session (i.e. the Connection) is still open.
                 if (!matsSocketSessionAndMessageHandler.isWebSocketSessionOpen()) {
+                    // -> Not Open WebSocket - forward to new home if relevant
                     log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
                             + " Session was closed. Deregistering this MatsSocketSessionHandler, forwarding"
                             + " notification to new MatsSocketSession home (if any), and exiting handler.");
@@ -438,20 +444,29 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                      * rounds, OR one final pass would handle any remaining. We can thus set the count down to 1, and be
                      * sure that we will have handled any outstanding messages that we've been notified about /until
                      * now/.
+                     *
+                     * Example: If two more messages came in while we were doing these at-the-time final rounds, the
+                     * count would be increased to 3. The messages would either be swept in the rounds currently
+                     * running, or not. But the count is 3, so when we come here, we reduce it to 1, and do a sweep,
+                     * either then not finding any messages (since they were already swept), or picking those two up and
+                     * forward them - and then reduce from 1 to 0 and exit. This argument holds forever..!
                      */
                     return 1;
                 });
 
                 // ----- Now, either we loop since there was more to do, or we exit out since we were empty.
 
-                // NOTICE! There is no race here, as if a new notification is just coming in, he will see an empty
-                // slot in the map, and fire off a new handler. Thus, there might be two handlers running at the same
-                // time: This one, which is exiting, and the new one, which is just starting.
+                /*
+                 * NOTICE! IF there is a race here because a new notification is /just coming in/, that notification
+                 * will see an empty slot in the map, and fire off a new handler. Thus, there might be two handlers
+                 * running at the same time: This one, which is exiting, and the new one, which is just starting.
+                 */
 
                 // ?: Should we exit?
                 if (shouldExit[0]) {
                     // -> Yes, so do.
-                    // We've already removed this handler (in above 'compute'), so don't bother doing it again
+                    // We've already removed this handler (in above 'compute'), so must not do it again in the finally
+                    // handling: It could be a new instance that was just fired up.
                     removeOnExit = false;
                     // Return out.
                     return;

@@ -14,7 +14,7 @@ import javax.websocket.server.ServerEndpointConfig.Configurator;
 
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingContext;
 
 /**
  * Plugin that must evaluate whether a WebSocket connection shall be allowed, and then authenticate the resulting
@@ -368,7 +368,7 @@ public interface AuthenticationPlugin {
          *
          * @param principal
          *            the Principal that will be supplied to all
-         *            {@link IncomingAuthorizationAndAdapter#handleIncoming(MatsSocketEndpointRequestContext, Principal, Object)}
+         *            {@link IncomingAuthorizationAndAdapter#handleIncoming(MatsSocketEndpointIncomingContext, Principal, Object)}
          *            calls, for the MatsSocket endpoints to evaluate for authorization or to get needed user specific
          *            data from (typically thus casting the Principal to a specific class for this
          *            {@link AuthenticationPlugin}).
@@ -385,7 +385,7 @@ public interface AuthenticationPlugin {
          *
          * @param principal
          *            the Principal that will be supplied to all
-         *            {@link IncomingAuthorizationAndAdapter#handleIncoming(MatsSocketEndpointRequestContext, Principal, Object)}
+         *            {@link IncomingAuthorizationAndAdapter#handleIncoming(MatsSocketEndpointIncomingContext, Principal, Object)}
          *            calls, for the MatsSocket endpoints to evaluate for authorization or to get needed user specific
          *            data from (typically thus casting the Principal to a specific class for this
          *            {@link AuthenticationPlugin}).

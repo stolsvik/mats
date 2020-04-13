@@ -25,11 +25,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -62,9 +62,10 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredInMessage;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.WrongUserException;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
+import com.stolsvik.mats.websocket.MatsSocketServer.LiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointRequestContext;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingContext;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageEvent;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionEstablishedEvent.SessionEstablishedEventType;
@@ -84,7 +85,7 @@ import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
  *
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
  */
-class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketStatics, ActiveMatsSocketSession {
+class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketStatics, LiveMatsSocketSession {
     private static final Logger log = LoggerFactory.getLogger(MatsSocketSessionAndMessageHandler.class);
 
     // ===== Set in constructor
@@ -187,7 +188,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     @Override
-    public Instant getCreatedTimestamp() {
+    public Instant getSessionCreatedTimestamp() {
         return Instant.ofEpochMilli(_createdTimestamp);
     }
 
@@ -217,23 +218,18 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     @Override
-    public Session getWebSocketSession() {
-        return _webSocketSession;
-    }
-
-    @Override
     public Optional<String> getAuthorization() {
         return Optional.ofNullable(_authorization);
     }
 
     @Override
-    public Optional<Principal> getPrincipal() {
-        return Optional.ofNullable(_principal);
+    public Optional<String> getPrincipalName() {
+        return getPrincipal().map(Principal::getName);
     }
 
     @Override
-    public Set<String> getTopicSubscriptions() {
-        return new HashSet<>(_subscribedTopics);
+    public SortedSet<String> getTopicSubscriptions() {
+        return new TreeSet<>(_subscribedTopics);
     }
 
     @Override
@@ -256,21 +252,37 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         return Instant.ofEpochMilli(_lastActivityTimestamp.get());
     }
 
-    public void registerActivityTimestamp(long timestamp) {
-        _lastActivityTimestamp.set(timestamp);
+    @Override
+    public List<MessageEvent> getLastMessageEvents() {
+        // TODO: Implement.
+        return null;
     }
 
     @Override
-    public List<MessageEvent> getLastMessageEvents() {
-        // TODO:
+    public Session getWebSocketSession() {
+        return _webSocketSession;
+    }
+
+    @Override
+    public Optional<Principal> getPrincipal() {
+        return Optional.ofNullable(_principal);
+    }
+
+    @Override
+    public ActiveMatsSocketSession getActiveMatsSocketSession() {
+        // TODO: Implement
         return null;
+    }
+
+    public void registerActivityTimestamp(long timestamp) {
+        _lastActivityTimestamp.set(timestamp);
     }
 
     private final Object _webSocketSendSyncObject = new Object();
 
     void webSocketSendText(String text) throws IOException {
         synchronized (_webSocketSendSyncObject) {
-            if (_webSocketBasicRemote == null) {
+            if (!_state.isHandlesMessages()) {
                 log.warn("When about to send message, the WebSocket 'BasicRemote' instance was gone,"
                         + " MatsSocketSessionId [" + _matsSocketSessionId + "], connectionId:[" + _connectionId + "]"
                         + " - probably async close, ignoring. Message:\n" + text);
@@ -341,7 +353,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             long clientMessageReceivedTimestamp = System.currentTimeMillis();
 
             // ?: Do we accept messages?
-            if (!_state.isAcceptMessages()) {
+            if (!_state.isHandlesMessages()) {
                 // -> No, so ignore message.
                 log.info("WebSocket @OnMessage: WebSocket received message on MatsSocketSession with"
                         + " non-message-accepting state [" + _state + "], MatsSocketSessionId ["
@@ -993,7 +1005,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
      */
     void closeSession(Integer closeCode, String reason) {
         // ?: Are we already DEREGISTERD or CLOSED?
-        if (!_state.isAcceptMessages()) {
+        if (!_state.isHandlesMessages()) {
             // Already deregistered or closed.
             log.info("session.closeSession(): .. but was already in a state where not accepting messages ["
                     + _state + "].");
@@ -1058,7 +1070,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
      */
     void deregisterSession(Integer closeCode, String reason) {
         // ?: Are we already DEREGISTERD or CLOSED?
-        if (!_state.isAcceptMessages()) {
+        if (!_state.isHandlesMessages()) {
             // Already deregistered or closed.
             log.info("session.deregisterSession(): .. but was already in a state where not accepting messages ["
                     + _state + "].");
@@ -1285,7 +1297,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         if (_holdOutgoingMessages) {
             // -> Yes we are holding, so clear that and do a round of message forwarding
             _holdOutgoingMessages = false;
-            // Notify forwarder
+            // Notify forwarder.
+            // NOTICE: There is by definition already HELLO processed and MatsSocketSessionId present in this situation.
             _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
         }
 
@@ -1429,6 +1442,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         // Set state SESSION_ESTABLISHED
         _state = MatsSocketSessionState.SESSION_ESTABLISHED;
 
+        // Record timestamp of when this session was established.
+        long now = System.currentTimeMillis();
+        _sessionEstablishedTimestamp = System.currentTimeMillis();
+        // .. also set this as "last ping" and "last activity", as otherwise we get annoying "1970-01-01..", i.e. Epoch
+        _lastPingTimestamp.set(now);
+        _lastActivityTimestamp.set(now);
+
         // Ensure MDC is as current as possible
         setMDC();
 
@@ -1462,9 +1482,6 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
 
         // ----- We're now a live MatsSocketSession!
-
-        // Record timestamp of when this session was established.
-        _sessionEstablishedTimestamp = System.currentTimeMillis();
 
         // Increase timeout to "prod timeout", now that client has said HELLO
         _webSocketSession.setMaxIdleTimeout(75_000);
@@ -1692,7 +1709,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // :: Actually invoke the IncomingAuthorizationAndAdapter.handleIncoming(..)
                 // .. create the Context
                 @SuppressWarnings({ "unchecked", "rawtypes" })
-                MatsSocketEndpointRequestContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointRequestContextImpl(
+                MatsSocketEndpointIncomingContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointIncomingContextImpl(
                         _matsSocketServer, registration, _matsSocketSessionId, init, envelope,
                         clientMessageReceivedTimestamp, _authorization, _principal, _userId, _authAllowedDebugOptions,
                         type, correlationString, correlationBinary, msg);
@@ -1878,7 +1895,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
     @SuppressWarnings({ "rawtypes", "unchecked" })
     private void invokeHandleIncoming(MatsSocketEndpointRegistration<?, ?, ?> registration, Object msg,
-            MatsSocketEndpointRequestContextImpl<?, ?, ?> requestContext) {
+            MatsSocketEndpointIncomingContextImpl<?, ?, ?> requestContext) {
         IncomingAuthorizationAndAdapter incomingAuthEval = registration.getIncomingAuthEval();
         incomingAuthEval.handleIncoming(requestContext, _principal, msg);
     }
@@ -2066,25 +2083,25 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
          */
         IGNORED,
         /**
-         * {@link MatsSocketEndpointRequestContext#deny()} was invoked.
+         * {@link MatsSocketEndpointIncomingContext#deny()} was invoked.
          */
         DENIED,
         /**
-         * {@link MatsSocketEndpointRequestContext#resolve(Object)} was invoked.
+         * {@link MatsSocketEndpointIncomingContext#resolve(Object)} was invoked.
          */
         SETTLED_RESOLVE,
         /**
-         * {@link MatsSocketEndpointRequestContext#reject(Object)} was invoked.
+         * {@link MatsSocketEndpointIncomingContext#reject(Object)} was invoked.
          */
         SETTLED_REJECT,
         /**
-         * {@link MatsSocketEndpointRequestContext#forwardCustom(Object, InitiateLambda)} or its ilk was invoked.
+         * {@link MatsSocketEndpointIncomingContext#forwardCustom(Object, InitiateLambda)} or its ilk was invoked.
          */
         FORWARDED
     }
 
-    private static class MatsSocketEndpointRequestContextImpl<I, MR, R> implements
-            MatsSocketEndpointRequestContext<I, MR, R> {
+    private static class MatsSocketEndpointIncomingContextImpl<I, MR, R> implements
+            MatsSocketEndpointIncomingContext<I, MR, R> {
         private final DefaultMatsSocketServer _matsSocketServer;
         private final MatsSocketEndpointRegistration<I, MR, R> _matsSocketEndpointRegistration;
 
@@ -2106,7 +2123,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         private final MessageType _messageType;
 
-        public MatsSocketEndpointRequestContextImpl(DefaultMatsSocketServer matsSocketServer,
+        public MatsSocketEndpointIncomingContextImpl(DefaultMatsSocketServer matsSocketServer,
                 MatsSocketEndpointRegistration<I, MR, R> matsSocketEndpointRegistration, String matsSocketSessionId,
                 MatsInitiate matsInitiate,
                 MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp, String authorization,

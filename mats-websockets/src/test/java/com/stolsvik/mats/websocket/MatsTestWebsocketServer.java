@@ -64,6 +64,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession;
+import com.stolsvik.mats.websocket.MatsSocketServer.LiveMatsSocketSession;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL_DbMigrations;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL_DbMigrations.Database;
@@ -176,8 +177,8 @@ public class MatsTestWebsocketServer {
                     .getAttribute(MatsSocketServer.class.getName());
 
             long nanos_get_start = System.nanoTime();
-            Map<String, ActiveMatsSocketSession> activeMatsSocketSessions = matsSocketServer
-                    .getNodeLocalActiveMatsSocketSessions();
+            Map<String, LiveMatsSocketSession> activeMatsSocketSessions = matsSocketServer
+                    .getLiveMatsSocketSessions();
             long nanos_get_taken = System.nanoTime() - nanos_get_start;
 
             PrintWriter writer = resp.getWriter();
@@ -189,12 +190,12 @@ public class MatsTestWebsocketServer {
 
                 writer.println("<td>" + sessionId + "</td>");
                 writer.println("<td>" + session.getUserId() + "</td>");
-                writer.println("<td>" + session.getPrincipal().map(Principal::getName).orElse("[Error! Missing!]")
+                writer.println("<td>" + session.getPrincipalName().orElse("[Principal is gone!]")
                         + "</td>");
                 writer.println("<td>" + dateTime(session.getLastAuthenticatedTimestamp()) + "</td>");
                 writer.println("<td>" + dateTime(session.getLastClientPingTimestamp()) + "</td>");
                 writer.println("<td>" + dateTime(session.getLastActivityTimestamp()) + "</td>");
-                writer.println("<td>" + session.getAuthorization() + "</td>");
+                writer.println("<td>" + session.getAuthorization().orElse("[Authorization is gone!]") + "</td>");
                 writer.println("<td>" + session.getAppName() + " : " + session.getAppVersion() + "</td>");
                 writer.println("<td>" + session.getClientLibAndVersions() + "</td>");
 
@@ -229,12 +230,6 @@ public class MatsTestWebsocketServer {
             MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext()
                     .getAttribute(MatsSocketServer.class.getName());
 
-            long nanos_get_start = System.nanoTime();
-            Map<String, ActiveMatsSocketSession> activeMatsSocketSessions = matsSocketServer
-                    .getNodeLocalActiveMatsSocketSessions();
-            long nanos_get_taken = System.nanoTime() - nanos_get_start;
-
-
             // Create the Jackson ObjectMapper
             ObjectMapper mapper = new ObjectMapper();
             // Write e.g. Dates as "1975-03-11" instead of timestamp, and instead of array-of-ints [1975, 3, 11].
@@ -248,9 +243,12 @@ public class MatsTestWebsocketServer {
             // To just remove them, could have used https://stackoverflow.com/a/49010463/39334
 
             // Make a mixin for ignoring WebSocketSession
-            abstract class AnnotatedActiveMatsSocketSession implements ActiveMatsSocketSession {
+            abstract class AnnotatedActiveMatsSocketSession implements LiveMatsSocketSession {
                 @JsonIgnore
                 abstract public Session getWebSocketSession();
+
+                @JsonIgnore
+                abstract public ActiveMatsSocketSession getActiveMatsSocketSession();
             }
             mapper.addMixIn(ActiveMatsSocketSession.class, AnnotatedActiveMatsSocketSession.class);
 
@@ -265,17 +263,22 @@ public class MatsTestWebsocketServer {
             // Get ObjectWriter for a List of the /interface/ ActiveMatsSocketSession, not the instance class.
             // Ref: https://stackoverflow.com/a/54594839/39334
             ObjectWriter objectWriter = mapper.writerFor(TypeFactory.defaultInstance().constructType(
-                    new TypeReference<List<ActiveMatsSocketSession>>() {
+                    new TypeReference<List<LiveMatsSocketSession>>() {
                     })).withDefaultPrettyPrinter();
 
-            List<ActiveMatsSocketSession> sessions = new ArrayList<>(activeMatsSocketSessions.values());
+            long nanos_get_start = System.nanoTime();
+            Map<String, LiveMatsSocketSession> activeMatsSocketSessions = matsSocketServer
+                    .getLiveMatsSocketSessions();
+            long nanos_get_taken = System.nanoTime() - nanos_get_start;
+            List<LiveMatsSocketSession> sessions = new ArrayList<>(activeMatsSocketSessions.values());
 
             PrintWriter writer = resp.getWriter();
             objectWriter.writeValue(writer, sessions);
 
             long nanos_total_taken = System.nanoTime() - nanos_total_start;
 
-            log.info("Output JSON of ActiveMatsSocketSessions: Total nanos: [" + nanos_total_taken + "], getNodeLocalActiveMatsSocketSessions() nanos:["
+            log.info("Output JSON of ActiveMatsSocketSessions: Total nanos: [" + nanos_total_taken
+                    + "], getNodeLocalActiveMatsSocketSessions() nanos:["
                     + nanos_get_taken + "].");
         }
     }

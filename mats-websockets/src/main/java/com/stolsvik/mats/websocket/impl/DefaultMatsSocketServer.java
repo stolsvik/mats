@@ -11,7 +11,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -273,7 +272,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     // In-line init
     private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?>> _matsSocketEndpointsByMatsSocketEndpointId = new ConcurrentHashMap<>();
-    private final Map<String, MatsSocketSessionAndMessageHandler> _activeSessionsByMatsSocketSessionId_x = new LinkedHashMap<>();
+    private final ConcurrentHashMap<String, MatsSocketSessionAndMessageHandler> _activeSessionsByMatsSocketSessionId_x_y = new ConcurrentHashMap<>();
 
     private DefaultMatsSocketServer(MatsFactory matsFactory, ClusterStoreAndForward clusterStoreAndForward,
             String instanceName, AuthenticationPlugin authenticationPlugin) {
@@ -398,6 +397,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     @Override
     public SortedMap<String, MatsSocketEndpoint<?, ?, ?>> getMatsSocketEndpoints() {
         return new TreeMap<>(_matsSocketEndpointsByMatsSocketEndpointId);
+    }
+
+    @Override
+    public SortedMap<String, ActiveMatsSocketSessionDto> getActiveMatsSocketSessions() {
+        // TODO: Implement!
+        throw new AssertionError("Not implmeneted yet!");
     }
 
     @Override
@@ -551,10 +556,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     @Override
-    public SortedMap<String, ActiveMatsSocketSession> getNodeLocalActiveMatsSocketSessions() {
-        synchronized (_activeSessionsByMatsSocketSessionId_x) {
-            return new TreeMap<>(_activeSessionsByMatsSocketSessionId_x);
-        }
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    public Map<String, LiveMatsSocketSession> getLiveMatsSocketSessions() {
+        return (Map) Collections.unmodifiableMap(_activeSessionsByMatsSocketSessionId_x_y);
     }
 
     private CopyOnWriteArrayList<SessionEstablishedListener> _sessionEstablishedListeners = new CopyOnWriteArrayList<>();
@@ -747,47 +751,30 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
     }
 
-    void registerLocalMatsSocketSession(MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler) {
-        synchronized (_activeSessionsByMatsSocketSessionId_x) {
-            _activeSessionsByMatsSocketSessionId_x.put(matsSocketSessionAndMessageHandler.getMatsSocketSessionId(),
-                    matsSocketSessionAndMessageHandler);
-        }
+    void registerLocalMatsSocketSession(MatsSocketSessionAndMessageHandler session) {
+        _activeSessionsByMatsSocketSessionId_x_y.put(session.getMatsSocketSessionId(), session);
     }
 
     Optional<MatsSocketSessionAndMessageHandler> getRegisteredLocalMatsSocketSession(String matsSocketSessionId) {
-        synchronized (_activeSessionsByMatsSocketSessionId_x) {
-            return Optional.ofNullable(_activeSessionsByMatsSocketSessionId_x.get(matsSocketSessionId));
-        }
-    }
-
-    private int numberOfRegisteredLocalMatsSocketSessions() {
-        synchronized (_activeSessionsByMatsSocketSessionId_x) {
-            return _activeSessionsByMatsSocketSessionId_x.size();
-        }
-    }
-
-    private List<MatsSocketSessionAndMessageHandler> getCurrentLocalRegisteredMatsSocketSessions() {
-        synchronized (_activeSessionsByMatsSocketSessionId_x) {
-            return new ArrayList<>(_activeSessionsByMatsSocketSessionId_x.values());
-        }
+        return Optional.ofNullable(_activeSessionsByMatsSocketSessionId_x_y.get(matsSocketSessionId));
     }
 
     void deregisterLocalMatsSocketSession(String matsSocketSessionId, String connectionId) {
-        synchronized (_activeSessionsByMatsSocketSessionId_x) {
-            MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler = _activeSessionsByMatsSocketSessionId_x
-                    .get(matsSocketSessionId);
-            if (matsSocketSessionAndMessageHandler != null) {
-                if (matsSocketSessionAndMessageHandler.getConnectionId().equals(connectionId)) {
-                    _activeSessionsByMatsSocketSessionId_x.remove(matsSocketSessionId);
-                }
+        // Concurrent-hack of removing a key if we have gotten the right connectionId.
+        _activeSessionsByMatsSocketSessionId_x_y.computeIfPresent(matsSocketSessionId, (ignored, session) -> {
+            if (session.getConnectionId().equals(connectionId)) {
+                return null;
             }
-        }
+            else {
+                return session;
+            }
+        });
     }
 
     @Override
     public void stop(int gracefulShutdownMillis) {
         log.info("Asked to shut down MatsSocketServer [" + id(this)
-                + "], containing [" + getCurrentLocalRegisteredMatsSocketSessions().size() + "] active sessions.");
+                + "], containing [" + _activeSessionsByMatsSocketSessionId_x_y.size() + "] active sessions.");
 
         // Hinder further WebSockets connecting to us.
         _stopped = true;
@@ -796,7 +783,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         _messageToWebSocketForwarder.shutdown();
 
         // Deregister all MatsSocketSession from us, with SERVICE_RESTART, which asks them to reconnect
-        getCurrentLocalRegisteredMatsSocketSessions().forEach(session -> {
+        ArrayList<MatsSocketSessionAndMessageHandler> sessions = new ArrayList<>(
+                _activeSessionsByMatsSocketSessionId_x_y.values());
+        sessions.forEach(session -> {
             session.deregisterSessionAndCloseWebSocket(MatsSocketCloseCodes.SERVICE_RESTART,
                     "From Server: Server instance is going down, please reconnect.");
         });
@@ -1249,6 +1238,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     private void nodeControl_notifyNewMessage(String matsSocketSessionId) {
+        // Get the local /Live/ MatsSocketSession
         Optional<MatsSocketSessionAndMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(
                 matsSocketSessionId);
         // ?: If this Session does not exist at this node, we cannot deliver.
@@ -1445,10 +1435,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         if (currentNode.isPresent()) {
             // -> Yes we got a nodename, ping it.
             try {
-                // TODO: If this is invoked within a Mats stage, then it should use the process context's initiator
-                // TODO: Idea: Either have a specific "MatsFactory.getCurrentTreadLocalMatsInitiate()"
-                // TODO: .. or let matsFactory.getDefaultInitiator() be magic and do such switcheroo internally.
-
                 _matsFactory.getDefaultInitiator().initiate(init -> init
                         .from(from)
                         .traceId("NewMessageForSession[" + sessionId + "]" + rnd(5))
@@ -1468,7 +1454,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     void newMessageOnWrongNode_NotifyCorrectHome(String sessionId) {
         Optional<CurrentNode> currentNode;
         try {
-            // Find if the session resides on a different node
+            // Find which node the Session is supposed to live on.
             currentNode = _clusterStoreAndForward.getCurrentRegisteredNodeForSession(sessionId);
 
             // ?: Did we get a node?
@@ -1479,7 +1465,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 return;
             }
 
-            // ?: Was the node /this/ node?
+            // ?: Was the node registered in CSAF /this/ node?
             if (currentNode.get().getNodename().equalsIgnoreCase(getMyNodename())) {
                 // -> Oops, yes.
                 // Find the local session.
@@ -1489,15 +1475,29 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 if (!localSession.isPresent()) {
                     // -> No, we do NOT have this session locally!
                     // NOTICE: This could e.g. happen if DB down when trying to deregister the MatsSocketSession.
-                    log.info("MatsSocketSession [" + sessionId + "] is said to live on this node, but we do"
-                            + " not have it. Tell the CSAF this, and ignore, hoping that client will come back and get"
-                            + " his messages later.");
-                    // Fix this wrongness: Tell CSAF that we do not have this session!
+                    log.info("MatsSocketSession [" + sessionId + "] is said by CSAF to live on this node, but we do"
+                            + " not have it. Tell the CSAF this (deregister), and ignore, hoping that client will come"
+                            + " back and get his messages later.");
+                    /*
+                     * Fix this wrongness: Tell CSAF that what he has registered wrt. SessionId+ConnectionId combo is
+                     * WRONG, so deregister that. Any concurrently newly registered SessionId would have a different
+                     * ConnectionId, so such asynchronous races are handled.
+                     *
+                     * Race is as such: Fetching "CurrentNode" from CSAF, which returns SessionId:ConnectionId "A:1",
+                     * which should be present on this node - but which is /not/ on this node. At the same time, Session
+                     * "A" registers on this (or a different) node, gets SessionId:ConnectionId "A:2". However, at
+                     * /this/ particular point /this/ thread evaluate that Session "A" is (was) not here (think
+                     * multi-node, multi-CPU and preemptive multitasking), therefore we deregister what _CSAF_ told us:
+                     * "A:1". But then that "1" vs. "2" saves us: "A:1" is not in CSAF anymore, as it currently holds
+                     * "A:2" for Session "A", so Session "A" will not deregister in CSAF.
+                     */
                     _clusterStoreAndForward.deregisterSessionFromThisNode(sessionId,
                             currentNode.get().getConnectionId());
-                    // No can do.
+                    // Sorry, no can do.
                     return;
                 }
+                // E-> Yes, we had it locally: We'll do a standard Mats notify of new messages, which then should
+                // come back to nodeControl_notifyNewMessage(..), and hopefully things will resolve then.
             }
         }
         catch (DataAccessException e) {
@@ -1508,13 +1508,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             return;
         }
 
-        // Send message to home for MatsSocketSession (it /might/ be us if massive async, but that'll be handled.)
-        _matsFactory.getDefaultInitiator().initiateUnchecked(init -> init
-                .from("MatsSocketServer.newMessageOnWrongNode")
-                .traceId("NewMessageNodeForward[" + sessionId + "]" + rnd(5))
-                .to(nodeSubscriptionTerminatorId_NodeControl_ForNode(currentNode.get().getNodename()))
-                .publish(new NodeControl_NewMessageForSessionDto(sessionId),
-                        new NodeControlStateDto(NodeControlStateDto.NEW_MESSAGE_FOR_SESSION)));
+        // Send message to current home for MatsSocketSession
+        // NOTE: it /might/ be us if massive async, but that'll eventually be resolved: Check
+        // nodeControl_notifyNewMessage(..), which will either do local forward (if this node), or send us back to this
+        // method (if "wrong" node).
+        pingLocalOrRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.newMessageOnWrongNode");
     }
 
     String serializeEnvelope(MatsSocketEnvelopeDto msReplyEnvelope) {
