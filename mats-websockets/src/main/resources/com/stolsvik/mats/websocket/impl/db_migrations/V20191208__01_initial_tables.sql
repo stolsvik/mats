@@ -118,9 +118,10 @@ CREATE TABLE mats_socket_outbox_00
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
-    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
 
     envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
@@ -137,9 +138,10 @@ CREATE TABLE mats_socket_outbox_01
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
-    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
 
     envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
@@ -157,9 +159,10 @@ CREATE TABLE mats_socket_outbox_02
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
-    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
 
     envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
@@ -176,9 +179,10 @@ CREATE TABLE mats_socket_outbox_03
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
-    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
 
     envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
@@ -195,9 +199,10 @@ CREATE TABLE mats_socket_outbox_04
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
-    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
 
     envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
@@ -214,9 +219,10 @@ CREATE TABLE mats_socket_outbox_05
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
-    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
 
     envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},
@@ -233,9 +239,10 @@ CREATE TABLE mats_socket_outbox_06
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
-    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch.
-    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set.
+    attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
+    delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
 
     envelope          ${texttype}  NOT NULL, -- The envelope of the message, without the 'msg' field set.
     message_text      ${texttype},

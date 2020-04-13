@@ -38,6 +38,8 @@ import javax.websocket.RemoteEndpoint.Basic;
 import javax.websocket.Session;
 import javax.websocket.server.HandshakeRequest;
 
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSessionDto;
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageEventDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -60,7 +62,6 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.RequestCorrelation;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredInMessage;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.WrongUserException;
-import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.LiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
@@ -148,7 +149,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     private volatile long _sessionEstablishedTimestamp;
 
     // CONCURRENCY: Set by ping-handling, read by introspection
-    private AtomicLong _lastPingTimestamp = new AtomicLong();
+    private AtomicLong _lastClientPingTimestamp = new AtomicLong();
     // CONCURRENCY: Set by handleSendOrRequestOrReply(..) and Forwarder, read by introspection
     private AtomicLong _lastActivityTimestamp = new AtomicLong();
 
@@ -244,7 +245,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
     @Override
     public Instant getLastClientPingTimestamp() {
-        return Instant.ofEpochMilli(_lastPingTimestamp.get());
+        return Instant.ofEpochMilli(_lastClientPingTimestamp.get());
     }
 
     @Override
@@ -253,9 +254,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     @Override
-    public List<MessageEvent> getLastMessageEvents() {
+    public List<MessageEventDto> getLastMessageEvents() {
         // TODO: Implement.
-        return null;
+        return new ArrayList<>();
     }
 
     @Override
@@ -269,9 +270,24 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     @Override
-    public ActiveMatsSocketSession getActiveMatsSocketSession() {
-        // TODO: Implement
-        return null;
+    public ActiveMatsSocketSessionDto toActiveMatsSocketSession() {
+        ActiveMatsSocketSessionDto as = new ActiveMatsSocketSessionDto();
+        as.id = this.getMatsSocketSessionId();
+        as.uid = this.getUserId();
+        as.scts = _createdTimestamp;
+        as.clv = this.getClientLibAndVersions();
+        as.an = this.getAppName();
+        as.av = this.getAppVersion();
+        as.nn = _matsSocketServer.getMyNodename();
+        as.auth = _authorization;
+        as.pn = _principal != null ? _principal.getName() : null;
+        as.subs = getTopicSubscriptions();
+        as.sets = _sessionEstablishedTimestamp;
+        as.lauthts = _lastAuthenticatedTimestamp.get();
+        as.lcpts = _lastClientPingTimestamp.get();
+        as.lactts = _lastActivityTimestamp.get();
+        as.msgs = getLastMessageEvents();
+        return as;
     }
 
     public void registerActivityTimestamp(long timestamp) {
@@ -432,7 +448,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         return;
                     }
                     // :: Update PING timestamp
-                    _lastPingTimestamp.set(clientMessageReceivedTimestamp);
+                    _lastClientPingTimestamp.set(clientMessageReceivedTimestamp);
 
                     // :: Create PONG message
                     MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
@@ -1446,7 +1462,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         long now = System.currentTimeMillis();
         _sessionEstablishedTimestamp = System.currentTimeMillis();
         // .. also set this as "last ping" and "last activity", as otherwise we get annoying "1970-01-01..", i.e. Epoch
-        _lastPingTimestamp.set(now);
+        _lastClientPingTimestamp.set(now);
         _lastActivityTimestamp.set(now);
 
         // Ensure MDC is as current as possible

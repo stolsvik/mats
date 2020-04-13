@@ -74,7 +74,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             boolean autoCommitPre = con.getAutoCommit();
             try { // turn back autocommit, just to be sure we've not changed state of connection.
 
-                // ?: If transactional-mode was not on, turn it on now (i.e. autoCommot->false)
+                // ?: If transactional-mode was not on, turn it on now (i.e. autoCommit->false)
                 // NOTE: Otherwise, we assume an outside transaction demarcation is in effect.
                 if (autoCommitPre) {
                     // Start transaction

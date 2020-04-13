@@ -67,6 +67,7 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.MatsSocketServer;
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession.MatsSocketSessionState;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent.SessionRemovedEventType;
 import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DebugDto;
 import com.stolsvik.mats.websocket.impl.MatsSocketSessionAndMessageHandler.Processed;
@@ -272,7 +273,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     // In-line init
     private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?>> _matsSocketEndpointsByMatsSocketEndpointId = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, MatsSocketSessionAndMessageHandler> _activeSessionsByMatsSocketSessionId_x_y = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, MatsSocketSessionAndMessageHandler> _activeSessionsByMatsSocketSessionId = new ConcurrentHashMap<>();
 
     private DefaultMatsSocketServer(MatsFactory matsFactory, ClusterStoreAndForward clusterStoreAndForward,
             String instanceName, AuthenticationPlugin authenticationPlugin) {
@@ -392,17 +393,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     existing._registrationPoint);
         }
         return matsSocketRegistration;
-    }
-
-    @Override
-    public SortedMap<String, MatsSocketEndpoint<?, ?, ?>> getMatsSocketEndpoints() {
-        return new TreeMap<>(_matsSocketEndpointsByMatsSocketEndpointId);
-    }
-
-    @Override
-    public SortedMap<String, ActiveMatsSocketSessionDto> getActiveMatsSocketSessions() {
-        // TODO: Implement!
-        throw new AssertionError("Not implmeneted yet!");
     }
 
     @Override
@@ -556,9 +546,106 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     @Override
+    public SortedMap<String, MatsSocketEndpoint<?, ?, ?>> getMatsSocketEndpoints() {
+        return new TreeMap<>(_matsSocketEndpointsByMatsSocketEndpointId);
+    }
+
+    @Override
+    public SortedMap<String, ActiveMatsSocketSessionDto> getActiveMatsSocketSessions() {
+        ArrayList<MatsSocketSessionAndMessageHandler> liveSessions = new ArrayList<>(
+                _activeSessionsByMatsSocketSessionId.values());
+
+        SortedMap<String, ActiveMatsSocketSessionDto> ret = new TreeMap<>();
+        for (MatsSocketSessionAndMessageHandler liveSession : liveSessions) {
+            // ?: Check first whether LiveSession is SESSION_ESTABLISHED
+            if (liveSession.getState() != MatsSocketSessionState.SESSION_ESTABLISHED) {
+                // -> No, so drop this
+                continue;
+            }
+            // Now "copy it out"
+            ActiveMatsSocketSessionDto activeSession = liveSession.toActiveMatsSocketSession();
+            // ?: Check again that the LiveSession is still SESSION_ESTABLISHED
+            if (liveSession.getState() != MatsSocketSessionState.SESSION_ESTABLISHED) {
+                // -> No, it changed during copying, so then we drop this.
+                continue;
+            }
+            ret.put(activeSession.getMatsSocketSessionId(), activeSession);
+        }
+        return ret;
+    }
+
+    @Override
     @SuppressWarnings({ "unchecked", "rawtypes" })
     public Map<String, LiveMatsSocketSession> getLiveMatsSocketSessions() {
-        return (Map) Collections.unmodifiableMap(_activeSessionsByMatsSocketSessionId_x_y);
+        return (Map) Collections.unmodifiableMap(_activeSessionsByMatsSocketSessionId);
+    }
+
+    @Override
+    public void closeSession(String matsSocketSessionId, String reason) {
+        try { // finally: MDC.remove()
+            MDC.putCloseable(MDC_SESSION_ID, matsSocketSessionId);
+            log.info("server.closeSession(..): Got instructed to Close MatsSocketSessionId: ["
+                    + matsSocketSessionId + "], reason: [" + reason + "]");
+            if (matsSocketSessionId == null) {
+                throw new NullPointerException("matsSocketSessionId");
+            }
+            // :: Check if session is still registered with CSAF
+            Optional<CurrentNode> currentNode;
+            try {
+                // ?: Check if it actually exists?
+                if (!_clusterStoreAndForward.isSessionExists(matsSocketSessionId)) {
+                    // -> No, it does not exist (already closed), so ignore this request.
+                    log.info(" \\- Session [" + matsSocketSessionId
+                            + "] does not exist in CSAF, ignoring server.closeSession(..)");
+                    return;
+                }
+                // Get current node it resides on
+                currentNode = _clusterStoreAndForward.getCurrentRegisteredNodeForSession(matsSocketSessionId);
+            }
+            catch (DataAccessException e) {
+                // TODO: Fix.
+                throw new AssertionError("Damn.");
+            }
+
+            // ?: Did we currently have a registered session?
+            if (currentNode.isPresent()) {
+                // -> Yes - Send this request over to that node to kill it both locally there, and in CSAF.
+                // NOTE: It might be this node that is the current node, and that's fine.
+                try {
+                    _matsFactory.getDefaultInitiator().initiate(msg -> msg
+                            .from("MatsSocketServer.closeSession")
+                            .traceId("ServerCloseSession[" + matsSocketSessionId + "]" + rnd(5))
+                            .to(nodeSubscriptionTerminatorId_NodeControl_ForNode(currentNode.get().getNodename()))
+                            .publish(new NodeControl_CloseSessionDto(matsSocketSessionId, reason),
+                                    new NodeControlStateDto(NodeControlStateDto.CLOSE_SESSION)));
+                    return;
+                }
+                catch (MatsBackendException | MatsMessageSendException e) {
+                    log.warn("Server side Close Session, and the MatsSocket Session was still registered"
+                            + " in CSAF, but we didn't manage to communicate with MQ. Will ignore this and close it"
+                            + " from CSAF anyway.", e);
+                    // TODO: This is dodgy..
+                }
+            }
+
+            // E-> No currently registered local session, so close it directly in CSAF here.
+
+            // :: Invoke the SessionRemovedListeners
+            invokeSessionRemovedEventListeners(new SessionRemovedEventImpl(SessionRemovedEventType.CLOSE,
+                    matsSocketSessionId, null, reason));
+
+            // :: Close it from the CSAF
+            try {
+                _clusterStoreAndForward.closeSession(matsSocketSessionId);
+            }
+            catch (DataAccessException e) {
+                // TODO: Fix.
+                throw new AssertionError("Damn.");
+            }
+        }
+        finally {
+            MDC.remove(MDC_SESSION_ID);
+        }
     }
 
     private CopyOnWriteArrayList<SessionEstablishedListener> _sessionEstablishedListeners = new CopyOnWriteArrayList<>();
@@ -668,74 +755,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     }
 
-    @Override
-    public void closeSession(String matsSocketSessionId, String reason) {
-        try { // finally: MDC.remove()
-            MDC.putCloseable(MDC_SESSION_ID, matsSocketSessionId);
-            log.info("server.closeSession(..): Got instructed to Close MatsSocketSessionId: ["
-                    + matsSocketSessionId + "], reason: [" + reason + "]");
-            if (matsSocketSessionId == null) {
-                throw new NullPointerException("matsSocketSessionId");
-            }
-            // :: Check if session is still registered with CSAF
-            Optional<CurrentNode> currentNode;
-            try {
-                // ?: Check if it actually exists?
-                if (!_clusterStoreAndForward.isSessionExists(matsSocketSessionId)) {
-                    // -> No, it does not exist (already closed), so ignore this request.
-                    log.info(" \\- Session [" + matsSocketSessionId
-                            + "] does not exist in CSAF, ignoring server.closeSession(..)");
-                    return;
-                }
-                // Get current node it resides on
-                currentNode = _clusterStoreAndForward.getCurrentRegisteredNodeForSession(matsSocketSessionId);
-            }
-            catch (DataAccessException e) {
-                // TODO: Fix.
-                throw new AssertionError("Damn.");
-            }
-
-            // ?: Did we currently have a registered session?
-            if (currentNode.isPresent()) {
-                // -> Yes - Send this request over to that node to kill it both locally there, and in CSAF.
-                // NOTE: It might be this node that is the current node, and that's fine.
-                try {
-                    _matsFactory.getDefaultInitiator().initiate(msg -> msg
-                            .from("MatsSocketServer.closeSession")
-                            .traceId("ServerCloseSession[" + matsSocketSessionId + "]" + rnd(5))
-                            .to(nodeSubscriptionTerminatorId_NodeControl_ForNode(currentNode.get().getNodename()))
-                            .publish(new NodeControl_CloseSessionDto(matsSocketSessionId, reason),
-                                    new NodeControlStateDto(NodeControlStateDto.CLOSE_SESSION)));
-                    return;
-                }
-                catch (MatsBackendException | MatsMessageSendException e) {
-                    log.warn("Server side Close Session, and the MatsSocket Session was still registered"
-                            + " in CSAF, but we didn't manage to communicate with MQ. Will ignore this and close it"
-                            + " from CSAF anyway.", e);
-                    // TODO: This is dodgy..
-                }
-            }
-
-            // E-> No currently registered local session, so close it directly in CSAF here.
-
-            // :: Invoke the SessionRemovedListeners
-            invokeSessionRemovedEventListeners(new SessionRemovedEventImpl(SessionRemovedEventType.CLOSE,
-                    matsSocketSessionId, null, reason));
-
-            // :: Close it from the CSAF
-            try {
-                _clusterStoreAndForward.closeSession(matsSocketSessionId);
-            }
-            catch (DataAccessException e) {
-                // TODO: Fix.
-                throw new AssertionError("Damn.");
-            }
-        }
-        finally {
-            MDC.remove(MDC_SESSION_ID);
-        }
-    }
-
     void closeWebSocketFor(String matsSocketSessionId, CurrentNode currentNode) {
         try {
             _matsFactory.getDefaultInitiator().initiate(msg -> msg
@@ -752,16 +771,16 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     void registerLocalMatsSocketSession(MatsSocketSessionAndMessageHandler session) {
-        _activeSessionsByMatsSocketSessionId_x_y.put(session.getMatsSocketSessionId(), session);
+        _activeSessionsByMatsSocketSessionId.put(session.getMatsSocketSessionId(), session);
     }
 
     Optional<MatsSocketSessionAndMessageHandler> getRegisteredLocalMatsSocketSession(String matsSocketSessionId) {
-        return Optional.ofNullable(_activeSessionsByMatsSocketSessionId_x_y.get(matsSocketSessionId));
+        return Optional.ofNullable(_activeSessionsByMatsSocketSessionId.get(matsSocketSessionId));
     }
 
     void deregisterLocalMatsSocketSession(String matsSocketSessionId, String connectionId) {
         // Concurrent-hack of removing a key if we have gotten the right connectionId.
-        _activeSessionsByMatsSocketSessionId_x_y.computeIfPresent(matsSocketSessionId, (ignored, session) -> {
+        _activeSessionsByMatsSocketSessionId.computeIfPresent(matsSocketSessionId, (ignored, session) -> {
             if (session.getConnectionId().equals(connectionId)) {
                 return null;
             }
@@ -774,7 +793,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     @Override
     public void stop(int gracefulShutdownMillis) {
         log.info("Asked to shut down MatsSocketServer [" + id(this)
-                + "], containing [" + _activeSessionsByMatsSocketSessionId_x_y.size() + "] active sessions.");
+                + "], containing [" + _activeSessionsByMatsSocketSessionId.size() + "] active sessions.");
 
         // Hinder further WebSockets connecting to us.
         _stopped = true;
@@ -784,7 +803,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         // Deregister all MatsSocketSession from us, with SERVICE_RESTART, which asks them to reconnect
         ArrayList<MatsSocketSessionAndMessageHandler> sessions = new ArrayList<>(
-                _activeSessionsByMatsSocketSessionId_x_y.values());
+                _activeSessionsByMatsSocketSessionId.values());
         sessions.forEach(session -> {
             session.deregisterSessionAndCloseWebSocket(MatsSocketCloseCodes.SERVICE_RESTART,
                     "From Server: Server instance is going down, please reconnect.");

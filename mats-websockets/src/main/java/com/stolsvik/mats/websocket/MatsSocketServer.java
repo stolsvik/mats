@@ -23,6 +23,7 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession.MatsSocketSessionState;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionEstablishedEvent.SessionEstablishedEventType;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent.SessionRemovedEventType;
 
@@ -640,7 +641,7 @@ public interface MatsSocketServer {
         /**
          * @return the name of the node that holds the {@link ActiveMatsSocketSession} if it is active,
          *         <code>Optional.empty()</code> if not active. Will always return non-empty on an
-         *         {@link ActiveMatsSocketSession}.
+         *         {@link ActiveMatsSocketSession} and {@link LiveMatsSocketSession} instance.
          */
         Optional<String> getNodeName();
     }
@@ -648,11 +649,13 @@ public interface MatsSocketServer {
     /**
      * @return a current snapshot of {@link ActiveMatsSocketSession ActiveMatsSocketSession}s - these are the
      *         <b>active</b> MatsSocketSessions <b>which are active right now on <i>this node</i></b> of the set of
-     *         nodes (i.e. cluster) that represents this <i>instance</i> of MatsSocketServer. The difference between
-     *         "active" and "live" is that the "active" are dumb "data transfer objects" (DTOs) which will serialize
-     *         nicely with both Mats and MatsSocket serialization mechanisms, while the "live" are an interface to the
-     *         actual live sessions in the MatsSocketServer, and as such has more information - but cannot be (easily)
-     *         serialized, and not passed as in- or out objects on Mats endpoints.
+     *         nodes (i.e. cluster) that represents this <i>instance</i> of MatsSocketServer. Notice that all returned
+     *         instances have state={@link MatsSocketSessionState#SESSION_ESTABLISHED SESSION_ESTABLISHED}. The
+     *         difference between "active" and "live" is that the "active" are dumb "data transfer objects" (DTOs) which
+     *         will serialize nicely with both Mats and MatsSocket serialization mechanisms, while the "live" are an
+     *         interface to the actual live sessions in the MatsSocketServer, and as such has more information - but
+     *         cannot be (easily) serialized, and not passed as in- or out objects on Mats endpoints.
+     * @see ActiveMatsSocketSession
      * @see #getLiveMatsSocketSessions()
      */
     SortedMap<String, ActiveMatsSocketSessionDto> getActiveMatsSocketSessions();
@@ -665,23 +668,14 @@ public interface MatsSocketServer {
      */
     interface ActiveMatsSocketSession extends MatsSocketSession {
         /**
-         * @return the current state of this {@link ActiveMatsSocketSession ActiveMatsSocketSession}. You should really
-         *         only ever see {@link MatsSocketSessionState#SESSION_ESTABLISHED SESSION_ESTABLISHED}, but due to the
-         *         concurrency wrt. you getting hold of an ActiveMatsSocketSession instance, and the Client performing a
-         *         {@link SessionRemovedEventType#DEREGISTER DEREGISTER} or {@link SessionRemovedEventType#CLOSE CLOSE},
-         *         you may also observe {@link MatsSocketSessionState#DEREGISTERED DEREGISTERED} and
-         *         {@link MatsSocketSessionState#CLOSED CLOSED}.
-         */
-        MatsSocketSessionState getState();
-
-        /**
          * @return the active Authorization value, only available when
          *         {@link MatsSocketSessionState#SESSION_ESTABLISHED}.
          */
         Optional<String> getAuthorization();
 
         /**
-         * @return The name of the Principal, as returned by {@link Principal#getName()}.
+         * @return The name of the Principal, as returned by {@link Principal#getName()}, only available when
+         *         {@link MatsSocketSessionState#SESSION_ESTABLISHED}.
          */
         Optional<String> getPrincipalName();
 
@@ -721,10 +715,10 @@ public interface MatsSocketServer {
         Instant getLastActivityTimestamp();
 
         /**
-         * @return last 200 messages going between client and server - except PINGs. When the ActiveMatsSocketSession is
-         *         gotten using {@link #getActiveMatsSocketSessions()}, the instances in the list will be of type
-         *         {@link MessageEventDto}, so that they will serialize nicely with both Mats and MatsSocket field-based
-         *         serialization mechanisms.
+         * @return snapshot (i.e. newly created ArrayList) of last 200 messages going between client and server - except
+         *         PINGs. When the ActiveMatsSocketSession is gotten using {@link #getActiveMatsSocketSessions()}, the
+         *         instances in the list will be of type {@link MessageEventDto}, so that they will serialize nicely
+         *         with both Mats and MatsSocket field-based serialization mechanisms.
          */
         List<? extends MessageEvent> getLastMessageEvents();
 
@@ -822,12 +816,13 @@ public interface MatsSocketServer {
     /**
      * Imagine that the MatsSocketServer uses a {@link ConcurrentMap} to keep its set of local, live, currently
      * connected MatsSocketSessions. This method then returns an unmodifiable view of this Map. This means that you can
-     * get instances, and iterate over it, but the contents will change over time as Clients come and go, i.e. connects
-     * and disconnects. It also means that you can get this Map instance once, and keep a local copy of it, and it will
-     * always be current. It again also means that if you want a "static list" of these sessions, either use
-     * {@link #getActiveMatsSocketSessions()} which gives you a snapshot view of both which sessions are live and the
-     * contents of those sessions, or copy the values of this returned Map into another container - but in the latter
-     * case, the <i>contents</i> of the ActiveMatsSocketSession instances are still live.
+     * get session instances, and iterate over it, but the contents will change over time as Clients come and go, i.e.
+     * connects and disconnects. It also means that you can get this Map instance once, and keep a local copy of it, and
+     * it will always be current. It again also means that if you want a "static list" of these sessions, either use
+     * {@link #getActiveMatsSocketSessions()} which gives you a snapshot, "frozen-in-time" view of the active sessions,
+     * where both the sessions, and the contents of the sessions, are static. Or you may copy the values of this
+     * returned Map into another container - but in the latter case, the <i>contents</i> of those LiveMatsSocketSession
+     * instances are still live.
      *
      * @return an unmodifiable concurrent live view of {@link LiveMatsSocketSession LiveMatsSocketSession}s - these are
      *         the <b>live</b> MatsSocketSessions <b>which are active right now on <i>this node</i></b> of the set of
@@ -851,6 +846,16 @@ public interface MatsSocketServer {
      */
     interface LiveMatsSocketSession extends ActiveMatsSocketSession {
         /**
+         * @return the current state of this {@link ActiveMatsSocketSession ActiveMatsSocketSession}. You should really
+         *         only ever see {@link MatsSocketSessionState#SESSION_ESTABLISHED SESSION_ESTABLISHED}, but due to the
+         *         concurrency wrt. you getting hold of an LiveMatsSocketSession instance, and the Client performing a
+         *         {@link SessionRemovedEventType#DEREGISTER DEREGISTER} or {@link SessionRemovedEventType#CLOSE CLOSE},
+         *         you may also observe {@link MatsSocketSessionState#DEREGISTERED DEREGISTERED} and
+         *         {@link MatsSocketSessionState#CLOSED CLOSED}.
+         */
+        MatsSocketSessionState getState();
+
+        /**
          * @return the WebSocket Session - the JSR 356 Java WebSocket API representation of the actual WebSocket
          *         connection.
          */
@@ -862,9 +867,15 @@ public interface MatsSocketServer {
         Optional<Principal> getPrincipal();
 
         /**
-         * @return a "frozen in time" copy of the this LiveMatsSocketSession as an {@link ActiveMatsSocketSession}.
+         * @return a "frozen in time" copy of the this LiveMatsSocketSession as an {@link ActiveMatsSocketSessionDto}.
+         *         Do observe that due to the concurrency of these live sessions, you may get a copy of when the session
+         *         had become ({@link #getState() state}) {@link MatsSocketSessionState#DEREGISTERED DEREGISTERED} or
+         *         {@link MatsSocketSessionState#CLOSED CLOSED}, and where some of the Optional-returning methods then
+         *         returns Optional.empty(). If you do not want to handle such instances, then you might want to check
+         *         {@link #getState()} after invoking this method, and if not
+         *         {@link MatsSocketSessionState#SESSION_ESTABLISHED SESSION_ESTABLISHED}, then ditch the copied result.
          */
-        ActiveMatsSocketSession getActiveMatsSocketSession();
+        ActiveMatsSocketSessionDto toActiveMatsSocketSession();
     }
 
     /**
@@ -1386,7 +1397,6 @@ public interface MatsSocketServer {
      * serialization mechanisms using field-based serialization.
      */
     class ActiveMatsSocketSessionDto extends MatsSocketSessionDto implements ActiveMatsSocketSession {
-        public MatsSocketSessionState state;
         public String auth;
         public String pn;
         public SortedSet<String> subs;
@@ -1395,11 +1405,6 @@ public interface MatsSocketServer {
         public long lcpts;
         public long lactts;
         public List<MessageEventDto> msgs;
-
-        @Override
-        public MatsSocketSessionState getState() {
-            return state;
-        }
 
         @Override
         public Optional<String> getAuthorization() {
@@ -1484,5 +1489,4 @@ public interface MatsSocketServer {
             return l;
         }
     }
-
 }

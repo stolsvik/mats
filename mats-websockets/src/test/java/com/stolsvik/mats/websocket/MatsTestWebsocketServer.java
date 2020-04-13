@@ -10,7 +10,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.Principal;
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -35,6 +34,11 @@ import javax.servlet.http.HttpServletResponse;
 import javax.websocket.Session;
 import javax.websocket.server.ServerContainer;
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSessionDto;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
@@ -212,15 +216,8 @@ public class MatsTestWebsocketServer {
         }
     }
 
-    @WebServlet("/introspection.json")
-    public static class IntrospectionJsonServlet extends HttpServlet {
-
-        private static DateTimeFormatter SDF = DateTimeFormatter.ISO_DATE_TIME;
-
-        private String dateTime(long instant) {
-            return SDF.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(instant), ZoneId.systemDefault()));
-        }
-
+    @WebServlet("/LiveMatsSocketSessions.json")
+    public static class LiveMatsSocketSessions_Json_Servlet extends HttpServlet {
         @Override
         protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
             long nanos_total_start = System.nanoTime();
@@ -230,7 +227,7 @@ public class MatsTestWebsocketServer {
             MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext()
                     .getAttribute(MatsSocketServer.class.getName());
 
-            // Create the Jackson ObjectMapper
+            // Create the Jackson ObjectMapper - using methods of interface, not fields.
             ObjectMapper mapper = new ObjectMapper();
             // Write e.g. Dates as "1975-03-11" instead of timestamp, and instead of array-of-ints [1975, 3, 11].
             // Uses ISO8601 with milliseconds and timezone (if present).
@@ -238,11 +235,11 @@ public class MatsTestWebsocketServer {
             mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
             // Handle Optional, OptionalLong, OptionalDouble
             mapper.registerModule(new Jdk8Module());
-            // :: handle Principal which we do not want serialized fully, and WebSocket, which we want to ignore
+            // :: handle some fields which we want/need to ignore or tailor
             // To filter, this one shows three approaches: https://stackoverflow.com/a/46391039/39334
             // To just remove them, could have used https://stackoverflow.com/a/49010463/39334
 
-            // Make a mixin for ignoring WebSocketSession
+            // Make a Jackson mixin for ignoring getWebSocketSession() and getActiveMatsSocketSession()
             abstract class AnnotatedActiveMatsSocketSession implements LiveMatsSocketSession {
                 @JsonIgnore
                 abstract public Session getWebSocketSession();
@@ -252,7 +249,7 @@ public class MatsTestWebsocketServer {
             }
             mapper.addMixIn(ActiveMatsSocketSession.class, AnnotatedActiveMatsSocketSession.class);
 
-            // Make a mixin for tailoring Principal's output to only output toString().
+            // Make a Jackson mixin for tailoring Principal's output to only output toString().
             // Note: Could have used @JsonSerialize with custom serializer for getPrincipal() on the above AMSS mixin
             abstract class AnnotatedPrincipal implements Principal {
                 @JsonValue
@@ -277,9 +274,31 @@ public class MatsTestWebsocketServer {
 
             long nanos_total_taken = System.nanoTime() - nanos_total_start;
 
-            log.info("Output JSON of ActiveMatsSocketSessions: Total nanos: [" + nanos_total_taken
-                    + "], getNodeLocalActiveMatsSocketSessions() nanos:["
-                    + nanos_get_taken + "].");
+            log.info("Output JSON of LiveMatsSocketSessions: Total nanos: [" + nanos_total_taken
+                    + "], getLiveMatsSocketSessions() nanos:[" + nanos_get_taken + "].");
+        }
+    }
+
+    @WebServlet("/ActiveMatsSocketSessions.json")
+    public static class ActiveMatsSocketSessions_Json_Servlet extends HttpServlet {
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            resp.setContentType("application/json");
+            resp.setCharacterEncoding("UTF-8");
+
+            MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext()
+                    .getAttribute(MatsSocketServer.class.getName());
+
+            // Create the Jackson ObjectMapper - using fields, not methods (like Mats and MatsSocket does).
+            ObjectMapper mapper = new ObjectMapper();
+            // Read and write any access modifier fields (e.g. private)
+            mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
+            mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
+
+            List<ActiveMatsSocketSessionDto> sessions = new ArrayList<>(matsSocketServer
+                    .getActiveMatsSocketSessions().values());
+
+            mapper.writeValue(resp.getWriter(), sessions);
         }
     }
 
@@ -288,7 +307,7 @@ public class MatsTestWebsocketServer {
      * and putting it in a Cookie named {@link DummySessionAuthenticator#AUTHORIZATION_COOKIE_NAME}.
      */
     @WebServlet(WEBSOCKET_PATH)
-    public static class TestServletSamePath extends HttpServlet {
+    public static class PreConnectAuthorizationHeaderToCookieServlet extends HttpServlet {
         @Override
         protected void doGet(HttpServletRequest req, HttpServletResponse resp) {
             log.info("PreConnectOperation - GET: Desired cookie name:" + req.getParameter("matsauthcookie")
