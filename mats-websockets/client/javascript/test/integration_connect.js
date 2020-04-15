@@ -270,6 +270,58 @@
                 reconnectTest(done, "replyHandleIncoming", "Test.resolveInIncomingHandler", ":From_resolveInIncomingHandler");
             });
 
+            it('Connect the MatsSocket, then DISCONNECT it (i.e. not starting reconnect), then send message to force reconnect anyway, then done.', function (done) {
+                setAuth();
+                this.timeout(20000);
+
+                /**
+                 * Note: This test was created to test the introspection of matsSocketServer.getMatsSocketSessions():
+                 * First a session should appear having NodeName set, then the session should still exist, but have 'null' NodeName,
+                 * and finally the same session should come back with NodeName - and then be closed and thus not exist anymore.
+                 *
+                 * Set CHILLTIME to 2000 or so, run the test, and then repeatedly reload the introspection view to observe this.
+                 */
+
+                let CHILLTIME = 100;
+
+                matsSocket.logging = true;
+
+                // Run a SEND just to get the show going
+                matsSocket.send("Test.ignoreInIncomingHandler", "SEND_to_" + matsSocket.id(6), {})
+                    .then(_ => {
+                        step2A_Chill();
+                    });
+
+                function step2A_Chill() {
+                    setTimeout(step2B_Disconnect, CHILLTIME);
+                }
+
+                function step2B_Disconnect() {
+                    matsSocket.reconnect("Running DISCONNECT", true);
+                    step3A_Chill();
+                }
+
+                function step3A_Chill() {
+                    setTimeout(step3B_SendToReconnect, CHILLTIME);
+                }
+
+                function step3B_SendToReconnect() {
+                    let promise = matsSocket.send("Test.ignoreInIncomingHandler", "SEND_to_" + matsSocket.id(6), {});
+                    promise.then(_ => {
+                        step4A_Chill();
+                    });
+                }
+
+                function step4A_Chill() {
+                    setTimeout(step4B_Done, CHILLTIME);
+                }
+
+                function step4B_Done() {
+                    done();
+                }
+            });
+
+
             it('reconnect with a different resolved userId should fail', function (done) {
                 // MatsSocket emits an error upon SessionClose. Annoying when testing this, so send to /dev/null.
                 // (Restored right before done())

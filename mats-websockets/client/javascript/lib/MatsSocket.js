@@ -2344,14 +2344,21 @@
 
         /**
          * Effectively emulates "lost connection". Used in testing.
+         * <p />
+         * If the "disconnect" parameter is true, it will disconnect with {@link MatsSocketCloseCodes#DISCONNECT}
+         * instead of {@link MatsSocketCloseCodes#RECONNECT}, which will result in the MatsSocket not immediately
+         * starting the reconnection procedure until a new message is added.
          *
-         * @param reason a string saying why.
+         * @param reason {String} a string saying why.
+         * @param disconnect {Boolean} whether to close with {@link MatsSocketCloseCodes#DISCONNECT} instead of
+         * {@link MatsSocketCloseCodes#RECONNECT} - default <code>false</code>. AFAIK, only useful in testing..!
          */
-        this.reconnect = function (reason) {
-            if (that.logging) log("reconnect(): Closing WebSocket with CloseCode 'RECONNECT (" + MatsSocketCloseCodes.RECONNECT
-                + ")', MatsSocketSessionId:[" + that.sessionId + "] due to [" + reason + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
+        this.reconnect = function (reason, disconnect = false) {
+            let closeCode = disconnect ? MatsSocketCloseCodes.DISCONNECT : MatsSocketCloseCodes.RECONNECT;
+            if (that.logging) log("reconnect(): Closing WebSocket with CloseCode '" + MatsSocketCloseCodes.nameFor(closeCode) + " (" + closeCode + ")'," +
+                " MatsSocketSessionId:[" + that.sessionId + "] due to [" + reason + "], currently connected: [" + (_webSocket ? _webSocket.url : "not connected") + "]");
             if (!_webSocket) {
-                throw new Error("There is no live WebSocket to close with RECONNECT closeCode!");
+                throw new Error("There is no live WebSocket to close with " + MatsSocketCloseCodes.nameFor(closeCode) + " closeCode!");
             }
             // Hack for Node: Node is too fast wrt. handling the reply message, so one of the integration tests fails.
             // The test in question reconnect in face of having the test RESOLVE in the incomingHandler, which exercises
@@ -2366,7 +2373,7 @@
             // First unset message handler so that we do not receive any more WebSocket messages (but NOT unset 'onclose', nor 'onerror')
             _webSocket.onmessage = undefined;
             // Now closing the WebSocket (thus getting the 'onclose' handler invoked - just as if we'd lost connection, or got this RECONNECT close from Server).
-            _webSocket.close(MatsSocketCloseCodes.RECONNECT, reason);
+            _webSocket.close(closeCode, reason);
         };
 
         /**
@@ -3035,7 +3042,7 @@
             }
             // ?: Verify that we are actually open - we should not be trying to connect otherwise.
             if (!_matsSocketOpen) {
-                // -> We've been asynchronously been closed - bail out from opening WebSocket
+                // -> We've been asynchronously closed - bail out from opening WebSocket
                 throw (new Error("The MatsSocket instance is closed, so we should not open WebSocket"));
             }
 
@@ -3411,7 +3418,7 @@
                 let outstandingInitiations = Object.keys(_outboxInitiations).length;
 
                 // Close Session, Clear all state.
-                _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages("From Server: " + closeEvent.reason);
+                _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages();
 
                 // :: Synchronously notify our SessionClosedEvent listeners
                 // NOTE: This shall only happen if Close Session is from ServerSide (that is, here), otherwise, if the app invoked matsSocket.close(), one would think the app knew about the close itself..!
@@ -3441,6 +3448,20 @@
                     // -> No, not special DISCONNECT - so start reconnecting.
                     // :: Start reconnecting, but give the server a little time to settle, and a tad randomness to handle any reconnect floods.
                     setTimeout(function () {
+                        // ?: Have we already gotten a new WebSocket, or started the process of creating one (due to a new
+                        // message having been sent in the meantime, having started the WebSocket creation process)?
+                        if ((_webSocket !== undefined) || _webSocketConnecting) {
+                            // -> Yes, so we should not start again (the _initiateWebSocketCreation asserts these states)
+                            log("Start reconnect after LOST_CONNECTION: Already gotten WebSocket, or started creation process. Bail out.");
+                            return;
+                        }
+                        // ?: Has the MatsSocket been closed in the meantime?
+                        if (!_matsSocketOpen) {
+                            // -> We've been asynchronously closed - bail out from creating WebSocket  (the _initiateWebSocketCreation asserts this state)
+                            log("Start reconnect after LOST_CONNECTION: MatsSocket is closed. Bail out.");
+                            return;
+                        }
+                        // E-> We should start creation process.
                         _initiateWebSocketCreation();
                     }, 250 + Math.random() * 750);
                 }
