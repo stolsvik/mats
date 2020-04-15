@@ -277,7 +277,7 @@
                 /**
                  * Note: This test was created to test the introspection of matsSocketServer.getMatsSocketSessions():
                  * First a session should appear having NodeName set, then the session should still exist, but have 'null' NodeName,
-                 * and finally the same session should come back with NodeName - and then be closed and thus not exist anymore.
+                 * and then the same session should come back with NodeName - and finally it should close and thus not exist anymore.
                  *
                  * Set CHILLTIME to 2000 or so, run the test, and then repeatedly reload the introspection view to observe this.
                  */

@@ -14,6 +14,7 @@ import java.util.Optional;
 import javax.sql.DataSource;
 
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketSessionDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 
 /**
@@ -223,6 +224,96 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     @Override
     public boolean isSessionExists(String matsSocketSessionId) throws DataAccessException {
         return withConnectionReturn(con -> _getCurrentNode(matsSocketSessionId, con, false).isPresent());
+    }
+
+    private PreparedStatement prepareSessionSelectSql(Connection con, boolean justCount, boolean onlyActive,
+            String userId, String appName,
+            String appVersionAtOrAbove) throws SQLException {
+
+        // Create SQL
+        StringBuilder buf = new StringBuilder();
+        buf.append("SELECT ");
+        if (justCount) {
+            buf.append("COUNT(1) ");
+        }
+        else {
+            buf.append("session_id, nodename, user_id, client_lib, app_name, app_version,"
+                    + " created_timestamp, liveliness_timestamp ");
+        }
+        buf.append(" FROM mats_socket_session\n");
+        buf.append("  WHERE 1=1\n");
+        if (onlyActive) {
+            buf.append("   AND nodename IS NOT NULL\n");
+        }
+        if (userId != null) {
+            buf.append("   AND user_id = ?\n");
+        }
+        if (appName != null) {
+            buf.append("   AND app_name = ?\n");
+        }
+        if (appVersionAtOrAbove != null) {
+            buf.append("   AND app_version >= ?\n");
+        }
+
+        // Create PreparedStatement with resulting SQL
+        PreparedStatement select = con.prepareStatement(buf.toString());
+
+        // Set parameters on statement, handling the index crap.
+        int paramIdx = 1;
+        if (userId != null) {
+            select.setString(paramIdx, userId);
+            paramIdx++;
+        }
+        if (appName != null) {
+            select.setString(paramIdx, appName);
+            paramIdx++;
+        }
+        if (appVersionAtOrAbove != null) {
+            select.setString(paramIdx, appVersionAtOrAbove);
+        }
+
+        return select;
+    }
+
+    @Override
+    public List<MatsSocketSessionDto> getSessions(boolean onlyActive, String userId, String appName,
+            String appVersionAtOrAbove) throws DataAccessException {
+        return withConnectionReturn(con -> {
+            PreparedStatement select = prepareSessionSelectSql(con, false, onlyActive, userId,
+                    appName, appVersionAtOrAbove);
+            ResultSet rs = select.executeQuery();
+            List<MatsSocketSessionDto> sessions = new ArrayList<>();
+            while (rs.next()) {
+                MatsSocketSessionDto session = new MatsSocketSessionDto();
+                session.id = rs.getString(1);
+                session.uid = rs.getString(3);
+                session.scts = rs.getLong(7);
+                session.slts = rs.getLong(8);
+                session.clv = rs.getString(4);
+                session.an = rs.getString(5);
+                session.av = rs.getString(6);
+                session.nn = rs.getString(2);
+
+                sessions.add(session);
+            }
+            select.close();
+            return sessions;
+        });
+    }
+
+    @Override
+    public int getSessionsCount(boolean onlyActive, String userId, String appName, String appVersionAtOrAbove)
+            throws DataAccessException {
+        return withConnectionReturn(con -> {
+            PreparedStatement select = prepareSessionSelectSql(con, true, onlyActive, userId,
+                    appName, appVersionAtOrAbove);
+            ResultSet rs = select.executeQuery();
+            if (!rs.next()) {
+                throw new AssertionError("Missing ResultSet for COUNT(1)!");
+            }
+            return rs.getInt(1);
+        });
+
     }
 
     @Override

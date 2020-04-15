@@ -59,7 +59,9 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsInitiator.MatsBackendException;
+import com.stolsvik.mats.MatsInitiator.MatsBackendRuntimeException;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendException;
+import com.stolsvik.mats.MatsInitiator.MatsMessageSendRuntimeException;
 import com.stolsvik.mats.websocket.AuthenticationPlugin;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
@@ -396,7 +398,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     @Override
-    public void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto) {
+    public void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto)
+            throws DataStoreException {
         // Create ServerMessageId
         String serverMessageId = serverMessageId();
         // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants.
@@ -424,8 +427,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     null);
         }
         catch (DataAccessException e) {
-            // TODO: Fix
-            throw new AssertionError("Damn", e);
+            throw new DataStoreException("Could not store outgoing 'send' message in data store.", e);
         }
 
         pingLocalOrRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.send");
@@ -433,7 +435,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     @Override
     public void request(String sessionId, String traceId, String clientEndpointId, Object requestDto,
-            String replyToMatsSocketTerminatorId, String correlationString, byte[] correlationBinary) {
+            String replyToMatsSocketTerminatorId, String correlationString, byte[] correlationBinary)
+            throws DataStoreException {
         // Create ServerMessageId
         String serverMessageId = serverMessageId();
         // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants.
@@ -465,8 +468,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     null);
         }
         catch (DataAccessException e) {
-            // TODO: Fix
-            throw new AssertionError("Damn", e);
+            throw new DataStoreException("Could not store outgoing 'request' message in data store.", e);
         }
 
         pingLocalOrRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.request");
@@ -514,7 +516,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     @Override
-    public void publish(String traceId, String topicId, Object messageDto) {
+    public void publish(String traceId, String topicId, Object messageDto) throws MatsBackendRuntimeException {
         // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants.
         DebugDto debug = new DebugDto();
         debug.smcts = System.currentTimeMillis();
@@ -533,15 +535,16 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         String serializedMessage = serializeMessageObject(messageDto);
 
         try {
-            _matsFactory.getDefaultInitiator().initiate(init -> init
+            _matsFactory.getDefaultInitiator().initiateUnchecked(init -> init
                     .from("MatsSocketServer.publish")
                     .traceId("PublishedMessageForTopic[" + topicId + "]" + rnd(5))
                     .to(_subscriptionTerminatorId_Publish)
                     .publish(new PublishedMessageDto(topicId, serializedEnvelope, serializedMessage)));
         }
-        catch (MatsBackendException | MatsMessageSendException e) {
-            // TODO: Fix
-            throw new AssertionError("Damn", e);
+        catch (MatsMessageSendRuntimeException e) {
+            // This should SERIOUSLY not happen, as the initiate-lambda does NOT interact with the database.
+            throw new AssertionError("MatsMessageSendException should not occur, since the publish's"
+                    + " InitiateLambda does not interact with external datasource.", e);
         }
     }
 
@@ -551,24 +554,39 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     @Override
-    public SortedMap<String, ActiveMatsSocketSessionDto> getActiveMatsSocketSessions() {
-        ArrayList<MatsSocketSessionAndMessageHandler> liveSessions = new ArrayList<>(
-                _activeSessionsByMatsSocketSessionId.values());
+    public List<MatsSocketSessionDto> getMatsSocketSessions(boolean onlyActive, String userId, String appName,
+            String appVersionAtOrAbove) throws DataStoreException {
+        try {
+            return _clusterStoreAndForward.getSessions(onlyActive, userId, appName, appVersionAtOrAbove);
+        }
+        catch (DataAccessException e) {
+            throw new DataStoreException("Could not get Sessions from data store.", e);
+        }
+    }
 
+    @Override
+    public int getMatsSocketSessionsCount(boolean onlyActive, String userId, String appName,
+            String appVersionAtOrAbove) {
+        try {
+            return _clusterStoreAndForward.getSessionsCount(onlyActive, userId, appName, appVersionAtOrAbove);
+        }
+        catch (DataAccessException e) {
+            throw new DataStoreException("Could not get count of Sessions from data store.", e);
+        }
+    }
+
+    @Override
+    public SortedMap<String, ActiveMatsSocketSessionDto> getActiveMatsSocketSessions() {
         SortedMap<String, ActiveMatsSocketSessionDto> ret = new TreeMap<>();
-        for (MatsSocketSessionAndMessageHandler liveSession : liveSessions) {
-            // ?: Check first whether LiveSession is SESSION_ESTABLISHED
-            if (liveSession.getState() != MatsSocketSessionState.SESSION_ESTABLISHED) {
-                // -> No, so drop this
-                continue;
-            }
-            // Now "copy it out"
+        for (LiveMatsSocketSession liveSession : _activeSessionsByMatsSocketSessionId.values()) {
+            // "Copy it out"
             ActiveMatsSocketSessionDto activeSession = liveSession.toActiveMatsSocketSession();
             // ?: Check again that the LiveSession is still SESSION_ESTABLISHED
             if (liveSession.getState() != MatsSocketSessionState.SESSION_ESTABLISHED) {
                 // -> No, it changed during copying, so then we drop this.
                 continue;
             }
+            // Add to result-Map
             ret.put(activeSession.getMatsSocketSessionId(), activeSession);
         }
         return ret;
@@ -679,7 +697,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     void invokeSessionEstablishedEventListeners(SessionEstablishedEvent event) {
         _sessionEstablishedListeners.forEach(listener -> {
             try {
-                listener.sessionEstablishsed(event);
+                listener.sessionEstablished(event);
             }
             catch (RuntimeException re) {
                 log.error("SessionEstablishedEvent listener [" + listener + "] raised a ["

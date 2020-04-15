@@ -34,11 +34,6 @@ import javax.servlet.http.HttpServletResponse;
 import javax.websocket.Session;
 import javax.websocket.server.ServerContainer;
 
-import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
-import com.fasterxml.jackson.annotation.JsonInclude.Include;
-import com.fasterxml.jackson.annotation.PropertyAccessor;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSessionDto;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
@@ -53,8 +48,10 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonValue;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
@@ -68,7 +65,9 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession;
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSessionDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.LiveMatsSocketSession;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketSessionDto;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL_DbMigrations;
 import com.stolsvik.mats.websocket.impl.ClusterStoreAndForward_SQL_DbMigrations.Database;
@@ -216,6 +215,55 @@ public class MatsTestWebsocketServer {
         }
     }
 
+    @WebServlet("/MatsSocketSessions.json")
+    public static class MatsSocketSessions_Json_Servlet extends HttpServlet {
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            resp.setContentType("application/json");
+            resp.setCharacterEncoding("UTF-8");
+
+            MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext()
+                    .getAttribute(MatsSocketServer.class.getName());
+
+            // Create the Jackson ObjectMapper - using fields, not methods (like Mats and MatsSocket does).
+            ObjectMapper mapper = new ObjectMapper();
+            // Read and write any access modifier fields (e.g. private)
+            mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
+            mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
+
+            List<MatsSocketSessionDto> sessions = matsSocketServer
+                    .getMatsSocketSessions(false, null, null, null);
+
+            resp.setHeader("X-Session-Count", "" + matsSocketServer.getMatsSocketSessionsCount(false, null, null,
+                    null));
+
+            mapper.writeValue(resp.getWriter(), sessions);
+        }
+    }
+
+    @WebServlet("/ActiveMatsSocketSessions.json")
+    public static class ActiveMatsSocketSessions_Json_Servlet extends HttpServlet {
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            resp.setContentType("application/json");
+            resp.setCharacterEncoding("UTF-8");
+
+            MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext()
+                    .getAttribute(MatsSocketServer.class.getName());
+
+            // Create the Jackson ObjectMapper - using fields, not methods (like Mats and MatsSocket does).
+            ObjectMapper mapper = new ObjectMapper();
+            // Read and write any access modifier fields (e.g. private)
+            mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
+            mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
+
+            List<ActiveMatsSocketSessionDto> sessions = new ArrayList<>(matsSocketServer
+                    .getActiveMatsSocketSessions().values());
+
+            mapper.writeValue(resp.getWriter(), sessions);
+        }
+    }
+
     @WebServlet("/LiveMatsSocketSessions.json")
     public static class LiveMatsSocketSessions_Json_Servlet extends HttpServlet {
         @Override
@@ -276,29 +324,6 @@ public class MatsTestWebsocketServer {
 
             log.info("Output JSON of LiveMatsSocketSessions: Total nanos: [" + nanos_total_taken
                     + "], getLiveMatsSocketSessions() nanos:[" + nanos_get_taken + "].");
-        }
-    }
-
-    @WebServlet("/ActiveMatsSocketSessions.json")
-    public static class ActiveMatsSocketSessions_Json_Servlet extends HttpServlet {
-        @Override
-        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-            resp.setContentType("application/json");
-            resp.setCharacterEncoding("UTF-8");
-
-            MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext()
-                    .getAttribute(MatsSocketServer.class.getName());
-
-            // Create the Jackson ObjectMapper - using fields, not methods (like Mats and MatsSocket does).
-            ObjectMapper mapper = new ObjectMapper();
-            // Read and write any access modifier fields (e.g. private)
-            mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
-            mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
-
-            List<ActiveMatsSocketSessionDto> sessions = new ArrayList<>(matsSocketServer
-                    .getActiveMatsSocketSessions().values());
-
-            mapper.writeValue(resp.getWriter(), sessions);
         }
     }
 

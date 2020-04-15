@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketSessionDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 
 /**
@@ -98,6 +99,26 @@ public interface ClusterStoreAndForward {
      * @return whether a CSAF Session exists - NOTE: Not whether it is currently registered!
      */
     boolean isSessionExists(String matsSocketSessionId) throws DataAccessException;
+
+    /**
+     * Direct implementation of {@link MatsSocketServer#getMatsSocketSessions(boolean, String, String, String)} - go
+     * read there for semantics.
+     *
+     * @return the list of all MatsSocketSessions currently registered with this MatsSocketServer instance matching the
+     *         constraints if set - as read from the {@link ClusterStoreAndForward data store}.
+     */
+    List<MatsSocketSessionDto> getSessions(boolean onlyActive, String userId,
+            String appName, String appVersionAtOrAbove) throws DataAccessException;
+
+    /**
+     * Direct implementation of {@link MatsSocketServer#getMatsSocketSessionsCount(boolean, String, String, String)} -
+     * go read there for semantics.
+     *
+     * @return the count of all MatsSocketSessions currently registered with this MatsSocketServer instance matching the
+     *         constraints if set - as read from the {@link ClusterStoreAndForward data store}.
+     */
+    int getSessionsCount(boolean onlyActive, String userId,
+            String appName, String appVersionAtOrAbove) throws DataAccessException;
 
     /**
      * Deregisters a Session home when a WebSocket is closed. This node's nodename and this WebSocket Session's
@@ -383,70 +404,6 @@ public interface ClusterStoreAndForward {
         @Override
         public String getConnectionId() {
             return connectionId;
-        }
-    }
-
-    interface CsafSession {
-        String getSessionId();
-
-        String getUserId();
-
-        String getNodename();
-
-        String getConnectionId();
-
-        long getCreatedTimestamp();
-
-        long getLivelinessTimestamp();
-    }
-
-    class SimpleCsafSession implements CsafSession {
-        private final String sessionId;
-        private final String userId;
-        private final String nodename;
-        private final String connectionId;
-        private final long createdTimestamp;
-        private final long livelinessTimestamp;
-
-        public SimpleCsafSession(String sessionId, String userId, String nodename, String connectionId,
-                long createdTimestamp,
-                long livelinessTimestamp) {
-            this.sessionId = sessionId;
-            this.userId = userId;
-            this.nodename = nodename;
-            this.connectionId = connectionId;
-            this.createdTimestamp = createdTimestamp;
-            this.livelinessTimestamp = livelinessTimestamp;
-        }
-
-        @Override
-        public String getSessionId() {
-            return sessionId;
-        }
-
-        @Override
-        public String getUserId() {
-            return userId;
-        }
-
-        @Override
-        public String getNodename() {
-            return nodename;
-        }
-
-        @Override
-        public String getConnectionId() {
-            return connectionId;
-        }
-
-        @Override
-        public long getCreatedTimestamp() {
-            return createdTimestamp;
-        }
-
-        @Override
-        public long getLivelinessTimestamp() {
-            return livelinessTimestamp;
         }
     }
 

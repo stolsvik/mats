@@ -38,8 +38,6 @@ import javax.websocket.RemoteEndpoint.Basic;
 import javax.websocket.Session;
 import javax.websocket.server.HandshakeRequest;
 
-import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSessionDto;
-import com.stolsvik.mats.websocket.MatsSocketServer.MessageEventDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -62,12 +60,13 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.RequestCorrelation;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredInMessage;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.WrongUserException;
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSessionDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.LiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingContext;
-import com.stolsvik.mats.websocket.MatsSocketServer.MessageEvent;
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageEventDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionEstablishedEvent.SessionEstablishedEventType;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent.SessionRemovedEventType;
@@ -153,6 +152,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     // CONCURRENCY: Set by handleSendOrRequestOrReply(..) and Forwarder, read by introspection
     private AtomicLong _lastActivityTimestamp = new AtomicLong();
 
+    private volatile long _sessionLivelinessTimestamp = 0;
+
     MatsSocketSessionAndMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
             String connectionId, HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
         _matsSocketServer = matsSocketServer;
@@ -191,6 +192,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     @Override
     public Instant getSessionCreatedTimestamp() {
         return Instant.ofEpochMilli(_createdTimestamp);
+    }
+
+    @Override
+    public Instant getSessionLivelinessTimestamp() {
+        // NOTE: It is constantly "live", until either DEREGISTERED or CLOSED - in which case that field is set.
+        return _sessionLivelinessTimestamp == 0 ? Instant.now() : Instant.ofEpochMilli(_sessionLivelinessTimestamp);
     }
 
     @Override
@@ -267,6 +274,11 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     @Override
     public Optional<Principal> getPrincipal() {
         return Optional.ofNullable(_principal);
+    }
+
+    @Override
+    public EnumSet<DebugOption> getAllowedDebugOptions() {
+        return _authAllowedDebugOptions;
     }
 
     @Override
@@ -1015,8 +1027,10 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
      * <ul>
      * <li>Marks closed</li>
      * <li>Nulls out important fields, to disarm this instance.</li>
+     * <li>Unsubscribe all topics.</li>
      * <li>Deregister from local node</li>
      * <li>Close Session in CSAF</li>
+     * <li>FINALLY: Notifies SessionRemovedEventListeners</li>
      * </ul>
      */
     void closeSession(Integer closeCode, String reason) {
@@ -1027,19 +1041,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     + _state + "].");
             return;
         }
-        // Mark closed
-        _state = MatsSocketSessionState.CLOSED;
+        // Mark closed, disarm this instance (auth-null), unsubscribe all topics, local deregister
+        commonDeregisterAndClose(MatsSocketSessionState.CLOSED, closeCode, reason);
 
-        // Disarm this instance - and unsubscribe all topics.
-        dropSomeAuthFields_and_UnsubscribeTopics();
-
-        // :: Deregister locally and Close MatsSocket Session in CSAF
+        // Close CSAF session
         if (_matsSocketSessionId != null) {
-            // Local deregister of live connection
-            _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketSessionId, _connectionId);
-
             try {
-                // CSAF close session
                 _matsSocketServer.getClusterStoreAndForward().closeSession(_matsSocketSessionId);
             }
             catch (DataAccessException e) {
@@ -1048,8 +1055,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         + " (only the same user can reconnect, though). However, the session scavenger"
                         + " will clean this lingering session out after some hours.", e);
             }
-
-            // :: Invoke the SessionRemovedEvent listeners - AFTER it is removed from MatsSocketServer
+            // :: Invoke the SessionRemovedEvent listeners - AFTER it is removed from MatsSocketServer and CSAF
             _matsSocketServer.invokeSessionRemovedEventListeners(new SessionRemovedEventImpl(
                     SessionRemovedEventType.CLOSE, _matsSocketSessionId, closeCode, reason));
         }
@@ -1076,13 +1082,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     /**
-     * Deregisters session:
-     * <ul>
-     * <li>Marks deregisted</li>
-     * <li>Nulls out important fields, to disarm this instance.</li>
-     * <li>Deregister from local node</li>
-     * <li>Deregister Session in CSAF</li>
-     * </ul>
+     * Deregisters session: Same as {@link #closeSession(Integer, String)}, only where it says "close", it now says
+     * "deregisters".
      */
     void deregisterSession(Integer closeCode, String reason) {
         // ?: Are we already DEREGISTERD or CLOSED?
@@ -1092,16 +1093,11 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     + _state + "].");
             return;
         }
-        // Mark deregistered
-        _state = MatsSocketSessionState.DEREGISTERED;
+        // Mark closed, disarm this instance (auth-null), unsubscribe all topics, local deregister
+        commonDeregisterAndClose(MatsSocketSessionState.DEREGISTERED, closeCode, reason);
 
-        // Disarm this instance - and unsubscribe all topics.
-        dropSomeAuthFields_and_UnsubscribeTopics();
-
-        // Local deregister
+        // Deregister CSAF session
         if (_matsSocketSessionId != null) {
-            _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketSessionId, _connectionId);
-            // CSAF deregister
             try {
                 _matsSocketServer.getClusterStoreAndForward().deregisterSessionFromThisNode(_matsSocketSessionId,
                         _connectionId);
@@ -1110,7 +1106,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 log.warn("Could not deregister MatsSocketSessionId [" + _matsSocketSessionId
                         + "] from CSAF, ignoring.", e);
             }
-            // :: Invoke the SessionRemovedEvent listeners - AFTER it is removed from MatsSocketServer
+            // :: Invoke the SessionRemovedEvent listeners - AFTER it is removed from MatsSocketServer and CSAF
             _matsSocketServer.invokeSessionRemovedEventListeners(new SessionRemovedEventImpl(
                     SessionRemovedEventType.DEREGISTER, _matsSocketSessionId, closeCode, reason));
         }
@@ -1128,18 +1124,26 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         DefaultMatsSocketServer.closeWebSocket(_webSocketSession, closeCode, reason);
     }
 
-    private void dropSomeAuthFields_and_UnsubscribeTopics() {
+    private void commonDeregisterAndClose(MatsSocketSessionState state, Integer closeCode, String reason) {
+        _state = state;
+
         // :: Eagerly drop authorization for session, so that this session object is ensured to be pretty useless.
         _authorization = null;
         _principal = null;
-        // Note: letting SessionId and userId be, as it is nice for logging.
+        // Note: letting SessionId and userId be, as it is needed for some other parts, incl. introspection.
+
+        // Make note of last liveliness timestamp, for absolute correctness. No-one will ever thank me for this..!
+        _sessionLivelinessTimestamp = System.currentTimeMillis();
 
         // Unsubscribe from all topics
         _subscribedTopics.forEach(topicId -> {
             _matsSocketServer.deregisterMatsSocketSessionFromTopic(topicId, getConnectionId());
         });
-        // .. just for general cleanliness, but this instance is dead anyway.
-        _subscribedTopics.clear();
+
+        // Local deregister
+        if (_matsSocketSessionId != null) {
+            _matsSocketServer.deregisterLocalMatsSocketSession(_matsSocketSessionId, _connectionId);
+        }
     }
 
     boolean isHoldOutgoingMessages() {
@@ -1727,7 +1731,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 @SuppressWarnings({ "unchecked", "rawtypes" })
                 MatsSocketEndpointIncomingContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointIncomingContextImpl(
                         _matsSocketServer, registration, _matsSocketSessionId, init, envelope,
-                        clientMessageReceivedTimestamp, _authorization, _principal, _userId, _authAllowedDebugOptions,
+                        clientMessageReceivedTimestamp, this,
                         type, correlationString, correlationBinary, msg);
 
                 // .. invoke the incoming handler
@@ -2128,10 +2132,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         private final MatsSocketEnvelopeDto _envelope;
         private final long _clientMessageReceivedTimestamp;
 
-        private final String _authorization;
-        private final Principal _principal;
-        private final String _userId;
-        private final EnumSet<DebugOption> _allowedDebugOptions;
+        private final LiveMatsSocketSession _session;
 
         private final String _correlationString;
         private final byte[] _correlationBinary;
@@ -2142,8 +2143,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         public MatsSocketEndpointIncomingContextImpl(DefaultMatsSocketServer matsSocketServer,
                 MatsSocketEndpointRegistration<I, MR, R> matsSocketEndpointRegistration, String matsSocketSessionId,
                 MatsInitiate matsInitiate,
-                MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp, String authorization,
-                Principal principal, String userId, EnumSet<DebugOption> allowedDebugOptions,
+                MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp,
+                LiveMatsSocketSession liveMatsSocketSession,
                 MessageType messageType,
                 String correlationString, byte[] correlationBinary, I incomingMessage) {
             _matsSocketServer = matsSocketServer;
@@ -2153,10 +2154,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             _envelope = envelope;
             _clientMessageReceivedTimestamp = clientMessageReceivedTimestamp;
 
-            _authorization = authorization;
-            _principal = principal;
-            _userId = userId;
-            _allowedDebugOptions = allowedDebugOptions;
+            _session = liveMatsSocketSession;
 
             _messageType = messageType;
 
@@ -2174,23 +2172,28 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
 
         @Override
+        public LiveMatsSocketSession getSession() {
+            return null;
+        }
+
+        @Override
         public String getAuthorizationValue() {
-            return _authorization;
+            return _session.getAuthorization().get();
         }
 
         @Override
         public Principal getPrincipal() {
-            return _principal;
+            return _session.getPrincipal().get();
         }
 
         @Override
         public String getUserId() {
-            return _userId;
+            return _session.getUserId();
         }
 
         @Override
         public EnumSet<DebugOption> getAllowedDebugOptions() {
-            return _allowedDebugOptions;
+            return _session.getAllowedDebugOptions();
         }
 
         @Override
