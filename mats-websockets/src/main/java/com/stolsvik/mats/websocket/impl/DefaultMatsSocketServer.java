@@ -39,20 +39,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
-import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
-import com.fasterxml.jackson.annotation.JsonInclude.Include;
-import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.type.TypeFactory;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
@@ -70,8 +63,8 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.MatsSocketServer;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession.MatsSocketSessionState;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeDto.DebugDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent.SessionRemovedEventType;
-import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DebugDto;
 import com.stolsvik.mats.websocket.impl.MatsSocketSessionAndMessageHandler.Processed;
 
 /**
@@ -119,7 +112,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
      * @return a MatsSocketServer instance, now hooked into both the WebSocket {@link ServerContainer} and the
      *         {@link MatsFactory}.
      */
-    public static MatsSocketServer createMatsSocketServer(ServerContainer serverContainer,
+    public static MatsSocketServer createMatsSocketServer(
+            ServerContainer serverContainer,
             MatsFactory matsFactory,
             ClusterStoreAndForward clusterStoreAndForward,
             AuthenticationPlugin authenticationPlugin,
@@ -158,7 +152,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
      * @return a MatsSocketServer instance, now hooked into both the WebSocket {@link ServerContainer} and the
      *         {@link MatsFactory}.
      */
-    public static MatsSocketServer createMatsSocketServer(ServerContainer serverContainer,
+    public static MatsSocketServer createMatsSocketServer(
+            ServerContainer serverContainer,
             MatsFactory matsFactory,
             ClusterStoreAndForward clusterStoreAndForward,
             AuthenticationPlugin authenticationPlugin,
@@ -1137,31 +1132,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             _matsSocketReplyMessage = matsSocketRejectMessage;
             _handled = Processed.SETTLED_REJECT;
         }
-    }
-
-    protected static ObjectMapper jacksonMapper() {
-        // NOTE: This is stolen directly from MatsSerializer_DefaultJson.
-        ObjectMapper mapper = new ObjectMapper();
-
-        // Read and write any access modifier fields (e.g. private)
-        mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
-        mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
-
-        // Drop nulls
-        mapper.setSerializationInclusion(Include.NON_NULL);
-
-        // If props are in JSON that aren't in Java DTO, do not fail.
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-        // Write e.g. Dates as "1975-03-11" instead of timestamp, and instead of array-of-ints [1975, 3, 11].
-        // Uses ISO8601 with milliseconds and timezone (if present).
-        mapper.registerModule(new JavaTimeModule());
-        mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
-
-        // Handle Optional, OptionalLong, OptionalDouble
-        mapper.registerModule(new Jdk8Module());
-
-        return mapper;
     }
 
     private static class NodeControlStateDto {

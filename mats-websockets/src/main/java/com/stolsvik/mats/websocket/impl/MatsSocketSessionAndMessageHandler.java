@@ -14,6 +14,7 @@ import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RESOLVE;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RETRY;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.SEND;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.SUB;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.SUB_LOST;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.SUB_NO_AUTH;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.SUB_OK;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.UNSUB;
@@ -60,12 +61,16 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.RequestCorrelation;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredInMessage;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.WrongUserException;
+import com.stolsvik.mats.websocket.MatsSocketServer;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSessionDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.LiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpoint;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingContext;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeDto.DebugDto;
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageEvent.Direction;
+import com.stolsvik.mats.websocket.MatsSocketServer.MessageEvent.IncomingResolution;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageEventDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionEstablishedEvent.SessionEstablishedEventType;
@@ -77,8 +82,6 @@ import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.MatsSocketEndpoi
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleStateDto;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.SessionEstablishedEventImpl;
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.SessionRemovedEventImpl;
-import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DebugDto;
-import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
 
 /**
  * Effectively the MatsSocketSession, this is the MatsSocket "onMessage" handler.
@@ -141,8 +144,6 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     // CONCURRENCY: Set and read by WebSocket threads, read by OnClose (which probably also is a WebSocket thread).
     private CopyOnWriteArrayList<String> _subscribedTopics = new CopyOnWriteArrayList<>();
 
-    private static final int MAX_LENGTH_OF_TOPIC_NAME = 1024;
-
     // CONCURRENCY: Set by handleHello, read by introspection
     private volatile long _createdTimestamp;
     private volatile long _sessionEstablishedTimestamp;
@@ -154,6 +155,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
     private volatile long _sessionLivelinessTimestamp = 0;
 
+    // SYNC upon adding when processing messages, and when reading from introspection: itself.
+    private final List<MessageEventDto> _messageEvents = new ArrayList<>();
+
     MatsSocketSessionAndMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
             String connectionId, HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
         _matsSocketServer = matsSocketServer;
@@ -163,7 +167,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         // Derived
         _webSocketBasicRemote = _webSocketSession.getBasicRemote();
-        _authenticationContext = new AuthenticationContextImpl(handshakeRequest, _webSocketSession);
+        _authenticationContext = new AuthenticationContextImpl(handshakeRequest, this);
         _envelopeObjectReader = _matsSocketServer.getEnvelopeObjectReader();
         _envelopeObjectWriter = _matsSocketServer.getEnvelopeObjectWriter();
         _envelopeListObjectReader = _matsSocketServer.getEnvelopeListObjectReader();
@@ -261,9 +265,10 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     @Override
-    public List<MessageEventDto> getLastMessageEvents() {
-        // TODO: Implement.
-        return new ArrayList<>();
+    public List<MessageEventDto> getLastMessages() {
+        synchronized (_messageEvents) {
+            return new ArrayList<>(_messageEvents);
+        }
     }
 
     @Override
@@ -298,7 +303,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         as.lauthts = _lastAuthenticatedTimestamp.get();
         as.lcpts = _lastClientPingTimestamp.get();
         as.lactts = _lastActivityTimestamp.get();
-        as.msgs = getLastMessageEvents();
+        as.msgs = getLastMessages();
         return as;
     }
 
@@ -355,7 +360,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     // Handling of "REAUTH" - only from WebSocket threads
-    private List<MatsSocketEnvelopeDto> _heldEnvelopesWaitingForReauth = new ArrayList<>();
+    private List<MatsSocketServer.MatsSocketEnvelopeDto> _heldEnvelopesWaitingForReauth = new ArrayList<>();
     private boolean _askedClientForReauth = false;
     private int _numberOfInformationBearingIncomingWhileWaitingForReauth = 0;
 
@@ -374,11 +379,23 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
     }
 
+    private void addMessageEvent(long timestamp, Direction direction, MessageType messageType, List<String> messageIds,
+            int size, String endpointId, String traceId, IncomingResolution incomingResolution,
+            String forwardedToMatsEndpointId, Double resolutionMillis, String replyToClientMessageId,
+            Integer replyRequestMillis) {
+        synchronized (_messageEvents) {
+            MessageEventDto dto = new MessageEventDto(timestamp, direction, messageType, messageIds, size, endpointId,
+                    traceId, incomingResolution, forwardedToMatsEndpointId, resolutionMillis, replyToClientMessageId,
+                    replyRequestMillis);
+            _messageEvents.add(dto);
+        }
+    }
+
     @Override
     public void onMessage(String message) {
         try { // try-finally: MDC.clear();
             setMDC();
-            long clientMessageReceivedTimestamp = System.currentTimeMillis();
+            long receivedTimestamp = System.currentTimeMillis();
 
             // ?: Do we accept messages?
             if (!_state.isHandlesMessages()) {
@@ -397,7 +414,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     + " cp] this:" + DefaultMatsSocketServer.id(this));
 
             // :: Parse the message into MatsSocket envelopes
-            List<MatsSocketEnvelopeDto> envelopes;
+            List<MatsSocketServer.MatsSocketEnvelopeDto> envelopes;
             try {
                 envelopes = _envelopeListObjectReader.readValue(message);
             }
@@ -413,7 +430,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // NOTE! This is what will be used for Server initiated messages. For Client initiated, each message itself
             // chooses which debug options it wants for the full processing of itself (incl. Reply).
-            for (MatsSocketEnvelopeDto envelope : envelopes) {
+            for (MatsSocketServer.MatsSocketEnvelopeDto envelope : envelopes) {
                 // ?: Pick out any "Request Debug" flags
                 if (envelope.rd != null) {
                     // -> Yes, there was an "Request Debug" sent along with this message
@@ -422,6 +439,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     requestedDebugOptions.retainAll(_authAllowedDebugOptions);
                     // Store the result as new Server-to-Client DebugOptions
                     _currentResolvedServerToClientDebugOptions = requestedDebugOptions;
+                    // NOTE: We do not "skip out" with 'continue', as we want to use the latest in the pipeline if any.
                 }
             }
 
@@ -429,7 +447,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // NOTE! Authorization header can come with ANY message!
             String newAuthorization = null;
-            for (MatsSocketEnvelopeDto envelope : envelopes) {
+            for (MatsSocketServer.MatsSocketEnvelopeDto envelope : envelopes) {
                 // ?: Pick out any Authorization header, i.e. the auth-string - it can come in any message.
                 if (envelope.auth != null) {
                     // -> Yes, there was an authorization header sent along with this message
@@ -444,8 +462,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // :: 2a. Handle PINGs (send PONG asap).
 
-            for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
-                MatsSocketEnvelopeDto envelope = it.next();
+            for (Iterator<MatsSocketServer.MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketServer.MatsSocketEnvelopeDto envelope = it.next();
                 // ?: Is this message a PING?
                 if (envelope.t == PING) {
                     // -> Yes, so handle it.
@@ -460,16 +478,22 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         return;
                     }
                     // :: Update PING timestamp
-                    _lastClientPingTimestamp.set(clientMessageReceivedTimestamp);
+                    _lastClientPingTimestamp.set(receivedTimestamp);
+
+                    addMessageEvent(receivedTimestamp, Direction.C2S, MessageType.PING,
+                            Collections.singletonList(envelope.x), -1, null, null, null, null, null, null, null);
+                    addMessageEvent(receivedTimestamp, Direction.S2C, MessageType.PONG,
+                            Collections.singletonList(envelope.x), -1, null, null, null, null, null, null, null);
 
                     // :: Create PONG message
-                    MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
+                    MatsSocketServer.MatsSocketEnvelopeDto replyEnvelope = new MatsSocketServer.MatsSocketEnvelopeDto();
                     replyEnvelope.t = PONG;
                     replyEnvelope.x = envelope.x;
 
                     // Pack the PONG over to client ASAP.
                     // TODO: Consider doing this async, probably with MessageToWebSocketForwarder
-                    List<MatsSocketEnvelopeDto> replySingleton = Collections.singletonList(replyEnvelope);
+                    List<MatsSocketServer.MatsSocketEnvelopeDto> replySingleton = Collections.singletonList(
+                            replyEnvelope);
                     try {
                         String json = _envelopeListObjectWriter.writeValueAsString(replySingleton);
                         webSocketSendText(json);
@@ -486,8 +510,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // :: 2b. Handle PONGs
 
-            for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
-                MatsSocketEnvelopeDto envelope = it.next();
+            for (Iterator<MatsSocketServer.MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketServer.MatsSocketEnvelopeDto envelope = it.next();
                 // ?: Is this message a PING?
                 if (envelope.t == PONG) {
                     // -> Yes, so handle it.
@@ -498,9 +522,11 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // Session, as checked by seeing if we've processed HELLO
                     if (!isSessionEstablished()) {
                         closeSessionAndWebSocketWithProtocolError(
-                                "Cannot process PING before HELLO and session established");
+                                "Cannot process PONG before HELLO and session established");
                         return;
                     }
+                    addMessageEvent(receivedTimestamp, Direction.C2S, MessageType.PONG,
+                            Collections.singletonList(envelope.x), -1, null, null, null, null, null, null, null);
 
                     // TODO: Handle PONGs (well, first the server actually needs to send PINGs..!)
                 }
@@ -508,10 +534,11 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // :: 3a. Handle ACKs and NACKs - i.e. Client tells us that it has received an information bearing message.
 
-            // ACK or NACK denotes that we can delete it from outbox on our side.
+            // ACK or NACK from Client denotes that we can delete it from outbox on our side.
+            // .. we respond with ACK2 to these
             List<String> clientAcks = null;
-            for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
-                MatsSocketEnvelopeDto envelope = it.next();
+            for (Iterator<MatsSocketServer.MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketServer.MatsSocketEnvelopeDto envelope = it.next();
 
                 // ?: Is this a ACK or NACK for a message from us?
                 if ((envelope.t == ACK) || (envelope.t == NACK)) {
@@ -519,7 +546,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     it.remove();
                     if ((envelope.smid == null) && (envelope.ids == null)) {
                         closeSessionAndWebSocketWithProtocolError("Received " + envelope.t
-                                + " message with missing 'smid' or 'ids'.");
+                                + " message with missing both 'smid' and 'ids'.");
+                        return;
+                    }
+                    if ((envelope.smid != null) && (envelope.ids != null)) {
+                        closeSessionAndWebSocketWithProtocolError("Received " + envelope.t
+                                + " message with both 'smid' and 'ids' - only set one!");
                         return;
                     }
                     // Assert that we've had HELLO already processed
@@ -535,13 +567,17 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     }
                     if (envelope.smid != null) {
                         clientAcks.add(envelope.smid);
+                        addMessageEvent(receivedTimestamp, Direction.C2S, envelope.t,
+                                Collections.singletonList(envelope.smid), -1, null, null, null, null, null, null, null);
                     }
                     if (envelope.ids != null) {
                         clientAcks.addAll(envelope.ids);
+                        addMessageEvent(receivedTimestamp, Direction.C2S, envelope.t, envelope.ids, -1, null, null,
+                                null, null, null, null, null);
                     }
                 }
             }
-            // .. now actually act on the ACK and NACKs (Reply with ACK2, and delete from outbox)
+            // .. now actually act on the ACK and NACKs (delete from outbox, then Reply with ACK2)
             // TODO: Make this a bit more nifty, putting such Ids on a queue of sorts, finishing async
             if (clientAcks != null) {
                 log.debug("Got ACK/NACK for messages " + clientAcks + ".");
@@ -556,7 +592,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
                 // Send "ACK2", i.e. "I've now deleted these Ids from my outbox".
                 // TODO: Use the MessageToWebSocketForwarder for this.
-                MatsSocketEnvelopeDto ack2Envelope = new MatsSocketEnvelopeDto();
+                MatsSocketServer.MatsSocketEnvelopeDto ack2Envelope = new MatsSocketServer.MatsSocketEnvelopeDto();
                 ack2Envelope.t = ACK2;
                 if (clientAcks.size() > 1) {
                     ack2Envelope.ids = clientAcks;
@@ -573,18 +609,17 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 }
                 catch (IOException e) {
                     // TODO: Handle!
-                    // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
                     throw new AssertionError("Hot damn.", e);
                 }
             }
 
             // :: 3b. Handle ACK2's - which is that the Client has received an ACK or NACK from us.
 
-            // This is thus the "client has deleted an information-bearing message from his outbox"-message,
-            // denoting that we can delete it from inbox on our side
+            // ACK2 from the Client is message to Server that the "client has deleted an information-bearing message
+            // from his outbox", denoting that we can delete it from inbox on our side
             List<String> clientAck2s = null;
-            for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
-                MatsSocketEnvelopeDto envelope = it.next();
+            for (Iterator<MatsSocketServer.MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketServer.MatsSocketEnvelopeDto envelope = it.next();
                 // ?: Is this a ACK2 for a ACK/NACK from us?
                 if (envelope.t == ACK2) {
                     it.remove();
@@ -667,12 +702,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 _numberOfInformationBearingIncomingWhileWaitingForReauth += envelopes.size();
 
                 // Make reply envelope list
-                List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
+                List<MatsSocketServer.MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
 
                 // ?: Have we already asked for REAUTH?
                 if (!_askedClientForReauth) {
                     // -> No, not asked for REAUTH, so do it now.
-                    MatsSocketEnvelopeDto reauthEnvelope = new MatsSocketEnvelopeDto();
+                    MatsSocketServer.MatsSocketEnvelopeDto reauthEnvelope = new MatsSocketServer.MatsSocketEnvelopeDto();
                     reauthEnvelope.t = REAUTH;
                     replyEnvelopes.add(reauthEnvelope);
                     // We've now asked Client for REAUTH, so don't do it again until he has given us new.
@@ -704,8 +739,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                  * when the auth comes in.
                  */
                 // :: First hold all SUB and UNSUB, as we cannot reply "RETRY" to these
-                for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
-                    MatsSocketEnvelopeDto envelope = it.next();
+                for (Iterator<MatsSocketServer.MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                    MatsSocketServer.MatsSocketEnvelopeDto envelope = it.next();
                     if ((envelope.t == SUB) || (envelope.t == UNSUB)) {
                         // ?: Is the topicId too long?
                         if (envelope.eid.length() > MAX_LENGTH_OF_TOPIC_NAME) {
@@ -726,7 +761,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // :: There should only be information bearing messages left.
                 // :: Assert that we have 'cmid' on all the remaining messages, as they shall all be information bearing
                 // messages from the Client, and thus contain 'cmid'.
-                for (MatsSocketEnvelopeDto envelope : envelopes) {
+                for (MatsSocketServer.MatsSocketEnvelopeDto envelope : envelopes) {
                     if (envelope.cmid == null) {
                         closeSessionAndWebSocketWithProtocolError("Missing 'cmid' on message of type ["
                                 + envelope.t + "]");
@@ -734,7 +769,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     }
                 }
                 // :: Now hold all messages until we pass some rather arbitrary size limits
-                for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                for (Iterator<MatsSocketServer.MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
                     // :: Do some DOS-preventive measures:
                     // ?: Do we have more than some limit of held messages?
                     if (_heldEnvelopesWaitingForReauth.size() > 100) {
@@ -764,8 +799,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 }
 
                 // Any remaining incoming message will get a RETRY back to Client
-                for (MatsSocketEnvelopeDto envelopeToRetry : envelopes) {
-                    MatsSocketEnvelopeDto retryReplyEnvelope = new MatsSocketEnvelopeDto();
+                for (MatsSocketServer.MatsSocketEnvelopeDto envelopeToRetry : envelopes) {
+                    MatsSocketServer.MatsSocketEnvelopeDto retryReplyEnvelope = new MatsSocketServer.MatsSocketEnvelopeDto();
                     retryReplyEnvelope.t = RETRY;
                     retryReplyEnvelope.cmid = envelopeToRetry.cmid;
                     replyEnvelopes.add(retryReplyEnvelope);
@@ -818,8 +853,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             // :: 8. look for a HELLO message
 
             // (should be first/alone, but we will reply to it immediately even if part of pipeline).
-            for (Iterator<MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
-                MatsSocketEnvelopeDto envelope = it.next();
+            for (Iterator<MatsSocketServer.MatsSocketEnvelopeDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketServer.MatsSocketEnvelopeDto envelope = it.next();
                 if (envelope.t == HELLO) {
                     try { // try-finally: MDC.remove(..)
                         MDC.put(MDC_MESSAGE_TYPE, envelope.t.name());
@@ -834,7 +869,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         }
                         // E-> First time we see HELLO
                         // :: Handle the HELLO
-                        boolean handleHelloOk = handleHello(clientMessageReceivedTimestamp, envelope);
+                        boolean handleHelloOk = handleHello(receivedTimestamp, envelope);
                         // ?: Did the HELLO go OK?
                         if (!handleHelloOk) {
                             // -> No, not OK - handleHello(..) has already closed session and websocket and the lot.
@@ -871,7 +906,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             // First drain the held messages into the now-being-processed list
             if (!_heldEnvelopesWaitingForReauth.isEmpty()) {
                 // Add the held ones in front..
-                List<MatsSocketEnvelopeDto> newList = new ArrayList<>(_heldEnvelopesWaitingForReauth);
+                List<MatsSocketServer.MatsSocketEnvelopeDto> newList = new ArrayList<>(_heldEnvelopesWaitingForReauth);
                 // .. now clear the held-list
                 _heldEnvelopesWaitingForReauth.clear();
                 // .. then add the existing envelopes.
@@ -881,8 +916,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             }
 
             // .. then go through all incoming Envelopes (both held, and from this pipeline).
-            List<MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
-            for (MatsSocketEnvelopeDto envelope : envelopes) {
+            List<MatsSocketServer.MatsSocketEnvelopeDto> replyEnvelopes = new ArrayList<>();
+            for (MatsSocketServer.MatsSocketEnvelopeDto envelope : envelopes) {
                 try { // try-finally: MDC.remove..
                     MDC.put(MDC_MESSAGE_TYPE, envelope.t.name());
                     if (envelope.tid != null) {
@@ -895,7 +930,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // ?: Is this a incoming SEND or REQUEST, or Reply RESOLVE or REJECT to us?
                     if ((envelope.t == SEND) || (envelope.t == REQUEST)
                             || (envelope.t == RESOLVE) || (envelope.t == REJECT)) {
-                        MatsSocketEnvelopeDto reply = handleSendOrRequestOrReply(clientMessageReceivedTimestamp,
+                        MatsSocketServer.MatsSocketEnvelopeDto reply = handleSendOrRequestOrReply(receivedTimestamp,
                                 envelope);
                         // ?: Did we get a reply envelope?
                         if (reply == null) {
@@ -950,8 +985,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 List<String> acks = null;
                 List<String> nacks = null;
                 List<String> ack2s = null;
-                for (Iterator<MatsSocketEnvelopeDto> it = replyEnvelopes.iterator(); it.hasNext();) {
-                    MatsSocketEnvelopeDto envelope = it.next();
+                for (Iterator<MatsSocketServer.MatsSocketEnvelopeDto> it = replyEnvelopes.iterator(); it.hasNext();) {
+                    MatsSocketServer.MatsSocketEnvelopeDto envelope = it.next();
                     if (envelope.t == ACK && envelope.desc == null) {
                         it.remove();
                         acks = acks != null ? acks : new ArrayList<>();
@@ -969,7 +1004,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     }
                 }
                 if (acks != null && acks.size() > 0) {
-                    MatsSocketEnvelopeDto e_acks = new MatsSocketEnvelopeDto();
+                    MatsSocketServer.MatsSocketEnvelopeDto e_acks = new MatsSocketServer.MatsSocketEnvelopeDto();
                     e_acks.t = ACK;
                     if (acks.size() == 1) {
                         e_acks.cmid = acks.get(0);
@@ -980,7 +1015,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     replyEnvelopes.add(e_acks);
                 }
                 if (nacks != null && nacks.size() > 0) {
-                    MatsSocketEnvelopeDto e_nacks = new MatsSocketEnvelopeDto();
+                    MatsSocketServer.MatsSocketEnvelopeDto e_nacks = new MatsSocketServer.MatsSocketEnvelopeDto();
                     e_nacks.t = NACK;
                     if (nacks.size() == 1) {
                         e_nacks.cmid = nacks.get(0);
@@ -991,7 +1026,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     replyEnvelopes.add(e_nacks);
                 }
                 if (ack2s != null && ack2s.size() > 0) {
-                    MatsSocketEnvelopeDto e_ack2s = new MatsSocketEnvelopeDto();
+                    MatsSocketServer.MatsSocketEnvelopeDto e_ack2s = new MatsSocketServer.MatsSocketEnvelopeDto();
                     e_ack2s.t = ACK2;
                     if (ack2s.size() == 1) {
                         e_ack2s.smid = ack2s.get(0);
@@ -1344,7 +1379,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
     }
 
-    private boolean handleHello(long clientMessageReceivedTimestamp, MatsSocketEnvelopeDto envelope) {
+    private boolean handleHello(long clientMessageReceivedTimestamp, MatsSocketServer.MatsSocketEnvelopeDto envelope) {
         log.info("Handling HELLO!");
         // ?: Auth is required - should already have been processed
         if ((_principal == null) || (_authorization == null) || (_userId == null)) {
@@ -1378,7 +1413,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         // ----- HELLO was good (and authentication is already performed, earlier in process)
 
-        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
+        MatsSocketServer.MatsSocketEnvelopeDto replyEnvelope = new MatsSocketServer.MatsSocketEnvelopeDto();
 
         // ?: Do the client want to reconnecting using existing MatsSocketSessionId
         if (envelope.sid != null) {
@@ -1476,6 +1511,18 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         _matsSocketServer.registerLocalMatsSocketSession(this);
         // :: Register Session in CSAF, and reset "attempted delivery" mark.
         try {
+
+            // :: Assert that the user do not have too many sessions going already
+            int sessCount = _matsSocketServer.getClusterStoreAndForward().getSessionsCount(false, _userId, null, null);
+            // ?: Check if we overflow when adding one more session
+            if ((sessCount + 1) > MAX_NUMBER_OF_SESSIONS_PER_USER_ID) {
+                // -> Yes, that would be too many: Error
+                log.warn("Too many sessions for userId [" + _userId + "], so we will not accept this new one.");
+                closeSessionAndWebSocketWithPolicyViolation("Too many sessions for resolved userId: [" + sessCount
+                        + "].");
+                return false;
+            }
+
             // Register in CSAF
             _createdTimestamp = _matsSocketServer.getClusterStoreAndForward().registerSessionAtThisNode(
                     _matsSocketSessionId, _userId, _connectionId, _clientLibAndVersions, _appName, _appVersion);
@@ -1483,7 +1530,6 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             // Clear attempted delivery mark, to perform retransmission of these.
             _matsSocketServer.getClusterStoreAndForward().outboxMessagesUnmarkAttemptedDelivery(_matsSocketSessionId);
 
-            // TODO: Should check that this particular user does not have more than e.g. 20 simultaneous connections.
         }
         catch (WrongUserException e) {
             // -> This should never occur with the normal MatsSocket clients, so this is probably hackery going on.
@@ -1526,7 +1572,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         // NOTICE: Since this is the first message ever for this connection, there will not be any currently-sending
         // messages the other way (i.e. server-to-client, from the MessageToWebSocketForwarder). Therefore, it is
         // perfectly OK to do this synchronously right here.
-        List<MatsSocketEnvelopeDto> replySingleton = Collections.singletonList(replyEnvelope);
+        List<MatsSocketServer.MatsSocketEnvelopeDto> replySingleton = Collections.singletonList(replyEnvelope);
         try {
             String json = _envelopeListObjectWriter.writeValueAsString(replySingleton);
             webSocketSendText(json);
@@ -1547,8 +1593,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         return true;
     }
 
-    private MatsSocketEnvelopeDto handleSendOrRequestOrReply(long clientMessageReceivedTimestamp,
-            MatsSocketEnvelopeDto envelope) {
+    private MatsSocketServer.MatsSocketEnvelopeDto handleSendOrRequestOrReply(long clientMessageReceivedTimestamp,
+            MatsSocketServer.MatsSocketEnvelopeDto envelope) {
         MessageType type = envelope.t;
 
         log.info("  \\- " + envelope + ", msg:[" + envelope.msg + "].");
@@ -1572,7 +1618,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
 
         // Hack for lamba processing
-        MatsSocketEnvelopeDto[] handledEnvelope = new MatsSocketEnvelopeDto[] { new MatsSocketEnvelopeDto() };
+        MatsSocketServer.MatsSocketEnvelopeDto[] handledEnvelope = new MatsSocketServer.MatsSocketEnvelopeDto[] {
+                new MatsSocketServer.MatsSocketEnvelopeDto() };
         handledEnvelope[0].cmid = envelope.cmid; // Client MessageId.
 
         // :: Perform the entire handleIncoming(..) inside Mats initiate-lambda
@@ -1660,8 +1707,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                             if (messageFromInbox.getFullEnvelope().isPresent()) {
                                 // -> Yes, we had the JSON from last processing stored!
                                 log.info("We had an envelope from last time!");
-                                MatsSocketEnvelopeDto lastTimeEnvelope = _envelopeObjectReader.readValue(
-                                        messageFromInbox.getFullEnvelope().get());
+                                MatsSocketServer.MatsSocketEnvelopeDto lastTimeEnvelope = _envelopeObjectReader
+                                        .readValue(
+                                                messageFromInbox.getFullEnvelope().get());
                                 // Doctor the deserialized envelope (by magic JSON-holder DirectJsonMessage)
                                 // (The 'msg' field is currently a proper JSON String, we want it directly as-is)
                                 lastTimeEnvelope.msg = DirectJsonMessage.of((String) lastTimeEnvelope.msg);
@@ -1920,37 +1968,41 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         incomingAuthEval.handleIncoming(requestContext, _principal, msg);
     }
 
-    private void handleSub(List<MatsSocketEnvelopeDto> replyEnvelopes, MatsSocketEnvelopeDto envelope) {
+    private void handleSub(List<MatsSocketServer.MatsSocketEnvelopeDto> replyEnvelopes,
+            MatsSocketServer.MatsSocketEnvelopeDto envelope) {
         if ((envelope.eid == null) || (envelope.eid.trim().isEmpty())) {
             closeSessionAndWebSocketWithProtocolError("SUB: Topic is null or empty.");
             return;
         }
-        if (envelope.eid.length() > MAX_LENGTH_OF_TOPIC_NAME) {
-            closeSessionAndWebSocketWithPolicyViolation("TopicId length > " + MAX_LENGTH_OF_TOPIC_NAME);
-        }
-
         // ?: Already subscribed to this topic?
         if (_subscribedTopics.contains(envelope.eid)) {
-            // -> Yes, already subscribed - client shall locally handle multi-subscriptions to same topic.
+            // -> Yes, already subscribed - client shall locally handle multi-subscriptions to same topic: Error.
             closeSessionAndWebSocketWithProtocolError("SUB: Already subscribed to Topic ["
                     + envelope.eid + "]");
             return;
         }
-        // :: "DoS-protection", from inadvertent or malicious subscription to way too many topics.
-        if (_subscribedTopics.size() >= 2500) {
+
+        // ?: "DoS-protection", from using absurdly long topic names to deplete our memory.
+        if (envelope.eid.length() > MAX_LENGTH_OF_TOPIC_NAME) {
+            // -> Yes, too long topicId.
+            closeSessionAndWebSocketWithPolicyViolation("TopicId length > " + MAX_LENGTH_OF_TOPIC_NAME);
+        }
+
+        // ?: "DoS-protection", from inadvertent or malicious subscription to way too many topics.
+        if (_subscribedTopics.size() >= MAX_NUMBER_OF_TOPICS_PER_SESSION) {
+            // -> Yes, too many subscriptions: Error.
             closeSessionAndWebSocketWithProtocolError("SUB: Subscribed to way too many topics ["
-                    + _subscribedTopics + "]");
+                    + _subscribedTopics.size() + "]");
             return;
         }
 
         // :: Handle the subscription
-        MatsSocketEnvelopeDto reply = new MatsSocketEnvelopeDto();
+        MatsSocketServer.MatsSocketEnvelopeDto reply = new MatsSocketServer.MatsSocketEnvelopeDto();
         // :: AUTHORIZE
         // ?: Is the user allowed to subscribe to this topic?
         boolean authorized;
         try {
-            authorized = _sessionAuthenticator.authorizeUserForTopic(_authenticationContext,
-                    _authorization, _principal, _userId, envelope.eid);
+            authorized = _sessionAuthenticator.authorizeUserForTopic(_authenticationContext, envelope.eid);
         }
         catch (RuntimeException re) {
             log.error("The SessionAuthenticator [" + _sessionAuthenticator + "] raised a [" + re
@@ -1960,28 +2012,46 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             closeSessionAndWebSocketWithPolicyViolation("Authorization of Topic subscription: Error.");
             return;
         }
+        // ?: Were we authorized?!
         if (authorized) {
             // -> YES, authorized to subscribe to this topic!
-
-            // TODO: Handle replay of lost messages!!!
 
             // Add it to MatsSocketSession's view of subscribed Topics
             _subscribedTopics.add(envelope.eid);
             // Add it to the actual Topic in the MatsSocketServer
             _matsSocketServer.registerMatsSocketSessionWithTopic(envelope.eid, this);
-            // This was OK
-            reply.t = SUB_OK;
+
+            // TODO: Handle replay of lost messages!!!
+
+            // NOTE! No replay-mechanism is yet implemented, so IF the Client is reconnecting, we'll ALWAYS reply with
+            // "SUB_LOST" if the client specified a specific "last message seen"
+
+            // ?: Did client specify "last message seen" id?
+            if (envelope.smid != null) {
+                // -> Yes, Client has specified "last message seen" message id.
+                // TODO: Could at least hold message id of *last* message sent, so that we do not reply SUB_LOST
+                // completely unnecessary.
+                log.warn("We got a 'smid' on a SUB message, but we have no messages to replay."
+                        + " Thus answering SUB_LOST.");
+                reply.t = SUB_LOST;
+            }
+            else {
+                // -> Client did not supply "last message seen". This was OK
+                reply.t = SUB_OK;
+            }
+
         }
         else {
             // -> NO, NOT authorized to subscribe to this Topic!
-            // This was NOT AUTHORIZED.
+            // We will NOT subscribe the Client to this Topic.
             reply.t = SUB_NO_AUTH;
         }
         reply.eid = envelope.eid;
+
         replyEnvelopes.add(reply);
     }
 
-    private void handleUnsub(MatsSocketEnvelopeDto envelope) {
+    private void handleUnsub(MatsSocketServer.MatsSocketEnvelopeDto envelope) {
         if ((envelope.eid == null) || (envelope.eid.trim().isEmpty())) {
             closeSessionAndWebSocketWithProtocolError("UNSUB: Topic is null or empty.");
             return;
@@ -1993,7 +2063,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
     void publishToTopic(String topicId, String env, String msg) {
         long nanos_start_Deserialize = System.nanoTime();
-        MatsSocketEnvelopeDto envelope;
+        MatsSocketServer.MatsSocketEnvelopeDto envelope;
         try {
             envelope = _matsSocketServer.getEnvelopeObjectReader().readValue(env);
         }
@@ -2129,7 +2199,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         private final MatsInitiate _matsInitiate;
 
-        private final MatsSocketEnvelopeDto _envelope;
+        private final MatsSocketServer.MatsSocketEnvelopeDto _envelope;
         private final long _clientMessageReceivedTimestamp;
 
         private final LiveMatsSocketSession _session;
@@ -2143,7 +2213,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         public MatsSocketEndpointIncomingContextImpl(DefaultMatsSocketServer matsSocketServer,
                 MatsSocketEndpointRegistration<I, MR, R> matsSocketEndpointRegistration, String matsSocketSessionId,
                 MatsInitiate matsInitiate,
-                MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp,
+                MatsSocketServer.MatsSocketEnvelopeDto envelope, long clientMessageReceivedTimestamp,
                 LiveMatsSocketSession liveMatsSocketSession,
                 MessageType messageType,
                 String correlationString, byte[] correlationBinary, I incomingMessage) {

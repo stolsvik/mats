@@ -275,7 +275,7 @@ public class MatsTestWebsocketServer {
             MatsSocketServer matsSocketServer = (MatsSocketServer) req.getServletContext()
                     .getAttribute(MatsSocketServer.class.getName());
 
-            // Create the Jackson ObjectMapper - using methods of interface, not fields.
+            // Create the Jackson ObjectMapper - using methods of the interface, not the instance's fields.
             ObjectMapper mapper = new ObjectMapper();
             // Write e.g. Dates as "1975-03-11" instead of timestamp, and instead of array-of-ints [1975, 3, 11].
             // Uses ISO8601 with milliseconds and timezone (if present).
@@ -298,7 +298,7 @@ public class MatsTestWebsocketServer {
             mapper.addMixIn(ActiveMatsSocketSession.class, AnnotatedActiveMatsSocketSession.class);
 
             // Make a Jackson mixin for tailoring Principal's output to only output toString().
-            // Note: Could have used @JsonSerialize with custom serializer for getPrincipal() on the above AMSS mixin
+            // Note: Could have used @JsonSerialize with custom serializer for getPrincipal() on the above session mixin
             abstract class AnnotatedPrincipal implements Principal {
                 @JsonValue
                 abstract public String toString();
@@ -329,14 +329,21 @@ public class MatsTestWebsocketServer {
 
     /**
      * PreConnectOperation: Servlet mounted on the same path as the WebSocket, picking up any "Authorization:" header
-     * and putting it in a Cookie named {@link DummySessionAuthenticator#AUTHORIZATION_COOKIE_NAME}.
+     * and putting it in a Cookie named {@link DummySessionAuthenticator#AUTHORIZATION_COOKIE_NAME}. The point here is
+     * that it is not possible to add an "Authorization" header to a WebSocket connection from a web browser, so if you
+     * do want to have some kind of "early-authentication" for the initial HTTP REQUEST, you need to roll with what is
+     * possible, which is that the initial WebSocket "Handshake" connection will still supply the host-and-path specific
+     * Cookies the browser have in its cookie-jar upon connect - so if we get the auth-header into a cookie, we can
+     * check that instead. Setting this cookie via client side javascript is not possible if the WebSocket URL is on a
+     * different host. So we make a Servlet on the same host as the WebSocket which "moves over" the Authentication
+     * header to a cookie.
      */
     @WebServlet(WEBSOCKET_PATH)
     public static class PreConnectAuthorizationHeaderToCookieServlet extends HttpServlet {
         @Override
         protected void doGet(HttpServletRequest req, HttpServletResponse resp) {
-            log.info("PreConnectOperation - GET: Desired cookie name:" + req.getParameter("matsauthcookie")
-                    + ", Authorization header: " + req.getHeader("Authorization")
+            log.info("PreConnectOperation - GET: Authorization header: "
+                    + (null != req.getHeader("Authorization") ? "present" : "NOT present!")
                     + ", Origin: " + req.getHeader("Origin")
                     + ", path: " + req.getContextPath() + req.getServletPath());
 
@@ -359,8 +366,9 @@ public class MatsTestWebsocketServer {
                 return;
             }
 
+            // ## NOTE!! ## THIS IS JUST FOR THE INTEGRATION TESTS!
             if (authHeader.contains(":fail_preConnectOperationServlet:")) {
-                log.info("Asked to fail!");
+                log.info("Asked to fail: 401 UNAUTHORIZED!");
                 resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return;
             }
@@ -388,8 +396,8 @@ public class MatsTestWebsocketServer {
 
         @Override
         protected void doOptions(HttpServletRequest req, HttpServletResponse resp) {
-            log.debug("PreConnectOperation - OPTIONS: Desired cookie name:" + req.getParameter("matsauthcookie")
-                    + ", Authorization header: " + req.getHeader("Authorization")
+            log.info("PreConnectOperation - OPTIONS: Authorization header: "
+                    + (null != req.getHeader("Authorization") ? "present" : "NOT present!")
                     + ", Origin: " + req.getHeader("Origin")
                     + ", path: " + req.getContextPath() + req.getServletPath());
             // Check CORS
@@ -403,7 +411,7 @@ public class MatsTestWebsocketServer {
             // ?: Do we have an Origin header, indicating that web browser feels this is a CORS request?
             if (originHeader == null) {
                 // -> No, no Origin header, so act normal, just add a little header to point out that we evaluated it.
-                resp.addHeader("X-MatsSocketServer-CORS", "NoOrigin_Ok");
+                resp.addHeader("X-MatsSocketServer-CORS", "NoOriginHeaderInRequest_Ok");
                 return true;
             }
             Matcher matches = pattern.matcher(originHeader);
@@ -423,11 +431,16 @@ public class MatsTestWebsocketServer {
                 return false;
             }
 
+            // # Yeah, we allow this Origin
             resp.addHeader("Access-Control-Allow-Origin", originHeader);
+            // # Need to add "Vary" header when the Origin varies.. God knows..
             resp.addHeader("Vary", "Origin");
+            // # Cookies and auth are allowed as headers
             resp.addHeader("Access-Control-Allow-Credentials", "true");
+            // # .. specifically, the "Authorization" header
             resp.addHeader("Access-Control-Allow-Headers", "authorization");
             // NOTICE: For production: When you get things to work, you can add this header.
+            // # This response can be cached for quite some time - i.e. don't do OPTIONS for next requests.
             // resp.addHeader("Access-Control-Max-Age", "86400"); // 24 hours, might be capped by browser.
             return true;
         }

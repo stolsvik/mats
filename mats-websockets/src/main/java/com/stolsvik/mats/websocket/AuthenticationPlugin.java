@@ -13,6 +13,7 @@ import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
+import com.stolsvik.mats.websocket.MatsSocketServer.LiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingContext;
 
@@ -34,8 +35,8 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEndpointIncomingCo
  * {@link SessionAuthenticator#reevaluateAuthenticationForOutgoingMessage(AuthenticationContext, String, Principal, long)
  * reevaluateAuthenticationForOutgoingMessage(..)} may be invoked several times.</li>
  * <li>When the Client tries to subscribe to a Topic, the method
- * {@link SessionAuthenticator#authorizeUserForTopic(AuthenticationContext, String, Principal, String)
- * authorizeUserForTopic(..)} is invoked to decide whether to allow or deny the subscription.</li>
+ * {@link SessionAuthenticator#authorizeUserForTopic(AuthenticationContext, String) authorizeUserForTopic(..)} is
+ * invoked to decide whether to allow or deny the subscription.</li>
  * </ol>
  * <b>Read through all methods' JavaDoc in succession to get an understanding of how it works!</b>
  * <p/>
@@ -303,27 +304,19 @@ public interface AuthenticationPlugin {
          * Decide whether the specified Principal/User should be allowed to subscribe to the specified Topic.
          * <p />
          * Note: The 'authorizationHeader' is already validated by one of the <i>authentication</i> methods, which have
-         * supplied the provided Principal and userId. Both this, and the {@link AuthenticationContext}, is just
-         * provided in the method call in case you'd want to use them for the decision.
+         * supplied the Principal and userId present in the supplied {@link AuthenticationContext}.
          * <p />
          * <b>The default implementation return <code>true</code>, i.e. letting all users subscribe to all Topics.</b>
          *
          * @param context
-         *            the {@link AuthenticationContext} for reference
-         * @param authorizationHeader
-         *            the Authorization value that was used by the <i>authentication</i> methods to supply the Principal
-         *            and userId.
-         * @param principal
-         *            the current authenticated Principal
-         * @param userId
-         *            the current authenticated userId
+         *            the {@link AuthenticationContext} for reference - this has getters for the info you should require
+         *            to decide whether the current Client user should be allowed to subscribe to the given topic.
          * @param topicId
          *            the Id of the Topic the client tries to subscribe to
          * @return <code>true</code> if the user should be allowed to subscribe to the Topic, <code>false</code> if the
          *         user should not be allowed to subscribe - he will then not get any messages sent over the Topic.
          */
-        default boolean authorizeUserForTopic(AuthenticationContext context, String authorizationHeader,
-                Principal principal, String userId, String topicId) {
+        default boolean authorizeUserForTopic(AuthenticationContext context, String topicId) {
             return true;
         }
     }
@@ -338,9 +331,15 @@ public interface AuthenticationPlugin {
         HandshakeRequest getHandshakeRequest();
 
         /**
-         * @return the WebSocket {@link Session} instance. You should not be too creative with this.
+         * @return the current MatsSocketSession. Until
+         *         {@link SessionAuthenticator#initialAuthentication(AuthenticationContext, String) Initial
+         *         Authentication} (happening with the HELLO message from the Client), all the
+         *         <code>Optional</code>-returning methods will return <code>Optional.empty()</code> - it is basically
+         *         the responsibility of the authentication mechanism to supply values for these.
          */
-        Session getWebSocketSession();
+        LiveMatsSocketSession getMatsSocketSession();
+
+        // ===== Authentication Result return-value methods.
 
         /**
          * <b>Bad Authentication!</b> Return the result from this method from

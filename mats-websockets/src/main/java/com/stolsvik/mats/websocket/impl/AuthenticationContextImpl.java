@@ -9,6 +9,7 @@ import javax.websocket.server.HandshakeRequest;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
+import com.stolsvik.mats.websocket.MatsSocketServer.LiveMatsSocketSession;
 
 /**
  * @author Endre Stølsvik 2020-01-10 10:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -16,11 +17,11 @@ import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 class AuthenticationContextImpl implements AuthenticationContext {
 
     private final HandshakeRequest _handshakeRequest;
-    private final Session _webSocketSession;
+    private final LiveMatsSocketSession _liveMatsSocketSession;
 
-    public AuthenticationContextImpl(HandshakeRequest handshakeRequest, Session webSocketSession) {
+    public AuthenticationContextImpl(HandshakeRequest handshakeRequest, LiveMatsSocketSession liveMatsSocketSession) {
         _handshakeRequest = handshakeRequest;
-        _webSocketSession = webSocketSession;
+        _liveMatsSocketSession = liveMatsSocketSession;
     }
 
     @Override
@@ -29,8 +30,8 @@ class AuthenticationContextImpl implements AuthenticationContext {
     }
 
     @Override
-    public Session getWebSocketSession() {
-        return _webSocketSession;
+    public LiveMatsSocketSession getMatsSocketSession() {
+        return _liveMatsSocketSession;
     }
 
     @Override

@@ -19,9 +19,9 @@ import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredOutMessage;
+import com.stolsvik.mats.websocket.MatsSocketServer;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession.MatsSocketSessionState;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
-import com.stolsvik.mats.websocket.impl.MatsSocketEnvelopeDto.DirectJsonMessage;
 
 /**
  * Gets a ping from the node-specific Topic with information about new messages, and also if the client reconnects, and
@@ -220,80 +220,84 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     long now = System.currentTimeMillis();
 
                     // Deserialize envelopes back to DTO, and stick in the message
-                    List<MatsSocketEnvelopeDto> envelopeList = messagesToDeliver.stream().map(storedOutMessage -> {
-                        MatsSocketEnvelopeDto envelope;
-                        try {
-                            envelope = _matsSocketServer.getEnvelopeObjectReader().readValue(storedOutMessage
-                                    .getEnvelope());
-                        }
-                        catch (JsonProcessingException e) {
-                            throw new AssertionError("Could not deserialize Envelope DTO.");
-                        }
-                        // Set the message onto the envelope, in "raw" mode (it is already json)
-                        envelope.msg = new DirectJsonMessage(storedOutMessage.getMessageText());
-                        // Handle debug
-                        if (envelope.debug != null) {
-                            /*
-                             * Now, for Client-initiated, things have already been resolved - if we have a DebugDto,
-                             * then it is because the user both requests to query for /something/, and are allowed to
-                             * query for this.
-                             *
-                             * However, for Server-initiated, we do not know until now, and thus the initiation always
-                             * adds it. We thus need to check with the AuthenticationPlugin's resolved auth vs. what the
-                             * client has asked for wrt. Server-initiated.
-                             */
-                            // ?: Is this a Reply to a Client-to-Server REQUEST? (RESOLVE or REJECT)?
-                            if ((MessageType.RESOLVE == storedOutMessage.getType())
-                                    || MessageType.REJECT == storedOutMessage.getType()) {
-                                // -> Yes, Reply (RESOLVE or REJECT)
-                                // Find which resolved DebugOptions are in effect for this message
-                                EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(envelope.debug.resd);
-                                // Add timestamp and nodename depending on options
-                                if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
-                                    envelope.debug.mscts = now;
+                    List<MatsSocketServer.MatsSocketEnvelopeDto> envelopeList = messagesToDeliver.stream().map(
+                            storedOutMessage -> {
+                                MatsSocketServer.MatsSocketEnvelopeDto envelope;
+                                try {
+                                    envelope = _matsSocketServer.getEnvelopeObjectReader().readValue(storedOutMessage
+                                            .getEnvelope());
                                 }
-                                if (debugOptions.contains(DebugOption.NODES)) {
-                                    envelope.debug.mscnn = _matsSocketServer.getMyNodename();
+                                catch (JsonProcessingException e) {
+                                    throw new AssertionError("Could not deserialize Envelope DTO.");
                                 }
-                            }
-                            // ?: Is this a Server-initiated message (SEND or REQUEST)?
-                            if ((MessageType.SEND == storedOutMessage.getType())
-                                    || MessageType.REQUEST == storedOutMessage.getType()) {
-                                // -> Yes, Server-to-Client (SEND or REQUEST)
-                                // Find what the client requests along with what authentication allows
-                                EnumSet<DebugOption> debugOptions = matsSocketSessionAndMessageHandler
-                                        .getCurrentResolvedServerToClientDebugOptions();
-                                // ?: How's the standing wrt. DebugOptions?
-                                if (debugOptions.isEmpty()) {
-                                    // -> Client either do not request anything, or server does not allow anything for
-                                    // this user.
-                                    // Null out the already existing DebugDto
-                                    envelope.debug = null;
+                                // Set the message onto the envelope, in "raw" mode (it is already json)
+                                envelope.msg = new DirectJsonMessage(storedOutMessage.getMessageText());
+                                // Handle debug
+                                if (envelope.debug != null) {
+                                    /*
+                                     * Now, for Client-initiated, things have already been resolved - if we have a
+                                     * DebugDto, then it is because the user both requests to query for /something/, and
+                                     * are allowed to query for this.
+                                     *
+                                     * However, for Server-initiated, we do not know until now, and thus the initiation
+                                     * always adds it. We thus need to check with the AuthenticationPlugin's resolved
+                                     * auth vs. what the client has asked for wrt. Server-initiated.
+                                     */
+                                    // ?: Is this a Reply to a Client-to-Server REQUEST? (RESOLVE or REJECT)?
+                                    if ((MessageType.RESOLVE == storedOutMessage.getType())
+                                            || MessageType.REJECT == storedOutMessage.getType()) {
+                                        // -> Yes, Reply (RESOLVE or REJECT)
+                                        // Find which resolved DebugOptions are in effect for this message
+                                        EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(envelope.debug.resd);
+                                        // Add timestamp and nodename depending on options
+                                        if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
+                                            envelope.debug.mscts = now;
+                                        }
+                                        if (debugOptions.contains(DebugOption.NODES)) {
+                                            envelope.debug.mscnn = _matsSocketServer.getMyNodename();
+                                        }
+                                    }
+                                    // ?: Is this a Server-initiated message (SEND or REQUEST)?
+                                    if ((MessageType.SEND == storedOutMessage.getType())
+                                            || MessageType.REQUEST == storedOutMessage.getType()) {
+                                        // -> Yes, Server-to-Client (SEND or REQUEST)
+                                        // Find what the client requests along with what authentication allows
+                                        EnumSet<DebugOption> debugOptions = matsSocketSessionAndMessageHandler
+                                                .getCurrentResolvedServerToClientDebugOptions();
+                                        // ?: How's the standing wrt. DebugOptions?
+                                        if (debugOptions.isEmpty()) {
+                                            // -> Client either do not request anything, or server does not allow
+                                            // anything for
+                                            // this user.
+                                            // Null out the already existing DebugDto
+                                            envelope.debug = null;
+                                        }
+                                        else {
+                                            // -> Client requests, and user is allowed, to query for some DebugOptions.
+                                            // Set which flags are resolved
+                                            envelope.debug.resd = DebugOption.flags(debugOptions);
+                                            // Add timestamp and nodename depending on options
+                                            if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
+                                                envelope.debug.mscts = now;
+                                            }
+                                            else {
+                                                // Need to null this out, since set unconditionally upon server
+                                                // send/request
+                                                envelope.debug.smcts = null;
+                                            }
+                                            if (debugOptions.contains(DebugOption.NODES)) {
+                                                envelope.debug.mscnn = _matsSocketServer.getMyNodename();
+                                            }
+                                            else {
+                                                // Need to null this out, since set unconditionally upon server
+                                                // send/request
+                                                envelope.debug.smcnn = null;
+                                            }
+                                        }
+                                    }
                                 }
-                                else {
-                                    // -> Client requests, and user is allowed, to query for some DebugOptions.
-                                    // Set which flags are resolved
-                                    envelope.debug.resd = DebugOption.flags(debugOptions);
-                                    // Add timestamp and nodename depending on options
-                                    if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
-                                        envelope.debug.mscts = now;
-                                    }
-                                    else {
-                                        // Need to null this out, since set unconditionally upon server send/request
-                                        envelope.debug.smcts = null;
-                                    }
-                                    if (debugOptions.contains(DebugOption.NODES)) {
-                                        envelope.debug.mscnn = _matsSocketServer.getMyNodename();
-                                    }
-                                    else {
-                                        // Need to null this out, since set unconditionally upon server send/request
-                                        envelope.debug.smcnn = null;
-                                    }
-                                }
-                            }
-                        }
-                        return envelope;
-                    }).collect(Collectors.toList());
+                                return envelope;
+                            }).collect(Collectors.toList());
 
                     // Serialize the list of Envelopes
                     String jsonEnvelopeList = _matsSocketServer.getEnvelopeListObjectWriter()
