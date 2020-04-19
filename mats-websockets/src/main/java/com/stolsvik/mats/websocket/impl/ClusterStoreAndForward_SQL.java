@@ -421,23 +421,30 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
-            String clientMessageId, String traceId, MessageType type, String envelope, String messageJson,
-            byte[] messageBinary) throws DataAccessException {
+            String clientMessageId, String traceId, MessageType type, Long requestTimestamp, String envelope,
+            String messageJson, byte[] messageBinary) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("INSERT INTO " + outboxTableName(matsSocketSessionId)
-                    + "(session_id, smid, cmid, stored_timestamp,"
-                    + " delivery_count, trace_id, type, envelope, message_text, message_binary)"
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    + "(session_id, smid, trace_id, type,"
+                    + " cmid, request_timestamp,"
+                    + " stored_timestamp, delivery_count,"
+                    + " envelope, message_text, message_binary)"
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
             insert.setString(1, matsSocketSessionId);
             insert.setString(2, serverMessageId);
-            insert.setString(3, clientMessageId);
-            insert.setLong(4, _clock.millis());
-            insert.setInt(5, 0);
-            insert.setString(6, traceId);
-            insert.setString(7, type.name());
-            insert.setString(8, envelope);
-            insert.setString(9, messageJson);
-            insert.setBytes(10, messageBinary);
+            insert.setString(3, traceId);
+            insert.setString(4, type.name());
+
+            insert.setString(5, clientMessageId); // May be null
+            insert.setLong(6, requestTimestamp); // May be null
+
+            insert.setLong(7, _clock.millis());
+            insert.setInt(8, 0);
+
+            insert.setString(9, envelope);
+            insert.setString(10, messageJson); // May be null
+            insert.setBytes(11, messageBinary); // May be null
             insert.execute();
 
             return _getCurrentNode(matsSocketSessionId, con, true);
@@ -450,8 +457,10 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         return withConnectionReturn(con -> {
             // The old MS JDBC Driver 'jtds' don't handle parameter insertion for 'TOP' statement.
             PreparedStatement insert = con.prepareStatement("SELECT TOP " + maxNumberOfMessages
-                    + "          smid, cmid, stored_timestamp, attempt_timestamp,"
-                    + "          delivery_count, trace_id, type, envelope, message_text, message_binary"
+                    + " smid, trace_id, type,"
+                    + " cmid, request_timestamp,"
+                    + " stored_timestamp, delivery_count,"
+                    + " envelope, message_text, message_binary"
                     + "  FROM " + outboxTableName(matsSocketSessionId)
                     + " WHERE session_id = ?"
                     + "   AND attempt_timestamp IS NULL"
@@ -460,10 +469,11 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             ResultSet rs = insert.executeQuery();
             List<StoredOutMessage> list = new ArrayList<>();
             while (rs.next()) {
-                MessageType type = MessageType.valueOf(rs.getString(7));
+                MessageType type = MessageType.valueOf(rs.getString(3));
                 SimpleStoredOutMessage sm = new SimpleStoredOutMessage(matsSocketSessionId, rs.getString(1),
-                        rs.getString(2), rs.getLong(3), (Long) rs.getObject(4),
-                        rs.getInt(5), rs.getString(6), type,
+                        rs.getString(2), type,
+                        rs.getString(4), rs.getLong(5),
+                        rs.getLong(6), null, rs.getInt(7),
                         rs.getString(8), rs.getString(9), rs.getBytes(10));
                 list.add(sm);
             }

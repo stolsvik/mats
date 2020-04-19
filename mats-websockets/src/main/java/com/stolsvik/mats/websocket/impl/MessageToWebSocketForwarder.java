@@ -1,8 +1,10 @@
 package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedTransferQueue;
@@ -19,8 +21,9 @@ import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredOutMessage;
-import com.stolsvik.mats.websocket.MatsSocketServer;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession.MatsSocketSessionState;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto.Direction;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
 
 /**
@@ -174,7 +177,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // Bail out.
                         return;
                     }
-                    float millisGetMessages = msSince(nanos_start_GetMessages);
+                    double millisGetMessages = msSince(nanos_start_GetMessages);
 
                     // ?: Check if we're empty of messages
                     // (Notice how this logic always requires a final query which returns zero messages)
@@ -219,85 +222,116 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                     long now = System.currentTimeMillis();
 
+                    class Meta {
+                        Long requestTimestamp;
+                        String cmid;
+
+                        Long serverInitiatedTimestamp;
+                        String serverInitiatedNodeName;
+                    }
+
                     // Deserialize envelopes back to DTO, and stick in the message
-                    List<MatsSocketServer.MatsSocketEnvelopeDto> envelopeList = messagesToDeliver.stream().map(
-                            storedOutMessage -> {
-                                MatsSocketServer.MatsSocketEnvelopeDto envelope;
-                                try {
-                                    envelope = _matsSocketServer.getEnvelopeObjectReader().readValue(storedOutMessage
-                                            .getEnvelope());
+                    List<MatsSocketEnvelopeWithMetaDto> envelopeList = new ArrayList<>(messagesToDeliver.size());
+                    IdentityHashMap<MatsSocketEnvelopeWithMetaDto, Meta> envelopeToMeta = new IdentityHashMap<>(
+                            messagesToDeliver.size());
+                    messagesToDeliver.forEach(storedOutMessage -> {
+                        MatsSocketEnvelopeWithMetaDto envelope;
+
+                        try {
+                            envelope = _matsSocketServer.getEnvelopeObjectReader().readValue(
+                                    storedOutMessage.getEnvelope());
+                        }
+                        catch (JsonProcessingException e) {
+                            throw new AssertionError("Could not deserialize Envelope DTO.");
+                        }
+                        // Make the "Meta" for this envelope
+                        Meta meta = new Meta();
+                        envelopeToMeta.put(envelope, meta);
+
+                        // If we have requestTimestamp in StoredOutMessage, then store it in Meta
+                        meta.cmid = storedOutMessage.getClientMessageId().orElse(null);
+                        meta.requestTimestamp = storedOutMessage.getRequestTimestamp().orElse(null);
+
+                        // Set the message onto the envelope, in "raw" mode (it is already json)
+                        envelope.msg = DirectJson.of(storedOutMessage.getMessageText());
+                        // :: Handle Debug
+                        // Note:
+                        // # Replies to Client-initiated (RESOLVE/REJECT) has Debug if it was requested in REQUEST
+                        // # Server-initiated (SEND/REQUEST) /always/ has Debug..
+                        if (envelope.debug != null) {
+                            /*
+                             * Client- vs. Server-initiated:
+                             *
+                             * Now, for Client-initiated (i.e. REQUEST - this message is a RESOLVE or REJECT), things
+                             * have already been resolved: If we have a DebugDto, then it is because the user both
+                             * requests debug for /something/, and he is allowed to query for this.
+                             *
+                             * However, for Server-initiated, we do not know until now (in context of the
+                             * MatsSocketSession), and thus the initiation always adds it. We thus need to check with
+                             * the AuthenticationPlugin's resolved auth vs. what the client has asked for wrt.
+                             * Server-initiated.
+                             */
+                            // ?: Is this a Reply to a Client-to-Server REQUEST? (RESOLVE or REJECT)?
+                            if ((MessageType.RESOLVE == storedOutMessage.getType())
+                                    || MessageType.REJECT == storedOutMessage.getType()) {
+                                // -> Yes, Reply (RESOLVE or REJECT)
+                                // Find which resolved DebugOptions are in effect for this message
+                                EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(
+                                        envelope.debug.resd);
+                                // Add timestamp and nodename depending on options
+                                if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
+                                    envelope.debug.mscts = now;
                                 }
-                                catch (JsonProcessingException e) {
-                                    throw new AssertionError("Could not deserialize Envelope DTO.");
+                                if (debugOptions.contains(DebugOption.NODES)) {
+                                    envelope.debug.mscnn = _matsSocketServer.getMyNodename();
                                 }
-                                // Set the message onto the envelope, in "raw" mode (it is already json)
-                                envelope.msg = new DirectJsonMessage(storedOutMessage.getMessageText());
-                                // Handle debug
-                                if (envelope.debug != null) {
-                                    /*
-                                     * Now, for Client-initiated, things have already been resolved - if we have a
-                                     * DebugDto, then it is because the user both requests to query for /something/, and
-                                     * are allowed to query for this.
-                                     *
-                                     * However, for Server-initiated, we do not know until now, and thus the initiation
-                                     * always adds it. We thus need to check with the AuthenticationPlugin's resolved
-                                     * auth vs. what the client has asked for wrt. Server-initiated.
-                                     */
-                                    // ?: Is this a Reply to a Client-to-Server REQUEST? (RESOLVE or REJECT)?
-                                    if ((MessageType.RESOLVE == storedOutMessage.getType())
-                                            || MessageType.REJECT == storedOutMessage.getType()) {
-                                        // -> Yes, Reply (RESOLVE or REJECT)
-                                        // Find which resolved DebugOptions are in effect for this message
-                                        EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(envelope.debug.resd);
-                                        // Add timestamp and nodename depending on options
-                                        if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
-                                            envelope.debug.mscts = now;
-                                        }
-                                        if (debugOptions.contains(DebugOption.NODES)) {
-                                            envelope.debug.mscnn = _matsSocketServer.getMyNodename();
-                                        }
+                            }
+                            // ?: Is this a Server-initiated message (SEND or REQUEST)?
+                            if ((MessageType.SEND == storedOutMessage.getType())
+                                    || MessageType.REQUEST == storedOutMessage.getType()) {
+                                // -> Yes, Server-to-Client (SEND or REQUEST)
+
+                                // Store the initiation timestamp in the Meta
+                                meta.serverInitiatedTimestamp = envelope.debug.smcts;
+                                meta.serverInitiatedNodeName = envelope.debug.smcnn;
+
+                                // Find what the client requests along with what authentication allows
+                                EnumSet<DebugOption> debugOptions = matsSocketSessionAndMessageHandler
+                                        .getCurrentResolvedServerToClientDebugOptions();
+                                // ?: How's the standing wrt. DebugOptions?
+                                if (debugOptions.isEmpty()) {
+                                    // -> Client either do not request anything, or server does not
+                                    // allow anything for this user.
+                                    // Null out the already existing DebugDto
+                                    envelope.debug = null;
+                                }
+                                else {
+                                    // -> Client requests, and user is allowed, to query for some
+                                    // DebugOptions.
+                                    // Set which flags are resolved
+                                    envelope.debug.resd = DebugOption.flags(debugOptions);
+                                    // Add timestamp and nodename depending on options
+                                    if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
+                                        envelope.debug.mscts = now;
                                     }
-                                    // ?: Is this a Server-initiated message (SEND or REQUEST)?
-                                    if ((MessageType.SEND == storedOutMessage.getType())
-                                            || MessageType.REQUEST == storedOutMessage.getType()) {
-                                        // -> Yes, Server-to-Client (SEND or REQUEST)
-                                        // Find what the client requests along with what authentication allows
-                                        EnumSet<DebugOption> debugOptions = matsSocketSessionAndMessageHandler
-                                                .getCurrentResolvedServerToClientDebugOptions();
-                                        // ?: How's the standing wrt. DebugOptions?
-                                        if (debugOptions.isEmpty()) {
-                                            // -> Client either do not request anything, or server does not allow
-                                            // anything for
-                                            // this user.
-                                            // Null out the already existing DebugDto
-                                            envelope.debug = null;
-                                        }
-                                        else {
-                                            // -> Client requests, and user is allowed, to query for some DebugOptions.
-                                            // Set which flags are resolved
-                                            envelope.debug.resd = DebugOption.flags(debugOptions);
-                                            // Add timestamp and nodename depending on options
-                                            if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
-                                                envelope.debug.mscts = now;
-                                            }
-                                            else {
-                                                // Need to null this out, since set unconditionally upon server
-                                                // send/request
-                                                envelope.debug.smcts = null;
-                                            }
-                                            if (debugOptions.contains(DebugOption.NODES)) {
-                                                envelope.debug.mscnn = _matsSocketServer.getMyNodename();
-                                            }
-                                            else {
-                                                // Need to null this out, since set unconditionally upon server
-                                                // send/request
-                                                envelope.debug.smcnn = null;
-                                            }
-                                        }
+                                    else {
+                                        // Need to null this out, since set unconditionally upon server
+                                        // send/request
+                                        envelope.debug.smcts = null;
+                                    }
+                                    if (debugOptions.contains(DebugOption.NODES)) {
+                                        envelope.debug.mscnn = _matsSocketServer.getMyNodename();
+                                    }
+                                    else {
+                                        // Need to null this out, since set unconditionally upon server
+                                        // send/request
+                                        envelope.debug.smcnn = null;
                                     }
                                 }
-                                return envelope;
-                            }).collect(Collectors.toList());
+                            }
+                        }
+                        envelopeList.add(envelope);
+                    });
 
                     // Serialize the list of Envelopes
                     String jsonEnvelopeList = _matsSocketServer.getEnvelopeListObjectWriter()
@@ -307,38 +341,13 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     matsSocketSessionAndMessageHandler.registerActivityTimestamp(System.currentTimeMillis());
 
                     // :: Forward message(s) over WebSocket
+                    double millisSendMessages;
                     try {
                         // :: Actually send message(s) over WebSocket.
                         long nanos_start_SendMessage = System.nanoTime();
                         matsSocketSessionAndMessageHandler.webSocketSendText(jsonEnvelopeList);
-                        float millisSendMessages = msSince(nanos_start_SendMessage);
+                        millisSendMessages = msSince(nanos_start_SendMessage);
 
-                        // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)
-                        // Result: will not be picked up on the next round of fetching messages.
-                        // NOTE! They are COMPLETED when we get the ACK for the messageId from Client.
-                        long nanos_start_MarkComplete = System.nanoTime();
-                        try {
-                            _clusterStoreAndForward.outboxMessagesAttemptedDelivery(matsSocketSessionId, messageIds);
-                        }
-                        catch (DataAccessException e) {
-                            log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
-                                    + messagesToDeliver.size() + " message(s) with TraceIds [" + messageTypesAndTraceIds
-                                    + "]. Bailing out, hoping for self-healer process to figure it out.", e);
-                            // Bail out
-                            return;
-                        }
-                        float millisMarkComplete = msSince(nanos_start_MarkComplete);
-
-                        // ----- Good path!
-
-                        log.info("Finished sending " + messagesToDeliver.size() + " message(s) with TraceIds ["
-                                + messageTypesAndTraceIds + "] to [" + matsSocketSessionAndMessageHandler
-                                + "], get-from-CSAF took ["
-                                + millisGetMessages + " ms], send over websocket took:[" + millisSendMessages + " ms],"
-                                + " mark delivery attempt in CSAF took [" + millisMarkComplete + " ms].");
-
-                        // Loop to check if empty of messages.
-                        continue;
                     }
                     catch (IOException ioe) {
                         // -> Evidently got problems forwarding the message over WebSocket
@@ -399,6 +408,49 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // Run new "re-notification" loop, to check if socket still open, then try again.
                         continue RENOTIFY;
                     }
+
+                    // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)
+                    // Result: will not be picked up on the next round of fetching messages.
+                    // NOTE! They are COMPLETED when we get the ACK for the messageId from Client.
+                    long nanos_start_MarkComplete = System.nanoTime();
+                    try {
+                        _clusterStoreAndForward.outboxMessagesAttemptedDelivery(matsSocketSessionId, messageIds);
+                    }
+                    catch (DataAccessException e) {
+                        log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
+                                + messagesToDeliver.size() + " message(s) with TraceIds [" + messageTypesAndTraceIds
+                                + "]. Bailing out, hoping for self-healer process to figure it out.", e);
+                        // Bail out
+                        return;
+                    }
+                    double millisMarkComplete = msSince(nanos_start_MarkComplete);
+
+                    envelopeList.forEach(envelope -> {
+                        Meta meta = envelopeToMeta.get(envelope);
+
+                        // "Copy out" the JSON directly as a String
+                        envelope.msg = ((DirectJson) envelope.msg).getJson();
+
+                        envelope.ints = meta.serverInitiatedTimestamp;
+                        envelope.innn = meta.serverInitiatedNodeName;
+
+                        envelope.icts = meta.requestTimestamp;
+                        envelope.rttm = (double) (System.currentTimeMillis() - meta.requestTimestamp);
+                    });
+
+                    // :: Notify of Envelope sent
+                    matsSocketSessionAndMessageHandler.recordEnvelopes(envelopeList, System.currentTimeMillis(),
+                            Direction.S2C);
+
+                    // ----- Good path!
+
+                    log.info("Finished sending " + messagesToDeliver.size() + " message(s) with TraceIds ["
+                            + messageTypesAndTraceIds + "] to [" + matsSocketSessionAndMessageHandler
+                            + "], get-from-CSAF took ["
+                            + millisGetMessages + " ms], send over websocket took:[" + millisSendMessages + " ms],"
+                            + " mark delivery attempt in CSAF took [" + millisMarkComplete + " ms].");
+
+                    // Loop to check if empty of messages.
                 }
 
                 // ----- The database is (was) CURRENTLY empty of messages for this session.

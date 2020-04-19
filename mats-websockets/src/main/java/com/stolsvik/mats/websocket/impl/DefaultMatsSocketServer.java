@@ -35,6 +35,7 @@ import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Builder;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto.IncomingResolution;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -65,7 +66,6 @@ import com.stolsvik.mats.websocket.MatsSocketServer;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession.MatsSocketSessionState;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeDto.DebugDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent.SessionRemovedEventType;
-import com.stolsvik.mats.websocket.impl.MatsSocketSessionAndMessageHandler.Processed;
 
 /**
  * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
@@ -82,7 +82,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private static final String MATS_SUBSTERM_MIDFIX_NODECONTROL = "nodeControl";
 
     private static final JavaType TYPE_LIST_OF_MSG = TypeFactory.defaultInstance().constructType(
-            new TypeReference<List<MatsSocketEnvelopeDto>>() {
+            new TypeReference<List<MatsSocketEnvelopeWithMetaDto>>() {
             });
 
     /**
@@ -278,8 +278,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         _clusterStoreAndForward = clusterStoreAndForward;
         _jackson = jacksonMapper();
         _authenticationPlugin = authenticationPlugin;
-        _envelopeObjectReader = _jackson.readerFor(MatsSocketEnvelopeDto.class);
-        _envelopeObjectWriter = _jackson.writerFor(MatsSocketEnvelopeDto.class);
+        _envelopeObjectReader = _jackson.readerFor(MatsSocketEnvelopeWithMetaDto.class);
+        _envelopeObjectWriter = _jackson.writerFor(MatsSocketEnvelopeWithMetaDto.class);
         _envelopeListObjectReader = _jackson.readerFor(TYPE_LIST_OF_MSG);
         _envelopeListObjectWriter = _jackson.writerFor(TYPE_LIST_OF_MSG);
         // TODO: "Escape" the instanceName.
@@ -395,30 +395,31 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     @Override
     public void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto)
             throws DataStoreException {
+        long now = System.currentTimeMillis();
         // Create ServerMessageId
         String serverMessageId = serverMessageId();
         // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants.
         DebugDto debug = new DebugDto();
-        debug.smcts = System.currentTimeMillis();
+        debug.smcts = now;
         debug.smcnn = getMyNodename();
 
         // Create Envelope
-        MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
-        msReplyEnvelope.t = SEND;
-        msReplyEnvelope.eid = clientTerminatorId;
-        msReplyEnvelope.smid = serverMessageId;
-        msReplyEnvelope.tid = traceId;
-        msReplyEnvelope.debug = debug;
+        MatsSocketEnvelopeWithMetaDto envelope = new MatsSocketEnvelopeWithMetaDto();
+        envelope.t = SEND;
+        envelope.eid = clientTerminatorId;
+        envelope.smid = serverMessageId;
+        envelope.tid = traceId;
+        envelope.debug = debug;
 
         // Serialize and store the envelope for forward ("StoreAndForward")
-        String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
+        String serializedEnvelope = serializeEnvelope(envelope);
         // Serialize the actual message
         String serializedMessage = serializeMessageObject(messageDto);
 
         Optional<CurrentNode> currentNode;
         try {
             currentNode = _clusterStoreAndForward.storeMessageInOutbox(
-                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope, serializedMessage,
+                    sessionId, serverMessageId, null, traceId, envelope.t, now, serializedEnvelope, serializedMessage,
                     null);
         }
         catch (DataAccessException e) {
@@ -432,23 +433,24 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     public void request(String sessionId, String traceId, String clientEndpointId, Object requestDto,
             String replyToMatsSocketTerminatorId, String correlationString, byte[] correlationBinary)
             throws DataStoreException {
+        long now = System.currentTimeMillis();
         // Create ServerMessageId
         String serverMessageId = serverMessageId();
         // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants.
         DebugDto debug = new DebugDto();
-        debug.smcts = System.currentTimeMillis();
+        debug.smcts = now;
         debug.smcnn = getMyNodename();
 
         // Create Envelope
-        MatsSocketEnvelopeDto msReplyEnvelope = new MatsSocketEnvelopeDto();
-        msReplyEnvelope.t = REQUEST;
-        msReplyEnvelope.eid = clientEndpointId;
-        msReplyEnvelope.smid = serverMessageId;
-        msReplyEnvelope.tid = traceId;
-        msReplyEnvelope.debug = debug;
+        MatsSocketEnvelopeWithMetaDto envelope = new MatsSocketEnvelopeWithMetaDto();
+        envelope.t = REQUEST;
+        envelope.eid = clientEndpointId;
+        envelope.smid = serverMessageId;
+        envelope.tid = traceId;
+        envelope.debug = debug;
 
         // Serialize and store the envelope for forward ("StoreAndForward")
-        String serializedEnvelope = serializeEnvelope(msReplyEnvelope);
+        String serializedEnvelope = serializeEnvelope(envelope);
         // Serialize the actual message
         String serializedMessage = serializeMessageObject(requestDto);
 
@@ -459,7 +461,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     replyToMatsSocketTerminatorId, correlationString, correlationBinary);
             // Stick the message in Outbox
             currentNode = _clusterStoreAndForward.storeMessageInOutbox(
-                    sessionId, serverMessageId, null, traceId, msReplyEnvelope.t, serializedEnvelope, serializedMessage,
+                    sessionId, serverMessageId, null, traceId, envelope.t, now, serializedEnvelope, serializedMessage,
                     null);
         }
         catch (DataAccessException e) {
@@ -518,7 +520,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         debug.smcnn = getMyNodename();
 
         // Create Envelope
-        MatsSocketEnvelopeDto publishEnvelope = new MatsSocketEnvelopeDto();
+        MatsSocketEnvelopeWithMetaDto publishEnvelope = new MatsSocketEnvelopeWithMetaDto();
         publishEnvelope.t = PUB;
         publishEnvelope.eid = topicId;
         publishEnvelope.smid = rndJsonId(10);
@@ -1098,7 +1100,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
 
         private R _matsSocketReplyMessage;
-        private Processed _handled = Processed.IGNORED;
+        private IncomingResolution _handled = IncomingResolution.NO_ACTION;
 
         @Override
         public MatsSocketEndpoint<I, MR, R> getMatsSocketEndpoint() {
@@ -1117,20 +1119,20 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         @Override
         public void resolve(R matsSocketResolveMessage) {
-            if (_handled != Processed.IGNORED) {
+            if (_handled != IncomingResolution.NO_ACTION) {
                 throw new IllegalStateException("Already handled.");
             }
             _matsSocketReplyMessage = matsSocketResolveMessage;
-            _handled = Processed.SETTLED_RESOLVE;
+            _handled = IncomingResolution.RESOLVE;
         }
 
         @Override
         public void reject(R matsSocketRejectMessage) {
-            if (_handled != Processed.IGNORED) {
+            if (_handled != IncomingResolution.NO_ACTION) {
                 throw new IllegalStateException("Already handled.");
             }
             _matsSocketReplyMessage = matsSocketRejectMessage;
-            _handled = Processed.SETTLED_REJECT;
+            _handled = IncomingResolution.REJECT;
         }
     }
 
@@ -1269,10 +1271,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         private final Integer resd; // Resolved (Requested & Allowed) DebugOptions - CAN BE NULL
 
-        private final Long cmrts; // Client Message Received Timestamp (Server timestamp)
+        private final long cmrts; // Client Message Received Timestamp (Server timestamp)
         private final String cmrnn; // Received Nodeanme
 
-        private final Long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server
+        private final long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server
                                   // timestamp)
 
         private ReplyHandleStateDto() {
@@ -1283,16 +1285,16 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
             resd = null;
 
-            cmrts = null;
+            cmrts = 0;
             cmrnn = null;
 
-            mmsts = null;
+            mmsts = 0;
         }
 
         ReplyHandleStateDto(String matsSocketSessionId, String matsSocketEndpointId,
                 String clientMessageId, Integer resolvedDebugFlags,
-                Long clientMessageReceivedTimestamp, String clientMessageReceivedNodeName,
-                Long matsMessageSentTimestamp) {
+                long clientMessageReceivedTimestamp, String clientMessageReceivedNodeName,
+                long matsMessageSentTimestamp) {
             sid = matsSocketSessionId;
             cmid = clientMessageId;
             ms_eid = matsSocketEndpointId;
@@ -1323,7 +1325,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 ? matsObject
                 : matsObject.toClass(registration._matsReplyClass);
 
-        MatsSocketEnvelopeDto replyEnvelope = new MatsSocketEnvelopeDto();
+        MatsSocketEnvelopeWithMetaDto replyEnvelope = new MatsSocketEnvelopeWithMetaDto();
         Object msReply;
         ReplyAdapter<?, ?, ?> replyAdapter = registration._replyAdapter;
         if (replyAdapter != null) {
@@ -1334,16 +1336,16 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 invokeAdaptReply(matsReply, replyAdapter, replyContext);
 
                 switch (replyContext._handled) {
-                    case IGNORED:
+                    case NO_ACTION:
                         // -> The user did not invoke neither .resolve() nor .reject().
                         replyEnvelope.t = REJECT;
                         msReply = null;
                         log.info("adaptReply(..) evidently ignored the Mats message. Responding [REJECT].");
                         break;
-                    case SETTLED_RESOLVE:
-                    case SETTLED_REJECT:
+                    case RESOLVE:
+                    case REJECT:
                         // -> The user settled with .resolve() or .reject()
-                        replyEnvelope.t = replyContext._handled == Processed.SETTLED_RESOLVE
+                        replyEnvelope.t = replyContext._handled == IncomingResolution.RESOLVE
                                 ? RESOLVE
                                 : REJECT;
                         msReply = replyContext._matsSocketReplyMessage;
@@ -1411,7 +1413,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         try {
             currentNode = _clusterStoreAndForward.storeMessageInOutbox(
                     state.sid, serverMessageId, replyEnvelope.cmid, processContext.getTraceId(), replyEnvelope.t,
-                    serializedEnvelope, serializedMessage, null);
+                    state.cmrts, serializedEnvelope, serializedMessage, null);
         }
         catch (DataAccessException e) {
             // TODO: Fix
@@ -1522,7 +1524,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         pingLocalOrRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.newMessageOnWrongNode");
     }
 
-    String serializeEnvelope(MatsSocketEnvelopeDto msReplyEnvelope) {
+    String serializeEnvelope(MatsSocketEnvelopeWithMetaDto msReplyEnvelope) {
         if (msReplyEnvelope.t == null) {
             throw new IllegalStateException("Type ('t') cannot be null.");
         }

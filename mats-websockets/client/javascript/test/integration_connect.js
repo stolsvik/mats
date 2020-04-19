@@ -284,7 +284,7 @@
 
                 let CHILLTIME = 100;
 
-                matsSocket.logging = true;
+                matsSocket.logging = false;
 
                 // Run a SEND just to get the show going
                 matsSocket.send("Test.ignoreInIncomingHandler", "SEND_to_" + matsSocket.id(6), {})

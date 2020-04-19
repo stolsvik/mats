@@ -2,7 +2,6 @@ package com.stolsvik.mats.websocket;
 
 import java.security.Principal;
 import java.time.Instant;
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -307,12 +306,12 @@ public interface MatsSocketServer {
      * topics should generally be of interest to more than one party. While it is certainly feasible to have
      * user-specific, or even session-specific topics, which could be authorized to only be subscribable by the "owning
      * user" or even "owning session" (by use of the
-     * {@link SessionAuthenticator#authorizeUserForTopic(AuthenticationContext, String, Principal, String, String)
-     * AuthenticationPlugin}), the current implementation of pub/sub will result in quite a bit of overhead with such an
-     * approach. Also, even for messages that are of interest to multiple parties, you should consider the size of the
-     * messages: Maybe not send large PDFs or the entire ISO-images of "newly arrived BlueRays" over a topic - instead
-     * send a small notification about the fresh BlueRay availability including just essential information and an id,
-     * and then the client can decide whether he wants to download it.
+     * {@link SessionAuthenticator#authorizeUserForTopic(AuthenticationContext, String) AuthenticationPlugin}), the
+     * current implementation of pub/sub will result in quite a bit of overhead with such an approach. Also, even for
+     * messages that are of interest to multiple parties, you should consider the size of the messages: Maybe not send
+     * large PDFs or the entire ISO-images of "newly arrived BlueRays" over a topic - instead send a small notification
+     * about the fresh BlueRay availability including just essential information and an id, and then the client can
+     * decide whether he wants to download it.
      *
      * @param traceId
      *            traceId for the flow.
@@ -630,6 +629,9 @@ public interface MatsSocketServer {
      * The parameters are constraints - if a parameter is <code>null</code> or <code>false</code>, that parameter is not
      * used in the search criteria, while if it is set, that parameter will constrain the search.
      *
+     * @param onlyActive
+     *            If <code>true</code>, only returns "active" MatsSocketSessions, currently being connected to some
+     *            node, i.e. having {@link MatsSocketSession#getNodeName()} NOT returning <code>Optional.empty()</code>.
      * @param userId
      *            If non-<code>null</code>, restricts the results to sessions for this particular userId
      * @param appName
@@ -641,9 +643,6 @@ public interface MatsSocketServer {
      *            specified value, using ordinary alphanum comparison. Do realize that it is the Client that specifies
      *            this value, there is no restriction and you cannot trust that this String falls within your expected
      *            values.
-     * @param onlyActive
-     *            If <code>true</code>, only returns "active" MatsSocketSessions, currently being connected to some
-     *            node, i.e. having {@link MatsSocketSession#getNodeName()} NOT returning <code>Optional.empty()</code>.
      * @return the list of all MatsSocketSessions currently registered with this MatsSocketServer instance matching the
      *         constraints if set - as read from the {@link ClusterStoreAndForward data store}.
      */
@@ -842,14 +841,9 @@ public interface MatsSocketServer {
         Instant getLastActivityTimestamp();
 
         /**
-         * @return snapshot (i.e. newly created ArrayList) of last 200 messages going between client and server - except
-         *         PINGs and PONGs. When the MatsSocketSession instance is a {@link ActiveMatsSocketSessionDto} (as e.g.
-         *         gotten via {@link #getActiveMatsSocketSessions()} or
-         *         {@link LiveMatsSocketSession#toActiveMatsSocketSession()}), the instances in the list will be of type
-         *         {@link MessageEventDto}, so that they will serialize nicely with both Mats and MatsSocket field-based
-         *         serialization mechanisms.
+         * @return snapshot (i.e. newly created ArrayList) of last 200 envelopes going between client and server.
          */
-        List<? extends MessageEvent> getLastMessages();
+        List<MatsSocketEnvelopeWithMetaDto> getLastEnvelopes();
 
         /**
          * The state of ActiveMatsSocketSession.
@@ -906,71 +900,6 @@ public interface MatsSocketServer {
             public boolean isHandlesMessages() {
                 return acceptMessages;
             }
-        }
-    }
-
-    /**
-     * A representation of a MatsSocket Message transmitted over the WebSocket containing some key pieces of
-     * information, and some metrics. Note that a MatsSocket Message is also called an <i>Envelope</i> in deep
-     * MatsSocket lingo, to distinguish it from a WebSocket message, which may contain several Envelopes in a
-     * "pipeline".
-     */
-    interface MessageEvent {
-        Instant getTimestamp();
-
-        Direction getDirection();
-
-        MessageType getType();
-
-        List<String> getMessageId();
-
-        int getSize();
-
-        Optional<String> getEndpointId();
-
-        Optional<String> getTraceId();
-
-        // For Client-to-Server messages
-
-        Optional<IncomingResolution> getIncomingResolution();
-
-        Optional<String> getForwardedToMatsEndpointId();
-
-        Optional<Double> getResolutionMillis();
-
-        // For Replies to Client Requests
-
-        Optional<String> getReplyToClientMessageId();
-
-        Optional<Integer> getRequestReplyMillis();
-
-        /**
-         * Which direction the message travelled: Client-to-Server, or Server-to-Client.
-         */
-        enum Direction {
-            /**
-             * Client-to-Server.
-             */
-            C2S,
-
-            /**
-             * Server-to-Client.
-             */
-            S2C
-        }
-
-        enum IncomingResolution {
-            EXCEPTION,
-
-            IGNORE,
-
-            DENY,
-
-            RESOLVE,
-
-            REJECT,
-
-            FORWARD,
         }
     }
 
@@ -1204,8 +1133,8 @@ public interface MatsSocketServer {
     }
 
     /**
-     * Closes the specified MatsSocketSession - can be used to close an active MatsSocketSession (i.e. "kick it off"),
-     * and can also used to perform out-of-band closing of Session if the WebSocket is down (this is used in the
+     * Closes the specified MatsSocketSession - can be used to forcibly close an active MatsSocketSession (i.e. "kick it
+     * off"), and can also used to perform out-of-band closing of Session if the WebSocket is down (this is used in the
      * MatsSocket.js Client, where an "onunload"-listener is attached, so that if the user navigates away, every effort
      * is done to get the MatsSocketSession closed).
      * <p />
@@ -1245,6 +1174,241 @@ public interface MatsSocketServer {
 
         public DataStoreException(String message, Throwable cause) {
             super(message, cause);
+        }
+    }
+
+    /**
+     * This is the entire "Wire transport" DTO of MatsSocket. For each {@link MessageType MessageType}, a certain set of
+     * its properties needs to be present, with a couple of optional fields (chiefly 'desc', 'rd' and 'debug'). Note
+     * that any message may contain the 'auth' field, thus updating the Server's "cached" Authorization value - it must
+     * be present with (or before, but hey) the HELLO message. It may also be present with a dedicated
+     * {@link MessageType#AUTH AUTH} message.
+     * <p />
+     * Note: For information: The {@link #msg}-field (which is defined as <code>Object</code>) is handled rather
+     * specially: The serialization/deserialization-mechanism in the MatsSocket implementation is configured to treat it
+     * differently depending on whether it is deserialized or serialized: When a message is incoming from the Client,
+     * the 'msg' field is not deserialized to a specific type - instead it contains the "raw JSON" of the incoming DTO
+     * as a String. This is necessary since we do not know the type of which DTO object is represented there until we've
+     * figured out what MatsSocket endpoint is targeted - at which time we can deserialize it to the type that
+     * MatsSocket Endpoint expects. On serialization, the message object is serialized separately from the Envelope -
+     * and then plugged into the Envelope on the 'msg' field using a "direct JSON" technique.
+     * <p />
+     * Note: When instances of this the Envelope DTO is exposed via the MatsSocket API via listeners or the
+     * {@link LiveMatsSocketSession#getLastEnvelopes() LiveMatsSocketSession.getLastEnvelopes()}, the contents of the
+     * 'msg' will always be a String representing the JSON serialized message - it will NOT be an instance of a DTO
+     * class. This ensures that the entire Envelope can be sent as a Mats or MatsSocket message, should that be of
+     * interest. <b>Also, exposed Envelopes will be as instances of {@link MatsSocketEnvelopeWithMetaDto
+     * MatsSocketEnvelopeWithMetaDto}!</b>.
+     * <p />
+     * Note: Copying out the source of {@link MatsSocketEnvelopeDto MatsSocketEnvelopeDto} PLUS
+     * {@link MatsSocketEnvelopeWithMetaDto MatsSocketEnvelopeWithMetaDto} and including it in the source of another
+     * service (or just importing the MatsSocket jar into that service), you can pass the entire Envelope as (part of) a
+     * Mats DTO.
+     *
+     * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
+     */
+    class MatsSocketEnvelopeDto implements Cloneable {
+        public MessageType t; // Type
+
+        public String clv; // Client Lib and Versions, informative, e.g.
+        // "MatsSockLibCsharp,v2.0.3; iOS,v13.2"
+        // "MatsSockLibAlternativeJava,v12.3; ASDKAndroid,vKitKat.4.4"
+        // Java lib: "MatsSockLibJava,v0.8.9; Java,v11.03:Windows,v2019"
+        // browsers/JS: "MatsSocket.js,v0.8.9; User-Agent: <navigator.userAgent string>",
+        public String an; // AppName
+        public String av; // AppVersion
+
+        public String auth; // Authorization header
+
+        public String sid; // SessionId
+
+        public Integer rd; // Requested debug info (currently only Client-to-Server)
+
+        public String eid; // target MatsSocketEndpointId: Which MatsSocket Endpoint (server/client) this message is for
+
+        public String tid; // TraceId
+        public String smid; // ServerMessageId, messageId from Server.
+        public String cmid; // ClientMessageId, messageId from Client.
+        public List<String> ids; // Either multiple cmid or smid - used for ACKs/NACKs and ACK2s.
+        public String x; // PingId - "correlationId" for pings. Small, so as to use little space.
+
+        public Long to; // Timeout, in millis, for Client-to-Server Requests.
+
+        public String desc; // Description when failure (NACK or others), exception message, multiline, may include
+        // stacktrace if authz.
+
+        public Object msg; // Message, JSON
+
+        // ::: Debug info
+
+        public DebugDto debug; // Debug info object - enabled if requested ('rd') and principal is allowed.
+
+        @Override
+        protected Object clone() {
+            try {
+                return super.clone();
+            }
+            catch (CloneNotSupportedException e) {
+                throw new AssertionError("MatsSocketEnvelopeDto implements Cloneable, so why..?!", e);
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "{" + t
+                    + (eid == null ? "" : "->" + eid)
+                    + (tid == null ? "" : " tid:" + tid)
+                    + (cmid == null ? "" : " cmid:" + cmid)
+                    + (smid == null ? "" : " smid:" + smid)
+                    + (msg == null
+                            ? ""
+                            : " msg:" + (msg instanceof String
+                                    ? "String[" + ((String) msg).length() + "]"
+                                    : msg.getClass().getSimpleName()))
+                    + "}";
+        }
+
+        public static class DebugDto {
+            public String d; // Description
+
+            public int resd; // Resolved DebugOptions
+
+            // :: Timings and Nodenames
+            public Long cmrts; // Client Message Received Timestamp (when message was received on Server side, Server
+            // timestamp)
+            public String cmrnn; // Client Message Received on NodeName (and Mats message is also sent from this)
+
+            public Long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server
+            // timestamp)
+            public Long mmrrts; // Mats Message Reply Received Timestamp (when the message was received from Mats,
+            // Server ts)
+            public String mmrrnn; // Mats Message Reply Received on NodeName
+
+            public Long smcts; // Server Message Created Timestamp (when message was created on Server side)
+            public String smcnn; // Server Message Created NodeName (when message was created on Server side)
+
+            public Long mscts; // Message Sent to Client Timestamp (when the message was replied to Client side, Server
+            // timestamp)
+            public String mscnn; // Message Sent to Client from NodeName (typically same as cmrnn, unless reconnect in
+            // between)
+
+            // The log
+            public List<LogLineDto> l; // Log - this will be appended to if debugging is active.
+        }
+
+        public static class LogLineDto {
+            public long ts; // TimeStamp
+            public String s; // System: "MatsSockets", "Mats", "MS SQL" or similar.
+            public String hos; // Host OS, e.g. "iOS,v13.2", "Android,vKitKat.4.4", "Chrome,v123:Windows,vXP",
+            // "Java,v11.03:Windows,v2019"
+            public String an; // AppName
+            public String av; // AppVersion
+            public String t; // Thread name
+            public int level; // 0=TRACE/ALL, 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR
+            public String m; // Message
+            public String x; // Exception if any, null otherwise.
+            public Map<String, String> mdc; // The MDC
+        }
+    }
+
+    /**
+     * Extension of {@link MatsSocketEnvelopeDto} which carries some metadata about the processing of the Envelope. When
+     * MatsSocketEnvelopes are exposed from this API, it is via instances of this class. The class if fully serializable
+     * via field serialization, and can directly be sent over Mats.
+     *
+     * @author Endre Stølsvik 2020-04-19 00:44 - http://stolsvik.com/, endre@stolsvik.com
+     */
+    class MatsSocketEnvelopeWithMetaDto extends MatsSocketEnvelopeDto implements Cloneable {
+        public Direction dir; // Direction: C2S (message received on server) or S2C (message sent from server).
+        public long ts; // Timestamp when envelope was received from the WebSocket, or successfully sent on the WS.
+        public String nn; // NodeName of receiving or sending node.
+
+        // ===== For all messages that are a reply:
+        // -> WELCOME (HELLO), ACK + RESOLVE/REJECT (REQUEST), PONG (PING), ACK2 (ACK/NACK), SUB_OK/.. (SUB)
+
+        public Long icts; // Incoming Timestamp
+        public Double rttm; // Round Trip Time Millis. May be fractional.
+
+        // ===== For Client-to-Server SEND / REQUEST
+
+        public IncomingResolution ir; // IncomingResolution
+        public String fmeid; // Forwarded to Mats Endpoint Id
+        public Double rm; // Resolution Millis, fractional.
+
+        // ===== For Server-to-Client SEND / REQUEST
+
+        public Long ints; // Initiated Timestamp
+        public String innn; // Initiated NodeName
+
+        /**
+         * <b>Only used for when the MatsSocketEnvelopeDto is exposed via the MatsSocket API - contains "meta-meta"
+         * about the processing of the envelope</b>
+         * <p />
+         * Which direction the message travelled: Client-to-Server, or Server-to-Client.
+         */
+        public enum Direction {
+            /**
+             * Client-to-Server.
+             */
+            C2S,
+
+            /**
+             * Server-to-Client.
+             */
+            S2C
+        }
+
+        /**
+         * <b>Only used for when the MatsSocketEnvelopeDto is exposed via the MatsSocket API - contains "meta-meta"
+         * about the processing of the envelope</b>
+         * <p />
+         * How a Client-to-Server SEND or REQUEST was handled wrt. MatsSocket actions. For all these actions, the
+         * incoming envelope is run through a piece of Java code - so it is possible that it might also have mined a
+         * Bitcoin or something else entirely; These resolutions are in terms of response options for the
+         * IncomingHandler.
+         */
+        public enum IncomingResolution {
+            /**
+             * The IncomingHandler raised an Exception. This results in NACK with the 'desc' field set, containing the
+             * Exception class and message.
+             */
+            EXCEPTION,
+
+            /**
+             * IncomingHandler did no action wrt. MatsSocket options - this is allowed for SEND, but not for REQUEST.
+             */
+            NO_ACTION,
+
+            /**
+             * The IncomingHandler sent NACK ("Negative Acknowledgement"), signifying that it did not want to process
+             * the message, typically because the authenticated user was not allowed to perform the requested action
+             * (i.e. <i>authorization</i> of the action vs. the authenticated user (Principal) failed), and no further
+             * action wrt. MatsSocket options.
+             * <p />
+             * {@link MatsSocketEndpointIncomingContext#deny()} was invoked.
+             */
+            DENY,
+
+            /**
+             * For a REQUEST: The IncomingHandler "insta-settled" the request with a Resolve.
+             * <p />
+             * {@link MatsSocketEndpointIncomingContext#resolve(Object)} was invoked.
+             */
+            RESOLVE,
+
+            /**
+             * For a REQUEST: The IncomingHandler "insta-settled" the request with a Reject.
+             * <p />
+             * {@link MatsSocketEndpointIncomingContext#reject(Object)} was invoked.
+             */
+            REJECT,
+
+            /**
+             * The IncomingHandler forwarded the SEND or REQUEST to a Mats Endpoint.
+             * <p />
+             * {@link MatsSocketEndpointIncomingContext#forwardCustom(Object, InitiateLambda)} or its ilk was invoked.
+             */
+            FORWARD,
         }
     }
 
@@ -1387,119 +1551,6 @@ public interface MatsSocketServer {
          * A Reply to a {@link #PING}.
          */
         PONG,
-    }
-
-    /**
-     * This is the entire "Wire transport" DTO of MatsSocket. For each {@link MessageType MessageType}, a certain set of
-     * its properties needs to be present, with a couple of optional fields (chiefly 'desc', 'rd' and 'debug').
-     * <p />
-     * Note: For information: The {@link #msg}-field (which is defined as <code>Object</code>) is handled rather
-     * specially: The deser-mechanism in the MatsSocket implementation is configured to treat it differently depending
-     * on whether it is deserialized or serialized: When a message is incoming from the Client, the 'msg' field contains
-     * the "raw JSON" of the incoming DTO as a String. This is necessary since we do not know the type of which DTO
-     * object is represented there until we've figured out what MatsSocket endpoint is targeted - at which time we can
-     * deserialize it correctly. However, on serialization, it is handled quite normally - the DTO instance that should
-     * be serialized and sent to the Client is just set there, and the serialization mechanism will serialize it to JSON
-     * as it normally would.
-     * <p />
-     * Note: When instances of this DTO is exposed via the MatsSocket API via listeners or the
-     * {@link LiveMatsSocketSession#getLastMessages()}, the contents of the 'msg' will always be an actual DTO object,
-     * both for Client-to-Server and Server-to-Client messages.
-     *
-     * @author Endre Stølsvik 2019-11-28 12:17 - http://stolsvik.com/, endre@stolsvik.com
-     */
-    class MatsSocketEnvelopeDto {
-        public MessageType t; // Type
-
-        public String clv; // Client Lib and Versions, informative, e.g.
-                           // "MatsSockLibCsharp,v2.0.3; iOS,v13.2"
-                           // "MatsSockLibAlternativeJava,v12.3; ASDKAndroid,vKitKat.4.4"
-                           // Java lib: "MatsSockLibJava,v0.8.9; Java,v11.03:Windows,v2019"
-                           // browsers/JS: "MatsSocket.js,v0.8.9; User-Agent: <navigator.userAgent string>",
-        public String an; // AppName
-        public String av; // AppVersion
-
-        public String auth; // Authorization header
-
-        public String sid; // SessionId
-
-        public Integer rd; // Requested debug info (currently only Client-to-Server)
-
-        public String eid; // target MatsSocketEndpointId: Which MatsSocket Endpoint (server/client) this message is for
-
-        public String tid; // TraceId
-        public String smid; // ServerMessageId, messageId from Server.
-        public String cmid; // ClientMessageId, messageId from Client.
-        public List<String> ids; // Either multiple cmid or smid - used for ACKs/NACKs and ACK2s.
-        public String x; // PingId - "correlationId" for pings. Small, so as to use little space.
-
-        public Long to; // Timeout, in millis, for Client-to-Server Requests.
-
-        public String desc; // Description when failure (NACK or others), exception message, multiline, may include
-                            // stacktrace if authz.
-
-        public Object msg; // Message, JSON
-
-        // ::: Debug info
-
-        public DebugDto debug; // Debug info object - enabled if requested ('rd') and principal is allowed.
-
-        @Override
-        public String toString() {
-            return "{" + t
-                    + (eid == null ? "" : "->" + eid)
-                    + (tid == null ? "" : " tid:" + tid)
-                    + (cmid == null ? "" : " cmid:" + cmid)
-                    + (smid == null ? "" : " smid:" + smid)
-                    + (msg == null
-                            ? ""
-                            : " msg:" + (msg instanceof String
-                                    ? "String[" + ((String) msg).length() + "]"
-                                    : msg.getClass().getSimpleName()))
-                    + "}";
-        }
-
-        public static class DebugDto {
-            public String d; // Description
-
-            public int resd; // Resolved DebugOptions
-
-            // :: Timings and Nodenames
-            public Long cmrts; // Client Message Received Timestamp (when message was received on Server side, Server
-                               // timestamp)
-            public String cmrnn; // Client Message Received on NodeName (and Mats message is also sent from this)
-
-            public Long mmsts; // Mats Message Sent Timestamp (when the message was sent onto Mats MQ fabric, Server
-                               // timestamp)
-            public Long mmrrts; // Mats Message Reply Received Timestamp (when the message was received from Mats,
-                                // Server ts)
-            public String mmrrnn; // Mats Message Reply Received on NodeName
-
-            public Long smcts; // Server Message Created Timestamp (when message was created on Server side)
-            public String smcnn; // Server Message Created NodeName (when message was created on Server side)
-
-            public Long mscts; // Message Sent to Client Timestamp (when the message was replied to Client side, Server
-                               // timestamp)
-            public String mscnn; // Message Sent to Client from NodeName (typically same as cmrnn, unless reconnect in
-                                 // between)
-
-            // The log
-            public List<LogLineDto> l; // Log - this will be appended to if debugging is active.
-        }
-
-        public static class LogLineDto {
-            public long ts; // TimeStamp
-            public String s; // System: "MatsSockets", "Mats", "MS SQL" or similar.
-            public String hos; // Host OS, e.g. "iOS,v13.2", "Android,vKitKat.4.4", "Chrome,v123:Windows,vXP",
-                               // "Java,v11.03:Windows,v2019"
-            public String an; // AppName
-            public String av; // AppVersion
-            public String t; // Thread name
-            public int level; // 0=TRACE/ALL, 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR
-            public String m; // Message
-            public String x; // Exception if any, null otherwise.
-            public Map<String, String> mdc; // The MDC
-        }
     }
 
     /**
@@ -1714,7 +1765,7 @@ public interface MatsSocketServer {
         public long lauthts;
         public long lcpts;
         public long lactts;
-        public List<MessageEventDto> msgs;
+        public List<MatsSocketEnvelopeWithMetaDto> msgs;
 
         @Override
         public Optional<String> getAuthorization() {
@@ -1752,127 +1803,8 @@ public interface MatsSocketServer {
         }
 
         @Override
-        public List<MessageEventDto> getLastMessages() {
+        public List<MatsSocketEnvelopeWithMetaDto> getLastEnvelopes() {
             return msgs;
-        }
-    }
-
-    /**
-     * Implementation of {@link MessageEvent}, which is serializable both for MatsSocket and Mats, i.e. serialization
-     * mechanisms using field-based serialization.
-     */
-    class MessageEventDto implements MessageEvent {
-        public final long ts;
-        public final Direction dir;
-        public final MessageType t;
-        public final List<String> mids;
-        public final int l;
-        public final String eid;
-        public final String tid;
-
-        public final IncomingResolution ir;
-        public final String fmeid;
-        public final Double rm;
-
-        public final String rcmid;
-        public final Integer rtt;
-
-        public MessageEventDto() {
-            // For Jackson deserializer, needs no-args constructor, but can re-set final fields.
-            this.ts = 0;
-            this.dir = null;
-            this.t = null;
-            this.mids = null;
-            this.l = 0;
-            this.eid = null;
-            this.tid = null;
-            this.ir = null;
-            this.fmeid = null;
-            this.rm = null;
-            this.rcmid = null;
-            this.rtt = null;
-        }
-
-        public MessageEventDto(long timestamp, Direction direction, MessageType messageType, List<String> messageIds,
-                int size, String endpointId, String traceId, IncomingResolution incomingResolution,
-                String forwardedToMatsEndpointId, Double resolutionMillis, String replyToClientMessageId,
-                Integer replyRequestMillis) {
-            this.ts = timestamp;
-            this.dir = direction;
-            this.t = messageType;
-            this.mids = messageIds;
-            this.l = size;
-            this.eid = endpointId;
-            this.tid = traceId;
-            this.ir = incomingResolution;
-            this.fmeid = forwardedToMatsEndpointId;
-            this.rm = resolutionMillis;
-            this.rcmid = replyToClientMessageId;
-            this.rtt = replyRequestMillis;
-        }
-
-        @Override
-        public Instant getTimestamp() {
-            return Instant.ofEpochMilli(ts);
-        }
-
-        @Override
-        public Direction getDirection() {
-            return dir;
-        }
-
-        @Override
-        public MessageType getType() {
-            return t;
-        }
-
-        @Override
-        public List<String> getMessageId() {
-            return mids == null ? Collections.emptyList() : mids;
-        }
-
-        @Override
-        public int getSize() {
-            return l;
-        }
-
-        @Override
-        public Optional<String> getEndpointId() {
-            return Optional.ofNullable(eid);
-        }
-
-        @Override
-        public Optional<String> getTraceId() {
-            return Optional.ofNullable(tid);
-        }
-
-        // ===== For Client-to-Server messages
-
-        @Override
-        public Optional<IncomingResolution> getIncomingResolution() {
-            return Optional.ofNullable(ir);
-        }
-
-        @Override
-        public Optional<String> getForwardedToMatsEndpointId() {
-            return Optional.ofNullable(fmeid);
-        }
-
-        @Override
-        public Optional<Double> getResolutionMillis() {
-            return Optional.ofNullable(rm);
-        }
-
-        // ===== For Replies to Client Requests
-
-        @Override
-        public Optional<String> getReplyToClientMessageId() {
-            return Optional.ofNullable(rcmid);
-        }
-
-        @Override
-        public Optional<Integer> getRequestReplyMillis() {
-            return Optional.ofNullable(rtt);
         }
     }
 }

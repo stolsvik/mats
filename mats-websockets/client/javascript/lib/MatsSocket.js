@@ -2835,8 +2835,7 @@
                     an: appName,
                     av: appVersion,
                     auth: _authorization,  // This is guaranteed to be in place and valid, see above
-                    cid: that.id(10),
-                    tid: "MatsSocket_start_" + that.id(6)
+                    cid: that.id(10)
                 };
                 // ?: Have we requested a reconnect?
                 if (that.sessionId !== undefined) {

@@ -19,7 +19,7 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeDto;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto;
 
 /**
  * @author Endre Stølsvik 2020-01-15 08:38 - http://stolsvik.com/, endre@stolsvik.com
@@ -40,12 +40,13 @@ public interface MatsSocketStatics {
     int MAX_LENGTH_OF_TOPIC_NAME = 256;
     int MAX_NUMBER_OF_TOPICS_PER_SESSION = 1500;
     int MAX_NUMBER_OF_SESSIONS_PER_USER_ID = 75;
+    int MAX_NUMBER_OF_RECORDED_ENVELOPES = 200;
 
-    default float ms(long nanos) {
-        return (float) (Math.round(nanos / 10_000d) / 1_00d);
+    default double ms(long nanos) {
+        return Math.round(nanos / 10_000d) / 1_00d;
     }
 
-    default float msSince(long nanosStart) {
+    default double msSince(long nanosStart) {
         return ms(System.nanoTime() - nanosStart);
     }
 
@@ -88,23 +89,23 @@ public interface MatsSocketStatics {
         // 2) Upon deserialization, serializes the msg field normally (i.e. an instance of Car is JSON serialized),
         // 3) .. UNLESS it is the special type DirectJsonMessage
         //
-        mapper.addMixIn(MatsSocketEnvelopeDto.class, MatsSocketEnvelopeDto_Mixin.class);
+        mapper.addMixIn(MatsSocketEnvelopeWithMetaDto.class, MatsSocketEnvelopeWithMetaDto_Mixin.class);
 
         return mapper;
     }
 
     @JsonPropertyOrder({ "t", "smid", "cmid", "x", "ids", "tid", "auth" })
-    class MatsSocketEnvelopeDto_Mixin extends MatsSocketEnvelopeDto {
+    class MatsSocketEnvelopeWithMetaDto_Mixin extends MatsSocketEnvelopeWithMetaDto {
         @JsonDeserialize(using = MessageToStringDeserializer.class)
         @JsonSerialize(using = DirectJsonMessageHandlingDeserializer.class)
         public Object msg; // Message, JSON
     }
 
     /**
-     * A {@link MatsSocketEnvelopeDto} will be <i>Deserialized</i> (made into object) with the "msg" field directly to
-     * the JSON that is present there (i.e. a String, containing JSON), using this class. However, upon
+     * A {@link MatsSocketEnvelopeWithMetaDto} will be <i>Deserialized</i> (made into object) with the "msg" field
+     * directly to the JSON that is present there (i.e. a String, containing JSON), using this class. However, upon
      * <i>serialization</i>, any object there will be serialized to a JSON String (UNLESS it is a
-     * {@link DirectJsonMessage}, in which case its value is copied in verbatim). The rationale is that upon reception,
+     * {@link DirectJson}, in which case its value is copied in verbatim). The rationale is that upon reception,
      * we do not (yet) know which type (DTO class) this message has, which will be resolved later - and then this JSON
      * String will be deserialized into that specific DTO class.
      */
@@ -118,17 +119,17 @@ public interface MatsSocketStatics {
     }
 
     /**
-     * A {@link MatsSocketEnvelopeDto} will be <i>Serialized</i> (made into object) with the "msg" field handled
-     * specially: If it is any other class than {@link DirectJsonMessage}, default handling ensues (JSON object
+     * A {@link MatsSocketEnvelopeWithMetaDto} will be <i>Serialized</i> (made into object) with the "msg" field handled
+     * specially: If it is any other class than {@link DirectJson}, default handling ensues (JSON object
      * serialization) - but if it this particular class, it will output the (JSON) String it contains directly.
      */
     class DirectJsonMessageHandlingDeserializer extends JsonSerializer<Object> {
         @Override
         public void serialize(Object value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
             // ?: Is it our special magic String-wrapper that will contain direct JSON?
-            if (value instanceof DirectJsonMessage) {
+            if (value instanceof DirectJson) {
                 // -> Yes, special magic String-wrapper, so dump it directly.
-                gen.writeRawValue(((DirectJsonMessage) value).getJson());
+                gen.writeRawValue(((DirectJson) value).getJson());
             }
             else {
                 // -> No, not magic, so serialize it normally.
@@ -138,20 +139,20 @@ public interface MatsSocketStatics {
     }
 
     /**
-     * If the {@link MatsSocketEnvelopeDto#msg}-field is of this magic type, the String it contains - which then needs
-     * to be proper JSON - will be output directly. Otherwise, it will be JSON serialized.
+     * If the {@link MatsSocketEnvelopeWithMetaDto#msg}-field is of this magic type, the String it contains - which then
+     * needs to be proper JSON - will be output directly. Otherwise, it will be JSON serialized.
      */
-    class DirectJsonMessage {
+    class DirectJson {
         private final String _json;
 
-        public static DirectJsonMessage of(String msg) {
+        public static DirectJson of(String msg) {
             if (msg == null) {
                 return null;
             }
-            return new DirectJsonMessage(msg);
+            return new DirectJson(msg);
         }
 
-        public DirectJsonMessage(String json) {
+        private DirectJson(String json) {
             _json = json;
         }
 

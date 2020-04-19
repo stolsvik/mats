@@ -114,11 +114,12 @@ CREATE TABLE mats_socket_outbox_00
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
-    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
+
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
@@ -134,11 +135,12 @@ CREATE TABLE mats_socket_outbox_01
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
-    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
+
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
@@ -155,11 +157,12 @@ CREATE TABLE mats_socket_outbox_02
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
-    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
+
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
@@ -175,11 +178,12 @@ CREATE TABLE mats_socket_outbox_03
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
-    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
+
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
@@ -195,11 +199,12 @@ CREATE TABLE mats_socket_outbox_04
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
-    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
+
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
@@ -215,11 +220,12 @@ CREATE TABLE mats_socket_outbox_05
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
-    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
+
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
@@ -235,11 +241,12 @@ CREATE TABLE mats_socket_outbox_06
 (
     session_id        VARCHAR(255) NOT NULL, -- sessionId which this message belongs to.
     smid              VARCHAR(255) NOT NULL, -- Server Message Id, 'envelope.smid' - a random, quite small string
-    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     trace_id          ${texttype}  NOT NULL, -- what it says on the tin
     type              VARCHAR(255) NOT NULL, -- Type of message, 'envelope.t'
 
+    cmid              VARCHAR(255),          -- Client Message Id, 'envelope.cmid', if reply to a client request.
     request_timestamp BIGINT,                -- If Reply to a Client Request: when request received, millis since epoch.
+
     stored_timestamp  BIGINT       NOT NULL, -- When the message was stored here. millis since epoch.
     attempt_timestamp BIGINT,                -- When an attempt at delivery was performed. millis since epoch. Nulled to perform retransmission.
     delivery_count    INT          NOT NULL, -- Starts at zero - increased each time 'attempt_timestamp' is set. Magic number '-666' if DLQ.
