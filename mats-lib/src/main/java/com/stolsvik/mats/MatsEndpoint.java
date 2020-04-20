@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.function.Consumer;
 
 import com.stolsvik.mats.MatsConfig.StartStoppable;
+import com.stolsvik.mats.MatsFactory.MatsWrapper;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsInitiator.MessageReference;
@@ -605,11 +606,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      * instance and forwards all calls to that. Meant to be extended to add extra functionality, e.g. Spring
      * integration.
      */
-    class ProcessContextWrapper<R> implements ProcessContext<R> {
+    class ProcessContextWrapper<R> implements MatsWrapper<ProcessContext<R>>, ProcessContext<R> {
         /**
-         * This field is private - all methods invoke {@link #getTargetProcessContext()} to get the instance, which you
-         * should too if you override any methods. If you want to take control of the wrapped ProcessContext instance,
-         * then override {@link #getTargetProcessContext()}.
+         * This field is private - all methods invoke {@link #getTarget()} to get the instance, which you should too if
+         * you override any methods. If you want to take control of the wrapped ProcessContext instance, then override
+         * {@link #getTarget()}.
          */
         private ProcessContext<R> _targetProcessContext;
 
@@ -617,19 +618,18 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * Standard constructor, taking the wrapped {@link ProcessContext} instance.
          *
          * @param targetProcessContext
-         *            the {@link ProcessContext} instance which {@link #getTargetProcessContext()} will return (and
-         *            hence all forwarded methods will use).
+         *            the {@link ProcessContext} instance which {@link #getTarget()} will return (and hence all
+         *            forwarded methods will use).
          */
         public ProcessContextWrapper(ProcessContext<R> targetProcessContext) {
-            setTargetProcessContext(targetProcessContext);
+            setTarget(targetProcessContext);
         }
 
         /**
-         * No-args constructor, which implies that you either need to invoke
-         * {@link #setTargetProcessContext(ProcessContext)} before publishing the instance (making it available for
-         * other threads), or override {@link #getTargetProcessContext()} to provide the desired {@link ProcessContext}
-         * instance. In these cases, make sure to honor memory visibility semantics - i.e. establish a happens-before
-         * edge between the setting of the instance and any other threads getting it.
+         * No-args constructor, which implies that you either need to invoke {@link #setTarget(ProcessContext)} before
+         * publishing the instance (making it available for other threads), or override {@link #getTarget()} to provide
+         * the desired {@link ProcessContext} instance. In these cases, make sure to honor memory visibility semantics -
+         * i.e. establish a happens-before edge between the setting of the instance and any other threads getting it.
          */
         public ProcessContextWrapper() {
             /* no-op */
@@ -639,14 +639,13 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * Sets the wrapped {@link ProcessContext}, e.g. in case you instantiated it with the no-args constructor. <b>Do
          * note that the field holding the wrapped instance is not volatile nor synchronized</b>. This means that if you
          * want to set it after it has been published to other threads, you will have to override both this method and
-         * {@link #getTargetProcessContext()} to provide for needed memory visibility semantics, i.e. establish a
-         * happens-before edge between the setting of the instance and any other threads getting it.
+         * {@link #getTarget()} to provide for needed memory visibility semantics, i.e. establish a happens-before edge
+         * between the setting of the instance and any other threads getting it.
          *
          * @param targetProcessContext
-         *            the {@link ProcessContext} which is returned by {@link #getTargetProcessContext()}, unless that is
-         *            overridden.
+         *            the {@link ProcessContext} which is returned by {@link #getTarget()}, unless that is overridden.
          */
-        public void setTargetProcessContext(ProcessContext<R> targetProcessContext) {
+        public void setTarget(ProcessContext<R> targetProcessContext) {
             _targetProcessContext = targetProcessContext;
         }
 
@@ -655,136 +654,146 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          *         {@link ProcessContext}, thus if you want to get creative wrt. how and when the ProcessContext is
          *         decided, you can override this method.
          */
-        public ProcessContext<R> getTargetProcessContext() {
+        public ProcessContext<R> getTarget() {
             if (_targetProcessContext == null) {
-                throw new IllegalStateException("MatsEndpoint.ProcessContextWrapper.getTargetProcessContext():"
+                throw new IllegalStateException("MatsEndpoint.ProcessContextWrapper.getTarget():"
                         + " The target ProcessContext is not set!");
             }
             return _targetProcessContext;
         }
 
         /**
-         * @return the fully unwrapped {@link ProcessContext}: If the returned ProcessContext from
-         *         {@link #getTargetProcessContext()} is itself a {@link ProcessContextWrapper ProcessContextWrapper},
-         *         it will recurse down by invoking this method (<code>getEndTargetProcessContext()</code>) again on the
-         *         returned target.
+         * @deprecated #setTarget()
          */
+        @Deprecated
+        public void setTargetProcessContext(ProcessContext<R> targetProcessContext) {
+            setTarget(targetProcessContext);
+        }
+
+        /**
+         * @deprecated #getTarget()
+         */
+        @Deprecated
+        public ProcessContext<R> getTargetProcessContext() {
+            return getTarget();
+        }
+
+        /**
+         * @deprecated #getEndTarget()
+         */
+        @Deprecated
         public ProcessContext<R> getEndTargetProcessContext() {
-            ProcessContext<R> targetProcessContext = getTargetProcessContext();
-            // ?: If further wrapped, recurse down. Otherwise return.
-            return targetProcessContext instanceof ProcessContextWrapper
-                    ? ((ProcessContextWrapper<R>) targetProcessContext).getEndTargetProcessContext()
-                    : targetProcessContext;
+            return getEndTarget();
         }
 
         @Override
         public String getTraceId() {
-            return getTargetProcessContext().getTraceId();
+            return getTarget().getTraceId();
         }
 
         @Override
         public String getEndpointId() {
-            return getTargetProcessContext().getEndpointId();
+            return getTarget().getEndpointId();
         }
 
         @Override
         public String getStageId() {
-            return getTargetProcessContext().getStageId();
+            return getTarget().getStageId();
         }
 
         @Override
         public String getFromStageId() {
-            return getTargetProcessContext().getFromStageId();
+            return getTarget().getFromStageId();
         }
 
         @Override
         public String getMatsMessageId() {
-            return getTargetProcessContext().getMatsMessageId();
+            return getTarget().getMatsMessageId();
         }
 
         @Override
         public String getSystemMessageId() {
-            return getTargetProcessContext().getSystemMessageId();
+            return getTarget().getSystemMessageId();
         }
 
         @Override
         public boolean isNonPersistent() {
-            return getTargetProcessContext().isNonPersistent();
+            return getTarget().isNonPersistent();
         }
 
         @Override
         public boolean isInteractive() {
-            return getTargetProcessContext().isInteractive();
+            return getTarget().isInteractive();
         }
 
         @Override
         public boolean isNoAudit() {
-            return getTargetProcessContext().isNoAudit();
+            return getTarget().isNoAudit();
         }
 
         @Override
         public byte[] getBytes(String key) {
-            return getTargetProcessContext().getBytes(key);
+            return getTarget().getBytes(key);
         }
 
         @Override
         public String getString(String key) {
-            return getTargetProcessContext().getString(key);
+            return getTarget().getString(key);
         }
 
         @Override
         public <T> T getTraceProperty(String propertyName, Class<T> clazz) {
-            return getTargetProcessContext().getTraceProperty(propertyName, clazz);
+            return getTarget().getTraceProperty(propertyName, clazz);
         }
 
         @Override
         public void addBytes(String key, byte[] payload) {
-            getTargetProcessContext().addBytes(key, payload);
+            getTarget().addBytes(key, payload);
         }
 
         @Override
         public void addString(String key, String payload) {
-            getTargetProcessContext().addString(key, payload);
+            getTarget().addString(key, payload);
         }
 
         @Override
         public void setTraceProperty(String propertyName, Object propertyValue) {
-            getTargetProcessContext().setTraceProperty(propertyName, propertyValue);
+            getTarget().setTraceProperty(propertyName, propertyValue);
         }
 
         @Override
         public byte[] stash() {
-            return getTargetProcessContext().stash();
+            return getTarget().stash();
         }
 
         @Override
         public MessageReference request(String endpointId, Object requestDto) {
-            return getTargetProcessContext().request(endpointId, requestDto);
+            return getTarget().request(endpointId, requestDto);
         }
 
         @Override
         public MessageReference reply(R replyDto) {
-            return getTargetProcessContext().reply(replyDto);
+            return getTarget().reply(replyDto);
         }
 
         @Override
         public MessageReference next(Object incomingDto) {
-            return getTargetProcessContext().next(incomingDto);
+            return getTarget().next(incomingDto);
         }
 
         @Override
         public void initiate(InitiateLambda lambda) {
-            getTargetProcessContext().initiate(lambda);
+            getTarget().initiate(lambda);
         }
 
         @Override
         public void doAfterCommit(Runnable runnable) {
-            getTargetProcessContext().doAfterCommit(runnable);
+            getTarget().doAfterCommit(runnable);
         }
 
         @Override
         public <T> Optional<T> getAttribute(Class<T> type, String... name) {
-            return getTargetProcessContext().getAttribute(type, name);
+            return getTarget().getAttribute(type, name);
         }
     }
 }

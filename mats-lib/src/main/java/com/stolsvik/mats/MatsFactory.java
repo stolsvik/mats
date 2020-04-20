@@ -488,12 +488,11 @@ public interface MatsFactory extends StartStoppable {
      * forwards all calls to that. Use this if you need to wrap the MatsFactory, where most of the methods are
      * pass-through to the target, as any changes to the MatsFactory interface then won't break your wrapper.
      */
-    class MatsFactoryWrapper implements MatsFactory {
-
+    class MatsFactoryWrapper implements MatsWrapper<MatsFactory>, MatsFactory {
         /**
-         * This field is private - all methods invoke {@link #getTargetMatsFactory()} to get the instance, which you
-         * should too if you override any methods. If you want to take control of the wrapped MatsFactory instance, then
-         * override {@link #getTargetMatsFactory()}.
+         * This field is private - all methods invoke {@link #getTarget()} to get the instance, which you should too if
+         * you override any methods. If you want to take control of the wrapped MatsFactory instance, then override
+         * {@link #getTarget()}.
          */
         private MatsFactory _targetMatsFactory;
 
@@ -501,19 +500,18 @@ public interface MatsFactory extends StartStoppable {
          * Standard constructor, taking the wrapped {@link MatsFactory} instance.
          *
          * @param targetMatsFactory
-         *            the {@link MatsFactory} instance which {@link #getTargetMatsFactory()} will return (and hence all
-         *            forwarded methods will use).
+         *            the {@link MatsFactory} instance which {@link #getTarget()} will return (and hence all forwarded
+         *            methods will use).
          */
         public MatsFactoryWrapper(MatsFactory targetMatsFactory) {
-            setTargetMatsFactory(targetMatsFactory);
+            setTarget(targetMatsFactory);
         }
 
         /**
-         * No-args constructor, which implies that you either need to invoke {@link #setTargetMatsFactory(MatsFactory)}
-         * before publishing the instance (making it available for other threads), or override
-         * {@link #getTargetMatsFactory()} to provide the desired {@link MatsFactory} instance. In these cases, make
-         * sure to honor memory visibility semantics - i.e. establish a happens-before edge between the setting of the
-         * instance and any other threads getting it.
+         * No-args constructor, which implies that you either need to invoke {@link #setTarget(MatsFactory)} before
+         * publishing the instance (making it available for other threads), or override {@link #getTarget()} to provide
+         * the desired {@link MatsFactory} instance. In these cases, make sure to honor memory visibility semantics -
+         * i.e. establish a happens-before edge between the setting of the instance and any other threads getting it.
          */
         public MatsFactoryWrapper() {
             /* no-op */
@@ -523,14 +521,13 @@ public interface MatsFactory extends StartStoppable {
          * Sets the wrapped {@link MatsFactory}, e.g. in case you instantiated it with the no-args constructor. <b>Do
          * note that the field holding the wrapped instance is not volatile nor synchronized</b>. This means that if you
          * want to set it after it has been published to other threads, you will have to override both this method and
-         * {@link #getTargetMatsFactory()} to provide for needed memory visibility semantics, i.e. establish a
-         * happens-before edge between the setting of the instance and any other threads getting it.
+         * {@link #getTarget()} to provide for needed memory visibility semantics, i.e. establish a happens-before edge
+         * between the setting of the instance and any other threads getting it.
          *
          * @param targetMatsFactory
-         *            the {@link MatsFactory} which is returned by {@link #getTargetMatsFactory()}, unless that is
-         *            overridden.
+         *            the {@link MatsFactory} which is returned by {@link #getTarget()}, unless that is overridden.
          */
-        public void setTargetMatsFactory(MatsFactory targetMatsFactory) {
+        public void setTarget(MatsFactory targetMatsFactory) {
             _targetMatsFactory = targetMatsFactory;
         }
 
@@ -539,129 +536,167 @@ public interface MatsFactory extends StartStoppable {
          *         {@link MatsFactory}, thus if you want to get creative wrt. how and when the MatsFactory is decided,
          *         you can override this method.
          */
-        public MatsFactory getTargetMatsFactory() {
+        public MatsFactory getTarget() {
             if (_targetMatsFactory == null) {
                 throw new IllegalStateException("MatsFactory.MatsFactoryWrapper.getTargetMatsFactory():"
-                        + " The target ConnectionFactory is not set!");
+                        + " The '_targetMatsFactory' is not set!");
             }
             return _targetMatsFactory;
         }
 
         /**
-         * @return the fully unwrapped {@link MatsFactory}: If the returned MatsFactory from
-         *         {@link #getTargetMatsFactory()} is itself a {@link MatsFactoryWrapper MatsFactoryWrapper}, it will
-         *         recurse down by invoking this method (<code>getEndTargetMatsFactory()</code>) again on the returned
-         *         target.
+         * @deprecated #setTarget()
          */
+        @Deprecated
+        public void setTargetMatsFactory(MatsFactory targetMatsFactory) {
+            _targetMatsFactory = targetMatsFactory;
+        }
+
+        /**
+         * @deprecated #getTarget()
+         */
+        @Deprecated
+        public MatsFactory getTargetMatsFactory() {
+            if (_targetMatsFactory == null) {
+                throw new IllegalStateException("MatsFactory.MatsFactoryWrapper.getTarget():"
+                        + " The '_targetMatsFactory' is not set!");
+            }
+            return _targetMatsFactory;
+        }
+
+        /**
+         * @deprecated #getEndTarget()
+         */
+        @Deprecated
         public MatsFactory getEndTargetMatsFactory() {
-            MatsFactory targetMatsFactory = getTargetMatsFactory();
-            // ?: If further wrapped, recurse down. Otherwise return.
-            return targetMatsFactory instanceof MatsFactoryWrapper
-                    ? ((MatsFactoryWrapper) targetMatsFactory).getEndTargetMatsFactory()
-                    : targetMatsFactory;
+            return getEndTarget();
         }
 
         @Override
         public FactoryConfig getFactoryConfig() {
-            return getTargetMatsFactory().getFactoryConfig();
+            return getTarget().getFactoryConfig();
         }
 
         @Override
         public <R, S> MatsEndpoint<R, S> staged(String endpointId, Class<R> replyClass, Class<S> stateClass) {
-            return getTargetMatsFactory().staged(endpointId, replyClass, stateClass);
+            return getTarget().staged(endpointId, replyClass, stateClass);
         }
 
         @Override
         public <R, S> MatsEndpoint<R, S> staged(String endpointId, Class<R> replyClass, Class<S> stateClass,
                 Consumer<? super EndpointConfig<R, S>> endpointConfigLambda) {
-            return getTargetMatsFactory().staged(endpointId, replyClass, stateClass, endpointConfigLambda);
+            return getTarget().staged(endpointId, replyClass, stateClass, endpointConfigLambda);
         }
 
         @Override
         public <R, I> MatsEndpoint<R, Void> single(String endpointId, Class<R> replyClass, Class<I> incomingClass,
                 ProcessSingleLambda<R, I> processor) {
-            return getTargetMatsFactory().single(endpointId, replyClass, incomingClass, processor);
+            return getTarget().single(endpointId, replyClass, incomingClass, processor);
         }
 
         @Override
         public <R, I> MatsEndpoint<R, Void> single(String endpointId, Class<R> replyClass, Class<I> incomingClass,
                 Consumer<? super EndpointConfig<R, Void>> endpointConfigLambda,
                 Consumer<? super StageConfig<R, Void, I>> stageConfigLambda, ProcessSingleLambda<R, I> processor) {
-            return getTargetMatsFactory().single(endpointId, replyClass, incomingClass, endpointConfigLambda,
+            return getTarget().single(endpointId, replyClass, incomingClass, endpointConfigLambda,
                     stageConfigLambda, processor);
         }
 
         @Override
         public <S, I> MatsEndpoint<Void, S> terminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
                 ProcessTerminatorLambda<S, I> processor) {
-            return getTargetMatsFactory().terminator(endpointId, stateClass, incomingClass, processor);
+            return getTarget().terminator(endpointId, stateClass, incomingClass, processor);
         }
 
         @Override
         public <S, I> MatsEndpoint<Void, S> terminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
                 Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
                 Consumer<? super StageConfig<Void, S, I>> stageConfigLambda, ProcessTerminatorLambda<S, I> processor) {
-            return getTargetMatsFactory().terminator(endpointId, stateClass, incomingClass, endpointConfigLambda,
+            return getTarget().terminator(endpointId, stateClass, incomingClass, endpointConfigLambda,
                     stageConfigLambda, processor);
         }
 
         @Override
         public <S, I> MatsEndpoint<Void, S> subscriptionTerminator(String endpointId, Class<S> stateClass,
                 Class<I> incomingClass, ProcessTerminatorLambda<S, I> processor) {
-            return getTargetMatsFactory().subscriptionTerminator(endpointId, stateClass, incomingClass, processor);
+            return getTarget().subscriptionTerminator(endpointId, stateClass, incomingClass, processor);
         }
 
         @Override
         public <S, I> MatsEndpoint<Void, S> subscriptionTerminator(String endpointId, Class<S> stateClass,
                 Class<I> incomingClass, Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
                 Consumer<? super StageConfig<Void, S, I>> stageConfigLambda, ProcessTerminatorLambda<S, I> processor) {
-            return getTargetMatsFactory().subscriptionTerminator(endpointId, stateClass, incomingClass,
+            return getTarget().subscriptionTerminator(endpointId, stateClass, incomingClass,
                     endpointConfigLambda, stageConfigLambda, processor);
         }
 
         @Override
         public List<MatsEndpoint<?, ?>> getEndpoints() {
-            return getTargetMatsFactory().getEndpoints();
+            return getTarget().getEndpoints();
         }
 
         @Override
         public Optional<MatsEndpoint<?, ?>> getEndpoint(String endpointId) {
-            return getTargetMatsFactory().getEndpoint(endpointId);
+            return getTarget().getEndpoint(endpointId);
         }
 
         @Override
         public MatsInitiator getDefaultInitiator() {
-            return getTargetMatsFactory().getDefaultInitiator();
+            return getTarget().getDefaultInitiator();
         }
 
         @Override
         public MatsInitiator getOrCreateInitiator(String name) {
-            return getTargetMatsFactory().getOrCreateInitiator(name);
+            return getTarget().getOrCreateInitiator(name);
         }
 
         @Override
         public List<MatsInitiator> getInitiators() {
-            return getTargetMatsFactory().getInitiators();
+            return getTarget().getInitiators();
         }
 
         @Override
         public void holdEndpointsUntilFactoryIsStarted() {
-            getTargetMatsFactory().holdEndpointsUntilFactoryIsStarted();
+            getTarget().holdEndpointsUntilFactoryIsStarted();
         }
 
         @Override
         public void start() {
-            getTargetMatsFactory().start();
+            getTarget().start();
         }
 
         @Override
         public boolean waitForStarted(int timeoutMillis) {
-            return getTargetMatsFactory().waitForStarted(timeoutMillis);
+            return getTarget().waitForStarted(timeoutMillis);
         }
 
         @Override
         public boolean stop(int gracefulShutdownMillis) {
-            return getTargetMatsFactory().stop(gracefulShutdownMillis);
+            return getTarget().stop(gracefulShutdownMillis);
+        }
+    }
+
+    /**
+     * Base Wrapper interface, defining three "wrappee" methods.
+     * @param <T> the type of the wrapped instance.
+     */
+    interface MatsWrapper<T> {
+        void setTarget(T target);
+
+        T getTarget();
+
+        /**
+         * @return the fully unwrapped instance: If the returned instance from {@link #getTarget()} is itself a
+         *         {@link MatsWrapper MatsWrapper}, it will recurse down by invoking this method
+         *         (<code>getEndTarget()</code>) again on the returned target.
+         */
+        default T getEndTarget() {
+            T target = getTarget();
+            // ?: If further wrapped, recurse down. Otherwise return.
+            return target instanceof MatsWrapper
+                    ? getEndTarget()
+                    : target;
+
         }
     }
 }

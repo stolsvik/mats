@@ -3,6 +3,7 @@ package com.stolsvik.mats;
 import java.io.Closeable;
 import java.util.Optional;
 
+import com.stolsvik.mats.MatsFactory.MatsWrapper;
 import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
@@ -691,5 +692,181 @@ public interface MatsInitiator extends Closeable {
          * to the Terminator will be present in the underlying protocol.
          */
         MINIMAL
+    }
+
+    /**
+     * A base Wrapper for {@link MatsInitiate}, which simply implements MatsInitiate, takes a MatsInitiate instance and
+     * forwards all calls to that. Use this if you need to wrap the MatsInitiate, where most of the methods are
+     * pass-through to the target, as any changes to the MatsInitiate interface then won't break your wrapper.
+     */
+    class MatsInitiateWrapper implements MatsWrapper<MatsInitiate>, MatsInitiate {
+
+        /**
+         * This field is private - all methods invoke {@link #getTarget()} to get the instance, which you
+         * should too if you override any methods. If you want to take control of the wrapped MatsFactory instance, then
+         * override {@link #getTarget()}.
+         */
+        private MatsInitiate _targetMatsInitiate;
+
+        /**
+         * Standard constructor, taking the wrapped {@link MatsInitiate} instance.
+         *
+         * @param targetMatsInitiate
+         *            the {@link MatsFactory} instance which {@link #getTarget()} will return (and hence all
+         *            forwarded methods will use).
+         */
+        public MatsInitiateWrapper(MatsInitiate targetMatsInitiate) {
+            setTarget(targetMatsInitiate);
+        }
+
+        /**
+         * No-args constructor, which implies that you either need to invoke
+         * {@link #setTarget(MatsInitiate)} before publishing the instance (making it available for other
+         * threads), or override {@link #getTarget()} to provide the desired {@link MatsInitiate} instance.
+         * In these cases, make sure to honor memory visibility semantics - i.e. establish a happens-before edge between
+         * the setting of the instance and any other threads getting it.
+         */
+        public MatsInitiateWrapper() {
+            /* no-op */
+        }
+
+        /**
+         * Sets the wrapped {@link MatsInitiate}, e.g. in case you instantiated it with the no-args constructor. <b>Do
+         * note that the field holding the wrapped instance is not volatile nor synchronized</b>. This means that if you
+         * want to set it after it has been published to other threads, you will have to override both this method and
+         * {@link #getTarget()} to provide for needed memory visibility semantics, i.e. establish a
+         * happens-before edge between the setting of the instance and any other threads getting it.
+         *
+         * @param targetMatsInitiate
+         *            the {@link MatsInitiate} which is returned by {@link #getTarget()}, unless that is
+         *            overridden.
+         */
+        public void setTarget(MatsInitiate targetMatsInitiate) {
+            _targetMatsInitiate = targetMatsInitiate;
+        }
+
+        /**
+         * @return the wrapped {@link MatsInitiate}. All forwarding methods invokes this method to get the wrapped
+         *         {@link MatsInitiate}, thus if you want to get creative wrt. how and when the MatsInitiate is decided,
+         *         you can override this method.
+         */
+        public MatsInitiate getTarget() {
+            if (_targetMatsInitiate == null) {
+                throw new IllegalStateException("MatsInitiator.MatsInitiateWrapper.getTargetMatsInitiate():"
+                        + " The '_targetMatsInitiate' is not set!");
+            }
+            return _targetMatsInitiate;
+        }
+
+        @Override
+        public MatsInitiate traceId(String traceId) {
+            return getTarget().traceId(traceId);
+        }
+
+        @Override
+        public MatsInitiate keepTrace(KeepTrace keepTrace) {
+            return getTarget().keepTrace(keepTrace);
+        }
+
+        @Override
+        public MatsInitiate nonPersistent() {
+            return getTarget().nonPersistent();
+        }
+
+        @Override
+        public MatsInitiate nonPersistent(long timeToLiveMillis) {
+            return getTarget().nonPersistent(timeToLiveMillis);
+        }
+
+        @Override
+        public MatsInitiate interactive() {
+            return getTarget().interactive();
+        }
+
+        @Override
+        public MatsInitiate timeToLive(long millis) {
+            return getTarget().timeToLive(millis);
+        }
+
+        @Override
+        public MatsInitiate noAudit() {
+            return getTarget().noAudit();
+        }
+
+        @Override
+        public MatsInitiate from(String initiatorId) {
+            return getTarget().from(initiatorId);
+        }
+
+        @Override
+        public MatsInitiate to(String endpointId) {
+            return getTarget().to(endpointId);
+        }
+
+        @Override
+        public MatsInitiate replyTo(String endpointId, Object replySto) {
+            return getTarget().replyTo(endpointId, replySto);
+        }
+
+        @Override
+        public MatsInitiate replyToSubscription(String endpointId, Object replySto) {
+            return getTarget().replyToSubscription(endpointId, replySto);
+        }
+
+        @Override
+        public MatsInitiate setTraceProperty(String propertyName, Object propertyValue) {
+            return getTarget().setTraceProperty(propertyName, propertyValue);
+        }
+
+        @Override
+        public MatsInitiate addBytes(String key, byte[] payload) {
+            return getTarget().addBytes(key, payload);
+        }
+
+        @Override
+        public MatsInitiate addString(String key, String payload) {
+            return getTarget().addString(key, payload);
+        }
+
+        @Override
+        public MessageReference request(Object requestDto) {
+            return getTarget().request(requestDto);
+        }
+
+        @Override
+        public MessageReference request(Object requestDto, Object initialTargetSto) {
+            return getTarget().request(requestDto, initialTargetSto);
+        }
+
+        @Override
+        public MessageReference send(Object messageDto) {
+            return getTarget().send(messageDto);
+        }
+
+        @Override
+        public MessageReference send(Object messageDto, Object initialTargetSto) {
+            return getTarget().send(messageDto, initialTargetSto);
+        }
+
+        @Override
+        public MessageReference publish(Object messageDto) {
+            return getTarget().publish(messageDto);
+        }
+
+        @Override
+        public MessageReference publish(Object messageDto, Object initialTargetSto) {
+            return getTarget().publish(messageDto, initialTargetSto);
+        }
+
+        @Override
+        public <R, S, I> void unstash(byte[] stash, Class<R> replyClass, Class<S> stateClass, Class<I> incomingClass,
+                ProcessLambda<R, S, I> lambda) {
+            getTarget().unstash(stash, replyClass, stateClass, incomingClass, lambda);
+        }
+
+        @Override
+        public <T> Optional<T> getAttribute(Class<T> type, String... name) {
+            return getTarget().getAttribute(type, name);
+        }
     }
 }

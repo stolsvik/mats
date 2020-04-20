@@ -13,7 +13,7 @@ import org.springframework.core.env.Environment;
  * A <code>ConnectionFactoryWrapper</code> which lazily decides which of the three {@link MatsScenario}s are active, and
  * produces the wrapper-target {@link ConnectionFactory} based on that - you most probably want to use
  * {@link JmsSpringConnectionFactoryProducer} to make an instance of this class, but you can configure it directly too.
- * 
+ *
  * @see JmsSpringConnectionFactoryProducer
  * @see MatsProfiles
  * @author Endre Stølsvik 2019-06-10 23:57 - http://stolsvik.com/, endre@stolsvik.com
@@ -46,7 +46,7 @@ public class ConnectionFactoryScenarioWrapper
     /**
      * The three different Mats Scenarios that this ConnectionFactory wrapper juggles between based on the result of a
      * {@link ScenarioDecider}.
-     * 
+     *
      * @see JmsSpringConnectionFactoryProducer
      */
     public enum MatsScenario {
@@ -105,7 +105,7 @@ public class ConnectionFactoryScenarioWrapper
     }
 
     @Override
-    public void setTargetConnectionFactory(ConnectionFactory targetConnectionFactory) {
+    public void setTarget(ConnectionFactory targetConnectionFactory) {
         throw new IllegalStateException("You cannot set a target ConnectionFactory on a "
                 + this.getClass().getSimpleName()
                 + "; A set of suppliers will have to be provided in the constructor.");
@@ -115,7 +115,7 @@ public class ConnectionFactoryScenarioWrapper
     protected volatile MatsScenario _matsScenarioDecision;
 
     @Override
-    public ConnectionFactory getTargetConnectionFactory() {
+    public ConnectionFactory getTarget() {
         /*
          * Perform lazy init, even though it should have been produced by SmartLifeCycle.start() below. It is here for
          * the situation where all beans have been put into lazy init mode (the test-helper project "Remock" does this).
@@ -137,11 +137,11 @@ public class ConnectionFactoryScenarioWrapper
 
     /**
      * @return the {@link MatsScenario} that was used to make the {@link ConnectionFactory} returned by
-     *         {@link #getTargetConnectionFactory()}.
+     *         {@link #getTarget()}.
      */
     public MatsScenario getMatsScenarioUsedToMakeConnectionFactory() {
         // Ensure lazy-init if we're in such scenario (lazy-init of entire Spring factory, comments in invoked method).
-        getTargetConnectionFactory();
+        getTarget();
         // Now return whatever decision was used to make the ConnectionFactory.
         return _matsScenarioDecision;
     }
@@ -195,7 +195,7 @@ public class ConnectionFactoryScenarioWrapper
                 // ?: If the return value is non-null, we'll set it.
                 if (targetConnectionFactory != null) {
                     // -> Yes, non-null, so set it per contract.
-                    startStopWrapper.setTargetConnectionFactory(targetConnectionFactory);
+                    startStopWrapper.setTarget(targetConnectionFactory);
                 }
             }
             catch (Exception e) {
