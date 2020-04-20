@@ -3725,18 +3725,22 @@
                     } else if ((envelope.t === MessageType.RESOLVE) || (envelope.t === MessageType.REJECT)) {
                         // -> Reply to REQUEST
                         // ?: Do server want receipt, indicated by the message having 'smid' property?
+                        // (NOTE: Reply (RESOLVE/REJECT) directly in IncomingHandler will not set this, as the message has never been in the outbox, so won't need deletion).
                         if (envelope.smid) {
                             // -> Yes, so send ACK to server
                             _sendAckLater(MessageType.ACK, envelope.smid);
                         }
-                        // It is physically possible that the REPLY comes before the RECEIVED (I've observed it!).
-                        // .. Such a situation could potentially be annoying for the using application (Reply before Received)..
-                        // ALSO, for REPLYs that are produced in the incomingHandler, there will be no RECEIVED.
-                        // Handle this by checking whether the initiation is still in place, and resolve it if so.
+                        // It is physically possible that the Reply comes before the ACK (I've observed it!).
+                        // .. Such a situation could potentially be annoying for the using application (Reply before Ack)..
+                        // ALSO, for Replies that are produced in the incomingHandler, there will be no separate ACK message - this is a combined ACK+Reply.
+                        // Handle this by checking whether the initiation is still in place, and handle it as "ACK Received" if so.
                         let initiation = _outboxInitiations[envelope.cmid];
                         // ?: Was the initiation still present?
                         if (initiation) {
-                            // -> Yes, still present - so we delete and ACK it
+                            // -> Yes, still present - this means that this is effectively a /combined/ ACK+Reply, so must also handle the ACK-part.
+                            // Send ACK2 for the "ACK-part" of this Reply (the Client-to-Server REQUEST was stored in Server's inbox - he may now delete it).
+                            _sendAck2Later(envelope.cmid);
+                            // Complete any Received-callbacks for the "ACK-part" of this Reply.
                             _completeReceived(ReceivedEventType.ACK, initiation, receivedTimestamp);
                         }
 
