@@ -15,12 +15,12 @@ import javax.websocket.Session;
 import javax.websocket.server.HandshakeRequest;
 import javax.websocket.server.ServerEndpointConfig;
 
-import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
+import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
 
 /**
@@ -138,6 +138,11 @@ class DummySessionAuthenticator implements SessionAuthenticator {
 
         _currentGoodAuthorizationHeader = authorizationHeader;
         _currentExpiryMillis = expires;
+
+        // Set Originating Remote Address to dummy value
+        // .. exhibiting that MatsSocketSession.getRemoteAddr() is set by this time, if it was possible.
+        context.setOriginatingRemoteAddr("This Is Just a Dummy, remote address is: " + context.getMatsSocketSession()
+                .getRemoteAddr().orElse("Not even session.getRemoteAddr()!!"));
 
         // Create Principal to return
         Principal princial = new DummyAuthPrincipal(_authorizationFromCookie, userId, authorizationHeader);

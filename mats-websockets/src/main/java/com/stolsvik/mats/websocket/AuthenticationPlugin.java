@@ -12,6 +12,7 @@ import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
+import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.IncomingAuthorizationAndAdapter;
 import com.stolsvik.mats.websocket.MatsSocketServer.LiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketCloseCodes;
@@ -338,6 +339,33 @@ public interface AuthenticationPlugin {
          *         the responsibility of the authentication mechanism to supply values for these.
          */
         LiveMatsSocketSession getMatsSocketSession();
+
+        /**
+         * Sets (or overrides) the Remote Address, as exposed via {@link ActiveMatsSocketSession#getRemoteAddr()} - read
+         * that JavaDoc, in particular that if this server is behind a proxy, this will be the proxy's address. Also see
+         * {@link #setOriginatingRemoteAddr(String)} where any X-Forwarded-For resolved address should be set.
+         * <p />
+         * <b>Note that if the MatsSocketServer handles getting the remote address itself (via hacks, since JSR 356 Java
+         * API for WebSockets does not expose it), it will already be available in the
+         * {@link #getMatsSocketSession()}.<b/>
+         *
+         * @param remoteAddr
+         *            what should be replied by {@link ActiveMatsSocketSession#getRemoteAddr()}.
+         * @see ActiveMatsSocketSession#getRemoteAddr()
+         * @see #setOriginatingRemoteAddr(String)
+         */
+        void setRemoteAddr(String remoteAddr);
+
+        /**
+         * Sets the Originating Remote Address, as exposed via
+         * {@link ActiveMatsSocketSession#getOriginatingRemoteAddr()} - read that JavaDoc.
+         *
+         * @param originatingRemoteAddr
+         *            what should be replied by {@link ActiveMatsSocketSession#getOriginatingRemoteAddr()}.
+         * @see ActiveMatsSocketSession#getOriginatingRemoteAddr()
+         * @see #setRemoteAddr(String)
+         */
+        void setOriginatingRemoteAddr(String originatingRemoteAddr);
 
         // ===== Authentication Result return-value methods.
 

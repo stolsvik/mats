@@ -24,6 +24,10 @@ class AuthenticationContextImpl implements AuthenticationContext {
         _liveMatsSocketSession = liveMatsSocketSession;
     }
 
+    // Can be set by the AuthenticationPlugin
+    String _remoteAddr;
+    String _originatingRemoteAddr;
+
     @Override
     public HandshakeRequest getHandshakeRequest() {
         return _handshakeRequest;
@@ -32,6 +36,16 @@ class AuthenticationContextImpl implements AuthenticationContext {
     @Override
     public LiveMatsSocketSession getMatsSocketSession() {
         return _liveMatsSocketSession;
+    }
+
+    @Override
+    public void setRemoteAddr(String remoteAddr) {
+        _remoteAddr = remoteAddr;
+    }
+
+    @Override
+    public void setOriginatingRemoteAddr(String originatingRemoteAddr) {
+        _originatingRemoteAddr = originatingRemoteAddr;
     }
 
     @Override

@@ -806,6 +806,35 @@ public interface MatsSocketServer {
         Optional<String> getPrincipalName();
 
         /**
+         * If we have a way to find the connected (remote) address, it will be exposed here. It can be set/overridden in
+         * the {@link AuthenticationPlugin}. <b>Be advised that when the WebSocket Server (i.e. Servlet Container) is
+         * behind a proxy, you will get the proxy's address, not the end client's address, aka <i>originating IP
+         * address</i>.</b> This can, if you add the functionality to the {@link AuthenticationPlugin}, be gotten by
+         * {@link #getOriginatingRemoteAddr()}.
+         * <p />
+         * Note: The remote address is not exposed by the <i>JSR 356 Java API for WebSockets</i> - but there are hacks
+         * for different Servlet Containers to get it anyway. Check out class <code>RemoteAddressContainerHacks</code>.
+         *
+         * @return the remote address <b>if available</b> (should be an IP address).
+         */
+        Optional<String> getRemoteAddr();
+
+        /**
+         * The {@link AuthenticationPlugin} can set the originating remote IP address - which must be derived by headers
+         * like <code>X-Forwarded-For</code> (<a href="https://en.wikipedia.org/wiki/X-Forwarded-For">Wikipedia</a>).
+         * <b>Note the problems with this header: Since the originating client can set whatever he wants as initial
+         * value, you cannot rely on the "first IP address in the list", as this might well be bogus. You must go from
+         * the last and work your way up, and only trust the information given by proxies you are in control of: The
+         * first IP address in the list that you do not know, is what you should set as originating remote address.</b>
+         * Each proxy adds the remote address that he sees (i.e. who is the remote address for him). This means that the
+         * last proxy's ip address is not in the list - this must be gotten by {@link #getRemoteAddr()}.
+         *
+         * @return the originating remote address <b>if {@link AuthenticationPlugin} has set it</b> (should be an IP
+         *         address).
+         */
+        Optional<String> getOriginatingRemoteAddr();
+
+        /**
          * @return which Topics this session has subscribed to.
          */
         SortedSet<String> getTopicSubscriptions();
@@ -971,7 +1000,8 @@ public interface MatsSocketServer {
          *         {@link MatsSocketSessionState#CLOSED CLOSED}, and where some of the Optional-returning methods then
          *         returns Optional.empty(). If you do not want to handle such instances, then you might want to check
          *         {@link #getState()} <i>after</i> invoking this method, and if not
-         *         {@link MatsSocketSessionState#SESSION_ESTABLISHED SESSION_ESTABLISHED}, then ditch the copied result.
+         *         {@link MatsSocketSessionState#SESSION_ESTABLISHED SESSION_ESTABLISHED}, then ditch the instance that
+         *         you just copied out - this is what {@link #getActiveMatsSocketSessions()} does.
          */
         ActiveMatsSocketSessionDto toActiveMatsSocketSession();
     }
@@ -1760,6 +1790,8 @@ public interface MatsSocketServer {
     class ActiveMatsSocketSessionDto extends MatsSocketSessionDto implements ActiveMatsSocketSession {
         public String auth;
         public String pn;
+        public String rip;
+        public String ocrip;
         public SortedSet<String> subs;
         public long sets;
         public long lauthts;
@@ -1775,6 +1807,16 @@ public interface MatsSocketServer {
         @Override
         public Optional<String> getPrincipalName() {
             return Optional.ofNullable(pn);
+        }
+
+        @Override
+        public Optional<String> getRemoteAddr() {
+            return Optional.ofNullable(rip);
+        }
+
+        @Override
+        public Optional<String> getOriginatingRemoteAddr() {
+            return Optional.ofNullable(ocrip);
         }
 
         @Override

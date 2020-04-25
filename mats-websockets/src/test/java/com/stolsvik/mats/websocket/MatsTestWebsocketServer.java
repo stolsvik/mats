@@ -231,8 +231,8 @@ public class MatsTestWebsocketServer {
             // Read and write any access modifier fields (e.g. private)
             mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
             mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
-            // Drop nulls
-            mapper.setSerializationInclusion(Include.NON_NULL);
+            // Drop nulls and Optional.empty()
+            mapper.setSerializationInclusion(Include.NON_ABSENT);
 
             List<MatsSocketSessionDto> sessions = matsSocketServer
                     .getMatsSocketSessions(false, null, null, null);
@@ -259,8 +259,8 @@ public class MatsTestWebsocketServer {
             // Read and write any access modifier fields (e.g. private)
             mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
             mapper.setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
-            // Drop nulls
-            mapper.setSerializationInclusion(Include.NON_NULL);
+            // Drop nulls and Optional.empty()
+            mapper.setSerializationInclusion(Include.NON_ABSENT);
 
             List<ActiveMatsSocketSessionDto> sessions = new ArrayList<>(matsSocketServer
                     .getActiveMatsSocketSessions().values());
@@ -288,8 +288,8 @@ public class MatsTestWebsocketServer {
             mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
             // Handle Optional, OptionalLong, OptionalDouble
             mapper.registerModule(new Jdk8Module());
-            // Drop nulls
-            mapper.setSerializationInclusion(Include.NON_NULL);
+            // Drop nulls and Optional.empty()
+            mapper.setSerializationInclusion(Include.NON_ABSENT);
             // :: handle some fields which we want/need to ignore or tailor
             // To filter, this one shows three approaches: https://stackoverflow.com/a/46391039/39334
             // To just remove them, could have used https://stackoverflow.com/a/49010463/39334

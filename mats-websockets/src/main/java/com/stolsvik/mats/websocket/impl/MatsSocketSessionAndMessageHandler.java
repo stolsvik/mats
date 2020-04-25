@@ -126,6 +126,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     private volatile Principal _principal; // nulled upon close
     private volatile String _userId; // NEVER nulled
 
+    private volatile String _remoteAddr; // Set by auth, read by introspection
+    private volatile String _originatingRemoteAddr; // Set by auth, read by introspection.
+
     private EnumSet<DebugOption> _authAllowedDebugOptions;
     // CONCURRENCY: Set by WebSocket threads, read by Forwarder.
     private volatile EnumSet<DebugOption> _currentResolvedServerToClientDebugOptions = EnumSet.noneOf(
@@ -158,11 +161,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     private final List<MatsSocketEnvelopeWithMetaDto> _matsSocketEnvelopeWithMetaDtos = new ArrayList<>();
 
     MatsSocketSessionAndMessageHandler(DefaultMatsSocketServer matsSocketServer, Session webSocketSession,
-            String connectionId, HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator) {
+            String connectionId, HandshakeRequest handshakeRequest, SessionAuthenticator sessionAuthenticator,
+            String remoteAddr) {
         _matsSocketServer = matsSocketServer;
         _webSocketSession = webSocketSession;
         _connectionId = connectionId;
         _sessionAuthenticator = sessionAuthenticator;
+        // Might be resolved upon onOpen if we have a hack for doing it for this container.
+        _remoteAddr = remoteAddr;
 
         // Derived
         _webSocketBasicRemote = _webSocketSession.getBasicRemote();
@@ -236,6 +242,16 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     @Override
     public Optional<String> getPrincipalName() {
         return getPrincipal().map(Principal::getName);
+    }
+
+    @Override
+    public Optional<String> getRemoteAddr() {
+        return Optional.ofNullable(_remoteAddr);
+    }
+
+    @Override
+    public Optional<String> getOriginatingRemoteAddr() {
+        return Optional.ofNullable(_originatingRemoteAddr);
     }
 
     @Override
@@ -1311,6 +1327,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     AuthenticationResult_Authenticated res = (AuthenticationResult_Authenticated) authenticationResult;
                     goodAuthentication(newAuthorization, res._principal, res._userId, res._debugOptions,
                             "Initial Authentication");
+                    // ?: Did AuthenticationPlugin set (or override) the Remote Address?
+                    if (_authenticationContext._remoteAddr != null) {
+                        // -> Yes it did, so set it.
+                        _remoteAddr = _authenticationContext._remoteAddr;
+                    }
+                    // Unconditionally set the Originating Remote Address, as we make no attempt to resolve this native
+                    _originatingRemoteAddr = _authenticationContext._originatingRemoteAddr;
                     return AuthenticationHandlingResult.OK;
                 }
                 else {

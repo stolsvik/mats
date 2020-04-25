@@ -907,8 +907,14 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 return;
             }
 
+            // :: Try to get Remote Address
+            String remoteAddr = RemoteAddressContainerHacks.attemptGetRemoteAddress(session);
+
+            // :: Create the MatsSocketSession - which also is the WebSocket MessageHandler.
             _matsSocketSessionAndMessageHandler = new MatsSocketSessionAndMessageHandler(_matsSocketServer, session,
-                    _connectionId, _handshakeRequestResponse._handshakeRequest, _sessionAuthenticator);
+                    _connectionId, _handshakeRequestResponse._handshakeRequest, _sessionAuthenticator, remoteAddr);
+
+            // :: Register it as the MessageHandler
             session.addMessageHandler(_matsSocketSessionAndMessageHandler);
         }
 
