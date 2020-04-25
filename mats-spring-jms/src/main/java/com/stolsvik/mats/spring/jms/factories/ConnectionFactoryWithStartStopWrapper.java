@@ -13,7 +13,7 @@ public abstract class ConnectionFactoryWithStartStopWrapper extends ConnectionFa
     /**
      * Start whatever is needed to support the ConnectionFactory, i.e. a localVm MQ Broker. If you return a
      * {@link ConnectionFactory}, this will be set on the wrapper using
-     * {@link #setTarget(ConnectionFactory)}. If you return <code>null</code>, nothing will be done -
+     * {@link #setWrappee(ConnectionFactory)}. If you return <code>null</code>, nothing will be done -
      * implying that you need to do that setting.
      */
     public abstract ConnectionFactory start(String beanName) throws Exception;

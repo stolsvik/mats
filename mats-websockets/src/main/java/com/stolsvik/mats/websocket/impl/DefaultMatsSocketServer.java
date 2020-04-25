@@ -35,7 +35,6 @@ import javax.websocket.server.ServerEndpointConfig;
 import javax.websocket.server.ServerEndpointConfig.Builder;
 import javax.websocket.server.ServerEndpointConfig.Configurator;
 
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto.IncomingResolution;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -65,6 +64,7 @@ import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.MatsSocketServer;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession.MatsSocketSessionState;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeDto.DebugDto;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto.IncomingResolution;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent.SessionRemovedEventType;
 
 /**
@@ -81,8 +81,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     private static final String MATS_SUBSTERM_MIDFIX_NODECONTROL = "nodeControl";
 
-    private static final JavaType TYPE_LIST_OF_MSG = TypeFactory.defaultInstance().constructType(
+    private static final JavaType TYPE_LIST_OF_MSG_WITH_META = TypeFactory.defaultInstance().constructType(
             new TypeReference<List<MatsSocketEnvelopeWithMetaDto>>() {
+            });
+
+    private static final JavaType TYPE_LIST_OF_MSG_WITHOUT_META = TypeFactory.defaultInstance().constructType(
+            new TypeReference<List<MatsSocketEnvelopeDto>>() {
             });
 
     /**
@@ -279,9 +283,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         _jackson = jacksonMapper();
         _authenticationPlugin = authenticationPlugin;
         _envelopeObjectReader = _jackson.readerFor(MatsSocketEnvelopeWithMetaDto.class);
-        _envelopeObjectWriter = _jackson.writerFor(MatsSocketEnvelopeWithMetaDto.class);
-        _envelopeListObjectReader = _jackson.readerFor(TYPE_LIST_OF_MSG);
-        _envelopeListObjectWriter = _jackson.writerFor(TYPE_LIST_OF_MSG);
+        _envelopeObjectWriter = _jackson.writerFor(MatsSocketEnvelopeDto.class);
+        _envelopeListObjectReader = _jackson.readerFor(TYPE_LIST_OF_MSG_WITH_META);
+        _envelopeListObjectWriter = _jackson.writerFor(TYPE_LIST_OF_MSG_WITHOUT_META);
         // TODO: "Escape" the instanceName.
         _terminatorId_ReplyHandler = MATS_EP_PREFIX + '.' + instanceName + '.' + MATS_EP_POSTFIX_REPLY_HANDLER;
         // TODO: "Escape" the instanceName.
@@ -404,7 +408,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         debug.smcnn = getMyNodename();
 
         // Create Envelope
-        MatsSocketEnvelopeWithMetaDto envelope = new MatsSocketEnvelopeWithMetaDto();
+        MatsSocketEnvelopeDto envelope = new MatsSocketEnvelopeDto();
         envelope.t = SEND;
         envelope.eid = clientTerminatorId;
         envelope.smid = serverMessageId;
@@ -442,7 +446,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         debug.smcnn = getMyNodename();
 
         // Create Envelope
-        MatsSocketEnvelopeWithMetaDto envelope = new MatsSocketEnvelopeWithMetaDto();
+        MatsSocketEnvelopeDto envelope = new MatsSocketEnvelopeDto();
         envelope.t = REQUEST;
         envelope.eid = clientEndpointId;
         envelope.smid = serverMessageId;
@@ -1524,7 +1528,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         pingLocalOrRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.newMessageOnWrongNode");
     }
 
-    String serializeEnvelope(MatsSocketEnvelopeWithMetaDto msReplyEnvelope) {
+    String serializeEnvelope(MatsSocketEnvelopeDto msReplyEnvelope) {
         if (msReplyEnvelope.t == null) {
             throw new IllegalStateException("Type ('t') cannot be null.");
         }

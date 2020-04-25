@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto;
 
 /**
@@ -41,6 +42,8 @@ public interface MatsSocketStatics {
     int MAX_NUMBER_OF_TOPICS_PER_SESSION = 1500;
     int MAX_NUMBER_OF_SESSIONS_PER_USER_ID = 75;
     int MAX_NUMBER_OF_RECORDED_ENVELOPES = 200;
+    int MAX_NUMBER_OF_HELD_ENVELOPES = 100;
+    int MAX_SIZE_OF_HELD_ENVELOPE_MSGS = 20 * 1024 * 1024;
 
     default double ms(long nanos) {
         return Math.round(nanos / 10_000d) / 1_00d;
@@ -57,7 +60,9 @@ public interface MatsSocketStatics {
     }
 
     default ObjectMapper jacksonMapper() {
-        // NOTE: This is stolen directly from MatsSerializer_DefaultJson - uses same serialization setup
+        /*
+         * NOTE: This following is stolen directly from MatsSerializer_DefaultJson - uses same serialization setup
+         */
         ObjectMapper mapper = new ObjectMapper();
 
         // Read and write any access modifier fields (e.g. private)
@@ -79,23 +84,23 @@ public interface MatsSocketStatics {
         mapper.registerModule(new Jdk8Module());
 
         /*
-         * ###### NOTICE! This part is special for the MatsSocket serialization setup! ######
+         * ###### NOTICE! The following part is special for the MatsSocket serialization setup! ######
          */
 
         //
         // Creating a Mixin for the MatsSocketEnvelopeDto, handling the "msg" field specially:
         //
         // 1) Upon deserialization, deserializes the "msg" field as "pure JSON", i.e. a String containing JSON
-        // 2) Upon deserialization, serializes the msg field normally (i.e. an instance of Car is JSON serialized),
-        // 3) .. UNLESS it is the special type DirectJsonMessage
+        // 2) Upon serialization, serializes the msg field normally (i.e. an instance of Car is JSON serialized),
+        // 3) .. UNLESS it is the special type DirectJsonMessage, in which case the JSON is output directly
         //
-        mapper.addMixIn(MatsSocketEnvelopeWithMetaDto.class, MatsSocketEnvelopeWithMetaDto_Mixin.class);
+        mapper.addMixIn(MatsSocketEnvelopeDto.class, MatsSocketEnvelopeDto_Mixin.class);
 
         return mapper;
     }
 
     @JsonPropertyOrder({ "t", "smid", "cmid", "x", "ids", "tid", "auth" })
-    class MatsSocketEnvelopeWithMetaDto_Mixin extends MatsSocketEnvelopeWithMetaDto {
+    class MatsSocketEnvelopeDto_Mixin extends MatsSocketEnvelopeWithMetaDto {
         @JsonDeserialize(using = MessageToStringDeserializer.class)
         @JsonSerialize(using = DirectJsonMessageHandlingDeserializer.class)
         public Object msg; // Message, JSON
@@ -104,10 +109,10 @@ public interface MatsSocketStatics {
     /**
      * A {@link MatsSocketEnvelopeWithMetaDto} will be <i>Deserialized</i> (made into object) with the "msg" field
      * directly to the JSON that is present there (i.e. a String, containing JSON), using this class. However, upon
-     * <i>serialization</i>, any object there will be serialized to a JSON String (UNLESS it is a
-     * {@link DirectJson}, in which case its value is copied in verbatim). The rationale is that upon reception,
-     * we do not (yet) know which type (DTO class) this message has, which will be resolved later - and then this JSON
-     * String will be deserialized into that specific DTO class.
+     * <i>serialization</i>, any object there will be serialized to a JSON String (UNLESS it is a {@link DirectJson}, in
+     * which case its value is copied in verbatim). The rationale is that upon reception, we do not (yet) know which
+     * type (DTO class) this message has, which will be resolved later - and then this JSON String will be deserialized
+     * into that specific DTO class.
      */
     class MessageToStringDeserializer extends JsonDeserializer<Object> {
         @Override
@@ -120,8 +125,8 @@ public interface MatsSocketStatics {
 
     /**
      * A {@link MatsSocketEnvelopeWithMetaDto} will be <i>Serialized</i> (made into object) with the "msg" field handled
-     * specially: If it is any other class than {@link DirectJson}, default handling ensues (JSON object
-     * serialization) - but if it this particular class, it will output the (JSON) String it contains directly.
+     * specially: If it is any other class than {@link DirectJson}, default handling ensues (JSON object serialization)
+     * - but if it this particular class, it will output the (JSON) String it contains directly.
      */
     class DirectJsonMessageHandlingDeserializer extends JsonSerializer<Object> {
         @Override

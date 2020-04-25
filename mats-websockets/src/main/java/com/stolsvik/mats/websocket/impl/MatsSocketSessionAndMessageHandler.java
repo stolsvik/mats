@@ -49,9 +49,9 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsBackendRuntimeException;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
+import com.stolsvik.mats.MatsInitiator.MatsInitiateWrapper;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendRuntimeException;
 import com.stolsvik.mats.websocket.AuthenticationPlugin;
-import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationContext;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.AuthenticationResult;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
@@ -101,7 +101,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
     // :: Derived in constructor
     private final Basic _webSocketBasicRemote;
-    private final AuthenticationContext _authenticationContext;
+    private final AuthenticationContextImpl _authenticationContext;
     private final ObjectReader _envelopeObjectReader;
     private final ObjectWriter _envelopeObjectWriter;
     private final ObjectReader _envelopeListObjectReader;
@@ -383,6 +383,17 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             envelope.dir = direction;
             envelope.ts = timestamp;
             envelope.nn = _matsSocketServer.getMyNodename();
+
+            // "Copy out" the JSON directly as a String if this is an outgoing message.
+            if (envelope.msg instanceof DirectJson) {
+                envelope.msg = ((DirectJson) envelope.msg).getJson();
+            }
+            // Assert my code: Incoming messages should have envelope.msg == String, outgoing == DirectJson.
+            else if ((envelope.msg != null) && !(envelope.msg instanceof String)) {
+                log.error("THIS IS AN ERROR! If the envelope.msg field is set, it should be a String or DirectJson,"
+                        + " not [" + envelope.msg.getClass().getName() + "].",
+                        new RuntimeException("Debug Stacktrace!"));
+            }
         });
         synchronized (_matsSocketEnvelopeWithMetaDtos) {
             _matsSocketEnvelopeWithMetaDtos.addAll(envelopes);
@@ -547,7 +558,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // ACK or NACK from Client denotes that we can delete it from outbox on our side.
             // .. we respond with ACK2 to these
-            List<String> clientAcks = null;
+            List<String> clientAckIds = null;
             for (Iterator<MatsSocketEnvelopeWithMetaDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeWithMetaDto envelope = it.next();
 
@@ -576,25 +587,25 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                                 "Cannot process " + envelope.t + " before HELLO and session established");
                         return;
                     }
-                    if (clientAcks == null) {
-                        clientAcks = new ArrayList<>();
+                    if (clientAckIds == null) {
+                        clientAckIds = new ArrayList<>();
                     }
                     if (envelope.smid != null) {
-                        clientAcks.add(envelope.smid);
+                        clientAckIds.add(envelope.smid);
                     }
                     if (envelope.ids != null) {
-                        clientAcks.addAll(envelope.ids);
+                        clientAckIds.addAll(envelope.ids);
                     }
                 }
             }
             // .. now actually act on the ACK and NACKs (delete from outbox, then Reply with ACK2)
             // TODO: Make this a bit more nifty, putting such Ids on a queue of sorts, finishing async
-            if (clientAcks != null) {
+            if (clientAckIds != null) {
                 long nanosStart = System.nanoTime();
-                log.debug("Got ACK/NACK for messages " + clientAcks + ".");
+                log.debug("Got ACK/NACK for messages " + clientAckIds + ".");
                 try {
                     _matsSocketServer.getClusterStoreAndForward().outboxMessagesComplete(_matsSocketSessionId,
-                            clientAcks);
+                            clientAckIds);
                 }
                 catch (DataAccessException e) {
                     // TODO: Make self-healer thingy.
@@ -605,11 +616,11 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // TODO: Use the MessageToWebSocketForwarder for this.
                 MatsSocketEnvelopeWithMetaDto ack2Envelope = new MatsSocketEnvelopeWithMetaDto();
                 ack2Envelope.t = ACK2;
-                if (clientAcks.size() > 1) {
-                    ack2Envelope.ids = clientAcks;
+                if (clientAckIds.size() > 1) {
+                    ack2Envelope.ids = clientAckIds;
                 }
                 else {
-                    ack2Envelope.smid = clientAcks.get(0);
+                    ack2Envelope.smid = clientAckIds.get(0);
                 }
                 try {
                     String json = _envelopeListObjectWriter.writeValueAsString(Collections.singletonList(ack2Envelope));
@@ -632,12 +643,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // ACK2 from the Client is message to Server that the "client has deleted an information-bearing message
             // from his outbox", denoting that we can delete it from inbox on our side
-            List<String> clientAck2s = null;
+            List<String> clientAck2Ids = null;
             for (Iterator<MatsSocketEnvelopeWithMetaDto> it = envelopes.iterator(); it.hasNext();) {
                 MatsSocketEnvelopeWithMetaDto envelope = it.next();
                 // ?: Is this a ACK2 for a ACK/NACK from us?
                 if (envelope.t == ACK2) {
                     it.remove();
+                    // Record received Envelope
+                    recordEnvelopes(Collections.singletonList(envelope), receivedTimestamp, Direction.C2S);
                     // Assert that we've had HELLO already processed
                     // NOTICE! We will handle ACK2s without valid Authorization, but only if we've already established
                     // Session, as checked by seeing if we've processed HELLO
@@ -651,24 +664,24 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                                 + " or 'ids'.");
                         return;
                     }
-                    if (clientAck2s == null) {
-                        clientAck2s = new ArrayList<>();
+                    if (clientAck2Ids == null) {
+                        clientAck2Ids = new ArrayList<>();
                     }
                     if (envelope.cmid != null) {
-                        clientAck2s.add(envelope.cmid);
+                        clientAck2Ids.add(envelope.cmid);
                     }
                     if (envelope.ids != null) {
-                        clientAck2s.addAll(envelope.ids);
+                        clientAck2Ids.addAll(envelope.ids);
                     }
                 }
             }
             // .. now actually act on the ACK2s (delete from our inbox - we do not need it anymore to guard for DD)
             // TODO: Make this a bit more nifty, putting such Ids on a queue of sorts, finishing async
-            if (clientAck2s != null) {
-                log.debug("Got ACK2 for messages " + clientAck2s + ".");
+            if (clientAck2Ids != null) {
+                log.debug("Got ACK2 for messages " + clientAck2Ids + ".");
                 try {
                     _matsSocketServer.getClusterStoreAndForward().deleteMessageIdsFromInbox(_matsSocketSessionId,
-                            clientAck2s);
+                            clientAck2Ids);
                 }
                 catch (DataAccessException e) {
                     // TODO: Make self-healer thingy.
@@ -790,14 +803,15 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 for (Iterator<MatsSocketEnvelopeWithMetaDto> it = envelopes.iterator(); it.hasNext();) {
                     // :: Do some DOS-preventive measures:
                     // ?: Do we have more than some limit of held messages?
-                    if (_heldEnvelopesWaitingForReauth.size() > 100) {
+                    if (_heldEnvelopesWaitingForReauth.size() > MAX_NUMBER_OF_HELD_ENVELOPES) {
                         // -> Yes, over number-limit, so then we reply "RETRY" to the rest.
                         break;
                     }
                     // ?: Is the size of current held messages more than some limit?
-                    int currentSizeOfHeld = _heldEnvelopesWaitingForReauth.stream().mapToInt(
-                            envelope -> envelope.msg instanceof String ? ((String) envelope.msg).length() : 0).sum();
-                    if (currentSizeOfHeld > 20 * 1024 * 1024) {
+                    int currentSizeOfHeld = _heldEnvelopesWaitingForReauth.stream()
+                            .mapToInt(e -> e.msg instanceof String ? ((String) e.msg).length() : 0)
+                            .sum();
+                    if (currentSizeOfHeld > MAX_SIZE_OF_HELD_ENVELOPE_MSGS) {
                         // -> Yes, over size-limit, so then we reply "RETRY" to the rest.
                         /*
                          * NOTE! This will lead to at least one message being held, since if under limit, we add
@@ -1626,14 +1640,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         return true;
     }
 
-    private MatsSocketEnvelopeWithMetaDto handleSendOrRequestOrReply(long clientMessageReceivedTimestamp,
+    private MatsSocketEnvelopeWithMetaDto handleSendOrRequestOrReply(long receivedTimestamp,
             MatsSocketEnvelopeWithMetaDto envelope) {
         long nanosStart = System.nanoTime();
         MessageType type = envelope.t;
 
         log.info("  \\- " + envelope + ", msg:[" + envelope.msg + "].");
 
-        registerActivityTimestamp(clientMessageReceivedTimestamp);
+        registerActivityTimestamp(receivedTimestamp);
 
         // :: Assert some props.
         if (envelope.cmid == null) {
@@ -1704,7 +1718,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     }
                 }
                 else {
-                    // -> No, not a Reply back to us, so this is a REQUEST or SEND:
+                    // -> No, not a Reply back to us, so this is a Client-to-Server REQUEST or SEND:
 
                     // With a message initiated on the client, the targetEndpointId is embedded in the message
                     targetEndpointId = envelope.eid;
@@ -1741,14 +1755,17 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                             if (messageFromInbox.getFullEnvelope().isPresent()) {
                                 // -> Yes, we had the JSON from last processing stored!
                                 log.info("We had an envelope from last time!");
+                                // :: We'll just reply whatever we replied last time.
+                                // Deserializing the Envelope
+                                // NOTE: Will get any message ('msg'-field) as a String directly representing JSON.
                                 MatsSocketEnvelopeWithMetaDto lastTimeEnvelope = _envelopeObjectReader
-                                        .readValue(
-                                                messageFromInbox.getFullEnvelope().get());
-                                // Doctor the deserialized envelope (by magic JSON-holder DirectJsonMessage)
-                                // (The 'msg' field is currently a proper JSON String, we want it directly as-is)
+                                        .readValue(messageFromInbox.getFullEnvelope().get());
+                                // Doctor the deserialized envelope: The 'msg' field is currently a proper JSON String,
+                                // we want it re-serialized directly as-is, thus use "magic" DirectJson class.
                                 lastTimeEnvelope.msg = DirectJson.of((String) lastTimeEnvelope.msg);
-                                // REPLACE the existing handledEnvelope - use "magic" to NOT re-serialize the JSON.
+                                // Now just REPLACE the existing handledEnvelope with the old one.
                                 handledEnvelope[0] = lastTimeEnvelope;
+                                // Note that it was a dupe in desc-field
                                 handledEnvelope[0].desc = "dupe " + envelope.t + " stored";
                                 log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
                                         + "] of type [" + envelope.t + "] - we had it stored, so just replying the"
@@ -1757,6 +1774,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                             else {
                                 // -> We did NOT have a previous JSON stored, which means that it was the default: ACK
                                 handledEnvelope[0].t = MessageType.ACK;
+                                // Note that it was a dupe in desc-field
                                 handledEnvelope[0].desc = "dupe " + envelope.t + " ACK";
                                 log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
                                         + "] of type [" + envelope.t + "] - it was NOT stored, thus it was an ACK.");
@@ -1813,12 +1831,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 @SuppressWarnings({ "unchecked", "rawtypes" })
                 MatsSocketEndpointIncomingContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointIncomingContextImpl(
                         _matsSocketServer, registration, _matsSocketSessionId, init, envelope,
-                        clientMessageReceivedTimestamp, this,
+                        receivedTimestamp, this,
                         type, correlationString, correlationBinary, msg);
 
                 // .. invoke the incoming handler
                 invokeHandleIncoming(registration, msg, requestContext);
 
+                // Record the resolution in the incoming Envelope
                 envelope.ir = requestContext._handled;
 
                 // :: Based on the situation in the RequestContext, we return ACK/NACK/RETRY/RESOLVE/REJECT
@@ -1830,19 +1849,20 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                             handledEnvelope[0].t = NACK;
                             handledEnvelope[0].desc = "An incoming REQUEST envelope was ignored by the MatsSocket incoming handler.";
                             log.warn("handleIncoming(..) ignored an incoming REQUEST, i.e. not answered at all."
-                                    + " Replying with [RECEIVED:NACK] to reject the outstanding request promise");
+                                    + " Replying with [" + handledEnvelope[0]
+                                    + "] to reject the outstanding request promise");
                         }
                         else {
                             // -> No, not REQUEST, i.e. either SEND, RESOLVE or REJECT, and then Ignore is OK.
                             handledEnvelope[0].t = ACK;
                             log.info("handleIncoming(..) evidently ignored the incoming SEND envelope. Responding"
-                                    + " [RECEIVED:ACK], since that is OK.");
+                                    + " [" + handledEnvelope[0] + "], since that is OK.");
                         }
                         break;
                     case DENY:
                         handledEnvelope[0].t = NACK;
                         log.info("handleIncoming(..) denied the incoming message. Replying with"
-                                + " [RECEIVED:NACK]");
+                                + " [" + handledEnvelope[0] + "]");
                         break;
                     case RESOLVE:
                     case REJECT:
@@ -1860,7 +1880,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         if (!debugOptions.isEmpty()) {
                             DebugDto debug = new DebugDto();
                             if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
-                                debug.cmrts = clientMessageReceivedTimestamp;
+                                debug.cmrts = receivedTimestamp;
                                 debug.mscts = System.currentTimeMillis();
                             }
                             if (debugOptions.contains(DebugOption.NODES)) {
@@ -1870,14 +1890,22 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                             handledEnvelope[0].debug = debug;
                         }
 
-                        handledEnvelope[0].msg = requestContext._matsSocketReplyMessage;
+                        // NOTE: We serialize the message here, so that all sent envelopes use the DirectJson logic
+                        String replyMessageJson = _matsSocketServer.serializeMessageObject(
+                                requestContext._matsSocketReplyMessage);
+
+                        // Set the message as DirectJson
+                        handledEnvelope[0].msg = DirectJson.of(replyMessageJson);
                         log.info("handleIncoming(..) insta-settled the incoming message with"
-                                + " [" + envelope.t + "]");
+                                + " [" + handledEnvelope[0].t + "]");
                         break;
                     case FORWARD:
                         handledEnvelope[0].t = ACK;
-                        log.info("handleIncoming(..) forwarded the incoming message. Replying with"
-                                + " [" + envelope.t + "]");
+                        // Record the forwarded-to-Mats Endpoint as resolution.
+                        envelope.fmeid = requestContext._forwardedMatsEndpoint;
+                        log.info("handleIncoming(..) forwarded the incoming message to Mats Endpoint ["
+                                + requestContext._forwardedMatsEndpoint + "]. Replying with"
+                                + " [" + handledEnvelope[0] + "]");
                         break;
                 }
 
@@ -1997,13 +2025,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             handledEnvelope[0].desc = t.getClass().getSimpleName() + ": " + t.getMessage();
         }
 
-        // public IncomingResolution ir; // IncomingResolution
-        // public String fmeid; // Forwarded to Mats Endpoint Id
-        // public Double rm; // Resolution Millis, fractional.
-
+        // Record processing time taken on incoming envelope.
         envelope.rm = msSince(nanosStart);
 
-        // This went OK (seen from the "message handled adequately" standpoint, not wrt. ACN/NACK/REJECT or otherwise)
+        handledEnvelope[0].icts = receivedTimestamp;
+        // TODO: Should really be when after sent
+        handledEnvelope[0].rttm = msSince(nanosStart);
+
+        // Seen from the "message handled adequately" standpoint, this went OK!
         // Return our produced ACK/NACK/RETRY/RESOLVE/REJECT
         return handledEnvelope[0];
     }
@@ -2015,7 +2044,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         incomingAuthEval.handleIncoming(requestContext, _principal, msg);
     }
 
-    private void handleSub(long clientMessageReceivedTimestamp, List<MatsSocketEnvelopeWithMetaDto> replyEnvelopes,
+    private void handleSub(long receivedTimestamp, List<MatsSocketEnvelopeWithMetaDto> replyEnvelopes,
             MatsSocketEnvelopeWithMetaDto envelope) {
         long nanosStart = System.nanoTime();
         if ((envelope.eid == null) || (envelope.eid.trim().isEmpty())) {
@@ -2087,7 +2116,6 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // -> Client did not supply "last message seen". This was OK
                 replyEnvelope.t = SUB_OK;
             }
-
         }
         else {
             // -> NO, NOT authorized to subscribe to this Topic!
@@ -2096,10 +2124,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
         replyEnvelope.eid = envelope.eid;
 
-        //        public Long icts; // Incoming Timestamp
-        //        public Double rttm; // Round Trip Time Millis. May be fractional.
-
-        replyEnvelope.icts = clientMessageReceivedTimestamp;
+        replyEnvelope.icts = receivedTimestamp;
         // TODO: Should really be when after sent
         replyEnvelope.rttm = msSince(nanosStart);
 
@@ -2266,6 +2291,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         private R _matsSocketReplyMessage;
         private IncomingResolution _handled = IncomingResolution.NO_ACTION;
+        private String _forwardedMatsEndpoint;
 
         @Override
         public MatsSocketEndpoint<I, MR, R> getMatsSocketEndpoint() {
@@ -2373,7 +2399,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             _handled = IncomingResolution.FORWARD;
 
-            MatsInitiate init = _matsInitiate;
+            // Record which Mats Endpoint we forward to.
+            MatsInitiate init = new MatsInitiateWrapper(_matsInitiate) {
+                @Override
+                public MatsInitiate to(String endpointId) {
+                    _forwardedMatsEndpoint = endpointId;
+                    return super.to(endpointId);
+                }
+            };
             init.from("MatsSocketEndpoint." + _envelope.eid)
                     .traceId(_envelope.tid);
             // Add a small extra side-load - the MatsSocketSessionId - since it seems nice.

@@ -105,7 +105,7 @@ public class ConnectionFactoryScenarioWrapper
     }
 
     @Override
-    public void setTarget(ConnectionFactory targetConnectionFactory) {
+    public void setWrappee(ConnectionFactory targetConnectionFactory) {
         throw new IllegalStateException("You cannot set a target ConnectionFactory on a "
                 + this.getClass().getSimpleName()
                 + "; A set of suppliers will have to be provided in the constructor.");
@@ -115,7 +115,7 @@ public class ConnectionFactoryScenarioWrapper
     protected volatile MatsScenario _matsScenarioDecision;
 
     @Override
-    public ConnectionFactory getTarget() {
+    public ConnectionFactory unwrap() {
         /*
          * Perform lazy init, even though it should have been produced by SmartLifeCycle.start() below. It is here for
          * the situation where all beans have been put into lazy init mode (the test-helper project "Remock" does this).
@@ -137,11 +137,11 @@ public class ConnectionFactoryScenarioWrapper
 
     /**
      * @return the {@link MatsScenario} that was used to make the {@link ConnectionFactory} returned by
-     *         {@link #getTarget()}.
+     *         {@link #unwrap()}.
      */
     public MatsScenario getMatsScenarioUsedToMakeConnectionFactory() {
         // Ensure lazy-init if we're in such scenario (lazy-init of entire Spring factory, comments in invoked method).
-        getTarget();
+        unwrap();
         // Now return whatever decision was used to make the ConnectionFactory.
         return _matsScenarioDecision;
     }
@@ -195,7 +195,7 @@ public class ConnectionFactoryScenarioWrapper
                 // ?: If the return value is non-null, we'll set it.
                 if (targetConnectionFactory != null) {
                     // -> Yes, non-null, so set it per contract.
-                    startStopWrapper.setTarget(targetConnectionFactory);
+                    startStopWrapper.setWrappee(targetConnectionFactory);
                 }
             }
             catch (Exception e) {

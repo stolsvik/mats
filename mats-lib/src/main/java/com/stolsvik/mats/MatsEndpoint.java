@@ -608,9 +608,9 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      */
     class ProcessContextWrapper<R> implements MatsWrapper<ProcessContext<R>>, ProcessContext<R> {
         /**
-         * This field is private - all methods invoke {@link #getTarget()} to get the instance, which you should too if
-         * you override any methods. If you want to take control of the wrapped ProcessContext instance, then override
-         * {@link #getTarget()}.
+         * This field is private - all methods invoke {@link #unwrap()} to get the instance, which you should too if you
+         * override any methods. If you want to take control of the wrapped ProcessContext instance, then override
+         * {@link #unwrap()}.
          */
         private ProcessContext<R> _targetProcessContext;
 
@@ -618,17 +618,17 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * Standard constructor, taking the wrapped {@link ProcessContext} instance.
          *
          * @param targetProcessContext
-         *            the {@link ProcessContext} instance which {@link #getTarget()} will return (and hence all
-         *            forwarded methods will use).
+         *            the {@link ProcessContext} instance which {@link #unwrap()} will return (and hence all forwarded
+         *            methods will use).
          */
         public ProcessContextWrapper(ProcessContext<R> targetProcessContext) {
-            setTarget(targetProcessContext);
+            setWrappee(targetProcessContext);
         }
 
         /**
-         * No-args constructor, which implies that you either need to invoke {@link #setTarget(ProcessContext)} before
-         * publishing the instance (making it available for other threads), or override {@link #getTarget()} to provide
-         * the desired {@link ProcessContext} instance. In these cases, make sure to honor memory visibility semantics -
+         * No-args constructor, which implies that you either need to invoke {@link #setWrappee(ProcessContext)} before
+         * publishing the instance (making it available for other threads), or override {@link #unwrap()} to provide the
+         * desired {@link ProcessContext} instance. In these cases, make sure to honor memory visibility semantics -
          * i.e. establish a happens-before edge between the setting of the instance and any other threads getting it.
          */
         public ProcessContextWrapper() {
@@ -639,13 +639,14 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * Sets the wrapped {@link ProcessContext}, e.g. in case you instantiated it with the no-args constructor. <b>Do
          * note that the field holding the wrapped instance is not volatile nor synchronized</b>. This means that if you
          * want to set it after it has been published to other threads, you will have to override both this method and
-         * {@link #getTarget()} to provide for needed memory visibility semantics, i.e. establish a happens-before edge
-         * between the setting of the instance and any other threads getting it.
+         * {@link #unwrap()} to provide for needed memory visibility semantics, i.e. establish a happens-before edge
+         * between the setting of the instance and any other threads getting it. A <code>volatile</code> field would work
+         * nice.
          *
          * @param targetProcessContext
-         *            the {@link ProcessContext} which is returned by {@link #getTarget()}, unless that is overridden.
+         *            the {@link ProcessContext} which is returned by {@link #unwrap()}, unless that is overridden.
          */
-        public void setTarget(ProcessContext<R> targetProcessContext) {
+        public void setWrappee(ProcessContext<R> targetProcessContext) {
             _targetProcessContext = targetProcessContext;
         }
 
@@ -654,10 +655,10 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          *         {@link ProcessContext}, thus if you want to get creative wrt. how and when the ProcessContext is
          *         decided, you can override this method.
          */
-        public ProcessContext<R> getTarget() {
+        public ProcessContext<R> unwrap() {
             if (_targetProcessContext == null) {
-                throw new IllegalStateException("MatsEndpoint.ProcessContextWrapper.getTarget():"
-                        + " The target ProcessContext is not set!");
+                throw new IllegalStateException("MatsEndpoint.ProcessContextWrapper.unwrap():"
+                        + " The '_targetProcessContext' is not set!");
             }
             return _targetProcessContext;
         }
@@ -667,7 +668,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          */
         @Deprecated
         public void setTargetProcessContext(ProcessContext<R> targetProcessContext) {
-            setTarget(targetProcessContext);
+            setWrappee(targetProcessContext);
         }
 
         /**
@@ -675,7 +676,7 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          */
         @Deprecated
         public ProcessContext<R> getTargetProcessContext() {
-            return getTarget();
+            return unwrap();
         }
 
         /**
@@ -683,117 +684,117 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          */
         @Deprecated
         public ProcessContext<R> getEndTargetProcessContext() {
-            return getEndTarget();
+            return unwrapFully();
         }
 
         @Override
         public String getTraceId() {
-            return getTarget().getTraceId();
+            return unwrap().getTraceId();
         }
 
         @Override
         public String getEndpointId() {
-            return getTarget().getEndpointId();
+            return unwrap().getEndpointId();
         }
 
         @Override
         public String getStageId() {
-            return getTarget().getStageId();
+            return unwrap().getStageId();
         }
 
         @Override
         public String getFromStageId() {
-            return getTarget().getFromStageId();
+            return unwrap().getFromStageId();
         }
 
         @Override
         public String getMatsMessageId() {
-            return getTarget().getMatsMessageId();
+            return unwrap().getMatsMessageId();
         }
 
         @Override
         public String getSystemMessageId() {
-            return getTarget().getSystemMessageId();
+            return unwrap().getSystemMessageId();
         }
 
         @Override
         public boolean isNonPersistent() {
-            return getTarget().isNonPersistent();
+            return unwrap().isNonPersistent();
         }
 
         @Override
         public boolean isInteractive() {
-            return getTarget().isInteractive();
+            return unwrap().isInteractive();
         }
 
         @Override
         public boolean isNoAudit() {
-            return getTarget().isNoAudit();
+            return unwrap().isNoAudit();
         }
 
         @Override
         public byte[] getBytes(String key) {
-            return getTarget().getBytes(key);
+            return unwrap().getBytes(key);
         }
 
         @Override
         public String getString(String key) {
-            return getTarget().getString(key);
+            return unwrap().getString(key);
         }
 
         @Override
         public <T> T getTraceProperty(String propertyName, Class<T> clazz) {
-            return getTarget().getTraceProperty(propertyName, clazz);
+            return unwrap().getTraceProperty(propertyName, clazz);
         }
 
         @Override
         public void addBytes(String key, byte[] payload) {
-            getTarget().addBytes(key, payload);
+            unwrap().addBytes(key, payload);
         }
 
         @Override
         public void addString(String key, String payload) {
-            getTarget().addString(key, payload);
+            unwrap().addString(key, payload);
         }
 
         @Override
         public void setTraceProperty(String propertyName, Object propertyValue) {
-            getTarget().setTraceProperty(propertyName, propertyValue);
+            unwrap().setTraceProperty(propertyName, propertyValue);
         }
 
         @Override
         public byte[] stash() {
-            return getTarget().stash();
+            return unwrap().stash();
         }
 
         @Override
         public MessageReference request(String endpointId, Object requestDto) {
-            return getTarget().request(endpointId, requestDto);
+            return unwrap().request(endpointId, requestDto);
         }
 
         @Override
         public MessageReference reply(R replyDto) {
-            return getTarget().reply(replyDto);
+            return unwrap().reply(replyDto);
         }
 
         @Override
         public MessageReference next(Object incomingDto) {
-            return getTarget().next(incomingDto);
+            return unwrap().next(incomingDto);
         }
 
         @Override
         public void initiate(InitiateLambda lambda) {
-            getTarget().initiate(lambda);
+            unwrap().initiate(lambda);
         }
 
         @Override
         public void doAfterCommit(Runnable runnable) {
-            getTarget().doAfterCommit(runnable);
+            unwrap().doAfterCommit(runnable);
         }
 
         @Override
         public <T> Optional<T> getAttribute(Class<T> type, String... name) {
-            return getTarget().getAttribute(type, name);
+            return unwrap().getAttribute(type, name);
         }
     }
 }

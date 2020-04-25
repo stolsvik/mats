@@ -254,6 +254,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                         // Set the message onto the envelope, in "raw" mode (it is already json)
                         envelope.msg = DirectJson.of(storedOutMessage.getMessageText());
+                        System.out.println("### WTF? "+storedOutMessage.getMessageText());
                         // :: Handle Debug
                         // Note:
                         // # Replies to Client-initiated (RESOLVE/REJECT) has Debug if it was requested in REQUEST
@@ -409,6 +410,22 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         continue RENOTIFY;
                     }
 
+                    // :: Notify of Envelope sent
+                    // Add meta to envelope
+                    envelopeList.forEach(envelope -> {
+                        Meta meta = envelopeToMeta.get(envelope);
+
+                        envelope.ints = meta.serverInitiatedTimestamp;
+                        envelope.innn = meta.serverInitiatedNodeName;
+
+                        envelope.icts = meta.requestTimestamp;
+                        envelope.rttm = (double) (System.currentTimeMillis() - meta.requestTimestamp);
+                    });
+
+                    // Record the envelope
+                    matsSocketSessionAndMessageHandler.recordEnvelopes(envelopeList, System.currentTimeMillis(),
+                            Direction.S2C);
+
                     // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)
                     // Result: will not be picked up on the next round of fetching messages.
                     // NOTE! They are COMPLETED when we get the ACK for the messageId from Client.
@@ -424,23 +441,6 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         return;
                     }
                     double millisMarkComplete = msSince(nanos_start_MarkComplete);
-
-                    envelopeList.forEach(envelope -> {
-                        Meta meta = envelopeToMeta.get(envelope);
-
-                        // "Copy out" the JSON directly as a String
-                        envelope.msg = ((DirectJson) envelope.msg).getJson();
-
-                        envelope.ints = meta.serverInitiatedTimestamp;
-                        envelope.innn = meta.serverInitiatedNodeName;
-
-                        envelope.icts = meta.requestTimestamp;
-                        envelope.rttm = (double) (System.currentTimeMillis() - meta.requestTimestamp);
-                    });
-
-                    // :: Notify of Envelope sent
-                    matsSocketSessionAndMessageHandler.recordEnvelopes(envelopeList, System.currentTimeMillis(),
-                            Direction.S2C);
 
                     // ----- Good path!
 
