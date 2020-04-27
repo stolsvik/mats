@@ -153,9 +153,9 @@ void main() {
       });
 
       Future runRequestTest(bool includeStash) async {
-        var initiationProcessedEvent = Completer<InitiationProcessedEvent>();
-        var receivedCompleter = Completer<ReceivedEvent>();
-        var repliedMessageEvent = Completer<MessageEvent>();
+        var initiationProcessedEvent = Completer<InitiationProcessedEvent>.sync();
+        var receivedCompleter = Completer<ReceivedEvent>.sync();
+        var repliedMessageEvent = Completer<MessageEvent>.sync();
         var traceId = 'InitiationProcessedEvent_request_${id(6)}';
         var msg = {'string': 'The Strange', 'number': math.e};
 

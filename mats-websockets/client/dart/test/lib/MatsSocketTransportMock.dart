@@ -77,7 +77,7 @@ class MatsSocketTransportMock extends MatsSocketPlatform {
   }
 
   @override
-  Future<String> get userAgent => Future.value('UnitTest userAgent');
+  String get userAgent => 'UnitTest userAgent';
 
 }
 

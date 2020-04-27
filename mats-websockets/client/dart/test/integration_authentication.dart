@@ -76,48 +76,76 @@ void main() {
       });
 
       group('authorization invalid when Server about to receive or send out information bearing message', () {
-        Future testIt(userId) async {
+        Future testIt(String userId, bool reauthBeforeRecieve) async {
           setAuth(userId, Duration(seconds: 2), Duration.zero);
 
-          var authCallbackCalledCount = 0;
-          AuthorizationRequiredEventType authCallbackCalledEventType;
+          var authEventCompleter = Completer<AuthorizationRequiredEventType>.sync();
+          var receivedEventCompleter = Completer<ReceivedEvent>.sync();
+          var replyCompleter = Completer<MessageEvent>.sync();
+
           matsSocket.setAuthorizationExpiredCallback((event) {
-            authCallbackCalledCount++;
-            authCallbackCalledEventType = event.type;
+            authEventCompleter.complete(event.type);
             // This standard auth does not fail reevaluateAuthentication.
             setAuth();
           });
           var req = {'string': 'test', 'number': math.e, 'sleepTime': 0};
-          var receivedCallbackInvoked = 0;
-          await matsSocket
-              .request('Test.slow', 'REQUEST_authentication_from_server_${id(6)}', req,
-                  receivedCallback: (event) => receivedCallbackInvoked++)
-              .then((reply) {
-            var data = reply.data;
-            // Assert that we got receivedCallback ONCE
-            expect(receivedCallbackInvoked, equals(1),
-                reason: 'Should have gotten one, and only one, receivedCallback.');
+          // Ignore the future returned, we will instead wait for the reply completer
+          var _ = matsSocket.request('Test.slow', 'REQUEST_authentication_from_server_${id(6)}', req,
+              ackCallback: receivedEventCompleter.complete,
+              nackCallback: receivedEventCompleter.completeError,
+              timeout: Duration(seconds: 15))
+              .then(replyCompleter.complete, onError: replyCompleter.completeError);
+
+          // ?: Do we expect to reauth before receive?
+          if (reauthBeforeRecieve) {
+            // 1. Wait for the auth callback to complete
+            var authCallbackCalledEventType = await authEventCompleter.future.timeout(Duration(seconds: 1));
             // Assert that we got AuthorizationExpiredEventType.REAUTHENTICATE, and only one call to Auth.
             expect(authCallbackCalledEventType, equals(AuthorizationRequiredEventType.REAUTHENTICATE),
-                reason:
-                    'Should have gotten AuthorizationRequiredEventType.REAUTHENTICATE authorizationExpiredCallback.');
-            expect(authCallbackCalledCount, 1,
-                reason: 'authorizationExpiredCallback should only have been invoked once');
-            // Assert data, with the changes from Server side.
-            expect(data['string'], equals('${req['string']}:FromSlow'));
-            expect(data['number'], equals(req['number']));
-            expect(data['sleepTime'], equals(req['sleepTime']));
-          });
+                reason: 'Should have gotten AuthorizationRequiredEventType.REAUTHENTICATE authorizationExpiredCallback.');
+
+            // We expext to reauth before we get the ack, so receivedEventCompleter should not be complete yet.
+            expect(receivedEventCompleter.isCompleted, isFalse, reason: 'AuthCallback should be invoked before ReceivedEvent');
+
+            // 2. Get the receive event from the server
+            await receivedEventCompleter.future;
+            // At this point, the auth callback should not have been called, nor the reply
+            expect(replyCompleter.isCompleted, isFalse, reason: 'Reply should not be sent before ReceivedEvent');
+
+          }
+          else {
+            // 1. Get the receive event from the server
+            await receivedEventCompleter.future;
+            // At this point, the auth callback should not have been called, nor the reply
+            expect(authEventCompleter.isCompleted, isFalse, reason: 'AuthCallback should not be invoked before ReceivedEvent');
+            expect(replyCompleter.isCompleted, isFalse, reason: 'Reply should not be sent before ReceivedEvent');
+
+            // 2. Wait for the auth callback to complete
+            var authCallbackCalledEventType = await authEventCompleter.future.timeout(Duration(seconds: 1));
+            // Assert that we got AuthorizationExpiredEventType.REAUTHENTICATE, and only one call to Auth.
+            expect(authCallbackCalledEventType, equals(AuthorizationRequiredEventType.REAUTHENTICATE),
+                reason: 'Should have gotten AuthorizationRequiredEventType.REAUTHENTICATE authorizationExpiredCallback.');
+          }
+
+          expect(replyCompleter.isCompleted, isFalse, reason: 'Reply should not be sent before Receive and reauth');
+
+          // 3. We now expect the reply to complete, and we can get the data
+          var data = (await replyCompleter.future).data;
+
+          // Assert data, with the changes from Server side.
+          expect(data['string'], equals('${req['string']}:FromSlow'));
+          expect(data['number'], equals(req['number']));
+          expect(data['sleepTime'], equals(req['sleepTime']));
         }
 
         test('Receive: Using special userId which DummyAuthenticator fails on step reevaluateAuthentication(..), Server shall ask for REAUTH when we perform Request, and when gotten, resolve w/o retransmit (server "holds" message).', () async {
           // Using special "userId" for DummySessionAuthenticator that specifically fails @ reevaluateAuthentication(..) step
-          await testIt('fail_reevaluateAuthentication');
+          await testIt('fail_reevaluateAuthentication', true);
         });
 
         test('Reply from Server: Using special userId which DummyAuthenticator fails on step reevaluateAuthenticationForOutgoingMessage(..), Server shall require REAUTH from Client before sending Reply.', () async {
           // Using special "userId" for DummySessionAuthenticator that specifically fails @ reevaluateAuthenticationForOutgoingMessage(..) step
-          await testIt('fail_reevaluateAuthenticationForOutgoingMessage');
+          await testIt('fail_reevaluateAuthenticationForOutgoingMessage', false);
         });
       });
 
