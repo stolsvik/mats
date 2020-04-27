@@ -7,8 +7,6 @@ wrapper {
 
 // Version of Mats
 allprojects {
-    group = 'com.stolsvik.mats'
-    version = '0.10.0'  // NOTE! Also set in MatsSocket.js and MatsSocket.dart
 }
 
 // Spring, ActiveMQ and Jackson JSON versions: Used in several sub projects
@@ -61,6 +59,44 @@ subprojects {
             attributes 'Implementation-Title': 'MATS',
                     'Implementation-Version': version
         }
+    }
+
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                pom {
+                    name = 'MATS^3'
+                    description = 'Message-based Asynchronous Transactional Staged Stateful Services'
+                    url = 'https://github.com/stolsvik/mats'
+                    licenses {
+                        license {
+                            name = 'The Apache License, Version 2.0'
+                            url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                        }
+                    }
+                    developers {
+                        developer {
+                            id = 'stolsvik'
+                            name = 'Endre Stølsvik'
+                            email = 'endre@stolsvik.com'
+                        }
+                    }
+                    scm {
+                        connection = 'scm:git:https://github.com/stolsvik/mats.git'
+                        developerConnection = 'scm:git:ssh:git@github.com:stolsvik/mats.git'
+                        url = 'https://github.com/stolsvik/mats'
+                    }
+                }
+                from components.java
+            }
+        }
+    }
+
+    // ------------------------------------------------
+    // -- Release configuration. The release file is not checked in to version control, and should
+    //    instead be kept locally to configure how to deploy this.
+    if (file("${rootProject.projectDir}/repositories.gradle").exists()) {
+        apply from: "${rootProject.projectDir}/repositories.gradle"
     }
 
     // ------------------------------------------------

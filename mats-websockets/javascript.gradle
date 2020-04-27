@@ -1,6 +1,3 @@
-import java.nio.charset.StandardCharsets
-import java.time.LocalDateTime
-
 node {
     // Version of node to use.
     version = '12.14.0'
@@ -56,5 +53,19 @@ task serveHtml(type: YarnTask, dependsOn: [yarnInstall]) {
 
     execOverrides {
         it.workingDir = "${projectDir}/client/javascript"
+    }
+}
+
+task archiveJavaScriptLib(type: Zip) {
+    from "$projectDir/client/javascript/lib"
+    into "mats_socket-${project.version}-js"
+    archiveClassifier = "javascript"
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifact archiveJavaScriptLib
+        }
     }
 }
