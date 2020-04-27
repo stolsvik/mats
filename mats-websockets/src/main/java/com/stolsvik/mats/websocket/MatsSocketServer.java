@@ -870,7 +870,8 @@ public interface MatsSocketServer {
         Instant getLastActivityTimestamp();
 
         /**
-         * @return snapshot (i.e. newly created ArrayList) of last 200 envelopes going between client and server.
+         * @return snapshot (i.e. newly created ArrayList) of last 200 (per default) envelopes going between client and
+         *         server in both directions.
          */
         List<MatsSocketEnvelopeWithMetaDto> getLastEnvelopes();
 
@@ -1170,7 +1171,12 @@ public interface MatsSocketServer {
      * information than is sent over the wire, this is the "WithMeta" aspect which holds processing metadata - the
      * wire-part is what is contained in {@link MatsSocketEnvelopeDto}.
      * <p />
-     * Note: The last few (200 by default) messages per {@link ActiveMatsSocketSession} is available on the
+     * <b>Note wrt. modifications on the <code>MatsSocketEnvelopeWithMetaDto</code>! All fields are public and
+     * non-final, so you can modify it before e.g. sending it over Mats (e.g. nulling out the 'msg' field). However,
+     * read the JavaDoc comment on the class: There is only one single instance for all listeners and
+     * {@link ActiveMatsSocketSession#getLastEnvelopes()} "last envelopes"}, so clone it before modifying!</b>
+     * <p />
+     * Note: The last messages per {@link ActiveMatsSocketSession} is available via
      * {@link ActiveMatsSocketSession#getLastEnvelopes()}.
      *
      * @see ActiveMatsSocketSession#getLastEnvelopes()

@@ -137,7 +137,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     // CONCURRENCY: Set to System.currentTimeMillis() each time (re)evaluated OK by WebSocket threads,
     // .. read by Forwarder - and read by introspection.
     private AtomicLong _lastAuthenticatedTimestamp = new AtomicLong();
-    // CONCURRENCY: Set true (and read) by Forwarder, Cleared by WebSocket threads
+    // CONCURRENCY: Set true by Forwarder and false by WebSocket threads (w/ sync on _sessionAuthenticator), read
+    // by Forwarder (relying on volatile)
     private volatile boolean _holdOutgoingMessages;
 
     // CONCURRENCY: Set and read by WebSocket threads, read by Forwarder - and read by introspection.
@@ -414,10 +415,10 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         new RuntimeException("Debug Stacktrace!"));
             }
         });
-        // Store the envelopes in the "last 200" list.
+        // Store the envelopes in the "last few" list.
         synchronized (_matsSocketEnvelopeWithMetaDtos) {
             _matsSocketEnvelopeWithMetaDtos.addAll(envelopes);
-            while (_matsSocketEnvelopeWithMetaDtos.size() > MAX_NUMBER_OF_RECORDED_ENVELOPES) {
+            while (_matsSocketEnvelopeWithMetaDtos.size() > MAX_NUMBER_OF_RECORDED_ENVELOPES_PER_SESSION) {
                 _matsSocketEnvelopeWithMetaDtos.remove(0);
             }
         }
@@ -697,7 +698,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     }
                 }
             }
-            // .. now actually act on the ACK2s (delete from our inbox - we do not need it anymore to guard for DD)
+            // .. now actually act on the ACK2s
+            // (delete from our inbox - we do not need it anymore to guard for double deliveries)
             // TODO: Make this a bit more nifty, putting such Ids on a queue of sorts, finishing async
             if (clientAck2Ids != null) {
                 log.debug("Got ACK2 for messages " + clientAck2Ids + ".");
@@ -825,7 +827,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 for (Iterator<MatsSocketEnvelopeWithMetaDto> it = envelopes.iterator(); it.hasNext();) {
                     // :: Do some DOS-preventive measures:
                     // ?: Do we have more than some limit of held messages?
-                    if (_heldEnvelopesWaitingForReauth.size() > MAX_NUMBER_OF_HELD_ENVELOPES) {
+                    if (_heldEnvelopesWaitingForReauth.size() > MAX_NUMBER_OF_HELD_ENVELOPES_PER_SESSION) {
                         // -> Yes, over number-limit, so then we reply "RETRY" to the rest.
                         break;
                     }

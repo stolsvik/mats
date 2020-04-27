@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
@@ -66,12 +67,12 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         };
         _threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
                 5L, TimeUnit.MINUTES, runQueue,
-                r1 -> new Thread(r1, "MatsSockets WebSocket Forwarder #" + _threadNumber.getAndIncrement()));
+                r -> new Thread(r, "MatsSockets WebSocket Forwarder #" + _threadNumber.getAndIncrement()));
 
         // Part 2: We make a special RejectionExecutionHandler ...
         _threadPool.setRejectedExecutionHandler((r, executor) -> {
             // ... which upon rejection due to "full queue" puts the task on queue nevertheless
-            // (LTQ is not bounded).
+            // (LinkedTransferQueue is not bounded).
             ((LinkedTransferQueue<Runnable>) _threadPool.getQueue()).put(r);
         });
     }
@@ -120,9 +121,15 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
     void handlerRunnable(MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler, String uniqueId) {
         String matsSocketSessionId = matsSocketSessionAndMessageHandler.getMatsSocketSessionId();
 
+        // If we exit out uncontrolled, we must clean up this forwarder from map of currently running forwarders.
+        // (This flag is set to false when we do a controlled exit).
         boolean removeOnExit = true;
 
-        try { // try-catchAll: Log heavily.
+        try { // try-finally: clear MDC, try-catchAll: Log Exception (should not occur!)
+            MDC.put(MDC_SESSION_ID, matsSocketSessionId);
+            MDC.put(MDC_USER_ID, matsSocketSessionAndMessageHandler.getUserId());
+            MDC.put(MDC_PRINCIPAL_NAME, matsSocketSessionAndMessageHandler.getPrincipalName().orElse(
+                    "{EMPTY:Should not happen}"));
 
             RENOTIFY: while (true) { // LOOP: "Re-notifications"
                 // ?: Should we hold outgoing messages? (Waiting for "AUTH" answer from Client to our "REAUTH" request)
@@ -137,8 +144,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
                             + " Session was not state [" + MatsSocketSessionState.SESSION_ESTABLISHED
                             + "], forwarding to new MatsSocketSession home (if any), and existing handler.");
-                    // Forward to new home (Note: It can theoretically be us, in another MatsSocketMessageHandler,
-                    // .. due to race wrt. close & reconnect)
+                    // Forward to new home (Note: It can theoretically be us (i.e. this node), in another
+                    // MatsSocketMessageHandler, .. due to race wrt. close & reconnect)
                     _matsSocketServer.newMessageOnWrongNode_NotifyCorrectHome(matsSocketSessionId);
                     // We're done, exit.
                     return;
@@ -162,14 +169,14 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     return;
                 }
 
-                while (true) { // LOOP: Clear out (i.e. forward) currently stored messages from ClusterStoreAndForward
+                while (true) { // LOOP: Clear out (i.e. forward and mark delivered) currently stored messages from CSAF
 
                     // :: Get messages from CSAF
-                    long nanos_start_GetMessages = System.nanoTime();
+                    long nanos_start_ClearOutRound = System.nanoTime();
                     List<StoredOutMessage> messagesToDeliver;
                     try {
                         messagesToDeliver = _clusterStoreAndForward
-                                .getMessagesFromOutbox(matsSocketSessionId, 20);
+                                .getMessagesFromOutbox(matsSocketSessionId, MAX_NUMBER_OF_MESSAGES_PER_FORWARD_LOOP);
                     }
                     catch (DataAccessException e) {
                         log.warn("Got problems when trying to load messages from CSAF."
@@ -177,10 +184,12 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // Bail out.
                         return;
                     }
-                    double millisGetMessages = msSince(nanos_start_GetMessages);
+                    double millisGetMessages = msSince(nanos_start_ClearOutRound);
 
-                    // ?: Check if we're empty of messages
-                    // (Notice how this logic always requires a final query which returns zero messages)
+                    // If we got LESS than the MAX, it means that we at this point had cleared out
+                    boolean clearedOutbox = messagesToDeliver.size() < MAX_NUMBER_OF_MESSAGES_PER_FORWARD_LOOP;
+
+                    // ?: Did we end up with zero messages?
                     if (messagesToDeliver.isEmpty()) {
                         // -> Yes, it was empty. Break out of "Clear out stored messages.." loop.
                         // ----- Good path!
@@ -205,11 +214,20 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     // ?: Did we have any with deliveryCount > 0?
                     if (!redeliveryMessages.isEmpty()) {
                         // -> Yes, there are redeliveries here. Pick the first of them and try to deliver alone.
+                        /*
+                         * NOTICE that this is a very crude implementation, as it will simply ditch all the other gotten
+                         * messages, relying on getting them again in the next round. However, since this should happen
+                         * rather seldom (like pretty much never), it shouldn't make a big impact in overall
+                         * performance.
+                         */
                         log.info("Of the [" + messagesToDeliver.size() + "] messages for MatsSocketSessionId ["
                                 + matsSocketSessionId + "], [" + redeliveryMessages.size() + "] had deliveryCount > 0."
                                 + " Trying to deliver these one by one, by picking first.");
                         // Set the 'messagesToDeliver' to first of the ones with delivery count > 0.
                         messagesToDeliver = Collections.singletonList(redeliveryMessages.get(0));
+
+                        // We're quite probably not cleared out now, as we possibly ditched some of the gotten msgs.
+                        clearedOutbox = false;
                     }
 
                     // :: Get the MessageIds to deliver (as List, for CSAF) and TraceIds (as String, for logging)
@@ -219,6 +237,10 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     String messageTypesAndTraceIds = messagesToDeliver.stream()
                             .map(msg -> "{" + msg.getType() + "} " + msg.getTraceId())
                             .collect(Collectors.joining(", "));
+                    String traceIds = messagesToDeliver.stream()
+                            .map(StoredOutMessage::getTraceId)
+                            .collect(Collectors.joining(", "));
+                    MDC.put(MDC_TRACE_ID, traceIds);
 
                     long now = System.currentTimeMillis();
 
@@ -230,8 +252,11 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         String serverInitiatedNodeName;
                     }
 
-                    // Deserialize envelopes back to DTO, and stick in the message
+                    // :: Deserialize envelopes back to DTO, and stick in the message
+
+                    // The resulting envelopes to send
                     List<MatsSocketEnvelopeWithMetaDto> envelopeList = new ArrayList<>(messagesToDeliver.size());
+                    // Identity-mapping to "Meta" for these messages.
                     IdentityHashMap<MatsSocketEnvelopeWithMetaDto, Meta> envelopeToMeta = new IdentityHashMap<>(
                             messagesToDeliver.size());
                     messagesToDeliver.forEach(storedOutMessage -> {
@@ -242,7 +267,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                     storedOutMessage.getEnvelope());
                         }
                         catch (JsonProcessingException e) {
-                            throw new AssertionError("Could not deserialize Envelope DTO.");
+                            throw new AssertionError("Could not deserialize Envelope DTO.", e);
                         }
                         // Make the "Meta" for this envelope
                         Meta meta = new Meta();
@@ -252,13 +277,13 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         meta.cmid = storedOutMessage.getClientMessageId().orElse(null);
                         meta.requestTimestamp = storedOutMessage.getRequestTimestamp().orElse(null);
 
-                        // Set the message onto the envelope, in "raw" mode (it is already json)
+                        // Set the message onto the envelope, in "DirectJson" mode (it is already json)
                         envelope.msg = DirectJson.of(storedOutMessage.getMessageText());
-                        System.out.println("### WTF? "+storedOutMessage.getMessageText());
+
                         // :: Handle Debug
                         // Note:
                         // # Replies to Client-initiated (RESOLVE/REJECT) has Debug if it was requested in REQUEST
-                        // # Server-initiated (SEND/REQUEST) /always/ has Debug..
+                        // # Server-initiated (SEND/REQUEST) /always/ has Debug, which we remove if not wanted.
                         if (envelope.debug != null) {
                             /*
                              * Client- vs. Server-initiated:
@@ -444,16 +469,22 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
 
                     // ----- Good path!
 
-                    log.info("Finished sending " + messagesToDeliver.size() + " message(s) with TraceIds ["
-                            + messageTypesAndTraceIds + "] to [" + matsSocketSessionAndMessageHandler
-                            + "], get-from-CSAF took ["
-                            + millisGetMessages + " ms], send over websocket took:[" + millisSendMessages + " ms],"
-                            + " mark delivery attempt in CSAF took [" + millisMarkComplete + " ms].");
+                    double millisTotalClearRound = msSince(nanos_start_ClearOutRound);
 
-                    // Loop to check if empty of messages.
+                    log.info("Finished sending " + messagesToDeliver.size() + " message(s) ["
+                            + messageTypesAndTraceIds + "] to [" + matsSocketSessionAndMessageHandler
+                            + "]. Total clear round took:[" + millisTotalClearRound + " ms], from which Get-from-CSAF"
+                            + " took:[" + millisGetMessages + " ms], send over websocket took:[" + millisSendMessages
+                            + " ms], mark delivery attempt in CSAF took:[" + millisMarkComplete + " ms].");
+
+                    // ?: Did we empty out the outbox (i.e. got less than MAX number of messages)
+                    if (clearedOutbox) {
+                        // -> Yes, so prepare to exit - but check the Notification Count
+                        break;
+                    }
                 }
 
-                // ----- The database is (was) CURRENTLY empty of messages for this session.
+                // ----- The database outbox was empty of messages for this session.
 
                 /*
                  * Since we're finished with these messages, we reduce the number of outstanding count, and if zero -
@@ -535,8 +566,10 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         finally {
             // ?: If we exited out in any other fashion than "end of messages", then we must clean up after ourselves.
             if (removeOnExit) {
+                // -> Evidently a "crash out" of some sort, so clean up as best we can, hoping for self healer.
                 _handlersCurrentlyRunningWithNotificationCount.remove(uniqueId);
             }
+            MDC.clear();
         }
     }
 }
