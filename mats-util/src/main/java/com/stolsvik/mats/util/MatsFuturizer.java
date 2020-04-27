@@ -237,7 +237,8 @@ public class MatsFuturizer implements AutoCloseable {
      *            to which Mats endpoint the request should go, see {@link MatsInitiate#to(String)}
      * @param timeout
      *            how long before the internal timeout-mechanism of MatsFuturizer kicks in and the future is
-     *            {@link CompletableFuture#completeExceptionally(Throwable) completed exceptionally}.
+     *            {@link CompletableFuture#completeExceptionally(Throwable) completed exceptionally} with a
+     *            {@link MatsFuturizerTimeoutException}.
      * @param unit
      *            the unit of time of the 'timeout' parameter.
      * @param replyClass
@@ -281,13 +282,13 @@ public class MatsFuturizer implements AutoCloseable {
     // ===== Internal classes and methods, can be overridden if you want to make a customized MatsFuturizer
 
     protected static class Promise<T> implements Comparable<Promise<?>> {
-        private final String _traceId;
-        private final String _correlationId;
-        private final String _from;
-        private final long _initiationTimestamp;
-        private final long _timeoutTimestamp;
-        private final Class<T> _replyClass;
-        private final CompletableFuture<Reply<T>> _future;
+        public final String _traceId;
+        public final String _correlationId;
+        public final String _from;
+        public final long _initiationTimestamp;
+        public final long _timeoutTimestamp;
+        public final Class<T> _replyClass;
+        public final CompletableFuture<Reply<T>> _future;
 
         public Promise(String traceId, String correlationId, String from, long initiationTimestamp,
                 long timeoutTimestamp, Class<T> replyClass, CompletableFuture<Reply<T>> future) {
@@ -572,8 +573,7 @@ public class MatsFuturizer implements AutoCloseable {
                     _futureCompleterThreadPool.execute(() -> {
                         try {
                             MDC.put("traceId", promise._traceId);
-                            promise._future.completeExceptionally(new MatsFuturizerTimeoutException(msg,
-                                    promise._initiationTimestamp, promise._traceId));
+                            _timeoutCompleteExceptionally(promise, msg);
                         }
                         // NOTICE! This catch will probably never be triggered, as if .thenAccept() and similar throws,
                         // the CompletableFuture evidently handles it and completes the future exceptionally.
@@ -592,6 +592,11 @@ public class MatsFuturizer implements AutoCloseable {
             log.info("MatsFuturizer Timeouter-thread: We got asked to exit, and that we do!");
         };
         new Thread(timeouter, "MatsFuturizer Timeouter").start();
+    }
+
+    protected void _timeoutCompleteExceptionally(Promise<?> promise, String msg) {
+        promise._future.completeExceptionally(new MatsFuturizerTimeoutException(
+                msg, promise._initiationTimestamp, promise._traceId));
     }
 
     /**
