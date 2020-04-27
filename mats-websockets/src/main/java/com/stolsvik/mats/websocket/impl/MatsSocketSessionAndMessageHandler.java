@@ -313,6 +313,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         as.nn = _matsSocketServer.getMyNodename();
         as.auth = _authorization;
         as.pn = _principal != null ? _principal.getName() : null;
+        as.rip = getRemoteAddr().orElse(null);
+        as.ocrip = getOriginatingRemoteAddr().orElse(null);
         as.subs = getTopicSubscriptions();
         as.sets = _sessionEstablishedTimestamp;
         as.lauthts = _lastAuthenticatedTimestamp.get();

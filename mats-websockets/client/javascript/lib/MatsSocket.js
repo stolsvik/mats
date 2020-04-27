@@ -1001,7 +1001,7 @@
      * <p />
      * <b>Note on event ordering</b>:
      * <ul>
-     *     <li>send: First {@link ReceivedEvent} is issued. Then nn {@link InitiationProcessedEvent} is added to
+     *     <li>send: First {@link ReceivedEvent} is issued. Then a {@link InitiationProcessedEvent} is added to
      *         {@link MatsSocket#initiations}, and then all {@link InitiationProcessedEvent} listeners are invoked</li>
      *     <li>request/requestReplyTo: First {@link ReceivedEvent} is issued (i.e. ack/nack), then when the reply
      *     comes back to the server, an {@link InitiationProcessedEvent} is added to {@link MatsSocket#initiations}, and
