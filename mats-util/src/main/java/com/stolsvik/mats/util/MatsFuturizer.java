@@ -459,7 +459,9 @@ public class MatsFuturizer implements AutoCloseable {
                 catch (IllegalArgumentException e) {
                     log.error("Got problems completing Future due to failing to deserialize the incoming object to"
                             + " expected class [" + promise._replyClass.getName() + "], thus doing"
-                            + " future.completeExceptionally(..) with the [" + e.getClass().getSimpleName() + "].", e);
+                            + " future.completeExceptionally(..) with the [" + e.getClass().getSimpleName() + "]."
+                            + " Initiated from [" + promise._from + "], with reply from [" + context.getFromStageId()
+                            + "], traceId [" + context.getTraceId() + "]", e);
                     promise._future.completeExceptionally(e);
                     return;
                 }
@@ -469,8 +471,8 @@ public class MatsFuturizer implements AutoCloseable {
             // the CompletableFuture evidently handles it and completes the future exceptionally.
             catch (Throwable t) {
                 log.error(LOG_PREFIX + "Got problems completing Future initiated from [" + promise._from
-                        + "] with reply from [" + context.getFromStageId()
-                        + "] with traceId:[" + context.getTraceId() + "]", t);
+                        + "], with reply from [" + context.getFromStageId()
+                        + "], traceId:[" + context.getTraceId() + "]", t);
             }
             finally {
                 MDC.remove("traceId");
