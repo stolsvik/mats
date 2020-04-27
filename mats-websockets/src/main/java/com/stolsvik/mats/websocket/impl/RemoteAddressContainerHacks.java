@@ -63,7 +63,7 @@ public class RemoteAddressContainerHacks {
             }
         }
         catch (Exception e) {
-            /* Didn't go good, hopefully not Jetty (but what is it then?!)..! */
+            /* Didn't go good, hopefully not Jetty (but what is it then, when property is non-null?!)..! */
         }
         return null;
     }
@@ -84,14 +84,11 @@ public class RemoteAddressContainerHacks {
 
     private static InetSocketAddress getTomcatRemoteAddress(Session session, String fieldToFind) {
         Async async = session.getAsyncRemote();
-        InetSocketAddress addr = (InetSocketAddress) getFieldInstance(async,
-                fieldToFind);
-
-        return addr;
+        return (InetSocketAddress) getFieldInstance(async, fieldToFind);
     }
 
     private static Object getFieldInstance(Object obj, String fieldPath) {
-        String fields[] = fieldPath.split("#");
+        String[] fields = fieldPath.split("#");
         for (String field : fields) {
             obj = getField(obj, obj.getClass(), field);
             if (obj == null) {
@@ -111,7 +108,7 @@ public class RemoteAddressContainerHacks {
                 return field.get(obj);
             }
             catch (Exception e) {
-                /* ignore */
+                /* Didn't go good, hopefully not Tomcat..! */
             }
         }
         return null;

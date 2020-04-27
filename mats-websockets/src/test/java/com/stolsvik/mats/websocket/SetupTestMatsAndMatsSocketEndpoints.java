@@ -1,6 +1,7 @@
 package com.stolsvik.mats.websocket;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -12,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.websocket.DummySessionAuthenticator.DummyAuthPrincipal;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionEstablishedEvent;
 import com.stolsvik.mats.websocket.MatsSocketServer.SessionRemovedEvent;
 
@@ -67,7 +69,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setup_AddListeners(MatsSocketServer matsSocketServer) {
         matsSocketServer.addSessionEstablishedEventListener(event -> {
             ActiveMatsSocketSession session = event.getMatsSocketSession();
-            log.info("#### LISTENER! SESSION +++ESTABLISHED!+++ [" + event.getType() + "] #### SessionId:" + event
+            log.info("#### LISTENER[SESSION]! +++ESTABLISHED!+++ [" + event.getType() + "] #### SessionId:" + event
                     .getMatsSocketSessionId() + ", appName: " + session.getAppName() + ", appVersion:" + session
                             .getAppVersion()
                     + ", clientLibAndVersions:" + session.getClientLibAndVersions() + ", authorization:" + session
@@ -77,13 +79,21 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
         matsSocketServer.addSessionRemovedEventListener(event -> {
             SessionEstablishedEvent removed = __sessionMap.remove(event.getMatsSocketSessionId());
-            log.info("#### LISTENER! SESSION ---REMOVED!!--- [" + event.getType() + "] ["
+            log.info("#### LISTENER[SESSION]! ---REMOVED!!--- [" + event.getType() + "] ["
                     + (removed != null
                             ? "Added session as:" + removed.getType()
                             : "SESSION was already GONE!") + "] #### SessionId:"
                     + event.getMatsSocketSessionId() + ", reason:" + event.getReason() + ", closeCode" + event
                             .getCloseCode());
             __sessionRemovedEvents.add(event);
+        });
+
+        matsSocketServer.addMessageEventListener(event -> {
+            List<MatsSocketEnvelopeWithMetaDto> envelopes = event.getEnvelopes();
+            for (MatsSocketEnvelopeWithMetaDto envelope : envelopes) {
+                log.info("==== LISTENER[MESSAGE]! direction: [" + envelope.dir
+                        + "], type:[" + envelope.t + "] for Session [" + event.getMatsSocketSession() + "]");
+            }
         });
     }
 

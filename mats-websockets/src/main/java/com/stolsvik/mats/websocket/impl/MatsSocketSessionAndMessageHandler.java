@@ -397,6 +397,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     void recordEnvelopes(List<MatsSocketEnvelopeWithMetaDto> envelopes, long timestamp, Direction direction) {
+        // Enrich the "WithMeta" part some more, and handle the DirectJson -> String conversion.
         envelopes.forEach(envelope -> {
             envelope.dir = direction;
             envelope.ts = timestamp;
@@ -413,12 +414,15 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         new RuntimeException("Debug Stacktrace!"));
             }
         });
+        // Store the envelopes in the "last 200" list.
         synchronized (_matsSocketEnvelopeWithMetaDtos) {
             _matsSocketEnvelopeWithMetaDtos.addAll(envelopes);
             while (_matsSocketEnvelopeWithMetaDtos.size() > MAX_NUMBER_OF_RECORDED_ENVELOPES) {
                 _matsSocketEnvelopeWithMetaDtos.remove(0);
             }
         }
+        // Invoke any MessageEvent listeners.
+        _matsSocketServer.invokeMessageEventListeners(this, envelopes);
     }
 
     @Override

@@ -1008,7 +1008,7 @@ public interface MatsSocketServer {
 
     /**
      * {@link SessionEstablishedEvent SessionEstablishedEvent} listeners will be invoked when an
-     * {@link ActiveMatsSocketSession ActiveMatsSocketSession} is established <b>on this node</b> of the
+     * {@link LiveMatsSocketSession LiveMatsSocketSession} is established <b>on this node</b> of the
      * {@link MatsSocketServer} instance cluster, i.e. the authentication/authorization is accepted, HELLO message from
      * Client is processed and MatsSocketSessionId is established. Note that this means that in a fairly load balanced
      * 3-node MatsSocketServer cluster, you should get approximately 1/3 of the SessionEstablishedEvents on "this" node,
@@ -1017,35 +1017,36 @@ public interface MatsSocketServer {
      * Note: A specific MatsSocketSession with a specific MatsSocketSessionId can be established multiple times, due to
      * {@link SessionEstablishedEventType#RECONNECT RECONNECT}.
      * <p />
-     * <b>NOTE: You are advised against keeping hold of the {@link ActiveMatsSocketSession ActiveMatsSocketSession}
-     * instance that is provided in the {@link SessionEstablishedEvent SessionEstablishedEvent}.</b> You can instead get
-     * a view of the currently active sessions for this node by means of {@link #getActiveMatsSocketSessions()}. If you
-     * still decide to hold on to these active sessions instances, you must be <b><i>very</i></b> certain to remove it
-     * from your held instances when getting <b>any</b> {@link #addSessionRemovedEventListener(SessionRemovedListener)
+     * <b>NOTE: You are advised against keeping hold of the {@link LiveMatsSocketSession LiveMatsSocketSession} instance
+     * that is provided in the {@link SessionEstablishedEvent SessionEstablishedEvent}.</b> You can instead get a view
+     * of the currently live sessions for this node by means of {@link #getLiveMatsSocketSessions()}. If you still
+     * decide to hold on to these active sessions instances, you must be <b><i>very</i></b> certain to remove it from
+     * your held instances when getting <b>any</b> {@link #addSessionRemovedEventListener(SessionRemovedEventListener)
      * SessionRemovedEvent}, meaning that you must remove it for any of the {@link SessionRemovedEventType#DEREGISTER
      * DEREGISTER}, {@link SessionRemovedEventType#CLOSE CLOSE} and {@link SessionRemovedEventType#TIMEOUT TIMEOUT}
-     * event types: The instance is <i>dead</i> for all of these events. If you were to remove it only on CLOSE or
-     * TIMEOUT, believing that a DEREGISTER is a "softer" removal, you have basically misunderstood! You could then get
-     * a DEREGISTER (which actually is the server informing you that it has ditched this ActiveMatsSocketSession and the
-     * session is now solely represented in the {@link ClusterStoreAndForward data store}, while you still stubbornly
-     * hold on to it!), and then not get a corresponding TIMEOUT for the same MatsSocketSessionId until many hours, or
-     * days, later. If you fail to remove it at all, you will eventually get an OutOfMemory situation. The reason here
-     * is that an ActiveMatsSocketSession instance is never "reanimated", even if the MatsSocketSession is just
-     * DEREGISTERed: A new ActiveMatsSocketSession instance is <i>always</i> created upon a
-     * {@link SessionEstablishedEvent SessionEstablishedEvent}, both for {@link SessionEstablishedEventType#NEW NEW}
-     * <i>and</i> {@link SessionEstablishedEventType#RECONNECT RECONNECT}
+     * event types: The live session instance is <i>dead</i> for all of these events. If you were to remove it only on
+     * CLOSE or TIMEOUT, believing that a DEREGISTER is a "softer" removal, you have basically misunderstood! You could
+     * then get a DEREGISTER (which actually is the server informing you that it has ditched this LiveMatsSocketSession
+     * and the session is now solely represented in the {@link ClusterStoreAndForward data store}, while you still
+     * stubbornly hold on to it!), and then not get a corresponding TIMEOUT for the same MatsSocketSessionId until many
+     * hours, or days, later. If you fail to remove it at all, you will eventually get an OutOfMemory situation. The
+     * reason here is that a MatsSocketSession instance is never "reanimated", even if the MatsSocketSession is just
+     * DEREGISTERed: A new LiveMatsSocketSession instance is <i>always</i> created upon a {@link SessionEstablishedEvent
+     * SessionEstablishedEvent}, both for {@link SessionEstablishedEventType#NEW NEW} <i>and</i>
+     * {@link SessionEstablishedEventType#RECONNECT RECONNECT}
      *
-     * @see #addSessionRemovedEventListener(SessionRemovedListener)
+     * @see #addSessionRemovedEventListener(SessionRemovedEventListener)
+     * @see #getLiveMatsSocketSessions()
      * @see #getActiveMatsSocketSessions()
      *
      * @param listener
-     *            the {@link SessionEstablishedListener SessionEstablishedListener} that shall get invoked when
+     *            the {@link SessionEstablishedEventListener SessionEstablishedListener} that shall get invoked when
      *            MatsSocketSessions are established.
      */
-    void addSessionEstablishedEventListener(SessionEstablishedListener listener);
+    void addSessionEstablishedEventListener(SessionEstablishedEventListener listener);
 
     @FunctionalInterface
-    interface SessionEstablishedListener {
+    interface SessionEstablishedEventListener {
         void sessionEstablished(SessionEstablishedEvent event);
     }
 
@@ -1056,7 +1057,7 @@ public interface MatsSocketServer {
             return getMatsSocketSession().getMatsSocketSessionId();
         }
 
-        ActiveMatsSocketSession getMatsSocketSession();
+        LiveMatsSocketSession getMatsSocketSession();
 
         enum SessionEstablishedEventType {
             NEW,
@@ -1066,8 +1067,8 @@ public interface MatsSocketServer {
     }
 
     /**
-     * {@link SessionRemovedEvent} listeners will be invoked when an {@link ActiveMatsSocketSession} is removed from
-     * this node of the {@link MatsSocketServer} instance cluster - this is both when a MatsSocketSession is
+     * {@link SessionRemovedEvent} listeners will be invoked when an {@link LiveMatsSocketSession} is removed from this
+     * node of the {@link MatsSocketServer} instance cluster - this is both when a MatsSocketSession is
      * {@link SessionRemovedEventType#DEREGISTER DEREGISTERed}, in which case the Client can still
      * {@link SessionEstablishedEventType#RECONNECT RECONNECT} to the same MatsSocketSessionId, and when a
      * MatsSocketSession is {@link SessionRemovedEventType#CLOSE CLOSEd} or {@link SessionRemovedEventType#TIMEOUT
@@ -1079,16 +1080,16 @@ public interface MatsSocketServer {
      * has {@link SessionRemovedEventType#CLOSE CLOSE} or {@link SessionRemovedEventType#TIMEOUT TIMEOUT}, the session
      * cannot RECONNECT ever again, and hence those events are terminal wrt. to that specific MatsSocketSessionId.
      *
-     * @see #addSessionEstablishedEventListener(SessionEstablishedListener)
+     * @see #addSessionEstablishedEventListener(SessionEstablishedEventListener)
      *
      * @param listener
-     *            the {@link SessionEstablishedListener SessionEstablishedListener} that shall get invoked when
+     *            the {@link SessionEstablishedEventListener SessionEstablishedListener} that shall get invoked when
      *            MatsSocketSessions are removed (either deregistered, closed or timed out).
      */
-    void addSessionRemovedEventListener(SessionRemovedListener listener);
+    void addSessionRemovedEventListener(SessionRemovedEventListener listener);
 
     @FunctionalInterface
-    interface SessionRemovedListener {
+    interface SessionRemovedEventListener {
         void sessionRemoved(SessionRemovedEvent event);
     }
 
@@ -1163,12 +1164,50 @@ public interface MatsSocketServer {
     }
 
     /**
+     * {@link MessageEventListener MessageEventListener}s will be invoked for every processed incoming and outgoing
+     * message for any session. It will be invoked <i>after</i> the message is processed OK on incoming, and
+     * <i>after</i> the message is sent for outgoing. Note that the {@link MatsSocketEnvelopeWithMetaDto} contains more
+     * information than is sent over the wire, this is the "WithMeta" aspect which holds processing metadata - the
+     * wire-part is what is contained in {@link MatsSocketEnvelopeDto}.
+     * <p />
+     * Note: The last few (200 by default) messages per {@link ActiveMatsSocketSession} is available on the
+     * {@link ActiveMatsSocketSession#getLastEnvelopes()}.
+     *
+     * @see ActiveMatsSocketSession#getLastEnvelopes()
+     * @see MatsSocketEnvelopeWithMetaDto
+     *
+     * @param listener
+     *            the {@link MessageEventListener} that will be invoked for every processed incoming and outgoing
+     *            envelope for any session.
+     */
+    void addMessageEventListener(MessageEventListener listener);
+
+    @FunctionalInterface
+    interface MessageEventListener {
+        void messagesProcessed(MessageEvent messageEvent);
+    }
+
+    interface MessageEvent {
+        /**
+         * @return which {@link LiveMatsSocketSession} that this list of envelopes concerns.
+         */
+        LiveMatsSocketSession getMatsSocketSession();
+
+        /**
+         * @return the list of envelopes that was processed "in one go". Often corresponds to a MatsSocket "pipeline",
+         *         but this doesn't quite hold when the pipeline contains "control messages" (like HELLO and WELCOME,
+         *         ACK, ACK2 etc), as these are internally processed one-by-one.
+         */
+        List<MatsSocketEnvelopeWithMetaDto> getEnvelopes();
+    }
+
+    /**
      * Closes the specified MatsSocketSession - can be used to forcibly close an active MatsSocketSession (i.e. "kick it
      * off"), and can also used to perform out-of-band closing of Session if the WebSocket is down (this is used in the
      * MatsSocket.js Client, where an "onunload"-listener is attached, so that if the user navigates away, every effort
      * is done to get the MatsSocketSession closed).
      * <p />
-     * Note: An invocation of any {@link #addSessionRemovedEventListener(SessionRemovedListener) SessionRemoved
+     * Note: An invocation of any {@link #addSessionRemovedEventListener(SessionRemovedEventListener) SessionRemoved
      * listeners} with type {@link SessionRemovedEventType#CLOSE CLOSE} will be issued.
      * <p />
      * Note: This can be done on any node of the MatsSocketServer-instance cluster, as the instruction will be forwarded
@@ -1345,6 +1384,12 @@ public interface MatsSocketServer {
      * Extension of {@link MatsSocketEnvelopeDto} which carries some metadata about the processing of the Envelope. When
      * MatsSocketEnvelopes are exposed from this API, it is via instances of this class. The class if fully serializable
      * via field serialization, and can directly be sent over Mats.
+     * <p />
+     * Note: When instance of this class is exposed through this API, there will only be a single instance created for
+     * any {@link MessageEventListener} and also the {@link ActiveMatsSocketSession#getLastEnvelopes()}. This means that
+     * you MUST NOT modify any fields on this single instance. However, this class implements {@link Cloneable} (shallow
+     * clone), not throwing on {@link #clone()}. If you in a {@link MessageEventListener} want to modify the message,
+     * you should clone it and modify and use the clone.
      *
      * @author Endre Stølsvik 2020-04-19 00:44 - http://stolsvik.com/, endre@stolsvik.com
      */

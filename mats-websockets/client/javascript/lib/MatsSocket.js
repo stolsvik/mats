@@ -1001,7 +1001,7 @@
      * <p />
      * <b>Note on event ordering</b>:
      * <ul>
-     *     <li>send: First {@link ReceivedEvent} is issued. Then a {@link InitiationProcessedEvent} is added to
+     *     <li>send: First {@link ReceivedEvent} is issued. Then an {@link InitiationProcessedEvent} is added to
      *         {@link MatsSocket#initiations}, and then all {@link InitiationProcessedEvent} listeners are invoked</li>
      *     <li>request/requestReplyTo: First {@link ReceivedEvent} is issued (i.e. ack/nack), then when the reply
      *     comes back to the server, an {@link InitiationProcessedEvent} is added to {@link MatsSocket#initiations}, and
@@ -1739,7 +1739,7 @@
         });
 
         /**
-         * Registering a {@link InitiationProcessedEvent} listener will give you meta information about each Send
+         * Registering an {@link InitiationProcessedEvent} listener will give you meta information about each Send
          * and Request that is performed through the library when it is fully processed, thus also containing
          * information about experienced round-trip times. The idea is that you thus can gather metrics of
          * performance as experienced out on the client, by e.g. periodically sending this gathering to the Server.

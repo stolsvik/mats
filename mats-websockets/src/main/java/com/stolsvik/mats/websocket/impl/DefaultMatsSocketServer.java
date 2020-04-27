@@ -667,19 +667,19 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
     }
 
-    private CopyOnWriteArrayList<SessionEstablishedListener> _sessionEstablishedListeners = new CopyOnWriteArrayList<>();
+    private CopyOnWriteArrayList<SessionEstablishedEventListener> _sessionEstablishedEventListeners = new CopyOnWriteArrayList<>();
 
     @Override
-    public void addSessionEstablishedEventListener(SessionEstablishedListener listener) {
-        _sessionEstablishedListeners.add(listener);
+    public void addSessionEstablishedEventListener(SessionEstablishedEventListener listener) {
+        _sessionEstablishedEventListeners.add(listener);
     }
 
     static class SessionEstablishedEventImpl implements SessionEstablishedEvent {
 
         private final SessionEstablishedEventType _type;
-        private final ActiveMatsSocketSession _session;
+        private final LiveMatsSocketSession _session;
 
-        public SessionEstablishedEventImpl(SessionEstablishedEventType type, ActiveMatsSocketSession session) {
+        public SessionEstablishedEventImpl(SessionEstablishedEventType type, LiveMatsSocketSession session) {
             _type = type;
             _session = session;
         }
@@ -690,13 +690,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
 
         @Override
-        public ActiveMatsSocketSession getMatsSocketSession() {
+        public LiveMatsSocketSession getMatsSocketSession() {
             return _session;
         }
     }
 
     void invokeSessionEstablishedEventListeners(SessionEstablishedEvent event) {
-        _sessionEstablishedListeners.forEach(listener -> {
+        _sessionEstablishedEventListeners.forEach(listener -> {
             try {
                 listener.sessionEstablished(event);
             }
@@ -707,11 +707,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         });
     }
 
-    private CopyOnWriteArrayList<SessionRemovedListener> _sessionRemovedListeners = new CopyOnWriteArrayList<>();
+    private CopyOnWriteArrayList<SessionRemovedEventListener> _sessionRemovedEventListeners = new CopyOnWriteArrayList<>();
 
     @Override
-    public void addSessionRemovedEventListener(SessionRemovedListener listener) {
-        _sessionRemovedListeners.add(listener);
+    public void addSessionRemovedEventListener(SessionRemovedEventListener listener) {
+        _sessionRemovedEventListeners.add(listener);
     }
 
     static class SessionRemovedEventImpl implements SessionRemovedEvent {
@@ -751,7 +751,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     void invokeSessionRemovedEventListeners(SessionRemovedEvent event) {
-        _sessionRemovedListeners.forEach(listener -> {
+        _sessionRemovedEventListeners.forEach(listener -> {
             try {
                 listener.sessionRemoved(event);
             }
@@ -760,6 +760,50 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                         + re.getClass().getSimpleName() + "] when invoked.", re);
             }
         });
+    }
+
+    private CopyOnWriteArrayList<MessageEventListener> _messageEventListeners = new CopyOnWriteArrayList<>();
+
+    @Override
+    public void addMessageEventListener(MessageEventListener listener) {
+        _messageEventListeners.add(listener);
+    }
+
+    static class MessageEventImpl implements MessageEvent {
+        private final LiveMatsSocketSession _liveMatsSocketSession;
+        private final List<MatsSocketEnvelopeWithMetaDto> _envelopes;
+
+        public MessageEventImpl(LiveMatsSocketSession liveMatsSocketSession,
+                List<MatsSocketEnvelopeWithMetaDto> envelopes) {
+            _liveMatsSocketSession = liveMatsSocketSession;
+            _envelopes = envelopes;
+        }
+
+        @Override
+        public LiveMatsSocketSession getMatsSocketSession() {
+            return _liveMatsSocketSession;
+        }
+
+        @Override
+        public List<MatsSocketEnvelopeWithMetaDto> getEnvelopes() {
+            return _envelopes;
+        }
+    }
+
+    void invokeMessageEventListeners(LiveMatsSocketSession liveMatsSocketSession,
+            List<MatsSocketEnvelopeWithMetaDto> envelopes) {
+        if (!_messageEventListeners.isEmpty()) {
+            MessageEventImpl messageEvent = new MessageEventImpl(liveMatsSocketSession, envelopes);
+            _messageEventListeners.forEach(listener -> {
+                try {
+                    listener.messagesProcessed(messageEvent);
+                }
+                catch (RuntimeException re) {
+                    log.error("MessageEvent listener [" + listener + "] raised a [" + re.getClass().getSimpleName()
+                            + "] when invoked.", re);
+                }
+            });
+        }
     }
 
     private void mats_publish(ProcessContext<Void> processContext, Void state, PublishedMessageDto msg) {
