@@ -18,3 +18,8 @@ kahadb/
 # H2 test database
 matsTestH2DB.mv.db
 /mats.iml
+
+# List of repositories to publish to
+# This should not be checked in, and instead be maintained by each developer to control where he
+# wishes to publish to.
+repositories.gradle

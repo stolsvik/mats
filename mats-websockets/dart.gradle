@@ -1,3 +1,7 @@
+configurations {
+    dart
+}
+
 repositories {
     // Create a custom ivy repository that represents the dart sdk download, so that we
     // can download the SDK using gradles download mechanisms and cache.
@@ -82,3 +86,18 @@ stopMatsTestWebsocketServer.mustRunAfter(dartTest)
 
 // Include the dart tests in the test suites.
 check.dependsOn(dartTest)
+
+
+task archiveDartLib(type: Zip) {
+    from "$projectDir/client/dart/lib"
+    into "mats_socket-${project.version}-dart"
+    archiveClassifier = "dart"
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifact archiveDartLib
+        }
+    }
+}
