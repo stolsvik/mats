@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.PriorityQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedTransferQueue;
@@ -44,7 +43,7 @@ public class MatsFuturizer implements AutoCloseable {
      * 4 for "corePoolSize", but at least 5, (i.e. "min"), and concurrency * 20, but at least 100, for "maximumPoolSize"
      * (i.e. max). The pool is set up to let non-core threads expire after 5 minutes. The maximum number of outstanding
      * promises is set to 50k.
-     * 
+     *
      * @param matsFactory
      *            the underlying {@link MatsFactory} on which outgoing messages will be sent, and on which the receiving
      *            {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
@@ -421,7 +420,7 @@ public class MatsFuturizer implements AutoCloseable {
     protected Promise<?> _nextInLineToTimeout;
 
     protected void _handleRepliesForPromises(ProcessContext<Void> context, String correlationId,
-            MatsObject replyObject) {
+            MatsObject matsObject) {
         // Immediately pick this out of the map & queue
         Promise<?> promise;
         synchronized (_correlationIdToPromiseMap) {
@@ -452,6 +451,18 @@ public class MatsFuturizer implements AutoCloseable {
                 MDC.put("traceId", promise._traceId);
                 // NOTICE! We don't log here, as the SubscriptionTerminator already has logged the ordinary mats lines.
                 log.debug(LOG_PREFIX + "Completing promise from [" + promise._from + "]: [" + promise + "]");
+
+                Object replyObject;
+                try {
+                    replyObject = _deserializeReply(matsObject, promise._replyClass);
+                }
+                catch (IllegalArgumentException e) {
+                    log.error("Got problems completing Future due to failing to deserialize the incoming object to"
+                            + " expected class [" + promise._replyClass.getName() + "], thus doing"
+                            + " future.completeExceptionally(..) with the [" + e.getClass().getSimpleName() + "].", e);
+                    promise._future.completeExceptionally(e);
+                    return;
+                }
                 _uncheckedComplete(context, replyObject, promise);
             }
             // NOTICE! This catch will probably never be triggered, as if .thenAccept() and similar throws,
@@ -459,7 +470,7 @@ public class MatsFuturizer implements AutoCloseable {
             catch (Throwable t) {
                 log.error(LOG_PREFIX + "Got problems completing Future initiated from [" + promise._from
                         + "] with reply from [" + context.getFromStageId()
-                        + "] with traceId:[" + context.getTraceId() + "]");
+                        + "] with traceId:[" + context.getTraceId() + "]", t);
             }
             finally {
                 MDC.remove("traceId");
@@ -467,10 +478,13 @@ public class MatsFuturizer implements AutoCloseable {
         });
     }
 
+    protected Object _deserializeReply(MatsObject matsObject, Class<?> toClass) {
+        return matsObject.toClass(toClass);
+    }
+
     @SuppressWarnings("unchecked")
-    protected void _uncheckedComplete(ProcessContext<Void> context, MatsObject replyObject, Promise<?> promise) {
-        Object replyInReplyClass = replyObject.toClass(promise._replyClass);
-        Reply<?> tReply = new Reply<>(context, replyInReplyClass, promise._initiationTimestamp);
+    protected void _uncheckedComplete(ProcessContext<Void> context, Object replyObject, Promise<?> promise) {
+        Reply<?> tReply = new Reply<>(context, replyObject, promise._initiationTimestamp);
         promise._future.complete((Reply) tReply);
     }
 
