@@ -131,52 +131,54 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
             MDC.put(MDC_PRINCIPAL_NAME, matsSocketSessionAndMessageHandler.getPrincipalName().orElse(
                     "{EMPTY:Should not happen}"));
 
-            RENOTIFY: while (true) { // LOOP: "Re-notifications"
-                // ?: Should we hold outgoing messages? (Waiting for "AUTH" answer from Client to our "REAUTH" request)
-                if (matsSocketSessionAndMessageHandler.isHoldOutgoingMessages()) {
-                    // -> Yes, holding outgoing messages,
+            // LOOP: "Re-notifications" - i.e. a new message have come in while we run this Forward-round
+            RENOTIFY: while (true) {
+                // ?: Should we do a forward-round, or hold outgoing messages?
+                // (Waiting for "AUTH" answer from Client to our "REAUTH" request)
+                boolean runMessageForward = !matsSocketSessionAndMessageHandler.isHoldOutgoingMessages();
+                /*
+                 * NOTE: When the auth comes in, it will set the hold to 'false', and /then/ do a notify
+                 * [newMessagesInCsafNotify(..)] , thus /either/ force a new round for /this/ handlerRunnable, /or/
+                 * start a new handlerRunnable.
+                 */
+
+                // LOOP: Clear out messages currently outbox'ed messages in CSAF, by forwarding and mark delivered.
+                while (runMessageForward) {
+
+                    // ?: Check if the MatsSocketSessionAndMessageHandler is still SESSION_ESTABLISHED
+                    if (!matsSocketSessionAndMessageHandler.isSessionEstablished()) {
+                        // -> Not SESSION_ESTABLISHED - forward to new home if relevant
+                        log.info("When about to run forward-messages-to-websocket handler, we found that the "
+                                + "MatsSocketSession was not in state " + MatsSocketSessionState.SESSION_ESTABLISHED
+                                + ", but [" + matsSocketSessionAndMessageHandler.getState()
+                                + "], forwarding to new MatsSocketSession home (if any), and exiting handler.");
+                        // Forward to new home, if any (Note: It can theoretically be us (i.e. this node), in another
+                        // MatsSocketMessageHandler, due to race wrt. WebSocket close & reconnect)
+                        _matsSocketServer.newMessageOnWrongNode_NotifyCorrectHome(matsSocketSessionId);
+                        // We're done, nothing more we can do - exit.
+                        return;
+                    }
+
+                    // ?: Check if WebSocket Session (i.e. the connection) is still open.
                     /*
-                     * We're finished with this particular round - break out to ordinary loop-evaluation.
-                     *
-                     * NOTE: When the auth comes in, it will set the hold to 'false', and /then/ do a notify
-                     * [newMessagesInCsafNotify(..)] , thus /either/ force a new round for this handlerRunnable, /or/
-                     * start a new handlerRunnable.
+                     * (This should really not ever happen, as the check above should have caught the situation.
+                     * However, one could envision that the WebSocket has just closed, but not yet gotten to notify us
+                     * about the situation - if it had notified us, we would NOT have been in state SESSION_ESTABLISHED.
+                     * This check is just for good measure, ensuring that we start out with a WebSocket that is open..
+                     * It could of course close right after the check, which then will cause an IOException when trying
+                     * to send the message.)
                      */
-                    break;
-                }
-
-                // ?: Check if the MatsSocketSessionAndMessageHandler is still active
-                if (!matsSocketSessionAndMessageHandler.isSessionEstablished()) {
-                    // -> Not SESSION_ESTABLISHED - forward to new home if relevant
-                    log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
-                            + " Session was not state [" + MatsSocketSessionState.SESSION_ESTABLISHED
-                            + "], forwarding to new MatsSocketSession home (if any), and existing handler.");
-                    // Forward to new home (Note: It can theoretically be us (i.e. this node), in another
-                    // MatsSocketMessageHandler, .. due to race wrt. close & reconnect)
-                    _matsSocketServer.newMessageOnWrongNode_NotifyCorrectHome(matsSocketSessionId);
-                    // We're done, exit.
-                    return;
-                }
-
-                // ?: Check if WebSocket Session (i.e. the Connection) is still open.
-                if (!matsSocketSessionAndMessageHandler.isWebSocketSessionOpen()) {
-                    // -> Not Open WebSocket - forward to new home if relevant
-                    log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
-                            + " Session was closed. Deregistering this MatsSocketSessionHandler, forwarding"
-                            + " notification to new MatsSocketSession home (if any), and exiting handler.");
-
-                    matsSocketSessionAndMessageHandler.deregisterSession(null,
-                            "About to send messages Server-to-Client, but WebSocket was closed."
-                                    + " Deregistering MatsSocketSession.");
-
-                    // Forward to new home (Note: It can theoretically be us, in another MatsSocketMessageHandler,
-                    // .. due to race wrt. close & reconnect)
-                    _matsSocketServer.newMessageOnWrongNode_NotifyCorrectHome(matsSocketSessionId);
-                    // We're done, exit.
-                    return;
-                }
-
-                while (true) { // LOOP: Clear out (i.e. forward and mark delivered) currently stored messages from CSAF
+                    if (!matsSocketSessionAndMessageHandler.isWebSocketSessionOpen()) {
+                        // -> Not Open WebSocket - forward to new home if relevant
+                        log.info("When about to run forward-messages-to-websocket handler, we found that the WebSocket"
+                                + " Session was closed. Forwarding notification to new MatsSocketSession home (if any),"
+                                + " and exiting handler.");
+                        // Forward to new home, if any (Note: It can theoretically be us (i.e. this node), in another
+                        // MatsSocketMessageHandler, due to race wrt. WebSocket close & reconnect)
+                        _matsSocketServer.newMessageOnWrongNode_NotifyCorrectHome(matsSocketSessionId);
+                        // We're done, nothing more we can do - exit.
+                        return;
+                    }
 
                     // :: Get messages from CSAF
                     long nanos_start_ClearOutRound = System.nanoTime();
@@ -193,32 +195,31 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     }
                     double millisGetMessages = msSince(nanos_start_ClearOutRound);
 
-                    // If we got LESS than the MAX, it means that we at this point had cleared out
+                    // If we got LESS than the MAX, it means that we at this point had cleared out outbox.
                     boolean clearedOutbox = messagesToDeliver.size() < MAX_NUMBER_OF_MESSAGES_PER_FORWARD_LOOP;
 
                     // ?: Did we end up with zero messages?
                     if (messagesToDeliver.isEmpty()) {
-                        // -> Yes, it was empty. Break out of "Clear out stored messages.." loop.
-                        // ----- Good path!
+                        // -> Yes, it was empty - break out to ordinary 'RENOTIFY' evaluation.
                         break;
                     }
 
                     // :: Now do authentication check for whether we're still good to go wrt. sending these messages.
                     boolean authOk = matsSocketSessionAndMessageHandler.reevaluateAuthenticationForOutgoingMessage();
+                    // ?: Was Auth OK for doing a outgoing message forward round?
                     if (!authOk) {
-                        // Send "REAUTH" message, to get Client to send us new auth
-                        matsSocketSessionAndMessageHandler.webSocketSendText("[{\"t\":\"" + MessageType.REAUTH
-                                + "\"}]");
+                        // -> No, Auth not OK: Send "REAUTH" message, to get Client to send us new auth
+                        matsSocketSessionAndMessageHandler.webSocketSendText(
+                                "[{\"t\":\"" + MessageType.REAUTH + "\"}]");
                         /*
-                         * We're finished with this particular round - break out to ordinary loop-evaluation.
-                         *
                          * NOTE: The not-ok return above will also have set "holdOutgoingMessages", which is evaluated
-                         * at the very top of the loop.
+                         * at the very top of the outer 'RENOTIFY' loop.
                          *
                          * NOTE: When the auth comes in, it will set the hold to 'false', and /then/ do a notify
-                         * [newMessagesInCsafNotify(..)] , thus /either/ force a new round for this handlerRunnable,
+                         * [newMessagesInCsafNotify(..)] , thus /either/ force a new round for /this/ handlerRunnable,
                          * /or/ start a new handlerRunnable.
                          */
+                        // We're finished with this particular round - break out to ordinary 'RENOTIFY' evaluation.
                         break;
                     }
 
@@ -295,11 +296,16 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // Set the message onto the envelope, in "DirectJson" mode (it is already json)
                         envelope.msg = DirectJson.of(storedOutMessage.getMessageText());
 
-                        // :: Handle Debug
+                        // Add the Envelope to the pipeline we should send.
+                        envelopeList.add(envelope);
+
+                        // :: Handle Debug-part of Envelope depending on DebugOptions.
                         // Note:
                         // # Replies to Client-initiated (RESOLVE/REJECT) has Debug if it was requested in REQUEST
                         // # Server-initiated (SEND/REQUEST) /always/ has Debug, which we remove if not wanted.
+                        // ?: Do we have the Debug-part of the Envelope?
                         if (envelope.debug != null) {
+                            // -> Yes, we do have Debug-part of Envelope. Amend it, or ditch it.
                             /*
                              * Client- vs. Server-initiated:
                              *
@@ -312,6 +318,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                              * the AuthenticationPlugin's resolved auth vs. what the client has asked for wrt.
                              * Server-initiated.
                              */
+
                             // ?: Is this a Reply to a Client-to-Server REQUEST? (RESOLVE or REJECT)?
                             if ((MessageType.RESOLVE == storedOutMessage.getType())
                                     || MessageType.REJECT == storedOutMessage.getType()) {
@@ -327,11 +334,11 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                     envelope.debug.mscnn = _matsSocketServer.getMyNodename();
                                 }
                             }
+
                             // ?: Is this a Server-initiated message (SEND or REQUEST)?
                             if ((MessageType.SEND == storedOutMessage.getType())
                                     || MessageType.REQUEST == storedOutMessage.getType()) {
                                 // -> Yes, Server-to-Client (SEND or REQUEST)
-
                                 // Store the initiation timestamp in the Meta
                                 meta.serverInitiatedTimestamp = envelope.debug.smcts;
                                 meta.serverInitiatedNodeName = envelope.debug.smcnn;
@@ -341,14 +348,13 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                         .getCurrentResolvedServerToClientDebugOptions();
                                 // ?: How's the standing wrt. DebugOptions?
                                 if (debugOptions.isEmpty()) {
-                                    // -> Client either do not request anything, or server does not
-                                    // allow anything for this user.
+                                    // -> Client either do not request anything, or server does not allow anything for
+                                    // this user.
                                     // Null out the already existing DebugDto
                                     envelope.debug = null;
                                 }
                                 else {
-                                    // -> Client requests, and user is allowed, to query for some
-                                    // DebugOptions.
+                                    // -> Client requests, and user is allowed, to query for some DebugOptions.
                                     // Set which flags are resolved
                                     envelope.debug.resd = DebugOption.flags(debugOptions);
                                     // Add timestamp and nodename depending on options
@@ -371,8 +377,9 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                 }
                             }
                         }
-                        envelopeList.add(envelope);
                     });
+
+                    // ----- We have all Envelopes that should go into this pipeline
 
                     // Serialize the list of Envelopes
                     String jsonEnvelopeList = _matsSocketServer.getEnvelopeListObjectWriter()
@@ -405,7 +412,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                             log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
                                     + messagesToDeliver.size() + " message(s) with TraceIds [" + messageTypesAndTraceIds
                                     + "]. Bailing out, hoping for self-healer process to figure it out.", e);
-                            // Bail out
+                            // Bail out, since if DB is down, we won't be able to load-and-forward any more msgs.
                             return;
                         }
 
@@ -430,7 +437,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                                         + dlqMessages.size() + " message(s) with TraceIds ["
                                         + dlqMessageTypesAndTraceIds + "]. Bailing out, hoping for"
                                         + " self-healer process to figure it out.", e);
-                                // Bail out
+                                // Bail out, since if DB is down, we won't be able to load-and-forward any more msgs.
                                 return;
                             }
                         }
@@ -443,10 +450,13 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         catch (InterruptedException e) {
                             log.info("Got interrupted while chill-waiting after trying to send a message over socket"
                                     + " which failed. Assuming that someone wants us to shut down, bailing out.");
-                            // Bail out
+                            // Bail out, since nothing else than shutdown should result in interrupt.
                             return;
                         }
-                        // Run new "re-notification" loop, to check if socket still open, then try again.
+                        /*
+                         * Run new "re-notification" loop, to check if socket still open, then try again - or if the
+                         * MatsSocketSession is closed/deregistered, try to forward to new home if it has changed.
+                         */
                         continue RENOTIFY;
                     }
 

@@ -159,7 +159,7 @@ public interface MatsSocketServer {
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Endpoint meant for situations where you
      * intend to reply directly in the {@link IncomingAuthorizationAndAdapter} without forwarding to Mats.
      * <p />
-     * Types: <code>MR = Void</code>
+     * Types: <code>MR = void</code>
      * <p />
      * NOTE: In this case, it is possible to specify 'R' = {@link Object}. This is because you do not intend to
      * interface with Mats at all, so there is no need for MatsSocket Server to know which type any Mats Reply is.
@@ -176,7 +176,7 @@ public interface MatsSocketServer {
      * <i>(Convenience-variant of the base method)</i> Registers a MatsSocket Terminator (no reply), specifically for
      * Client-to-Server "SEND", and to accept a "REPLY" from a Server-to-Client "REQUEST".
      * <p />
-     * Types: <code>MR = R = Void</code>>
+     * Types: <code>MR = R = void</code>>
      *
      * {@link #request(String, String, String, Object, String, String, byte[])} request}) operations from the Client.
      */
