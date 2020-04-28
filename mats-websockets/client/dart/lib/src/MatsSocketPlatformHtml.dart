@@ -23,7 +23,7 @@ class MatsSocketPlatformHtml extends MatsSocketPlatform {
   }
 
   @override
-  Future<String> get userAgent async => html.window.navigator.userAgent;
+  String get userAgent => html.window.navigator.userAgent;
 
   @override
   ConnectResult sendAuthorizationHeader(Uri websocketUri, String authorization) {

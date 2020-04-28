@@ -36,7 +36,7 @@ class MatsSocketPlatformNative extends MatsSocketPlatform {
   }
 
   @override
-  Future<String> get userAgent async {
+  String get userAgent {
     final osName = io.Platform.operatingSystem;
     final osVersion = io.Platform.operatingSystemVersion;
     final dartVersion = io.Platform.version;
