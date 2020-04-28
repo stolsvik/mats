@@ -66,6 +66,93 @@
 
         });
 
+
+        describe("ErrorEvent listener", function () {
+            it("Throwing an error in InitiationProcessedEvent listener should invoke ErrorEvent listeners", function (done) {
+                setAuth();
+
+                let err = {
+                    error: "test error!",
+                    test: "test again!"
+                };
+                function assertErrorEvent(errorEvent) {
+                    chai.assert.equal(errorEvent.type, "notify InitiationProcessedEvent listeners");
+                    chai.assert.isTrue(errorEvent.message.includes("InitiationProcessedEvent"));
+                    chai.assert.strictEqual(errorEvent.reference, err);
+                    chai.assert.equal(errorEvent.referenceAsString(), "{\"error\":\"test error!\",\"test\":\"test again!\"}");
+                }
+
+                let numberOfListenersInvoked = 0;
+                matsSocket.addErrorEventListener(function (errorEvent) {
+                    assertErrorEvent(errorEvent);
+                    numberOfListenersInvoked++;
+                });
+                matsSocket.addErrorEventListener(function (errorEvent) {
+                    assertErrorEvent(errorEvent);
+                    numberOfListenersInvoked++;
+                });
+
+                matsSocket.addInitiationProcessedEventListener(function (initiationProcessedEvent) {
+                    // We throw here, which should invoke our two ErrorEvent listeners.
+                    throw err;
+                });
+
+                let received = false;
+                let promise = matsSocket.request("Test.resolveInIncomingHandler", "ErrorEvent-listener_" + matsSocket.id(6), {},
+                    function () {
+                        received = true;
+                    });
+                promise.then(function () {
+                    chai.assert(received, "The received-callback should have been invoked.");
+                    chai.assert.equal(numberOfListenersInvoked, 2);
+                    done();
+                });
+            });
+
+            it("Missing AuthenticationCallback should invoke ErrorEvent listeners", function (done) {
+                function assertErrorEvent(errorEvent) {
+                    chai.assert.strictEqual(errorEvent.type, "missingauthcallback");
+                    chai.assert.isTrue(errorEvent.message.includes("missing 'authorizationExpiredCallback'"));
+                    chai.assert.isUndefined(errorEvent.reference);
+                }
+
+                let numberOfListenersInvoked = 0;
+                matsSocket.addErrorEventListener(function (errorEvent) {
+                    assertErrorEvent(errorEvent);
+                    numberOfListenersInvoked++;
+                    doneWhenTwo();
+                });
+                matsSocket.addErrorEventListener(function (errorEvent) {
+                    assertErrorEvent(errorEvent);
+                    numberOfListenersInvoked++;
+                    doneWhenTwo();
+                });
+
+                function doneWhenTwo() {
+                    // Nothing should be invoked of the receivedCallback or Request-Promise
+                    chai.assert.isFalse(anythingInvoked);
+                    // ?: Are two ErrorEvent listeners invoked?
+                    if (numberOfListenersInvoked === 2) {
+                        // -> Yes, and then the test is done.
+                        done();
+                    }
+                }
+
+                // Nothing of this should be invoked at the point where the test checks.
+                let anythingInvoked = false;
+                matsSocket.request("Test.resolveInIncomingHandler", "ErrorEvent-listener_" + matsSocket.id(6), {},
+                    function () {
+                        anythingInvoked = true;
+                    })
+                    .then(_ => {
+                        anythingInvoked = true;
+                    })
+                    .catch(_ => {
+                        anythingInvoked = true;
+                    });
+            });
+        });
+
         describe('InitiationProcessedEvent listeners', function () {
             // Set a valid authorization before each request
             beforeEach(() => setAuth());
