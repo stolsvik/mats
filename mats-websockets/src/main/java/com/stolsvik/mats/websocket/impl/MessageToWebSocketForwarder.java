@@ -199,6 +199,12 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                     // :: Now do authentication check for whether we're still good to go wrt. sending these messages.
                     boolean authOk = matsSocketSessionAndMessageHandler.reevaluateAuthenticationForOutgoingMessage();
                     if (!authOk) {
+                        // There is a very narrow window where we will receive the new AUTH BEFORE the websocket
+                        // send is done, thus we will see that there is already a handler running for this uniqueId
+                        // and not start a new one. Then this thread will exit. At which point there will not be any
+                        // threads sending from the outbox until a new message arrives. To fix this, we need to remove
+                        // this as running before we are done sending. - Ståle
+                        _handlersCurrentlyRunningWithNotificationCount.remove(uniqueId);
                         // Send "REAUTH" message, to get Client to send us new auth
                         matsSocketSessionAndMessageHandler.webSocketSendText("[{\"t\":\"" + MessageType.REAUTH
                                 + "\"}]");
