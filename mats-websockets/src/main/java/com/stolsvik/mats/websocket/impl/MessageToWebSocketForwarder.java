@@ -134,8 +134,15 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
             RENOTIFY: while (true) { // LOOP: "Re-notifications"
                 // ?: Should we hold outgoing messages? (Waiting for "AUTH" answer from Client to our "REAUTH" request)
                 if (matsSocketSessionAndMessageHandler.isHoldOutgoingMessages()) {
-                    // -> Yes, holding outgoing messages, so bail out
-                    return;
+                    // -> Yes, holding outgoing messages,
+                    /*
+                     * We're finished with this particular round - break out to ordinary loop-evaluation.
+                     *
+                     * NOTE: When the auth comes in, it will set the hold to 'false', and /then/ do a notify
+                     * [newMessagesInCsafNotify(..)] , thus /either/ force a new round for this handlerRunnable, /or/
+                     * start a new handlerRunnable.
+                     */
+                    break;
                 }
 
                 // ?: Check if the MatsSocketSessionAndMessageHandler is still active
@@ -202,9 +209,17 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                         // Send "REAUTH" message, to get Client to send us new auth
                         matsSocketSessionAndMessageHandler.webSocketSendText("[{\"t\":\"" + MessageType.REAUTH
                                 + "\"}]");
-                        // Bail out and wait for new auth to come in, which will re-start sending.
-                        // NOTICE: The not-ok return above will also have set "holdOutgoingMessages".
-                        return;
+                        /*
+                         * We're finished with this particular round - break out to ordinary loop-evaluation.
+                         *
+                         * NOTE: The not-ok return above will also have set "holdOutgoingMessages", which is evaluated
+                         * at the very top of the loop.
+                         *
+                         * NOTE: When the auth comes in, it will set the hold to 'false', and /then/ do a notify
+                         * [newMessagesInCsafNotify(..)] , thus /either/ force a new round for this handlerRunnable,
+                         * /or/ start a new handlerRunnable.
+                         */
+                        break;
                     }
 
                     // :: If there are any messages with deliveryCount > 0, then try to send these alone.
