@@ -2300,8 +2300,8 @@ class MatsSocket {
     }
   }
 
-  final List<String> _laterAcks = [];
-  final List<String> _laterNacks = [];
+  List<String> _laterAcks = [];
+  List<String> _laterNacks = [];
   Timer _laterAckTimeoutId;
 
   void _sendAckLater(MessageType type, String smid, [String description]) {
@@ -2337,13 +2337,13 @@ class MatsSocket {
               type: MessageType.ACK,
               ids: _laterAcks
           ));
-          _laterAcks.clear();
+          _laterAcks = [];
       } else if (_laterAcks.length == 1) {
           _addEnvelopeToPipeline_EvaluatePipelineLater(MatsSocketEnvelopeDto(
               type: MessageType.ACK,
               serverMessageId: _laterAcks[0]
           ));
-          _laterNacks.clear();
+          _laterAcks.clear();
       }
       // NACKs
       if (_laterNacks.length > 1) {
@@ -2351,7 +2351,7 @@ class MatsSocket {
               type: MessageType.NACK,
               ids: _laterNacks
           ));
-          _laterNacks.clear();
+          _laterNacks = [];
       } else if (_laterNacks.length == 1) {
           _addEnvelopeToPipeline_EvaluatePipelineLater(MatsSocketEnvelopeDto(
               type: MessageType.NACK,
@@ -2361,7 +2361,7 @@ class MatsSocket {
       }
   }
 
-  final List<String> _laterAck2s = [];
+  List<String> _laterAck2s = [];
   Timer _laterAck2TimeoutId;
 
   void _sendAck2Later(List<String> ids) {
@@ -2382,7 +2382,7 @@ class MatsSocket {
               type: MessageType.ACK2,
               ids: _laterAck2s
           ));
-          _laterAck2s.clear();
+          _laterAck2s = [];
       } else if (_laterAck2s.length == 1) {
           _addEnvelopeToPipeline_EvaluatePipelineLater(MatsSocketEnvelopeDto(
               type: MessageType.ACK2,
