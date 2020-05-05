@@ -639,7 +639,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // TODO: Use the MessageToWebSocketForwarder for this.
                 MatsSocketEnvelopeWithMetaDto ack2Envelope = new MatsSocketEnvelopeWithMetaDto();
                 ack2Envelope.t = ACK2;
-                if (clientAckIds.size() > 1) {
+                if (clientAckIds.isEmpty()) {
+                    // This should not happen, the client should not send an empty list.
+                    closeSessionAndWebSocketWithProtocolError("An empty list of ackids was sent");
+                    return;
+                }
+                else if (clientAckIds.size() > 1) {
                     ack2Envelope.ids = clientAckIds;
                 }
                 else {
