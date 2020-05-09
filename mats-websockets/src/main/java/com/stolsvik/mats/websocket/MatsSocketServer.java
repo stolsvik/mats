@@ -1158,7 +1158,7 @@ public interface MatsSocketServer {
              *         {@link SessionEstablishedEventType#RECONNECT RECONNECT} with the same MatsSocketSessionId (type
              *         {@link #DEREGISTER}).
              */
-            boolean isSessionClosed() {
+            public boolean isSessionClosed() {
                 return sessionClosed;
             }
         }
