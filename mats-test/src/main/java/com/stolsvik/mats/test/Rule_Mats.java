@@ -4,7 +4,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import javax.jms.ConnectionFactory;
 
-import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 import org.apache.activemq.broker.BrokerService;
 import org.junit.Rule;
 import org.junit.rules.ExternalResource;
@@ -20,6 +19,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
+import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
 /**
  * JUnit {@link Rule} of type {@link ExternalResource} that make a convenient MATS harness, providing a
@@ -71,7 +71,7 @@ public class Rule_Mats extends ExternalResource {
             ConnectionFactory connectionFactory) {
         JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
                 this.getClass().getSimpleName(), "*testing*",
-                new JmsMatsJmsSessionHandler_Pooling((s) -> connectionFactory.createConnection()),
+                JmsMatsJmsSessionHandler_Pooling.create(connectionFactory),
                 _matsSerializer);
         // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
         matsFactory.getFactoryConfig().setConcurrency(1);
@@ -84,7 +84,7 @@ public class Rule_Mats extends ExternalResource {
      * is if you want to register two endpoints with the same endpointId, and the only reason for this again is to test
      * {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
      * subscriptionTerminators}.
-     * 
+     *
      * @return a <i>new, separate</i> {@link MatsFactory} in addition to the one provided by {@link #getMatsFactory()}.
      */
     public MatsFactory createMatsFactory() {

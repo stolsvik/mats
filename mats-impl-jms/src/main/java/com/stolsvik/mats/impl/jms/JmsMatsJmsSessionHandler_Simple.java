@@ -4,6 +4,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.jms.Connection;
+import javax.jms.ConnectionFactory;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 
@@ -23,10 +24,14 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsJmsSessionHandler_Simple.class);
 
-    private final JmsConnectionSupplier _jmsConnectionSupplier;
+    protected final ConnectionFactory _jmsConnectionFactory;
 
-    public JmsMatsJmsSessionHandler_Simple(JmsConnectionSupplier jmsConnectionSupplier) {
-        _jmsConnectionSupplier = jmsConnectionSupplier;
+    public static JmsMatsJmsSessionHandler_Simple create(ConnectionFactory connectionFactory) {
+        return new JmsMatsJmsSessionHandler_Simple(connectionFactory);
+    }
+
+    protected JmsMatsJmsSessionHandler_Simple(ConnectionFactory jmsConnectionFactory) {
+        _jmsConnectionFactory = jmsConnectionFactory;
     }
 
     @Override
@@ -46,7 +51,7 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
         return jmsSessionHolder;
     }
 
-    private AtomicInteger _numberOfOutstandingConnections = new AtomicInteger(0);
+    protected AtomicInteger _numberOfOutstandingConnections = new AtomicInteger(0);
 
     @Override
     public int closeAllAvailableSessions() {
@@ -55,10 +60,10 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
         return _numberOfOutstandingConnections.get();
     }
 
-    private JmsSessionHolder getSessionHolder_internal(JmsMatsTxContextKey txContextKey) throws JmsMatsJmsException {
+    protected JmsSessionHolder getSessionHolder_internal(JmsMatsTxContextKey txContextKey) throws JmsMatsJmsException {
         Connection jmsConnection;
         try {
-            jmsConnection = _jmsConnectionSupplier.createJmsConnection(txContextKey);
+            jmsConnection = _jmsConnectionFactory.createConnection();
         }
         catch (Throwable t) {
             throw new JmsMatsJmsException("Got problems when trying to create a new JMS Connection.", t);
@@ -127,9 +132,9 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
 
     public class JmsSessionHolder_Simple implements JmsSessionHolder {
 
-        private final Connection _jmsConnection;
-        private final Session _jmsSession;
-        private final MessageProducer _messageProducer;
+        protected final Connection _jmsConnection;
+        protected final Session _jmsSession;
+        protected final MessageProducer _messageProducer;
 
         public JmsSessionHolder_Simple(Connection jmsConnection, Session jmsSession, MessageProducer messageProducer) {
             _jmsConnection = jmsConnection;
@@ -157,7 +162,7 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
             return _messageProducer;
         }
 
-        private AtomicBoolean _shutDown = new AtomicBoolean();
+        protected AtomicBoolean _shutDown = new AtomicBoolean();
 
         @Override
         public void close() {
@@ -217,5 +222,4 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
             }
         }
     }
-
 }

@@ -34,7 +34,6 @@ import javax.servlet.http.HttpServletResponse;
 import javax.websocket.Session;
 import javax.websocket.server.ServerContainer;
 
-import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import org.eclipse.jetty.annotations.AnnotationConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
@@ -51,6 +50,7 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonValue;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -109,7 +109,7 @@ public class MatsTestWebsocketServer {
             // Create the MatsFactory
             _matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
                     MatsTestWebsocketServer.class.getSimpleName(), "*testing*",
-                    new JmsMatsJmsSessionHandler_Pooling((s) -> connectionFactory.createConnection()),
+                    JmsMatsJmsSessionHandler_Pooling.create(connectionFactory),
                     matsSerializer);
             // Configure the MatsFactory for testing (remember, we're running two instances in same JVM)
             // .. Concurrency of only 1

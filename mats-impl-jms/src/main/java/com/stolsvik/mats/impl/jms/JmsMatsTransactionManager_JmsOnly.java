@@ -151,7 +151,9 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                  * it.
                  */
                 log.error(LOG_PREFIX
-                        + "VERY BAD! After a MatsStage or Initiation ProcessingLambda finished nicely, implying that"
+                        + "VERY BAD! (Make note: SQL Connection was gotten/employed: " + jmsSessionMessageContext
+                                .wasSqlConnectionEmployed() + ")"
+                        + " After a MatsStage or Initiation ProcessingLambda finished nicely, implying that"
                         + " any external, potentially state changing operations have committed OK, we could not"
                         + " commit the JMS Session! If this happened within a MATS message initiation, the state"
                         + " changing operations (e.g. database insert/update) have been committed, while the message"
@@ -160,20 +162,22 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                         + " 'processing started', while the corresponding process-order message was not sent). However,"
                         + " if this happened within a MATS Stage (inside an endpoint), this will most probably just"
                         + " lead to a redelivery (as in 'double delivery'), which should be handled by your endpoint's"
-                        + " idempotent handling of incoming messages. Do note that this might be a problem if you were"
-                        + " trying to send an outgoing message: If you just check your database at the next redelivery,"
-                        + " and realize that the changes have been committed, and hence do not send an outgoing"
-                        + " message, you will effectively have stopped the Mats flow: Since it wasn't sent this time"
-                        + " (that is, due to this 'VERY BAD'), and you do not send it the next time (since you realize"
-                        + " that it was a double delivery, and the database had changes applied), you won't ever send"
-                        + " it, which probably is not what you want.", t);
+                        + " idempotent handling of incoming messages. Do note that this might be a problem if the stage"
+                        + " also sends an outgoing message in the normal flow: If you just check your database at the"
+                        + " next redelivery, and realize that the changes have been committed, and hence do not send an"
+                        + " outgoing message, you will effectively have stopped the Mats flow: Since it wasn't sent"
+                        + " this time (that is, due to this 'VERY BAD'), and you do not send it the next time (since"
+                        + " you realize that it was a double delivery, and the database had changes applied), you won't"
+                        + " ever send it, which probably is not what you want.", t);
                 /*
                  * This certainly calls for reestablishing the JMS Session, so we need to throw out a
-                 * JmsMatsJmsException. However, in addition, this is the specific type of error that
-                 * MatsInitiator.MatsMessageSendException is created for. This message is that double.
+                 * JmsMatsJmsException. However, in addition, this is the specific type of error ("VERY BAD!") that
+                 * MatsInitiator.MatsMessageSendException is created for.
                  */
                 throw new JmsMatsMessageSendException("VERY BAD! After finished transacting " + stageOrInit(
-                        _txContextKey) + ", we could not commit JMS Session!", t);
+                        _txContextKey) + ", we could not commit JMS Session!"
+                        + " (Make note: SQL Connection was gotten/employed: " + jmsSessionMessageContext
+                                .wasSqlConnectionEmployed() + ")", t);
             }
 
             // -> The JMS Session nicely committed.

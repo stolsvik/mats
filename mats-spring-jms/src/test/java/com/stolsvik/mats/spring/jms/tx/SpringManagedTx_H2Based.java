@@ -17,7 +17,6 @@ import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
 import javax.sql.DataSource;
 
-import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.Assert;
 import org.junit.Test;
@@ -35,7 +34,9 @@ import org.springframework.test.context.junit4.SpringRunner;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
@@ -47,6 +48,7 @@ import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.test.Rule_MatsWithDb.DatabaseException;
 import com.stolsvik.mats.util.RandomString;
+import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
 /**
  * Testing Spring DB Transaction management.
@@ -92,14 +94,11 @@ public class SpringManagedTx_H2Based {
         protected MatsFactory createMatsFactory(DataSource dataSource,
                 ConnectionFactory connectionFactory, MatsSerializer<String> matsSerializer) {
             // Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
-            JmsMatsJmsSessionHandler_Pooling jmsSessionHandler = new JmsMatsJmsSessionHandler_Pooling((
-                    s) -> connectionFactory.createConnection());
-            JmsMatsTransactionManager_JmsAndSpringDstm transMgr_SpringSql = JmsMatsTransactionManager_JmsAndSpringDstm
-                    .create(dataSource);
+            JmsMatsJmsSessionHandler jmsSessionHandler = JmsMatsJmsSessionHandler_Pooling.create(connectionFactory);
+            JmsMatsTransactionManager txMgrSpring = JmsMatsTransactionManager_JmsAndSpringDstm.create(dataSource);
 
-            JmsMatsFactory<String> matsFactory = JmsMatsFactory
-                    .createMatsFactory(this.getClass().getSimpleName(), "*testing*", jmsSessionHandler,
-                            transMgr_SpringSql, matsSerializer);
+            JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory(this.getClass().getSimpleName(),
+                    "*testing*", jmsSessionHandler, txMgrSpring, matsSerializer);
             // For the MULTIPLE test scenario, it makes sense to test concurrency, so we go for 5.
             matsFactory.getFactoryConfig().setConcurrency(5);
             return matsFactory;

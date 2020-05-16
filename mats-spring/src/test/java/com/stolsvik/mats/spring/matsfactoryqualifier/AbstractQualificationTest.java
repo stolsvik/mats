@@ -23,7 +23,7 @@ import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 /**
  * Base class for all the qualification tests - we do not use SpringRunner or other frameworks, but instead do all
  * Spring config ourselves. This so that the testing is as application-like as possible.
- * 
+ *
  * @author Endre Stølsvik 2019-05-25 00:35 - http://stolsvik.com/, endre@stolsvik.com
  */
 @Configuration
@@ -62,7 +62,7 @@ public class AbstractQualificationTest {
             @Qualifier("connectionFactory1") ConnectionFactory connectionFactory) {
         JmsMatsFactory<String> mf = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
                 this.getClass().getSimpleName(), "#testing#",
-                new JmsMatsJmsSessionHandler_Pooling((ctx) -> connectionFactory.createConnection()),
+                JmsMatsJmsSessionHandler_Pooling.create(connectionFactory),
                 new MatsSerializer_DefaultJson());
         mf.getFactoryConfig().setConcurrency(1);
         return mf;

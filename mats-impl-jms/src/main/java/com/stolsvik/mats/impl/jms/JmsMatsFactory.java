@@ -9,6 +9,8 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import javax.sql.DataSource;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,7 +21,6 @@ import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage.StageConfig;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
 import com.stolsvik.mats.serial.MatsSerializer;
 
 public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsStartStoppable {
@@ -34,10 +35,10 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
     }
 
     public static <Z> JmsMatsFactory<Z> createMatsFactory_JmsAndJdbcTransactions(String appName, String appVersion,
-            JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler, JdbcConnectionSupplier jdbcConnectionSupplier,
+            JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler, DataSource dataSource,
             MatsSerializer<Z> matsSerializer) {
         return createMatsFactory(appName, appVersion, jmsMatsJmsSessionHandler,
-                JmsMatsTransactionManager_JmsAndJdbc.create(jdbcConnectionSupplier), matsSerializer);
+                JmsMatsTransactionManager_JmsAndJdbc.create(dataSource), matsSerializer);
     }
 
     public static <Z> JmsMatsFactory<Z> createMatsFactory(String appName, String appVersion,

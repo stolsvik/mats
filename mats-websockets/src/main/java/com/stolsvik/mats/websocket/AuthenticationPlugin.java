@@ -58,13 +58,16 @@ public interface AuthenticationPlugin {
      * different methods on the returned {@link SessionAuthenticator}.
      *
      * @return an instance of {@link SessionAuthenticator}, where the implementation may choose whether it is a
-     *         singleton, or a new is returned per invocation (which then means there is a unique instance per
-     *         connection, thus you can hold values for the connection there).
+     *         singleton, or if a new instance is returned per invocation (which then means there is a unique instance
+     *         per connection, thus you can hold values for the connection there).
      */
     SessionAuthenticator newSessionAuthenticator();
 
     /**
-     * An instance of this interface shall be returned upon invocation of {@link #newSessionAuthenticator()}.
+     * An instance of this interface shall be returned upon invocation of {@link #newSessionAuthenticator()}. The
+     * implementation may choose whether it is a singleton, or if a new instance is returned per invocation (which then
+     * means there is a unique instance per WebSocket/MatsSocket Session, thus you can hold values for the session
+     * there).
      */
     interface SessionAuthenticator {
         /**

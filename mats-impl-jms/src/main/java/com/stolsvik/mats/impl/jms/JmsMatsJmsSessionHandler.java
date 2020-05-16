@@ -27,9 +27,9 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
  */
 public interface JmsMatsJmsSessionHandler {
     /**
-     * Should be invoked every time an Initiator wants to send a message - it will be returned after the message(s) is
+     * Will be invoked every time an Initiator wants to send a message - it will be returned after the message(s) is
      * sent.
-     * 
+     *
      * @param initiator
      *            the initiator in question.
      * @return a {@link JmsSessionHolder} instance - which is not the same as any other SessionHolders concurrently in
@@ -46,7 +46,7 @@ public interface JmsMatsJmsSessionHandler {
     /**
      * Will be invoked before the StageProcessor goes into its consumer loop - it will be closed once the Stage is
      * stopped, or if the Session "crashes", i.e. a method on Session or some downstream API throws an Exception.
-     * 
+     *
      * @param processor
      *            the StageProcessor in question.
      * @return a {@link JmsSessionHolder} instance - which is unique for each call.
@@ -59,8 +59,10 @@ public interface JmsMatsJmsSessionHandler {
     JmsSessionHolder getSessionHolder(JmsMatsStageProcessor<?, ?, ?, ?> processor) throws JmsMatsJmsException;
 
     /**
-     * Closes all available Session, does not touch employed, and thus closes Connections that do not have any employed
-     * Sessions.
+     * Closes all <i>Available</i> Session, does not touch <i>Employed</i>. Net result is that it Connections that do
+     * not have any employed Sessions will be closed. The use case for this is to "clear out" the
+     * {@link JmsMatsJmsSessionHandler} upon shutdown - the returned value is a count of how many Connections are still
+     * alive after the operation, which should be 0.
      *
      * @return the number of Connections still alive after the operation (in the assumed use case, this should be zero).
      */
@@ -74,15 +76,15 @@ public interface JmsMatsJmsSessionHandler {
          * Shall be invoked at these points, with the action to perform if it raises {@link JmsMatsJmsException}.
          * <ol>
          * <li>(For StageProcessors) Before going into MessageConsumer.receive() - if {@link JmsMatsJmsException} is
-         * raised, {@link #close()} or {@link #crashed(Throwable)} shall be invoked, and then a new SessionHolder shall
-         * be fetched. [This is to be able to signal to the StageProcessor that the underlying Connection might have
-         * become unstable - start afresh]</li>
+         * raised, {@link #close()} or {@link #crashed(Throwable)} shall be invoked, and then a new JmsSessionHolder
+         * shall be fetched. [This is to be able to signal to the StageProcessor that the underlying Connection might
+         * have become unstable - start afresh]</li>
          *
          * <li>(For StageProcessors and Initiators) Before committing any resources other than the JMS Session - if
          * {@link JmsMatsJmsException} is raised, rollback shall be performed, {@link #close()} or
-         * {@link #crashed(Throwable)} shall be invoked, and then a new SessionHolder shall be fetched. [This is to
-         * tighten the gap between typically the DB commit and the JMS commit: Before the DB is committed, an invocation
-         * to this method is performed. If this goes OK, then the DB is committed and then the JMS Session is
+         * {@link #crashed(Throwable)} shall be invoked, and then a new JmsSessionHolder shall be fetched. [This is to
+         * tighten the gap between typically the DB commit and the JMS commit: Just before the DB is committed, an
+         * invocation to this method is performed. If this goes OK, then the DB is committed and then the JMS Session is
          * committed.]</li>
          * </ol>
          */
@@ -100,8 +102,8 @@ public interface JmsMatsJmsSessionHandler {
         MessageProducer getDefaultNoDestinationMessageProducer();
 
         /**
-         * Employed by StageProcessors: This physically closes the Session, and removes it from the pool-Connection, and
-         * when all Sessions for a given pool-Connection is closed, the pool-Connection is closed.
+         * Employed by StageProcessors: This physically closes the JMS Session, and removes it from the pool-Connection,
+         * and when all Sessions for a given pool-Connection is closed, the pool-Connection is closed.
          */
         void close();
 
@@ -122,21 +124,9 @@ public interface JmsMatsJmsSessionHandler {
          * Connection.
          * <p>
          * NOTE: If a session comes back with "crashed", but it has already been "revoked" by the SessionHandler due to
-         * another crash, this invocation should probably be equivalent to {@link #close()}, i.e. "come home as agreed
-         * upon, whatever the state you are in".
+         * another crash, this invocation should be equivalent to {@link #close()}, i.e. "come home as agreed upon,
+         * whatever the state you are in".
          */
         void crashed(Throwable t);
-    }
-
-    /**
-     * Utility interface for implementors: Abstracts away JMS Connection generation - useful if you need to provide
-     * username and password, or some other connection parameters a la for IBM MQ.
-     * <p>
-     * Otherwise, the lambda can be as simple as
-     * <code>(txContextKey) -&gt; _jmsConnectionFactory.createConnection()</code>.
-     */
-    @FunctionalInterface
-    interface JmsConnectionSupplier {
-        Connection createJmsConnection(JmsMatsTxContextKey txContextKey) throws JMSException;
     }
 }

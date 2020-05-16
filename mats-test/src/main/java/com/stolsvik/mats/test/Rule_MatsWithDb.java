@@ -17,12 +17,11 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsAndJdbc.JdbcConnectionSupplier;
 import com.stolsvik.mats.serial.MatsSerializer;
 
 /**
  * Provides a H2 Database DataSource, and a
- * {@link JmsMatsFactory#createMatsFactory_JmsAndJdbcTransactions(String, String, JmsMatsJmsSessionHandler, JdbcConnectionSupplier, MatsSerializer)}
+ * {@link JmsMatsFactory#createMatsFactory_JmsAndJdbcTransactions(String, String, JmsMatsJmsSessionHandler, DataSource, MatsSerializer)}
  * JmsAndJdbc MATS Transaction Manager}, in addition to features from {@link Rule_Mats}. This enables testing of
  * combined JMS and JDBC scenarios - in particularly used for testing of the MATS library itself (check that commits and
  * rollbacks work as expected).
@@ -45,8 +44,6 @@ public class Rule_MatsWithDb extends Rule_Mats {
 
     @Override
     public void before() {
-        // Set up JMS from super
-        super.before();
         log.info("+++ BEFORE on JUnit Rule '" + id(Rule_MatsWithDb.class) + "', H2 database:");
         log.info("Setting up H2 database using DB URL [" + H2_DATABASE_URL + "], dropping all objects.");
         // Set up H2 Database
@@ -60,6 +57,8 @@ public class Rule_MatsWithDb extends Rule_Mats {
         catch (SQLException e) {
             throw new RuntimeException("Got problems running '" + dropSql + "'.", e);
         }
+        // Set up JMS from super
+        super.before();
         log.info("--- BEFORE done! JUnit Rule '" + id(Rule_MatsWithDb.class) + "', H2 database.");
     }
 
@@ -67,10 +66,10 @@ public class Rule_MatsWithDb extends Rule_Mats {
     protected MatsFactory createMatsFactory(MatsSerializer<String> stringSerializer,
             ConnectionFactory jmsConnectionFactory) {
         // Create the JMS and JDBC TransactionManager-backed JMS MatsFactory.
-        JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory_JmsAndJdbcTransactions(this.getClass().getSimpleName(),
-                "*testing*",
-                new JmsMatsJmsSessionHandler_Pooling((s) -> jmsConnectionFactory.createConnection()),
-                (s) -> _dataSource.getConnection(), _matsSerializer);
+        JmsMatsJmsSessionHandler sessionHandler = JmsMatsJmsSessionHandler_Pooling.create(jmsConnectionFactory);
+        JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory_JmsAndJdbcTransactions(
+                this.getClass().getSimpleName(), "*testing*",
+                sessionHandler, _dataSource, _matsSerializer);
         // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
         matsFactory.getFactoryConfig().setConcurrency(1);
         return matsFactory;

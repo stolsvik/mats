@@ -11,46 +11,139 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.jms.Connection;
+import javax.jms.ConnectionFactory;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 
 public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandler, JmsMatsStatics {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsJmsSessionHandler_Pooling.class);
 
-    private final JmsConnectionSupplier _jmsConnectionSupplier;
+    protected final ConnectionFactory _jmsConnectionFactory;
+    protected final PoolingKeyInitiator _poolingKeyInitiator;
+    protected final PoolingKeyStageProcessor _poolingKeyStageProcessor;
 
-    private Object derivePoolingKey(JmsMatsTxContextKey txContextKey) {
+    /**
+     * What kind of sharing of JMS Connections to employ for a {@link JmsMatsInitiator}.
+     */
+    public enum PoolingKeyInitiator {
+        /**
+         * All initiators share a common JMS Connection.
+         */
+        FACTORY,
+
+        /**
+         * Each initiator gets its own JSM Connection. Notice that due to the prevalent use of
+         * {@link MatsFactory#getDefaultInitiator()}, this is often equivalent to {@link #FACTORY}.
+         */
+        INITIATOR
+    }
+
+    /**
+     * What kind of sharing of JMS Connections to employ for a {@link JmsMatsStageProcessor}.
+     */
+    public enum PoolingKeyStageProcessor {
+        /**
+         * All StageProcessors in all Stages in all Endpoints share a common JMS Connection - i.e. every consumer and
+         * producer within a {@link JmsMatsFactory} share a single JMS Connection.
+         */
+        FACTORY,
+
+        /**
+         * All StageProcessors in all Stages for each Endpoint share a common JMS Connection - i.e. every Endpoint has
+         * its own JMS Connection.
+         */
+        ENDPOINT,
+
+        /**
+         * All StageProcessors in each Stage share a common JMS Connection - i.e. every Stage has its own JMS
+         * Connection.
+         */
+        STAGE,
+
+        /**
+         * Each StageProcessor has its own JMS Connection - i.e. no sharing.
+         */
+        STAGE_PROCESSOR
+    }
+
+    protected Object derivePoolingKey(JmsMatsTxContextKey txContextKey) {
         // ?: Is this an Initiator, or a StageProcessor?
         if (txContextKey instanceof JmsMatsInitiator) {
             // -> Initiator
-            // Factory: One Connection is shared for all Initiators
-            // The Initiator itself: Each Initiator gets a separate Connection
-            // new Object(): Each /initiation/ gets its own Connection (don't do this!)
-            return txContextKey.getFactory();
-            // return txContextKey;
-            // return new Object();
+            switch (_poolingKeyInitiator) {
+                case FACTORY:
+                    // Factory: One Connection is shared for all Initiators
+                    return txContextKey.getFactory();
+                case INITIATOR:
+                    // The Initiator itself: Each Initiator gets a separate Connection
+                    return txContextKey;
+            }
         }
         // E-> StageProcessor
-        // Factory: Every StageProcessors in the entire Factory shares a Connection
-        // Endpoint: The StageProcessors for all Stages in one Endpoint shares a Connection
-        // Stage: The StageProcessors in one Stage shares a Connection
-        // StageProcessor (i.e. the key itself): Each StageProcessor gets a separate Connection.
-        return txContextKey.getStage().getParentEndpoint().getParentFactory();
-        // return txContextKey.getStage().getParentEndpoint();
-        // return txContextKey.getStage();
-        // return txContextKey;
+        switch (_poolingKeyStageProcessor) {
+            case FACTORY:
+                // Factory: Every StageProcessors in the entire Factory shares a Connection
+                return txContextKey.getStage().getParentEndpoint().getParentFactory();
+            case ENDPOINT:
+                // Endpoint: The StageProcessors for all Stages in one Endpoint shares a Connection
+                return txContextKey.getStage().getParentEndpoint();
+            case STAGE:
+                // Stage: The StageProcessors in one Stage shares a Connection
+                return txContextKey.getStage();
+            case STAGE_PROCESSOR:
+                // StageProcessor (i.e. the key itself): Each StageProcessor gets a separate Connection.
+                return txContextKey;
+        }
 
-        // NOTICE! If you choose Factory on both, both initiators and endpoints will share a sole Connection.
+        // Shall not happen!
+        throw new AssertionError("Did not manage to derive pooling key from txContextKey [" + txContextKey
+                + "] with PoolingKeyInitiator[" + _poolingKeyInitiator + "] and PoolingKeyStageProcessor["
+                + _poolingKeyStageProcessor + "].");
     }
 
-    public JmsMatsJmsSessionHandler_Pooling(JmsConnectionSupplier jmsConnectionSupplier) {
-        _jmsConnectionSupplier = jmsConnectionSupplier;
+    /**
+     * Returns a JmsMatsJmsSessionHandler which employs a single JMS Connection for everything: Initiations, and all
+     * Stages (consumers and producers).
+     *
+     * @param jmsConnectionFactory
+     *            the JMS {@link ConnectionFactory} to get JMS Connections from.
+     * @return a JmsMatsJmsSessionHandler which employs a single JMS Connection for everything: Initiations, and all
+     *         consumers.
+     */
+    public static JmsMatsJmsSessionHandler_Pooling create(ConnectionFactory jmsConnectionFactory) {
+        return new JmsMatsJmsSessionHandler_Pooling(jmsConnectionFactory, PoolingKeyInitiator.FACTORY,
+                PoolingKeyStageProcessor.FACTORY);
+    }
+
+    /**
+     * Returns a JmsMatsJmsSessionHandler which have specific pooling derivation.
+     *
+     * @param jmsConnectionFactory
+     *            the JMS {@link ConnectionFactory} to get JMS Connections from.
+     * @param poolingKeyInitiator
+     *            what kind of JMS Connection sharing to employ for Initiators.
+     * @param poolingKeyStageProcessor
+     *            what kind of JMS Connection sharing to employ for StageProcessors.
+     * @return a JmsMatsJmsSessionHandler which has the specified pooling derivation.
+     */
+    public static JmsMatsJmsSessionHandler_Pooling create(ConnectionFactory jmsConnectionFactory,
+            PoolingKeyInitiator poolingKeyInitiator, PoolingKeyStageProcessor poolingKeyStageProcessor) {
+        return new JmsMatsJmsSessionHandler_Pooling(jmsConnectionFactory, poolingKeyInitiator,
+                poolingKeyStageProcessor);
+    }
+
+    protected JmsMatsJmsSessionHandler_Pooling(ConnectionFactory jmsConnectionFactory,
+            PoolingKeyInitiator poolingKeyInitiator, PoolingKeyStageProcessor poolingKeyStageProcessor) {
+        _jmsConnectionFactory = jmsConnectionFactory;
+        _poolingKeyInitiator = poolingKeyInitiator;
+        _poolingKeyStageProcessor = poolingKeyStageProcessor;
     }
 
     @Override
@@ -102,11 +195,11 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         return liveConnectionsAfter;
     }
 
-    private JmsSessionHolder getSessionHolder_internal(JmsMatsTxContextKey txContextKey) throws JmsMatsJmsException {
+    protected JmsSessionHolder getSessionHolder_internal(JmsMatsTxContextKey txContextKey) throws JmsMatsJmsException {
         // Get the pooling key.
         Object poolingKey = derivePoolingKey(txContextKey);
 
-        // :: Get-or-create ConnectionAndSession - record if we created it, as we then need to create the Connection
+        // :: Get-or-create ConnectionAndSession - record if we created it, as we then need to create the JMS Connection
         boolean weCreatedConnectionWithSessionPool = false;
         ConnectionWithSessionPool connectionWithSessionPool;
         synchronized (this) {
@@ -126,7 +219,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         // ?: Was *this thread* the creator of this ConnectionWithSessionPool?
         if (weCreatedConnectionWithSessionPool) {
-            // -> Yes, so we must create the JMS Connection
+            // -> Yes, so we must create the JMS Connection (Notice: Outside the synchronization)
             connectionWithSessionPool.initializePoolByCreatingJmsConnection(txContextKey);
         }
 
@@ -142,11 +235,11 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
     }
 
     // Synchronized by /this/ (i.e. the JmsMatsJmsSessionHandler_Pooling instance)
-    private IdentityHashMap<Object, ConnectionWithSessionPool> _liveConnectionWithSessionPools = new IdentityHashMap<>();
+    protected IdentityHashMap<Object, ConnectionWithSessionPool> _liveConnectionWithSessionPools = new IdentityHashMap<>();
     // Synchronized by /this/ (i.e. the JmsMatsJmsSessionHandler_Pooling instance)
-    private IdentityHashMap<Object, ConnectionWithSessionPool> _crashedConnectionWithSessionPools = new IdentityHashMap<>();
+    protected IdentityHashMap<Object, ConnectionWithSessionPool> _crashedConnectionWithSessionPools = new IdentityHashMap<>();
 
-    class ConnectionWithSessionPool implements JmsMatsStatics {
+    protected class ConnectionWithSessionPool implements JmsMatsStatics {
         final Object _poolingKey;
 
         // Synchronized by /this/ (i.e. the ConnectionWithSessionPool instance)
@@ -165,7 +258,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         void initializePoolByCreatingJmsConnection(JmsMatsTxContextKey txContextKey) throws JmsMatsJmsException {
             try {
-                Connection jmsConnection = _jmsConnectionSupplier.createJmsConnection(txContextKey);
+                Connection jmsConnection = _jmsConnectionFactory.createConnection();
                 // Starting it right away, as that could conceivably also give "connection establishment" JMSExceptions
                 jmsConnection.start();
                 setConnectionOrException_ReleaseWaiters(jmsConnection, null);
@@ -188,7 +281,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             _creatingConnectionCountDownLatch.countDown();
         }
 
-        private Connection getOrWaitForPoolJmsConnection() throws JmsMatsJmsException {
+        protected Connection getOrWaitForPoolJmsConnection() throws JmsMatsJmsException {
             try {
                 boolean ok = _creatingConnectionCountDownLatch.await(10, TimeUnit.SECONDS);
                 if (!ok) {
@@ -257,7 +350,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             }
         }
 
-        private volatile Exception _poolIsCrashed_StackTrace;
+        protected volatile Exception _poolIsCrashed_StackTrace;
 
         /**
          * Invoked by SessionHolders when their {@link JmsSessionHolderImpl#release()} is invoked.
@@ -371,7 +464,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             closeJmsConnection();
         }
 
-        private void assertBigToSmallLockOrder() {
+        protected void assertBigToSmallLockOrder() {
             // If we at this point only have 'this' locked, and not "mother", then we're screwed.
             // Both none locked, and both locked, is OK.
             if (Thread.holdsLock(this) && (!Thread.holdsLock(JmsMatsJmsSessionHandler_Pooling.this))) {
@@ -383,7 +476,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             }
         }
 
-        private void internalClose(JmsSessionHolderImpl jmsSessionHolder) {
+        protected void internalClose(JmsSessionHolderImpl jmsSessionHolder) {
             jmsSessionHolder.setCurrentContext("closed");
             // Remove this SessionHolder from pool, and remove ConnectionWithSessionPool if empty (if so, returns true)
             boolean closeJmsConnection = removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(
@@ -411,7 +504,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             }
         }
 
-        private boolean removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(
+        protected boolean removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(
                 JmsSessionHolderImpl jmsSessionHolder) {
             log.info(LOG_PREFIX + "[" + this + "] Removing [" + jmsSessionHolder + "] from pool.");
 
@@ -441,7 +534,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             }
         }
 
-        private void closeJmsConnection() {
+        protected void closeJmsConnection() {
             log.info(LOG_PREFIX + "[" + this + "] Closing JMS Connection [" + _jmsConnection + "]");
             try {
                 _jmsConnection.close();
@@ -476,9 +569,9 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
     }
 
     public static class JmsSessionHolderImpl implements JmsSessionHolder, JmsMatsStatics {
-        private final ConnectionWithSessionPool _connectionWithSessionPool;
-        private final Session _jmsSession;
-        private final MessageProducer _messageProducer;
+        protected final ConnectionWithSessionPool _connectionWithSessionPool;
+        protected final Session _jmsSession;
+        protected final MessageProducer _messageProducer;
 
         public JmsSessionHolderImpl(JmsMatsTxContextKey txContextKey,
                 ConnectionWithSessionPool connectionWithSessionPool,
@@ -490,9 +583,9 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             _messageProducer = messageProducer;
         }
 
-        private Object _currentContext;
+        protected Object _currentContext;
 
-        private void setCurrentContext(Object currentContext) {
+        protected void setCurrentContext(Object currentContext) {
             _currentContext = currentContext;
         }
 
@@ -511,7 +604,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             return _messageProducer;
         }
 
-        private AtomicBoolean _closedOrCrashed = new AtomicBoolean();
+        protected AtomicBoolean _closedOrCrashed = new AtomicBoolean();
 
         @Override
         public void close() {
