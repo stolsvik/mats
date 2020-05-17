@@ -67,7 +67,8 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         };
         _threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
                 5L, TimeUnit.MINUTES, runQueue,
-                r -> new Thread(r, "MatsSockets WebSocket Forwarder #" + _threadNumber.getAndIncrement()));
+                r -> new Thread(r, THREAD_PREFIX + "WebSocket Forwarder #" + _threadNumber.getAndIncrement() + " for "
+                        + _matsSocketServer.serverId()));
 
         // Part 2: We make a special RejectionExecutionHandler ...
         _threadPool.setRejectedExecutionHandler((r, executor) -> {
@@ -75,9 +76,13 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
             // (LinkedTransferQueue is not bounded).
             ((LinkedTransferQueue<Runnable>) _threadPool.getQueue()).put(r);
         });
+
+        log.info("Instantiated [" + this.getClass().getSimpleName() + "] for [" + _matsSocketServer.serverId() + "]");
     }
 
     void shutdown() {
+        log.info("Shutting down [" + this.getClass().getSimpleName() + "] for [" + _matsSocketServer.serverId()
+                + "], ThreadPool [" + _threadPool + "]");
         _threadPool.shutdown();
         try {
             _threadPool.awaitTermination(8, TimeUnit.SECONDS);

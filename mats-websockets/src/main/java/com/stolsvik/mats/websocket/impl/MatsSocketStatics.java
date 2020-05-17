@@ -39,12 +39,22 @@ public interface MatsSocketStatics {
 
     // Limits:
     int MAX_LENGTH_OF_TOPIC_NAME = 256;
+
     int MAX_NUMBER_OF_TOPICS_PER_SESSION = 1500;
     int MAX_NUMBER_OF_SESSIONS_PER_USER_ID = 75;
     int MAX_NUMBER_OF_RECORDED_ENVELOPES_PER_SESSION = 200;
     int MAX_NUMBER_OF_HELD_ENVELOPES_PER_SESSION = 100;
     int MAX_SIZE_OF_HELD_ENVELOPE_MSGS = 20 * 1024 * 1024;
+
     int MAX_NUMBER_OF_MESSAGES_PER_FORWARD_LOOP = 20;
+
+    int MIN_FORWARDER_CORE_POOL_SIZE = 5;
+    int MIN_FORWARDER_MAX_POOL_SIZE = 100;
+
+    // Constants:
+    int MILLISECONDS_BETWEEN_EACH_LIVELINESS_UPDATE = 60 * 1000; // One minute
+
+    String THREAD_PREFIX = "MatsSocket: ";
 
     default double ms(long nanos) {
         return Math.round(nanos / 10_000d) / 1_00d;

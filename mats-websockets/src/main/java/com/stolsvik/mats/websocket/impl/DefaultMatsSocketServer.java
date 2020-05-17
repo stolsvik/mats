@@ -270,7 +270,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private final String _subscriptionTerminatorId_Publish;
     private final String _subscriptionTerminatorId_NodeControl_NodePrefix;
     private final MessageToWebSocketForwarder _messageToWebSocketForwarder;
+    private final LivelinessUpdaterAndTimeouter _livelinessUpdaterAndTimeouter;
     private final AuthenticationPlugin _authenticationPlugin;
+    private final String _serverId;
 
     // In-line init
     private final ConcurrentHashMap<String, MatsSocketEndpointRegistration<?, ?, ?>> _matsSocketEndpointsByMatsSocketEndpointId = new ConcurrentHashMap<>();
@@ -279,6 +281,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private DefaultMatsSocketServer(MatsFactory matsFactory, ClusterStoreAndForward clusterStoreAndForward,
             String instanceName, AuthenticationPlugin authenticationPlugin) {
         _matsFactory = matsFactory;
+
+        // .. must first have set MatsFactory
+        _serverId = instanceName + '@' + getMyNodename() + '@' + Integer.toHexString(System.identityHashCode(this));
+
         _clusterStoreAndForward = clusterStoreAndForward;
         _jackson = jacksonMapper();
         _authenticationPlugin = authenticationPlugin;
@@ -294,10 +300,17 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         _subscriptionTerminatorId_NodeControl_NodePrefix = MATS_EP_PREFIX + '.' + instanceName + '.'
                 + MATS_SUBSTERM_MIDFIX_NODECONTROL;
 
-        int corePoolSize = Math.max(5, matsFactory.getFactoryConfig().getConcurrency() * 4);
-        int maximumPoolSize = Math.max(100, matsFactory.getFactoryConfig().getConcurrency() * 20);
+        // :: Create active (using threads) Message Forwarder (employs the out-side of the WebSocket).
+        int forwarder_corePoolSize = Math.max(MIN_FORWARDER_CORE_POOL_SIZE,
+                matsFactory.getFactoryConfig().getConcurrency() * 4);
+        int forwarder_maximumPoolSize = Math.max(MIN_FORWARDER_MAX_POOL_SIZE,
+                matsFactory.getFactoryConfig().getConcurrency() * 20);
         _messageToWebSocketForwarder = new MessageToWebSocketForwarder(this,
-                clusterStoreAndForward, corePoolSize, maximumPoolSize);
+                clusterStoreAndForward, forwarder_corePoolSize, forwarder_maximumPoolSize);
+
+        // :: Create active (using thread) CSAF Liveliness Updater and Timeouter
+        _livelinessUpdaterAndTimeouter = new LivelinessUpdaterAndTimeouter(this, _clusterStoreAndForward,
+                MILLISECONDS_BETWEEN_EACH_LIVELINESS_UPDATE);
 
         // Register our Mats Reply handler Terminator (common on all nodes, note: QUEUE-based!).
         // (Note that the reply often comes in on wrong note, in which case we forward it using NodeControl.)
@@ -362,6 +375,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     String nodeSubscriptionTerminatorId_NodeControl_ForNode(String nodename) {
         // TODO: "Escape" the nodename (just in case)
         return _subscriptionTerminatorId_NodeControl_NodePrefix + '.' + nodename;
+    }
+
+    /**
+     * Purely for logging.
+     */
+    String serverId() {
+        return _serverId;
     }
 
     @Override
@@ -855,14 +875,17 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     @Override
     public void stop(int gracefulShutdownMillis) {
-        log.info("Asked to shut down MatsSocketServer [" + id(this)
-                + "], containing [" + _activeSessionsByMatsSocketSessionId.size() + "] active sessions.");
+        log.info("Asked to shut down MatsSocketServer [" + serverId() + "], containing ["
+                + _activeSessionsByMatsSocketSessionId.size() + "] active sessions.");
 
         // Hinder further WebSockets connecting to us.
         _stopped = true;
 
-        // Shut down forwarder subsystem
+        // Shut down forwarder subsystem.
         _messageToWebSocketForwarder.shutdown();
+
+        // Shut down Liveliness Updater and Timeouter subsystem.
+        _livelinessUpdaterAndTimeouter.shutdown();
 
         // Deregister all MatsSocketSession from us, with SERVICE_RESTART, which asks them to reconnect
         ArrayList<MatsSocketSessionAndMessageHandler> sessions = new ArrayList<>(

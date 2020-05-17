@@ -589,7 +589,7 @@ public class MatsTestWebsocketServer {
         System.setProperty(CoreConstants.DISABLE_SERVLET_CONTAINER_INITIALIZER_KEY, "true");
 
         // Create common AMQ
-        MatsLocalVmActiveMq inVmActiveMq = MatsLocalVmActiveMq.createInVmActiveMq(COMMON_AMQ_NAME);
+        MatsLocalVmActiveMq.createInVmActiveMq(COMMON_AMQ_NAME);
 
         // Read in the server count as an argument, or assume 2
         int serverCount = (args.length > 0) ? Integer.parseInt(args[0]) : 2;
