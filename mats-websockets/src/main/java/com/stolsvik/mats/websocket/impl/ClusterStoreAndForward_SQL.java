@@ -568,7 +568,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public Optional<RequestCorrelation> getAndDeleteRequestCorrelation(String matsSocketSessionId,
+    public Optional<RequestCorrelation> getRequestCorrelation(String matsSocketSessionId,
             String serverMessageId) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("SELECT "
@@ -585,19 +585,26 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 // Get the data
                 RequestCorrelation requestCorrelation = new SimpleRequestCorrelation(matsSocketSessionId,
                         serverMessageId, rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBytes(4));
-                // Delete the Correlation
-                PreparedStatement deleteCorrelation = con.prepareStatement("DELETE FROM " + requestOutTableName(
-                        matsSocketSessionId)
-                        + " WHERE session_id = ?"
-                        + " AND smid = ?");
-                deleteCorrelation.setString(1, matsSocketSessionId);
-                deleteCorrelation.setString(2, serverMessageId);
-                deleteCorrelation.execute();
                 // Return the data.
                 return Optional.of(requestCorrelation);
             }
             // E-> No, no result - so empty.
             return Optional.empty();
+        });
+    }
+
+    @Override
+    public void deleteRequestCorrelation(String matsSocketSessionId,
+            String serverMessageId) throws DataAccessException {
+        withConnectionVoid(con -> {
+            // Delete the Correlation
+            PreparedStatement deleteCorrelation = con.prepareStatement("DELETE FROM " + requestOutTableName(
+                    matsSocketSessionId)
+                    + " WHERE session_id = ?"
+                    + " AND smid = ?");
+            deleteCorrelation.setString(1, matsSocketSessionId);
+            deleteCorrelation.setString(2, serverMessageId);
+            deleteCorrelation.execute();
         });
     }
 

@@ -1711,50 +1711,15 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         try {
             _matsSocketServer.getMatsFactory().getDefaultInitiator().initiateUnchecked(init -> {
 
+                // ===== PRE message handling.
+
                 String targetEndpointId;
 
                 String correlationString = null;
                 byte[] correlationBinary = null;
-                // ?: Is this a Reply (RESOLVE or REJECT)?
-                if ((type == RESOLVE) || (type == REJECT)) {
-                    // -> Yes, Reply (RESOLVE or REJECT), so we'll get-and-delete the Correlation information.
-                    // Find the CorrelationInformation - or NOT, if this is a duplicate delivery.
-                    try {
-                        Optional<RequestCorrelation> correlationInfoO = _matsSocketServer.getClusterStoreAndForward()
-                                .getAndDeleteRequestCorrelation(_matsSocketSessionId, envelope.smid);
-                        // ?: Did we have CorrelationInformation?
-                        if (!correlationInfoO.isPresent()) {
-                            // -> NO, no CorrelationInformation present, so this is a dupe
-                            // Double delivery: Simply say "yes, yes, good, good" to client, as we have already
-                            // processed this one.
-                            log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
-                                    + "] of type [" + envelope.t + "], fixing by ACK it again"
-                                    + " (it's already processed).");
-                            handledEnvelope[0].t = ACK;
-                            handledEnvelope[0].desc = "dupe " + envelope.t;
-                            // return from lambda
-                            return;
-                        }
-                        // E-> YES, we had CorrelationInfo!
-                        RequestCorrelation correlationInfo = correlationInfoO.get();
-                        // Store it for half-assed attempt at un-fucking the situation if we get "VERY BAD!"-situation.
-                        _correlationInfo_LambdaHack[0] = correlationInfo;
-                        log.info("Incoming REPLY for Server-to-Client Request for smid[" + envelope.smid
-                                + "], time since request: [" + (System.currentTimeMillis() - correlationInfo
-                                        .getRequestTimestamp()) + " ms].");
-                        correlationString = correlationInfo.getCorrelationString();
-                        correlationBinary = correlationInfo.getCorrelationBinary();
-                        // With a reply to a message initiated on the Server, the targetEID is in the correlation
-                        targetEndpointId = correlationInfo.getReplyTerminatorId();
-                    }
-                    catch (DataAccessException e) {
-                        throw new DatabaseRuntimeException(
-                                "Got problems trying to get Correlation information for REPLY for smid:["
-                                        + envelope.smid + "].", e);
-                    }
-                }
-                else {
-                    // -> No, not a Reply back to us, so this is a Client-to-Server REQUEST or SEND:
+                // ?: (Pre-message-handling state-mods) Is it a Client-to-Server REQUEST or SEND?
+                if ((type == REQUEST) || (type == SEND)) {
+                    // -> Yes, this is a Client-to-Server REQUEST or SEND:
 
                     // With a message initiated on the client, the targetEndpointId is embedded in the message
                     targetEndpointId = envelope.eid;
@@ -1828,6 +1793,51 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         }
                     }
                 }
+                // ?: (Pre-message-handling state-mods) Is this a Client Reply (RESOLVE or REJECT) to S2C Request?
+                else if ((type == RESOLVE) || (type == REJECT)) {
+                    // -> Yes, Reply (RESOLVE or REJECT), so we'll get-and-delete the Correlation information.
+                    // Find the CorrelationInformation - or NOT, if this is a duplicate delivery.
+                    try {
+                        Optional<RequestCorrelation> correlationInfoO = _matsSocketServer.getClusterStoreAndForward()
+                                .getRequestCorrelation(_matsSocketSessionId, envelope.smid);
+                        // ?: Did we have CorrelationInformation?
+                        if (!correlationInfoO.isPresent()) {
+                            // -> NO, no CorrelationInformation present, so this is a dupe
+                            // Double delivery: Simply say "yes, yes, good, good" to client, as we have already
+                            // processed this one.
+                            log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
+                                    + "] of type [" + envelope.t + "], fixing by ACK it again"
+                                    + " (it's already processed).");
+                            handledEnvelope[0].t = ACK;
+                            handledEnvelope[0].desc = "dupe " + envelope.t;
+                            // return from lambda
+                            return;
+                        }
+
+                        // E-> YES, we had CorrelationInfo!
+                        RequestCorrelation correlationInfo = correlationInfoO.get();
+                        // Store it for half-assed attempt at un-fucking the situation if we get "VERY BAD!"-situation.
+                        _correlationInfo_LambdaHack[0] = correlationInfo;
+                        log.info("Incoming REPLY for Server-to-Client Request for smid[" + envelope.smid
+                                + "], time since request: [" + (System.currentTimeMillis() - correlationInfo
+                                        .getRequestTimestamp()) + " ms].");
+                        correlationString = correlationInfo.getCorrelationString();
+                        correlationBinary = correlationInfo.getCorrelationBinary();
+                        // With a reply to a message initiated on the Server, the targetEID is in the correlation
+                        targetEndpointId = correlationInfo.getReplyTerminatorId();
+                    }
+                    catch (DataAccessException e) {
+                        throw new DatabaseRuntimeException(
+                                "Got problems trying to get Correlation information for REPLY for smid:["
+                                        + envelope.smid + "].", e);
+                    }
+                }
+                else {
+                    throw new AssertionError("Received an unhandled message type [" + type + "].");
+                }
+
+
+                // ===== Message handling.
 
                 // Go get the Endpoint registration.
                 Optional<MatsSocketEndpointRegistration<?, ?, ?>> registrationO = _matsSocketServer
@@ -1945,8 +1955,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         break;
                 }
 
-                // NOW, if we got anything else than an ACK out of this, we must store the reply in the inbox
+                // ===== POST message handling.
+
+                // :: NOW, if we got anything else than an ACK out of this, we must store the reply in the inbox
+                // (ACK is default, and does not need storing - as an optimization)
+                // ?: (Post-message-handling state-mods) Did we get anything else than ACK out of this?
                 if (handledEnvelope[0].t != MessageType.ACK) {
+                    // -> Yes, this was not ACK
                     log.debug("Got handledEnvelope of type [" + handledEnvelope[0].t + "], so storing it.");
                     try {
                         String envelopeJson = _envelopeObjectWriter.writeValueAsString(handledEnvelope[0]);
@@ -1959,6 +1974,21 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     }
                     catch (DataAccessException e) {
                         throw new DatabaseRuntimeException(e);
+                    }
+                }
+
+                // ?: (Post-message-handling state-mods) Is this a Reply (RESOLVE or REJECT)?
+                if ((type == RESOLVE) || (type == REJECT)) {
+                    // -> Yes, Reply (RESOLVE or REJECT), so we'll delete the Correlation information.
+                    // Delete the CorrelationInformation
+                    try {
+                        _matsSocketServer.getClusterStoreAndForward()
+                                .deleteRequestCorrelation(_matsSocketSessionId, envelope.smid);
+                    }
+                    catch (DataAccessException e) {
+                        throw new DatabaseRuntimeException(
+                                "Got problems trying to get Correlation information for REPLY for smid:["
+                                        + envelope.smid + "].", e);
                     }
                 }
             });

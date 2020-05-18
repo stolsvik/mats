@@ -285,7 +285,10 @@ public interface ClusterStoreAndForward {
     void storeRequestCorrelation(String matsSocketSessionId, String serverMessageId, long requestTimestamp,
             String replyTerminatorId, String correlationString, byte[] correlationBinary) throws DataAccessException;
 
-    Optional<RequestCorrelation> getAndDeleteRequestCorrelation(String matsSocketSessionId, String serverMessageId)
+    Optional<RequestCorrelation> getRequestCorrelation(String matsSocketSessionId, String serverMessageId)
+            throws DataAccessException;
+
+    void deleteRequestCorrelation(String matsSocketSessionId, String serverMessageId)
             throws DataAccessException;
 
     // ---------- Exceptions and DTOs ----------
