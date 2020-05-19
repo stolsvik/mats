@@ -5,11 +5,13 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
+import java.sql.Statement;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 
 import javax.sql.DataSource;
 
@@ -66,6 +68,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public void boot() {
         // TODO: Implement rudimentary assertions here: Register a session, add some messages, fetch them, etc..
     }
+
+    // ---------- Session management ----------
 
     @Override
     public long registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId,
@@ -204,31 +208,12 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public void notifySessionLiveliness(Collection<String> matsSocketSessionIds) throws DataAccessException {
-        withConnectionVoid(con -> {
-            long now = _clock.millis();
-            // TODO / OPTIMIZE: Make "in" optimizations.
-            PreparedStatement update = con.prepareStatement("UPDATE mats_socket_session"
-                    + "   SET liveliness_timestamp = ?"
-                    + " WHERE session_id = ?");
-            for (String matsSocketSessionId : matsSocketSessionIds) {
-                update.setLong(1, now);
-                update.setString(2, matsSocketSessionId);
-                update.addBatch();
-            }
-            update.executeBatch();
-            update.close();
-        });
-    }
-
-    @Override
     public boolean isSessionExists(String matsSocketSessionId) throws DataAccessException {
         return withConnectionReturn(con -> _getCurrentNode(matsSocketSessionId, con, false).isPresent());
     }
 
-    private PreparedStatement prepareSessionSelectSql(Connection con, boolean justCount, boolean onlyActive,
-            String userId, String appName,
-            String appVersionAtOrAbove) throws SQLException {
+    private PreparedStatement _prepareSessionSelectSql(Connection con, boolean justCount, boolean onlyActive,
+            String userId, String appName, String appVersionAtOrAbove) throws SQLException {
 
         // Create SQL
         StringBuilder buf = new StringBuilder();
@@ -279,7 +264,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public List<MatsSocketSessionDto> getSessions(boolean onlyActive, String userId, String appName,
             String appVersionAtOrAbove) throws DataAccessException {
         return withConnectionReturn(con -> {
-            PreparedStatement select = prepareSessionSelectSql(con, false, onlyActive, userId,
+            PreparedStatement select = _prepareSessionSelectSql(con, false, onlyActive, userId,
                     appName, appVersionAtOrAbove);
             ResultSet rs = select.executeQuery();
             List<MatsSocketSessionDto> sessions = new ArrayList<>();
@@ -305,7 +290,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     public int getSessionsCount(boolean onlyActive, String userId, String appName, String appVersionAtOrAbove)
             throws DataAccessException {
         return withConnectionReturn(con -> {
-            PreparedStatement select = prepareSessionSelectSql(con, true, onlyActive, userId,
+            PreparedStatement select = _prepareSessionSelectSql(con, true, onlyActive, userId,
                     appName, appVersionAtOrAbove);
             ResultSet rs = select.executeQuery();
             if (!rs.next()) {
@@ -313,7 +298,6 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             }
             return rs.getInt(1);
         });
-
     }
 
     @Override
@@ -339,6 +323,116 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             deleteOutbox.close();
         });
     }
+
+    @Override
+    public void notifySessionLiveliness(Collection<String> matsSocketSessionIds) throws DataAccessException {
+        withConnectionVoid(con -> {
+            long now = _clock.millis();
+            // TODO / OPTIMIZE: Make "in" optimizations.
+            PreparedStatement update = con.prepareStatement("UPDATE mats_socket_session"
+                    + "   SET liveliness_timestamp = ?"
+                    + " WHERE session_id = ?");
+            for (String matsSocketSessionId : matsSocketSessionIds) {
+                update.setLong(1, now);
+                update.setString(2, matsSocketSessionId);
+                update.addBatch();
+            }
+            update.executeBatch();
+            update.close();
+        });
+    }
+
+    @Override
+    public Collection<String> timeoutSessions(long notLiveSinceTimestamp) throws DataAccessException {
+        return withConnectionReturn(con -> {
+
+            /*
+             * First mark the sessions to be timed out in a quick update, based on the liveliness timestamp. This so
+             * that we can select them out for return from this method. Then delete them, based on marker. Using the
+             * liveliness timestamp both as criteria, and as marker.
+             *
+             * 1. We find ourselves a random NEGATIVE long, which will be the marker.
+             *
+             * 2. UPDATE session, marking for timeout, based on the liveliness timestamp vs. criteria, setting the
+             * liveliness timestamp to the marker value.
+             *
+             * 3. SELECT out which sessions this is, based on the marker value.
+             *
+             * 4. DELETE the sessions, based on the marker value.
+             *
+             * 5. Return the sessionIds that we deleted.
+             *
+             * The rationale for using a random marker is that there might be multiple nodes doing a "timeout round"
+             * concurrently, and to avoid notifying about the same session being timed out on multiple nodes, we use use
+             * (hopefully) different markers for each node. Half of long's value space as random value for something
+             * that probably very seldom actually will overlap is so abundantly sufficient that I cannot be bothered
+             * thinking more about it.
+             */
+
+            long markerValue = -(Math.abs(ThreadLocalRandom.current().nextLong()));
+            if (markerValue == 0) {
+                markerValue = -1337;
+            }
+
+            PreparedStatement markUpdate = con.prepareStatement("UPDATE mats_socket_session"
+                    + "   SET liveliness_timestamp = ?"
+                    + " WHERE liveliness_timestamp < ?");
+            markUpdate.setLong(1, markerValue);
+            markUpdate.setLong(2, notLiveSinceTimestamp);
+            markUpdate.execute();
+            int numTimedOutSessions = markUpdate.getUpdateCount();
+            markUpdate.close();
+
+            List<String> timedOutSessionids = new ArrayList<>(numTimedOutSessions);
+            // ?: Was any rows updated, i.e. timed out?
+            if (numTimedOutSessions > 0) {
+                // -> Yes, there was timed out rows.
+
+                // SELECT out the affected MatsSocketSessionIds
+                PreparedStatement select = con.prepareStatement("SELECT session_id FROM mats_socket_session"
+                        + " WHERE liveliness_timestamp = ?");
+                select.setLong(1, markerValue);
+                ResultSet rs = select.executeQuery();
+                while (rs.next()) {
+                    timedOutSessionids.add(rs.getString(1));
+                }
+                select.close();
+
+                // DELETE all the affected MatsSocketSessions
+                // NOTE: Any lingering messages in inbox, outbox or "request box" will be scavenged later..
+                PreparedStatement delete = con.prepareStatement("DELETE FROM mats_socket_session"
+                        + " WHERE LIVELINESS_TIMESTAMP = ?");
+                delete.setLong(1, markerValue);
+                delete.execute();
+                delete.close();
+            }
+
+            return timedOutSessionids;
+        });
+    }
+
+    @Override
+    public int scavengeSessionRemnants() throws DataAccessException {
+        String whereSessionIdNotExists = " AS m WHERE NOT EXISTS"
+                + " (SELECT 1 FROM mats_socket_session AS s WHERE s.session_id = m.session_id)";
+        return withConnectionReturn((con) -> {
+            Statement stmt = con.createStatement();
+            int count = 0;
+            // :: Perform scavenge from all box-tables
+            for (int i = 0; i < NUMBER_OF_BOX_TABLES; i++) {
+                stmt.execute("DELETE FROM " + inboxTableName(i) + whereSessionIdNotExists);
+                count += stmt.getUpdateCount();
+                stmt.execute("DELETE FROM " + outboxTableName(i) + whereSessionIdNotExists);
+                count += stmt.getUpdateCount();
+                stmt.execute("DELETE FROM " + requestOutTableName(i) + whereSessionIdNotExists);
+                count += stmt.getUpdateCount();
+            }
+            stmt.close();
+            return count;
+        });
+    }
+
+    // ---------- Inbox ----------
 
     @Override
     public void storeMessageIdInInbox(String matsSocketSessionId, String clientMessageId)
@@ -418,6 +512,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             deleteMsg.close();
         });
     }
+
+    // ---------- Outbox ----------
 
     @Override
     public Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
@@ -549,6 +645,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         });
     }
 
+    // ---------- "Request box" ----------
+
     @Override
     public void storeRequestCorrelation(String matsSocketSessionId, String serverMessageId, long requestTimestamp,
             String replyTerminatorId, String correlationString, byte[] correlationBinary) throws DataAccessException {
@@ -608,25 +706,37 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
         });
     }
 
+    // ---------- Table name generators ----------
+
+    private static int tableNumFromSessionId(String sessionIdForHash) {
+        return Math.floorMod(sessionIdForHash.hashCode(), NUMBER_OF_BOX_TABLES);
+    }
+
     private static String inboxTableName(String sessionIdForHash) {
-        int tableNum = Math.floorMod(sessionIdForHash.hashCode(), NUMBER_OF_BOX_TABLES);
+        return inboxTableName(tableNumFromSessionId(sessionIdForHash));
+    }
+
+    private static String inboxTableName(int tableNum) {
         // Handle up to 100 tables ("00" - "99")
-        String num = tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum);
-        return INBOX_TABLE_PREFIX + num;
+        return INBOX_TABLE_PREFIX + (tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum));
     }
 
     private static String outboxTableName(String sessionIdForHash) {
-        int tableNum = Math.floorMod(sessionIdForHash.hashCode(), NUMBER_OF_BOX_TABLES);
+        return outboxTableName(tableNumFromSessionId(sessionIdForHash));
+    }
+
+    private static String outboxTableName(int tableNum) {
         // Handle up to 100 tables ("00" - "99")
-        String num = tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum);
-        return OUTBOX_TABLE_PREFIX + num;
+        return OUTBOX_TABLE_PREFIX + (tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum));
     }
 
     private static String requestOutTableName(String sessionIdForHash) {
-        int tableNum = Math.floorMod(sessionIdForHash.hashCode(), NUMBER_OF_BOX_TABLES);
+        return requestOutTableName(tableNumFromSessionId(sessionIdForHash));
+    }
+
+    private static String requestOutTableName(int tableNum) {
         // Handle up to 100 tables ("00" - "99")
-        String num = tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum);
-        return REQUEST_OUT_TABLE_PREFIX + num;
+        return REQUEST_OUT_TABLE_PREFIX + (tableNum < 10 ? "0" + tableNum : Integer.toString(tableNum));
     }
 
     // ==============================================================================

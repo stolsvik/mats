@@ -22,9 +22,9 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
  * new messages for that session. This node gets the notice, finds the now local MatsSession, and forwards the message.
  * Note that it is possible that the node getting the reply, and the node which holds the WebSocket/MatsSession, is the
  * same node, in which case it eventually results in a local forward.
- * <p />
+ * <p/>
  * Each node has his own instance of this class, connected to the same backing datastore.
- * <p />
+ * <p/>
  * It is assumed that the consumption of messages for a session is done single threaded, on one node only. That is, only
  * one thread on one node will actually {@link #getMessagesFromOutbox(String, int)} get messages}, and, more
  * importantly, {@link #outboxMessagesComplete(String, Collection) register them as completed}. Wrt. multiple nodes,
@@ -67,12 +67,12 @@ public interface ClusterStoreAndForward {
      *            the AppName of the accessing Client app
      * @param appVersion
      *            the AppVersion of the accessing Client app
+     * @return the created timestamp - which is either "now" if this is the first register, or if it a "reconnect", when
+     *         this MatsSocketSession was initially created
      * @throws WrongUserException
      *             if the userId provided does not match the original userId that created the session.
      * @throws DataAccessException
      *             if problems with underlying data store.
-     * @return the created timestamp - which is either "now" if this is the first register, or if it a "reconnect", when
-     *         this MatsSocketSession was initially created
      */
     long registerSessionAtThisNode(String matsSocketSessionId, String userId, String connectionId,
             String clientLibAndVersions, String appName, String appVersion)
@@ -84,14 +84,6 @@ public interface ClusterStoreAndForward {
      * @return the current node holding MatsSocket Session, or empty if none.
      */
     Optional<CurrentNode> getCurrentRegisteredNodeForSession(String matsSocketSessionId) throws DataAccessException;
-
-    /**
-     * Shall be invoked on some kind of schedule (e.g. every 5 minute) by node to inform {@link ClusterStoreAndForward}
-     * about Sessions' liveliness. Sessions that aren't live, will be scavenged after some time, e.g. 24 hours.
-     *
-     * @param matsSocketSessionIds
-     */
-    void notifySessionLiveliness(Collection<String> matsSocketSessionIds) throws DataAccessException;
 
     /**
      * @param matsSocketSessionId
@@ -146,6 +138,37 @@ public interface ClusterStoreAndForward {
      *            the MatsSocketSessionId that should be closed.
      */
     void closeSession(String matsSocketSessionId) throws DataAccessException;
+
+    /**
+     * Shall be invoked on some kind of schedule (e.g. every 1 minute) by every node to inform
+     * {@link ClusterStoreAndForward} about which Sessions are currently live on that node. Sessions that aren't live,
+     * will be scavenged after some time by invocation of {@link #timeoutSessions(long)}.
+     *
+     * @param matsSocketSessionIds
+     *            which sessions are currently live on the invoking node.
+     */
+    void notifySessionLiveliness(Collection<String> matsSocketSessionIds) throws DataAccessException;
+
+    /**
+     * Shall be invoked on some kind of schedule (e.g. every 10 minutes <i>on average</i>). Times out any session which
+     * have not been {@link #notifySessionLiveliness(Collection) notified about liveliness} since the supplied timestamp
+     * (millis from epoch).
+     *
+     * @param notLiveSinceTimestamp
+     *            decides which sessions are too old: Sessions which have not been
+     *            {@link #notifySessionLiveliness(Collection) notified about liveliness} since this timestamp will be
+     *            deleted.
+     * @return which sessions was timed out.
+     */
+    Collection<String> timeoutSessions(long notLiveSinceTimestamp) throws DataAccessException;
+
+    /**
+     * Shall be invoked on some kind of schedule (e.g. every hour <i>on average</i>). Scavenges all inboxes, outboxes
+     * and "request boxes" for any lingering data for closed and timed out sessions.
+     *
+     * @return how many items was scavenged, for logging. May return constant zero if not readily available.
+     */
+    int scavengeSessionRemnants() throws DataAccessException;
 
     // ---------- Inbox ----------
 

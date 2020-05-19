@@ -224,8 +224,8 @@ public interface MatsSocketServer {
      * <b>Note: This should <i>preferentially</i> only be pure and quick Java code, without much database access or
      * lengthy computations</b> - such things should happen in the Mats stages. The ReplyAdapter is run in the common
      * MatsSocket reply Mats Terminator, which is shared between all MatsSocket Endpoints on this node, and should thus
-     * preferably just adapt the Mats reply DTO to the MatsSocket endpoint's expected reply DTO (and potentially decide
-     * whether to resolve or reject).
+     * preferably just adapt the Mats reply DTO to the MatsSocket endpoint's expected reply DTO (and decide whether to
+     * resolve or reject).
      * <p/>
      * Note: It is imperative that this does not perform any state-changes to the system - it should be utterly
      * idempotent, i.e. invoking it a hundred times with the same input should yield the same result. (Note: Logging is
@@ -273,7 +273,7 @@ public interface MatsSocketServer {
      * storing megabytes is silly anyway), but more importantly, this data cannot be tampered with client side - you can
      * be safe that what you gave in here is what you get out in the
      * {@link MatsSocketEndpointIncomingContext#getCorrelationString()} and
-     * {@link MatsSocketEndpointIncomingContext#getCorrelationBinary()} ()}
+     * {@link MatsSocketEndpointIncomingContext#getCorrelationBinary()}.
      * <p/>
      * Note: To check whether the client Resolved or Rejected the request, use
      * {@link MatsSocketEndpointIncomingContext#getMessageType()}.
@@ -651,7 +651,8 @@ public interface MatsSocketServer {
 
     /**
      * Like {@link #getMatsSocketSessions(boolean, String, String, String)}, only returning the count - this might be
-     * interesting if there are very many sessions, and you do not need the full DTOs of every Session, just the count.
+     * interesting if there are very many sessions, and you do not need the full DTOs of every Session, just the count
+     * for a metric to graph or similar.
      *
      * @return the count of all MatsSocketSessions currently registered with this MatsSocketServer instance matching the
      *         constraints if set - as read from the {@link ClusterStoreAndForward data store}.

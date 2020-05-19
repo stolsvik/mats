@@ -1,6 +1,7 @@
 package com.stolsvik.mats.websocket.impl;
 
 import java.io.IOException;
+import java.util.function.Supplier;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
@@ -52,7 +53,12 @@ public interface MatsSocketStatics {
     int MIN_FORWARDER_MAX_POOL_SIZE = 100;
 
     // Constants:
-    int MILLISECONDS_BETWEEN_EACH_LIVELINESS_UPDATE = 60 * 1000; // One minute
+    long MILLIS_BETWEEN_LIVELINESS_UPDATE_RUN = 54 * 1000; // <One minute (54 sec + Random(10%))
+    long MILLIS_BETWEEN_SESSION_TIMEOUT_RUN = 5 * 60 * 1000; // Five minutes
+
+    long MILLIS_BETWEEN_SCAVENGE_SESSION_REMNANTS_RUN = 60 * 60 * 1000; // One hour
+    // Three days ago
+    Supplier<Long> MILLIS_SESSION_TIMEOUT_SUPPLIER = () -> System.currentTimeMillis() - 3 * 24 * 60 * 60 * 1000L;
 
     String THREAD_PREFIX = "MatsSocket: ";
 

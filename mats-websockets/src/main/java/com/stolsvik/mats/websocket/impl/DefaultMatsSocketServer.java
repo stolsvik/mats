@@ -270,7 +270,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private final String _subscriptionTerminatorId_Publish;
     private final String _subscriptionTerminatorId_NodeControl_NodePrefix;
     private final MessageToWebSocketForwarder _messageToWebSocketForwarder;
-    private final LivelinessUpdaterAndTimeouter _livelinessUpdaterAndTimeouter;
+    private final LivelinessAndTimeoutAndScavenger _casfUpdateAndTimeouter;
     private final AuthenticationPlugin _authenticationPlugin;
     private final String _serverId;
 
@@ -309,8 +309,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 clusterStoreAndForward, forwarder_corePoolSize, forwarder_maximumPoolSize);
 
         // :: Create active (using thread) CSAF Liveliness Updater and Timeouter
-        _livelinessUpdaterAndTimeouter = new LivelinessUpdaterAndTimeouter(this, _clusterStoreAndForward,
-                MILLISECONDS_BETWEEN_EACH_LIVELINESS_UPDATE);
+        _casfUpdateAndTimeouter = new LivelinessAndTimeoutAndScavenger(this,
+                _clusterStoreAndForward,
+                MILLIS_BETWEEN_LIVELINESS_UPDATE_RUN,
+                MILLIS_BETWEEN_SESSION_TIMEOUT_RUN,
+                MILLIS_BETWEEN_SCAVENGE_SESSION_REMNANTS_RUN,
+                MILLIS_SESSION_TIMEOUT_SUPPLIER);
 
         // Register our Mats Reply handler Terminator (common on all nodes, note: QUEUE-based!).
         // (Note that the reply often comes in on wrong note, in which case we forward it using NodeControl.)
@@ -885,7 +889,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         _messageToWebSocketForwarder.shutdown();
 
         // Shut down Liveliness Updater and Timeouter subsystem.
-        _livelinessUpdaterAndTimeouter.shutdown();
+        _casfUpdateAndTimeouter.shutdown();
 
         // Deregister all MatsSocketSession from us, with SERVICE_RESTART, which asks them to reconnect
         ArrayList<MatsSocketSessionAndMessageHandler> sessions = new ArrayList<>(
