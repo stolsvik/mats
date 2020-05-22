@@ -7,10 +7,6 @@ import java.util.EnumSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedTransferQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -33,81 +29,48 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
  *
  * @author Endre Stølsvik 2019-12 - http://stolsvik.com/, endre@stolsvik.com
  */
-class MessageToWebSocketForwarder implements MatsSocketStatics {
-    private static final Logger log = LoggerFactory.getLogger(MessageToWebSocketForwarder.class);
+class WebSocketOutboxForwarder implements MatsSocketStatics {
+    private static final Logger log = LoggerFactory.getLogger(WebSocketOutboxForwarder.class);
 
     private final DefaultMatsSocketServer _matsSocketServer;
     private final ClusterStoreAndForward _clusterStoreAndForward;
 
-    private final ThreadPoolExecutor _threadPool;
+    private final SaneThreadPoolExecutor _threadPool;
+    private final ConcurrentHashMap<String, Integer> _forwardersCurrentlyRunningWithNotificationCount = new ConcurrentHashMap<>();
 
-    private final ConcurrentHashMap<String, Integer> _handlersCurrentlyRunningWithNotificationCount = new ConcurrentHashMap<>();
-    private final AtomicInteger _threadNumber = new AtomicInteger();
-
-    public MessageToWebSocketForwarder(DefaultMatsSocketServer defaultMatsSocketServer,
-            ClusterStoreAndForward clusterStoreAndForward, int corePoolSize, int maximumPoolSize) {
+    public WebSocketOutboxForwarder(DefaultMatsSocketServer defaultMatsSocketServer,
+            ClusterStoreAndForward clusterStoreAndForward, int corePoolSize, int maxPoolSize) {
         _matsSocketServer = defaultMatsSocketServer;
         _clusterStoreAndForward = clusterStoreAndForward;
 
-        // Trick to make ThreadPoolExecutor work as anyone in the world would expect:
-        // Have a constant pool of "corePoolSize", and then as more tasks are concurrently running than threads
-        // available, you increase the number of threads until "maximumPoolSize", at which point the rest go on
-        // queue.
+        _threadPool = new SaneThreadPoolExecutor(corePoolSize, maxPoolSize, this.getClass().getSimpleName(),
+                _matsSocketServer.serverId());
 
-        // Snitched from https://stackoverflow.com/a/24493856
-
-        // Part 1: So, we extend a LinkedTransferQueue to behave a bit special on "offer(..)":
-        LinkedTransferQueue<Runnable> runQueue = new LinkedTransferQueue<Runnable>() {
-            @Override
-            public boolean offer(Runnable e) {
-                // If there are any pool thread waiting for job, give it the job, otherwise return false.
-                // The TPE interprets false as "no more room on queue", so it rejects it. (cont'd on part 2)
-                return tryTransfer(e);
-            }
-        };
-        _threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
-                5L, TimeUnit.MINUTES, runQueue,
-                r -> new Thread(r, THREAD_PREFIX + "WebSocket Forwarder #" + _threadNumber.getAndIncrement() + " for "
-                        + _matsSocketServer.serverId()));
-
-        // Part 2: We make a special RejectionExecutionHandler ...
-        _threadPool.setRejectedExecutionHandler((r, executor) -> {
-            // ... which upon rejection due to "full queue" puts the task on queue nevertheless
-            // (LinkedTransferQueue is not bounded).
-            ((LinkedTransferQueue<Runnable>) _threadPool.getQueue()).put(r);
-        });
-
-        log.info("Instantiated [" + this.getClass().getSimpleName() + "] for [" + _matsSocketServer.serverId() + "]");
+        log.info("Instantiated [" + this.getClass().getSimpleName() + "] for [" + _matsSocketServer.serverId()
+                + "], ThreadPool:[" + _threadPool + "]");
     }
 
     void shutdown() {
         log.info("Shutting down [" + this.getClass().getSimpleName() + "] for [" + _matsSocketServer.serverId()
                 + "], ThreadPool [" + _threadPool + "]");
-        _threadPool.shutdown();
-        try {
-            _threadPool.awaitTermination(8, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException e) {
-            // Just re-set interrupted flag, and go on exiting.
-            Thread.currentThread().interrupt();
-        }
-        _threadPool.shutdownNow();
+        _threadPool.shutdownNice();
     }
 
     void newMessagesInCsafNotify(MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler) {
         log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketSessionAndMessageHandler
                 .getMatsSocketSessionId()
                 + "]");
-        // :: Check if there is an existing handler for this MatsSocketSession
-        String uniqueId = matsSocketSessionAndMessageHandler.getMatsSocketSessionId()
-                + matsSocketSessionAndMessageHandler.getConnectionId();
-        boolean[] fireOffNewHandler = new boolean[1];
-
-        _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
+        /*
+         * Either there is already running a Forwarder for this MatsSocketSessionAndMessageHandler, in which case with
+         * "latch on to" that one, or there is not, in which case we create one.
+         */
+        String instanceId = matsSocketSessionAndMessageHandler.getInstanceId();
+        boolean[] fireOffNewForwarder = new boolean[1];
+        _forwardersCurrentlyRunningWithNotificationCount.compute(instanceId, (s, count) -> {
             // ?: Check whether there is an existing handler in place
             if (count == null) {
                 // -> No there are not, so we need to fire off one
-                fireOffNewHandler[0] = true;
+                fireOffNewForwarder[0] = true;
                 // The new count is 1
                 return 1;
             }
@@ -117,14 +80,15 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
         });
 
         // ?: Should we fire off new handler?
-        if (fireOffNewHandler[0]) {
+        if (fireOffNewForwarder[0]) {
             // -> Yes, none were running, so fire off new handler.
-            _threadPool.execute(() -> this.handlerRunnable(matsSocketSessionAndMessageHandler, uniqueId));
+            _threadPool.execute(() -> this.forwarderRunnable(matsSocketSessionAndMessageHandler));
         }
     }
 
-    void handlerRunnable(MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler, String uniqueId) {
+    void forwarderRunnable(MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler) {
         String matsSocketSessionId = matsSocketSessionAndMessageHandler.getMatsSocketSessionId();
+        String instanceId = matsSocketSessionAndMessageHandler.getInstanceId();
 
         // If we exit out uncontrolled, we must clean up this forwarder from map of currently running forwarders.
         // (This flag is set to false when we do a controlled exit).
@@ -421,11 +385,11 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                             return;
                         }
 
-                        // :: Find messages with too many redelivery attempts (hardcoded 5 now)
+                        // :: Find messages with too many redelivery attempts
                         // (Note: For current code, this should always only be max one..)
                         // (Note: We're using the "old" delivery_count number (before above increase) -> no problem)
                         List<StoredOutMessage> dlqMessages = messagesToDeliver.stream()
-                                .filter(m -> m.getDeliveryCount() > 5)
+                                .filter(m -> m.getDeliveryCount() > MAX_NUMBER_OF_REDELIVERY_ATTEMPTS)
                                 .collect(Collectors.toList());
                         // ?: Did we have messages above threshold?
                         if (!dlqMessages.isEmpty()) {
@@ -545,7 +509,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
                  * Either it was sweeped up in a previous handler round, or a new handler will be dispatched.
                  */
                 boolean shouldExit[] = new boolean[1];
-                _handlersCurrentlyRunningWithNotificationCount.compute(uniqueId, (s, count) -> {
+                _forwardersCurrentlyRunningWithNotificationCount.compute(instanceId, (s, count) -> {
                     // ?: Is this 1, meaning that we are finishing off our handler rounds?
                     if (count == 1) {
                         // -> Yes, so this would be a decrease to zero - we're done, remove ourselves, exit.
@@ -597,7 +561,7 @@ class MessageToWebSocketForwarder implements MatsSocketStatics {
             // ?: If we exited out in any other fashion than "end of messages", then we must clean up after ourselves.
             if (removeOnExit) {
                 // -> Evidently a "crash out" of some sort, so clean up as best we can, hoping for self healer.
-                _handlersCurrentlyRunningWithNotificationCount.remove(uniqueId);
+                _forwardersCurrentlyRunningWithNotificationCount.remove(instanceId);
             }
             MDC.clear();
         }

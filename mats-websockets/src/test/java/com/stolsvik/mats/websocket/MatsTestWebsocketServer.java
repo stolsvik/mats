@@ -122,7 +122,8 @@ public class MatsTestWebsocketServer {
             // ## Create MatsSocketServer
             // Create DataSource using H2
             JdbcDataSource h2Ds = new JdbcDataSource();
-            h2Ds.setURL("jdbc:h2:~/temp/matsproject_dev_h2database/matssocket_dev;AUTO_SERVER=TRUE");
+            h2Ds.setURL("jdbc:h2:~/temp/matsproject_dev_h2database/matssocket_dev"
+                    + ";AUTO_SERVER=TRUE;DB_CLOSE_ON_EXIT=FALSE");
             JdbcConnectionPool dataSource = JdbcConnectionPool.create(h2Ds);
 
             // Create SQL-based ClusterStoreAndForward
@@ -569,6 +570,7 @@ public class MatsTestWebsocketServer {
         server.addLifeCycleListener(new AbstractLifeCycleListener() {
             @Override
             public void lifeCycleStopping(LifeCycle event) {
+                log.info("===== STOP! ===========================================");
                 log.info("server.lifeCycleStopping for " + port + ", event:" + event + ", WebAppContext:"
                         + webAppContext + ", servletContext:" + webAppContext.getServletContext());
                 MatsSocketServer matsSocketServer = (MatsSocketServer) webAppContext.getServletContext().getAttribute(

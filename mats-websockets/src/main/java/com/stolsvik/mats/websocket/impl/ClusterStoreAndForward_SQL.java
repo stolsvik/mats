@@ -666,7 +666,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     }
 
     @Override
-    public Optional<RequestCorrelation> getRequestCorrelation(String matsSocketSessionId,
+    public Optional<RequestCorrelation> getAndDeleteRequestCorrelation(String matsSocketSessionId,
             String serverMessageId) throws DataAccessException {
         return withConnectionReturn(con -> {
             PreparedStatement insert = con.prepareStatement("SELECT "
@@ -683,26 +683,25 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                 // Get the data
                 RequestCorrelation requestCorrelation = new SimpleRequestCorrelation(matsSocketSessionId,
                         serverMessageId, rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBytes(4));
+                // Delete the Correlation
+                PreparedStatement deleteCorrelation = con.prepareStatement("DELETE FROM " + requestOutTableName(
+                        matsSocketSessionId)
+                        + " WHERE session_id = ?"
+                        + " AND smid = ?");
+                deleteCorrelation.setString(1, matsSocketSessionId);
+                deleteCorrelation.setString(2, serverMessageId);
+                deleteCorrelation.execute();
+                // ?: Verify that we deleted 1 row
+                if (deleteCorrelation.getUpdateCount() != 1) {
+                    // -> No, so it was not us that got hold of it first - return as if we didn't read it.
+                    return Optional.empty();
+                }
+                // E-> We were the one that deleted the row, so we "own" the data
                 // Return the data.
                 return Optional.of(requestCorrelation);
             }
             // E-> No, no result - so empty.
             return Optional.empty();
-        });
-    }
-
-    @Override
-    public void deleteRequestCorrelation(String matsSocketSessionId,
-            String serverMessageId) throws DataAccessException {
-        withConnectionVoid(con -> {
-            // Delete the Correlation
-            PreparedStatement deleteCorrelation = con.prepareStatement("DELETE FROM " + requestOutTableName(
-                    matsSocketSessionId)
-                    + " WHERE session_id = ?"
-                    + " AND smid = ?");
-            deleteCorrelation.setString(1, matsSocketSessionId);
-            deleteCorrelation.setString(2, serverMessageId);
-            deleteCorrelation.execute();
         });
     }
 

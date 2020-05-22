@@ -351,6 +351,16 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
     }
 
     /**
+     * NOTE: Read JavaDoc of {@link #getMatsSocketSessionId} to understand why this Id is of interest.
+     *
+     * @return a unique id for this particular {@link MatsSocketSessionAndMessageHandler} - used by the message
+     *         forwarders to uniquely identify the MatsSocketSession + WebSocket connection.
+     */
+    String getInstanceId() {
+        return getMatsSocketSessionId() + getConnectionId();
+    }
+
+    /**
      * @return the {@link DebugOption}s that the {@link AuthenticationPlugin} told us was allowed for this user to
      *         request.
      */
@@ -636,35 +646,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 }
 
                 // Send "ACK2", i.e. "I've now deleted these Ids from my outbox".
-                // TODO: Use the MessageToWebSocketForwarder for this.
-                MatsSocketEnvelopeWithMetaDto ack2Envelope = new MatsSocketEnvelopeWithMetaDto();
-                ack2Envelope.t = ACK2;
                 if (clientAckIds.isEmpty()) {
                     // This should not happen, the client should not send an empty list.
                     closeSessionAndWebSocketWithProtocolError("An empty list of ackids was sent");
                     return;
                 }
-                else if (clientAckIds.size() > 1) {
-                    ack2Envelope.ids = clientAckIds;
-                }
-                else {
-                    ack2Envelope.smid = clientAckIds.get(0);
-                }
-                try {
-                    String json = _envelopeListObjectWriter.writeValueAsString(Collections.singletonList(ack2Envelope));
-                    webSocketSendText(json);
-                }
-                catch (JsonProcessingException e) {
-                    throw new AssertionError("Huh, couldn't serialize message?!", e);
-                }
-                catch (IOException e) {
-                    // TODO: Handle!
-                    throw new AssertionError("Hot damn.", e);
-                }
+                _matsSocketServer.getWebSocketOutgoingAcks().sendAck2s(_matsSocketSessionId, clientAckIds);
 
                 // Record sent Envelope
-                ack2Envelope.rttm = msSince(nanosStart);
-                recordEnvelopes(Collections.singletonList(ack2Envelope), System.currentTimeMillis(), Direction.S2C);
             }
 
             // :: 3b. Handle ACK2's - which is that the Client has received an ACK or NACK from us.
@@ -999,7 +988,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                             return;
                         }
                         // E-> We got a reply envelope.
-                        replyEnvelopes.add(reply);
+                        // TODO: HACK for now: If ACK, enqueue in the ACK-queue
+                        if (reply.t == ACK) {
+                            _matsSocketServer.getWebSocketOutgoingAcks().sendAck(_matsSocketSessionId, reply.cmid);
+                        }
+                        else {
+                            replyEnvelopes.add(reply);
+                        }
                         // The message is handled, so go to next message.
                         continue;
                     }
@@ -1428,7 +1423,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             _holdOutgoingMessages = false;
             // Notify forwarder.
             // NOTICE: There is by definition already HELLO processed and MatsSocketSessionId present in this situation.
-            _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
+            _matsSocketServer.getWebSocketOutboxForwarder().newMessagesInCsafNotify(this);
         }
 
         // Update MDCs before logging.
@@ -1670,7 +1665,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         recordEnvelopes(Collections.singletonList(replyEnvelope), System.currentTimeMillis(), Direction.S2C);
 
         // MessageForwarder-> There might be EXISTING messages waiting for this MatsSocketSession!
-        _matsSocketServer.getMessageToWebSocketForwarder().newMessagesInCsafNotify(this);
+        _matsSocketServer.getWebSocketOutboxForwarder().newMessagesInCsafNotify(this);
 
         // This went well.
         return true;
@@ -1713,6 +1708,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
                 // ===== PRE message handling.
 
+                // NOTE NOTE!! THIS IS WITHIN THE TRANSACTIONAL DEMARCATION OF THE MATS INITIATION!! NOTE NOTE!!
+
                 String targetEndpointId;
 
                 String correlationString = null;
@@ -1734,6 +1731,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                      * lead to the Mats initiation to throw MatsBackendRuntimeException, which is caught further down,
                      * and the client shall then end up with redelivery. When redelivered, the other message should
                      * already be in place, and we should get the unique constraint violation right here.
+                     *
+                     * Also notice: If we get "VERY BAD!", we try to perform compensating transaction.
                      */
                     try {
                         _matsSocketServer.getClusterStoreAndForward().storeMessageIdInInbox(_matsSocketSessionId,
@@ -1798,8 +1797,11 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // -> Yes, Reply (RESOLVE or REJECT), so we'll get-and-delete the Correlation information.
                     // Find the CorrelationInformation - or NOT, if this is a duplicate delivery.
                     try {
+                        // REMEMBER!! THIS IS WITHIN THE MATS INITIATION TRANSACTION!!
+                        // Therefore: Delete won't go through unless entire message handling goes through.
+                        // Also: If we get "VERY BAD!", we try to do compensating transaction.
                         Optional<RequestCorrelation> correlationInfoO = _matsSocketServer.getClusterStoreAndForward()
-                                .getRequestCorrelation(_matsSocketSessionId, envelope.smid);
+                                .getAndDeleteRequestCorrelation(_matsSocketSessionId, envelope.smid);
                         // ?: Did we have CorrelationInformation?
                         if (!correlationInfoO.isPresent()) {
                             // -> NO, no CorrelationInformation present, so this is a dupe
@@ -1835,7 +1837,6 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 else {
                     throw new AssertionError("Received an unhandled message type [" + type + "].");
                 }
-
 
                 // ===== Message handling.
 
@@ -1976,22 +1977,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         throw new DatabaseRuntimeException(e);
                     }
                 }
-
-                // ?: (Post-message-handling state-mods) Is this a Reply (RESOLVE or REJECT)?
-                if ((type == RESOLVE) || (type == REJECT)) {
-                    // -> Yes, Reply (RESOLVE or REJECT), so we'll delete the Correlation information.
-                    // Delete the CorrelationInformation
-                    try {
-                        _matsSocketServer.getClusterStoreAndForward()
-                                .deleteRequestCorrelation(_matsSocketSessionId, envelope.smid);
-                    }
-                    catch (DataAccessException e) {
-                        throw new DatabaseRuntimeException(
-                                "Got problems trying to get Correlation information for REPLY for smid:["
-                                        + envelope.smid + "].", e);
-                    }
-                }
             });
+
+            // NOTE NOTE!! EXITING MATS INITIATION TRANSACTIONAL DEMARCATION!! NOTE NOTE!!
         }
         catch (DatabaseRuntimeException e) {
             // Problems adding the ClientMessageId to outbox. Ask client to RETRY.

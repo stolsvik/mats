@@ -269,7 +269,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private final String _terminatorId_ReplyHandler;
     private final String _subscriptionTerminatorId_Publish;
     private final String _subscriptionTerminatorId_NodeControl_NodePrefix;
-    private final MessageToWebSocketForwarder _messageToWebSocketForwarder;
+    private final WebSocketOutboxForwarder _webSocketOutboxForwarder;
+    private final WebSocketOutgoingAcks _webSocketOutgoingAcks;
     private final LivelinessAndTimeoutAndScavenger _casfUpdateAndTimeouter;
     private final AuthenticationPlugin _authenticationPlugin;
     private final String _serverId;
@@ -303,10 +304,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         // :: Create active (using threads) Message Forwarder (employs the out-side of the WebSocket).
         int forwarder_corePoolSize = Math.max(MIN_FORWARDER_CORE_POOL_SIZE,
                 matsFactory.getFactoryConfig().getConcurrency() * 4);
-        int forwarder_maximumPoolSize = Math.max(MIN_FORWARDER_MAX_POOL_SIZE,
+        int forwarder_maxPoolSize = Math.max(MIN_FORWARDER_MAX_POOL_SIZE,
                 matsFactory.getFactoryConfig().getConcurrency() * 20);
-        _messageToWebSocketForwarder = new MessageToWebSocketForwarder(this,
-                clusterStoreAndForward, forwarder_corePoolSize, forwarder_maximumPoolSize);
+        _webSocketOutboxForwarder = new WebSocketOutboxForwarder(this,
+                clusterStoreAndForward, forwarder_corePoolSize, forwarder_maxPoolSize);
+
+        _webSocketOutgoingAcks = new WebSocketOutgoingAcks(this, forwarder_corePoolSize, forwarder_maxPoolSize);
 
         // :: Create active (using thread) CSAF Liveliness Updater and Timeouter
         _casfUpdateAndTimeouter = new LivelinessAndTimeoutAndScavenger(this,
@@ -364,8 +367,12 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         return _envelopeListObjectWriter;
     }
 
-    MessageToWebSocketForwarder getMessageToWebSocketForwarder() {
-        return _messageToWebSocketForwarder;
+    WebSocketOutboxForwarder getWebSocketOutboxForwarder() {
+        return _webSocketOutboxForwarder;
+    }
+
+    public WebSocketOutgoingAcks getWebSocketOutgoingAcks() {
+        return _webSocketOutgoingAcks;
     }
 
     String getReplyTerminatorId() {
@@ -885,8 +892,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         // Hinder further WebSockets connecting to us.
         _stopped = true;
 
-        // Shut down forwarder subsystem.
-        _messageToWebSocketForwarder.shutdown();
+        // Shut down outbox forwarder subsystem.
+        _webSocketOutboxForwarder.shutdown();
+
+        // Shut down outgoing acks subsystem.
+        _webSocketOutgoingAcks.shutdown();
 
         // Shut down Liveliness Updater and Timeouter subsystem.
         _casfUpdateAndTimeouter.shutdown();
@@ -1341,7 +1351,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         else {
             // -> Yes, local session is here!
             // Get the Forwarder to send any new messages over the WebSocket.
-            _messageToWebSocketForwarder.newMessagesInCsafNotify(localMatsSocketSession.get());
+            _webSocketOutboxForwarder.newMessagesInCsafNotify(localMatsSocketSession.get());
         }
     }
 
@@ -1517,7 +1527,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 sessionId);
         if (localMatsSocketSession.isPresent()) {
             // -> Yes, evidently we have it! Do local forward.
-            _messageToWebSocketForwarder.newMessagesInCsafNotify(localMatsSocketSession.get());
+            _webSocketOutboxForwarder.newMessagesInCsafNotify(localMatsSocketSession.get());
             return;
         }
         // E-> We did not have it locally - do remote ping.

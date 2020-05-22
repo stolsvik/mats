@@ -47,6 +47,8 @@ public interface MatsSocketStatics {
     int MAX_NUMBER_OF_HELD_ENVELOPES_PER_SESSION = 100;
     int MAX_SIZE_OF_HELD_ENVELOPE_MSGS = 20 * 1024 * 1024;
 
+    int MAX_NUMBER_OF_REDELIVERY_ATTEMPTS = 10;
+
     int MAX_NUMBER_OF_MESSAGES_PER_FORWARD_LOOP = 20;
 
     int MIN_FORWARDER_CORE_POOL_SIZE = 5;
@@ -59,6 +61,9 @@ public interface MatsSocketStatics {
     long MILLIS_BETWEEN_SCAVENGE_SESSION_REMNANTS_RUN = 60 * 60 * 1000; // One hour
     // Three days ago
     Supplier<Long> MILLIS_SESSION_TIMEOUT_SUPPLIER = () -> System.currentTimeMillis() - 3 * 24 * 60 * 60 * 1000L;
+
+    long MILLIS_BETWEEN_ACK_FLUSHES = 100;
+    long AWAIT_TERMINATION_THREADPOOLS_MILLISECONDS = 7500;
 
     String THREAD_PREFIX = "MatsSocket: ";
 
