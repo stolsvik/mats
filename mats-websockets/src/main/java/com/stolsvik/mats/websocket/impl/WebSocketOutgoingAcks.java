@@ -6,19 +6,18 @@ import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.ACK2;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto.Direction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto;
+import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeWithMetaDto.Direction;
 
 /**
  * Handles async sending of ACKs and ACK2s.
@@ -49,46 +48,60 @@ public class WebSocketOutgoingAcks implements MatsSocketStatics {
                 + "], PeriodicFlushThread:[" + _periodicFlushThread + "], ThreadPool:[" + _threadPool + "]");
     }
 
-    void sendAck(String matsSocketSessionId, String ack) {
+    void sendAck(String matsSocketSessionId, String cmidAck) {
         // ConcurrentHashMap-atomically update the outstanding currentACKs for the MatsSocketSessionId in question.
         _sessionIdToAcks.compute(matsSocketSessionId, (key, currentAcks) -> {
             if (currentAcks == null) {
                 currentAcks = new ArrayList<>();
             }
-            currentAcks.add(ack);
+            currentAcks.add(cmidAck);
             return currentAcks;
         });
     }
 
-    void sendAcks(String matsSocketSessionId, Collection<String> acks) {
+    void sendAcks(String matsSocketSessionId, Collection<String> cmidAcks) {
         // ConcurrentHashMap-atomically update the outstanding currentACKs for the MatsSocketSessionId in question.
         _sessionIdToAcks.compute(matsSocketSessionId, (key, currentAcks) -> {
             if (currentAcks == null) {
                 currentAcks = new ArrayList<>();
             }
-            currentAcks.addAll(acks);
+            currentAcks.addAll(cmidAcks);
             return currentAcks;
         });
     }
 
-    void sendAck2(String matsSocketSessionId, String ack2) {
+
+    public void removeAck(String matsSocketSessionId, String cmidAck) {
+        // ConcurrentHashMap-atomically update the outstanding currentACKs for the MatsSocketSessionId in question.
+        _sessionIdToAcks.compute(matsSocketSessionId, (key, currentAcks) -> {
+            if (currentAcks != null) {
+                currentAcks.remove(cmidAck);
+                if (currentAcks.isEmpty()) {
+                    return null;
+                }
+            }
+            return currentAcks;
+        });
+    }
+
+    void sendAck2(String matsSocketSessionId, String smidAck2) {
         // ConcurrentHashMap-atomically update the outstanding currentACK2s for the MatsSocketSessionId in question.
         _sessionIdToAck2s.compute(matsSocketSessionId, (key, currentAck2s) -> {
             if (currentAck2s == null) {
                 currentAck2s = new ArrayList<>();
             }
-            currentAck2s.add(ack2);
+            currentAck2s.add(smidAck2);
             return currentAck2s;
         });
     }
 
-    void sendAck2s(String matsSocketSessionId, Collection<String> ack2s) {
+    void sendAck2s(String matsSocketSessionId, Collection<String> smidAck2s) {
         // ConcurrentHashMap-atomically update the outstanding currentACK2s for the MatsSocketSessionId in question.
         _sessionIdToAck2s.compute(matsSocketSessionId, (key, currentAck2s) -> {
             if (currentAck2s == null) {
                 currentAck2s = new ArrayList<>();
             }
-            currentAck2s.addAll(ack2s);
+            currentAck2s.addAll(smidAck2s);
             return currentAck2s;
         });
     }
@@ -189,15 +202,15 @@ public class WebSocketOutgoingAcks implements MatsSocketStatics {
             session.get().webSocketSendText(json);
         }
         catch (JsonProcessingException e) {
-            log.error("Huh, couldn't serialize MatsSocketEnvelope?! This should definitely not happen!",e);
+            log.error("Huh, couldn't serialize MatsSocketEnvelope?! This should definitely not happen!", e);
             return;
         }
         catch (IOException e) {
             // I believe IOExceptions here to be utterly final - the session is gone. So just ignore this.
             // If he comes back, he will have to send the causes for these ACKs again.
             log.info("When trying to send ACKs [" + acks + "] and ACK2s [" + ack2s + "] for MatsSocketSession ["
-                    + matsSocketSessionId + "], the session was gone. Ignoring, if the session comes back, he will"
-                    + " send the causes for these ACKs again.", e);
+                    + matsSocketSessionId + "], we got IOException. Assuming session is"
+                    + " gone. Ignoring, if the session comes back, he will send the causes for these ACKs again.", e);
             return;
         }
 

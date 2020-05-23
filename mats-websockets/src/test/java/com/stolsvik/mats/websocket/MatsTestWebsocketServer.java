@@ -101,15 +101,22 @@ public class MatsTestWebsocketServer {
             log.info("ServletContextListener.contextInitialized(...): " + sce);
             log.info("  \\- ServletContext: " + sce.getServletContext());
 
+            // ## Create DataSource using H2
+            JdbcDataSource h2Ds = new JdbcDataSource();
+            h2Ds.setURL("jdbc:h2:~/temp/matsproject_dev_h2database/matssocket_dev"
+                    + ";AUTO_SERVER=TRUE;DB_CLOSE_ON_EXIT=FALSE");
+            JdbcConnectionPool dataSource = JdbcConnectionPool.create(h2Ds);
+
             // ## Create MatsFactory
             // ActiveMQ ConnectionFactory
             ConnectionFactory connectionFactory = MatsLocalVmActiveMq.createConnectionFactory(COMMON_AMQ_NAME);
             // MatsSerializer
             MatsSerializer_DefaultJson matsSerializer = new MatsSerializer_DefaultJson();
             // Create the MatsFactory
-            _matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
+            _matsFactory = JmsMatsFactory.createMatsFactory_JmsAndJdbcTransactions(
                     MatsTestWebsocketServer.class.getSimpleName(), "*testing*",
                     JmsMatsJmsSessionHandler_Pooling.create(connectionFactory),
+                    dataSource,
                     matsSerializer);
             // Configure the MatsFactory for testing (remember, we're running two instances in same JVM)
             // .. Concurrency of only 1
@@ -120,11 +127,6 @@ public class MatsTestWebsocketServer {
             _matsFactory.getFactoryConfig().setNodename("EndreBox_" + portNumber);
 
             // ## Create MatsSocketServer
-            // Create DataSource using H2
-            JdbcDataSource h2Ds = new JdbcDataSource();
-            h2Ds.setURL("jdbc:h2:~/temp/matsproject_dev_h2database/matssocket_dev"
-                    + ";AUTO_SERVER=TRUE;DB_CLOSE_ON_EXIT=FALSE");
-            JdbcConnectionPool dataSource = JdbcConnectionPool.create(h2Ds);
 
             // Create SQL-based ClusterStoreAndForward
             ClusterStoreAndForward_SQL clusterStoreAndForward = ClusterStoreAndForward_SQL.create(dataSource,

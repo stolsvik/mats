@@ -46,6 +46,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.type.TypeFactory;
+import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
@@ -269,6 +270,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private final String _terminatorId_ReplyHandler;
     private final String _subscriptionTerminatorId_Publish;
     private final String _subscriptionTerminatorId_NodeControl_NodePrefix;
+    private final IncomingSendAndRequestAndRepliesHandler _incomingSendAndRequestAndRepliesHandler;
     private final WebSocketOutboxForwarder _webSocketOutboxForwarder;
     private final WebSocketOutgoingAcks _webSocketOutgoingAcks;
     private final LivelinessAndTimeoutAndScavenger _casfUpdateAndTimeouter;
@@ -311,6 +313,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         _webSocketOutgoingAcks = new WebSocketOutgoingAcks(this, forwarder_corePoolSize, forwarder_maxPoolSize);
 
+        _incomingSendAndRequestAndRepliesHandler = new IncomingSendAndRequestAndRepliesHandler(this,
+                forwarder_corePoolSize, forwarder_maxPoolSize);
+
         // :: Create active (using thread) CSAF Liveliness Updater and Timeouter
         _casfUpdateAndTimeouter = new LivelinessAndTimeoutAndScavenger(this,
                 _clusterStoreAndForward,
@@ -321,8 +326,14 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         // Register our Mats Reply handler Terminator (common on all nodes, note: QUEUE-based!).
         // (Note that the reply often comes in on wrong note, in which case we forward it using NodeControl.)
-        matsFactory.terminator(_terminatorId_ReplyHandler,
-                ReplyHandleStateDto.class, MatsObject.class, this::mats_replyHandler);
+        MatsEndpoint<Void, ReplyHandleStateDto> replyHandler = matsFactory.terminator(_terminatorId_ReplyHandler,
+                ReplyHandleStateDto.class, MatsObject.class, epConfig -> {
+                    int currentConcurrency = epConfig.getConcurrency();
+                    // TODO: constant
+                    if (currentConcurrency < 8) {
+                        epConfig.setConcurrency(8);
+                    }
+                }, MatsFactory.NO_CONFIG, this::mats_replyHandler);
 
         // Register Publish subscriptionTerminator (common on all nodes, note: TOPIC-based!)
         matsFactory.subscriptionTerminator(nodeSubscriptionTerminatorId_NodeControl_ForNode(getMyNodename()),
@@ -373,6 +384,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
     public WebSocketOutgoingAcks getWebSocketOutgoingAcks() {
         return _webSocketOutgoingAcks;
+    }
+
+    public IncomingSendAndRequestAndRepliesHandler getIncomingSendAndRequestAndRepliesHandler() {
+        return _incomingSendAndRequestAndRepliesHandler;
     }
 
     String getReplyTerminatorId() {
@@ -892,6 +907,16 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         // Hinder further WebSockets connecting to us.
         _stopped = true;
 
+        // :: Try to let currently processing messages finish up first.
+
+        // Shut down incoming "information bearing messages" processing
+        _incomingSendAndRequestAndRepliesHandler.shutdown(gracefulShutdownMillis);
+
+        // Shut down outbox forwarder subsystem.
+        _webSocketOutboxForwarder.shutdown(gracefulShutdownMillis);
+
+        // :: Close all MatsSocketSessions, and thus WebSockets
+
         // Deregister all MatsSocketSession from us, with SERVICE_RESTART, which asks them to reconnect
         ArrayList<MatsSocketSessionAndMessageHandler> sessions = new ArrayList<>(
                 _activeSessionsByMatsSocketSessionId.values());
@@ -900,8 +925,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     "From Server: Server instance is going down, please reconnect.");
         });
 
-        // Shut down outbox forwarder subsystem.
-        _webSocketOutboxForwarder.shutdown(gracefulShutdownMillis);
+        // :: Shut down rest of subsystems
 
         // Shut down outgoing acks subsystem.
         _webSocketOutgoingAcks.shutdown(gracefulShutdownMillis);
@@ -1511,7 +1535,20 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             throw new AssertionError("Damn", e);
         }
 
-        pingLocalOrRemoteNodeAfterMessageStored(state.sid, currentNode, "MatsSocketServer.reply");
+        // ?: Check if WE have the session locally
+        Optional<MatsSocketSessionAndMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(
+                state.sid);
+        // ?: Did we have the targeted MatsSocketSession locally?
+        if (!localMatsSocketSession.isPresent()) {
+            // -> We did NOT have it locally - do remote ping.
+            pingRemoteNodeAfterMessageStored(state.sid, currentNode, "MatsSocketServer.reply");
+            return;
+        }
+        // E-> Yes, evidently we have it! Do local forward.
+
+        // NOTICE!!! WE MUST use the Mats-trick of doing this AFTER commit to db!
+        processContext.doAfterCommit(() -> _webSocketOutboxForwarder
+                .newMessagesInCsafNotify(localMatsSocketSession.get()));
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
@@ -1531,6 +1568,10 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             return;
         }
         // E-> We did not have it locally - do remote ping.
+        pingRemoteNodeAfterMessageStored(sessionId, currentNode, from);
+    }
+
+    private void pingRemoteNodeAfterMessageStored(String sessionId, Optional<CurrentNode> currentNode, String from) {
         // ?: If we do have a nodename, ping it about new message
         if (currentNode.isPresent()) {
             // -> Yes we got a nodename, ping it.

@@ -15,6 +15,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import javax.sql.DataSource;
 
+import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketSessionDto;
 import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
@@ -25,12 +26,11 @@ import com.stolsvik.mats.websocket.MatsSocketServer.MessageType;
  * <b>NOTE: This CSAF implementation expects that the database tables are in place.</b> A tool is provided for this,
  * using Flyway: {@link ClusterStoreAndForward_SQL_DbMigrations}.
  * <p/>
- * <b>NOTE: If in a Spring JDBC environment, where the MatsFactory is created using the
- * <code>JmsMatsTransactionManager_JmsAndSpringDstm</code> Mats transaction manager, you must wrap the
- * {@link DataSource} supplied to this class in a Spring <code>TransactionAwareDataSourceProxy</code>.</b> This since
- * several of the methods on this interface will be invoked within a Mats process lambda, and thus participating in the
- * transactional demarcation established there is vital to achieve the guaranteed delivery and exactly-once delivery
- * semantics.
+ * <b>NOTE: There is heavy reliance on the Mats' {@link ContextLocal} feature whereby the current Mats
+ * StageProcessor-contextual SQL Connection is available using the {@link ContextLocal#getAttribute(Class, String...)}
+ * method. This since several of the methods on this interface will be invoked within a Mats initiation or Stage process
+ * lambda, and thus participating in the transactional demarcation established there is vital to achieve the guaranteed
+ * delivery and exactly-once delivery semantics.
  *
  * @author Endre Stølsvik 2019-12-08 11:00 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -437,22 +437,29 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     @Override
     public void storeMessageIdInInbox(String matsSocketSessionId, String clientMessageId)
             throws ClientMessageIdAlreadyExistsException, DataAccessException {
-        try (Connection con = _dataSource.getConnection()) {
-            PreparedStatement insert = con.prepareStatement("INSERT INTO " + inboxTableName(matsSocketSessionId)
-                    + " (session_id, cmid, stored_timestamp)"
-                    + " VALUES (?, ?, ?)");
-            insert.setString(1, matsSocketSessionId);
-            insert.setString(2, clientMessageId);
-            insert.setLong(3, System.currentTimeMillis());
-            insert.execute();
-            insert.close();
+        // Note: Need a bit special handling here, as we must check whether we get an IntegrityConstraintViolation
+        try {
+            withConnectionVoid(con -> {
+                PreparedStatement insert = con.prepareStatement("INSERT INTO " + inboxTableName(matsSocketSessionId)
+                        + " (session_id, cmid, stored_timestamp)"
+                        + " VALUES (?, ?, ?)");
+                insert.setString(1, matsSocketSessionId);
+                insert.setString(2, clientMessageId);
+                insert.setLong(3, System.currentTimeMillis());
+                insert.execute();
+                insert.close();
+            });
         }
-        catch (SQLIntegrityConstraintViolationException e) {
-            throw new ClientMessageIdAlreadyExistsException("Could not insert the ClientMessageId [" + clientMessageId
-                    + "] for MatsSocketSessionId [" + matsSocketSessionId + "].", e);
-        }
-        catch (SQLException e) {
-            throw new DataAccessException("Got '" + e.getClass().getSimpleName() + "' accessing DataSource.", e);
+        catch (DataAccessException e) {
+            // ?: Was the cause here IntegrityConstraintViolation - i.e. "message already exists"?
+            if (e.getCause() instanceof SQLIntegrityConstraintViolationException) {
+                // -> Yes, evidently - so throw specific Exception
+                throw new ClientMessageIdAlreadyExistsException("Could not insert the ClientMessageId ["
+                        + clientMessageId
+                        + "] for MatsSocketSessionId [" + matsSocketSessionId + "].", e);
+            }
+            // E-> No, so just throw on.
+            throw e;
         }
     }
 
@@ -744,8 +751,15 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     private <T> T withConnectionReturn(Lambda<T> lambda) throws DataAccessException {
         try {
-            try (Connection con = _dataSource.getConnection()) {
-                return lambda.transact(con);
+            Optional<Connection> conAttr = ContextLocal.getAttribute(Connection.class);
+            if (conAttr.isPresent()) {
+                return lambda.transact(conAttr.get());
+                // NOTE: NOT CLOSING!!
+            }
+            else {
+                try (Connection con = _dataSource.getConnection()) {
+                    return lambda.transact(con);
+                }
             }
         }
         catch (SQLException e) {
@@ -760,8 +774,15 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     private void withConnectionVoid(LambdaVoid lambdaVoid) throws DataAccessException {
         try {
-            try (Connection con = _dataSource.getConnection()) {
-                lambdaVoid.transact(con);
+            Optional<Connection> conAttr = ContextLocal.getAttribute(Connection.class);
+            if (conAttr.isPresent()) {
+                lambdaVoid.transact(conAttr.get());
+                // NOTE: NOT CLOSING!!
+            }
+            else {
+                try (Connection con = _dataSource.getConnection()) {
+                    lambdaVoid.transact(con);
+                }
             }
         }
         catch (SQLException e) {

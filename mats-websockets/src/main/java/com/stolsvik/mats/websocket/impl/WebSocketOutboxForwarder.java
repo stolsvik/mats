@@ -1,5 +1,8 @@
 package com.stolsvik.mats.websocket.impl;
 
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.REJECT;
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RESOLVE;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -289,8 +292,8 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                              */
 
                             // ?: Is this a Reply to a Client-to-Server REQUEST? (RESOLVE or REJECT)?
-                            if ((MessageType.RESOLVE == storedOutMessage.getType())
-                                    || MessageType.REJECT == storedOutMessage.getType()) {
+                            if ((RESOLVE == storedOutMessage.getType())
+                                    || REJECT == storedOutMessage.getType()) {
                                 // -> Yes, Reply (RESOLVE or REJECT)
                                 // Find which resolved DebugOptions are in effect for this message
                                 EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(
@@ -350,12 +353,21 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
 
                     // ----- We have all Envelopes that should go into this pipeline
 
+                    // Now, if there are any Replies, we can elide the sending of ACKs if it is not done yet
+                    for (MatsSocketEnvelopeWithMetaDto envelope : envelopeList) {
+                        if ((envelope.t == RESOLVE) || (envelope.t == REJECT)) {
+                            _matsSocketServer.getWebSocketOutgoingAcks().removeAck(matsSocketSessionId, envelope.cmid);
+                        }
+                    }
+
                     // Serialize the list of Envelopes
                     String jsonEnvelopeList = _matsSocketServer.getEnvelopeListObjectWriter()
                             .writeValueAsString(envelopeList);
 
                     // Register last activity time
                     matsSocketSessionAndMessageHandler.registerActivityTimestamp(System.currentTimeMillis());
+
+                    // ===== SENDING OVER WEBSOCKET!
 
                     // :: Forward message(s) over WebSocket
                     double millisSendMessages;

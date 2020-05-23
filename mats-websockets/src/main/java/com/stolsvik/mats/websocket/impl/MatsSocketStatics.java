@@ -54,6 +54,10 @@ public interface MatsSocketStatics {
     int MIN_FORWARDER_CORE_POOL_SIZE = 5;
     int MIN_FORWARDER_MAX_POOL_SIZE = 100;
 
+    // For Incoming Send, Request and Reply handling, if "VERY BAD!" occurs.
+    int MAX_NUMBER_OF_COMPENSATING_TRANSACTIONS_ATTEMPTS = 60;  // 60 * 250ms = 15 seconds.
+    int MILLIS_BETWEEN_COMPENSATING_TRANSACTIONS_ATTEMPTS = 250;
+
     // Constants:
     long MILLIS_BETWEEN_LIVELINESS_UPDATE_RUN = 54 * 1000; // <One minute (54 sec + Random(10%))
     long MILLIS_BETWEEN_SESSION_TIMEOUT_RUN = 5 * 60 * 1000; // Five minutes
