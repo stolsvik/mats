@@ -49,10 +49,10 @@ public class SaneThreadPoolExecutor implements Executor, MatsSocketStatics {
         _threadPool.execute(command);
     }
 
-    public void shutdownNice() {
+    public void shutdownNice(int gracefulShutdownMillis) {
         _threadPool.shutdown();
         try {
-            _threadPool.awaitTermination(AWAIT_TERMINATION_THREADPOOLS_MILLISECONDS, TimeUnit.MILLISECONDS);
+            _threadPool.awaitTermination(gracefulShutdownMillis, TimeUnit.MILLISECONDS);
         }
         catch (InterruptedException e) {
             // Just re-set interrupted flag, and go on exiting.

@@ -93,12 +93,12 @@ public class WebSocketOutgoingAcks implements MatsSocketStatics {
         });
     }
 
-    void shutdown() {
+    void shutdown(int gracefulShutdownMillis) {
         _runFlag = false;
         log.info("Shutting down [" + this.getClass().getSimpleName() + "] for [" + _matsSocketServer.serverId()
                 + "], PeriodicFlushThread:[" + _periodicFlushThread + "], ThreadPool [" + _threadPool + "]");
         _periodicFlushThread.interrupt();
-        _threadPool.shutdownNice();
+        _threadPool.shutdownNice(gracefulShutdownMillis);
     }
 
     private volatile boolean _runFlag = true;
@@ -109,7 +109,7 @@ public class WebSocketOutgoingAcks implements MatsSocketStatics {
                 Thread.sleep(MILLIS_BETWEEN_ACK_FLUSHES);
             }
             catch (InterruptedException e) {
-                log.info("Got interrupted while sleeping between performing a Periodic Acks Flush run,"
+                log.debug("Got interrupted while sleeping between performing a Periodic Acks Flush run,"
                         + " assuming shutdown, looping to check runFlag.");
                 continue;
             }

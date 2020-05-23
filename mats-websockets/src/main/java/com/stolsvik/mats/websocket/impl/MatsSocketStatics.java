@@ -59,11 +59,10 @@ public interface MatsSocketStatics {
     long MILLIS_BETWEEN_SESSION_TIMEOUT_RUN = 5 * 60 * 1000; // Five minutes
 
     long MILLIS_BETWEEN_SCAVENGE_SESSION_REMNANTS_RUN = 60 * 60 * 1000; // One hour
-    // Three days ago
+    // Sessions times out if last liveliness was three days ago
     Supplier<Long> MILLIS_SESSION_TIMEOUT_SUPPLIER = () -> System.currentTimeMillis() - 3 * 24 * 60 * 60 * 1000L;
 
     long MILLIS_BETWEEN_ACK_FLUSHES = 100;
-    long AWAIT_TERMINATION_THREADPOOLS_MILLISECONDS = 7500;
 
     String THREAD_PREFIX = "MatsSocket: ";
 

@@ -34,7 +34,7 @@ class LivelinessAndTimeoutAndScavenger implements MatsSocketStatics {
 
     // :: Constructor inited
     private final Thread _sessionLivelinessUpdaterThread;
-    private final Thread _sessionTimeoutThread;
+    private final Thread _sessionTimeouterThread;
     private final Thread _scavengeSessionRemnantsThread;
 
     LivelinessAndTimeoutAndScavenger(DefaultMatsSocketServer matsSocketServer,
@@ -52,9 +52,9 @@ class LivelinessAndTimeoutAndScavenger implements MatsSocketStatics {
                 THREAD_PREFIX + "CSAF LivelinessUpdater for " + _matsSocketServer.serverId());
         _sessionLivelinessUpdaterThread.start();
 
-        _sessionTimeoutThread = new Thread(this::sessionTimeoutRunnable,
-                THREAD_PREFIX + "CSAF SessionTimeout for " + _matsSocketServer.serverId());
-        _sessionTimeoutThread.start();
+        _sessionTimeouterThread = new Thread(this::sessionTimeouterRunnable,
+                THREAD_PREFIX + "CSAF SessionTimeouter for " + _matsSocketServer.serverId());
+        _sessionTimeouterThread.start();
 
         _scavengeSessionRemnantsThread = new Thread(this::scavengeSessionRemnantsRunnable,
                 THREAD_PREFIX + "CSAF ScavengeSessionRemnants for " + _matsSocketServer.serverId());
@@ -65,15 +65,44 @@ class LivelinessAndTimeoutAndScavenger implements MatsSocketStatics {
     }
 
     private volatile boolean _runFlag = true;
+    private final Object _timeoutThreadSynchAndSleepObject = new Object();
 
-    void shutdown() {
+    void shutdown(int gracefulShutdownMillis) {
         _runFlag = false;
         log.info("Shutting down [" + this.getClass().getSimpleName() + "] for [" + _matsSocketServer.serverId()
-                + "], Threads: [" + _sessionLivelinessUpdaterThread + "], [" + _sessionTimeoutThread + "], ["
-                + _scavengeSessionRemnantsThread + "].");
+                + "]..");
+
+        // Interrupt the threads that aren't important to let finish.
+        log.info(".. thread [" + _sessionLivelinessUpdaterThread + "]");
         _sessionLivelinessUpdaterThread.interrupt();
-        _sessionTimeoutThread.interrupt();
+        log.info(".. thread [" + _scavengeSessionRemnantsThread + "]");
         _scavengeSessionRemnantsThread.interrupt();
+
+        /*
+         * Using a notify-style wakeup on the timeouter, to be able to shutdown nicely. Problem is that if the thread is
+         * just running notification on the event listeners, then we do not want to /interrupt/ it. So instead notify it
+         * nicely, asking it to shut down. If this doesn't work out, we interrupt.
+         */
+        // Notify it, in the 99.99% case that it is sleeping between timeouts.
+        log.info(".. thread [" + _sessionTimeouterThread + "]");
+        synchronized (_timeoutThreadSynchAndSleepObject) {
+            _timeoutThreadSynchAndSleepObject.notifyAll();
+        }
+        // .. now check that it got the message.
+        try {
+            // Try to join the thread for a while
+            _sessionTimeouterThread.join(gracefulShutdownMillis);
+            // ?: Did it exit nicely?
+            if (_sessionTimeouterThread.isAlive()) {
+                // -> No, so interrupt it.
+                log.info("The sessionTimeouter Thread didn't exit nicely, so we now interrupt it.");
+                _sessionTimeouterThread.interrupt();
+            }
+        }
+        catch (InterruptedException e) {
+            log.info("Got interrupted while waiting for TimeoutThread to exit nicely. Interrupting it instead.");
+            _sessionTimeouterThread.interrupt();
+        }
     }
 
     private void sessionLivelinessUpdaterRunnable() {
@@ -86,7 +115,7 @@ class LivelinessAndTimeoutAndScavenger implements MatsSocketStatics {
                 Thread.sleep(_millisBetweenLivelinessUpdate + randomExtraSleep);
             }
             catch (InterruptedException e) {
-                log.info("Got interrupted while sleeping between updating Session Liveliness,"
+                log.debug("Got interrupted while sleeping between updating Session Liveliness,"
                         + " assuming shutdown, looping to check runFlag.");
                 continue;
             }
@@ -105,22 +134,29 @@ class LivelinessAndTimeoutAndScavenger implements MatsSocketStatics {
                 }
             }
         }
-        log.info("Exiting: CSAF LivelinessUpdater for [" + _matsSocketServer.serverId() + "].");
+        log.info("Exiting: CSAF LivelinessUpdater Thread for [" + _matsSocketServer.serverId() + "].");
     }
 
-    private void sessionTimeoutRunnable() {
+    private void sessionTimeouterRunnable() {
         // Some constant randomness - which over time will spread out the updates on the different nodes.
         long randomExtraSleep = (int) (Math.random() * _millisBetweenTimeoutRun * 0.1);
-        log.info("Started: CSAF SessionTimeout runner for [" + _matsSocketServer.serverId()
+        log.info("Started: CSAF SessionTimeouter Thread for [" + _matsSocketServer.serverId()
                 + "], Thread [" + Thread.currentThread() + "]");
         while (_runFlag) {
-            try {
-                Thread.sleep(_millisBetweenTimeoutRun + randomExtraSleep);
+            synchronized (_timeoutThreadSynchAndSleepObject) {
+                try {
+                    _timeoutThreadSynchAndSleepObject.wait(_millisBetweenTimeoutRun + randomExtraSleep);
+                }
+                catch (InterruptedException e) {
+                    log.debug("Got interrupted while sleeping between performing a SessionTimeouter run,"
+                            + " assuming shutdown, looping to check runFlag.");
+                    continue;
+                }
             }
-            catch (InterruptedException e) {
-                log.info("Got interrupted while sleeping between performing a SessionTimeout run,"
-                        + " assuming shutdown, looping to check runFlag.");
-                continue;
+            // ?: Re-check runFlag, if we got woken up to exit
+            if (!_runFlag) {
+                // -> Shouldn't run anymore, exit loop.
+                break;
             }
 
             try {
@@ -141,23 +177,23 @@ class LivelinessAndTimeoutAndScavenger implements MatsSocketStatics {
                 }
             }
             catch (Throwable t) {
-                log.warn("Got problems performing a SessionTimeout run.", t);
+                log.warn("Got problems performing a SessionTimeouter run.", t);
             }
         }
-        log.info("Exiting: CSAF SessionTimeout runner for [" + _matsSocketServer.serverId() + "].");
+        log.info("Exiting: CSAF SessionTimeouter Thread for [" + _matsSocketServer.serverId() + "].");
     }
 
     private void scavengeSessionRemnantsRunnable() {
         // Some constant randomness - which over time will spread out the updates on the different nodes.
         long randomExtraSleep = (long) (Math.random() * _millisBetweenScavengeSessionRemnantsRun * 0.1);
-        log.info("Started: CSAF ScavengeSessionRemnants runner for [" + _matsSocketServer.serverId()
+        log.info("Started: CSAF ScavengeSessionRemnants Thread for [" + _matsSocketServer.serverId()
                 + "], Thread [" + Thread.currentThread() + "]");
         while (_runFlag) {
             try {
                 Thread.sleep(_millisBetweenScavengeSessionRemnantsRun + randomExtraSleep);
             }
             catch (InterruptedException e) {
-                log.info("Got interrupted while sleeping between performing a ScavengeSessionRemnants run,"
+                log.debug("Got interrupted while sleeping between performing a ScavengeSessionRemnants run,"
                         + " assuming shutdown, looping to check runFlag.");
                 continue;
             }
@@ -171,6 +207,6 @@ class LivelinessAndTimeoutAndScavenger implements MatsSocketStatics {
                 log.warn("Got problems performing a ScavengeSessionRemnants run.", t);
             }
         }
-        log.info("Exiting: CSAF ScavengeSessionRemnants runner for [" + _matsSocketServer.serverId() + "].");
+        log.info("Exiting: CSAF ScavengeSessionRemnants Thread for [" + _matsSocketServer.serverId() + "].");
     }
 }

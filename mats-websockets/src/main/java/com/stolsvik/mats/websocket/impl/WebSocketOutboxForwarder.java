@@ -50,10 +50,10 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                 + "], ThreadPool:[" + _threadPool + "]");
     }
 
-    void shutdown() {
+    void shutdown(int gracefulShutdownMillis) {
         log.info("Shutting down [" + this.getClass().getSimpleName() + "] for [" + _matsSocketServer.serverId()
                 + "], ThreadPool [" + _threadPool + "]");
-        _threadPool.shutdownNice();
+        _threadPool.shutdownNice(gracefulShutdownMillis);
     }
 
     void newMessagesInCsafNotify(MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler) {

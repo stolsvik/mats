@@ -892,15 +892,6 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         // Hinder further WebSockets connecting to us.
         _stopped = true;
 
-        // Shut down outbox forwarder subsystem.
-        _webSocketOutboxForwarder.shutdown();
-
-        // Shut down outgoing acks subsystem.
-        _webSocketOutgoingAcks.shutdown();
-
-        // Shut down Liveliness Updater and Timeouter subsystem.
-        _casfUpdateAndTimeouter.shutdown();
-
         // Deregister all MatsSocketSession from us, with SERVICE_RESTART, which asks them to reconnect
         ArrayList<MatsSocketSessionAndMessageHandler> sessions = new ArrayList<>(
                 _activeSessionsByMatsSocketSessionId.values());
@@ -908,6 +899,15 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             session.deregisterSessionAndCloseWebSocket(MatsSocketCloseCodes.SERVICE_RESTART,
                     "From Server: Server instance is going down, please reconnect.");
         });
+
+        // Shut down outbox forwarder subsystem.
+        _webSocketOutboxForwarder.shutdown(gracefulShutdownMillis);
+
+        // Shut down outgoing acks subsystem.
+        _webSocketOutgoingAcks.shutdown(gracefulShutdownMillis);
+
+        // Shut down Liveliness Updater and Timeouter subsystem.
+        _casfUpdateAndTimeouter.shutdown(gracefulShutdownMillis);
     }
 
     Optional<MatsSocketEndpointRegistration<?, ?, ?>> getMatsSocketEndpointRegistration(String endpointId) {
