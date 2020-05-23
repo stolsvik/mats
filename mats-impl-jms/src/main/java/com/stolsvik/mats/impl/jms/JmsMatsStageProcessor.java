@@ -13,6 +13,8 @@ import javax.jms.Message;
 import javax.jms.MessageConsumer;
 import javax.jms.Session;
 
+import com.stolsvik.mats.MatsEndpoint.ProcessContext;
+import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
 import org.slf4j.Logger;
@@ -441,6 +443,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                     outgoingProps,
                                     doAfterCommitRunnableHolder);
 
+                            ContextLocal.bindResource(ProcessContext.class, processContext);
+
                             _jmsMatsStage.getProcessLambda().process(processContext, currentSto, incomingDto);
 
                             // :: Send any outgoing Mats messages (replies, requests, new messages etc..)
@@ -457,6 +461,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                     }
                     finally {
                         __stageDemarcatedMatsInitiate.remove();
+
+                        ContextLocal.unbindResource(ProcessContext.class);
                     }
 
                     // :: Handle the DoAfterCommit lambda.

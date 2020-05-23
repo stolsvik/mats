@@ -1,6 +1,8 @@
 package com.stolsvik.mats;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -264,7 +266,7 @@ public interface MatsFactory extends StartStoppable {
      * Mats Stage, they can throw in the given situations those exceptions describe. However, within a Mats Stage, they
      * will never throw those exceptions, since the actual initiation is not performed until the Mats Stage exits. But,
      * if you want to make such a dual mode method that can be employed both outside and within a Mats Stage, you should
-     * code for the "Outside" mode, handling those Exceptions as you would in an ordinary initiation.
+     * thus code for the "Outside" mode, handling those Exceptions as you would in an ordinary initiation.
      * <p />
      * If you would really NOT want this - i.e. you for some reason want the initiation performed within the stage to
      * execute even though the Mats Stage fails - you may use {@link #getOrCreateInitiator(String)}, and you can even
@@ -283,6 +285,7 @@ public interface MatsFactory extends StartStoppable {
      *
      * @return the default <code>MatsInitiator</code>, whose name is 'default', on which messages can be
      *         {@link MatsInitiator#initiate(InitiateLambda) initiated}.
+     * @see ContextLocal#getAttribute(Class, String...)
      */
     MatsInitiator getDefaultInitiator();
 
@@ -328,13 +331,15 @@ public interface MatsFactory extends StartStoppable {
      * {@link MatsEndpoint#finishSetup()} is invoked on them, but will wait till {@link #start()} is invoked on the
      * factory.</b> This feature should be employed in most setups where the MATS endpoints might use other services or
      * components whose order of creation and initialization are difficult to fully control, e.g. typically in an IoC
-     * container like Spring. Set all stuff up, where order is not of importance, and <i>then</i> fire up the endpoints.
-     * If this is not done, the endpoints might start consuming messages off of the MQ (there might already be messages
-     * waiting when the service boots), and thus invoke services/components that are not yet fully up.
+     * container like Spring. Set up the "internal machinery" of the system, including internal services, and only after
+     * all this is running, <i>then</i> fire up the endpoints. If this is not done, the endpoints might start consuming
+     * messages off of the MQ (there might already be messages waiting when the service boots), and thus invoke
+     * services/components that are not yet fully started.
      * <p/>
-     * To implement delayed start for an endpoint, hold off on invoking {@link MatsEndpoint#finishSetup()} until you are
-     * OK with it being started and hence starts consuming messages (e.g. when the needed cache is populated); This
-     * semantics works both when holdEndpointsUntilFactoryIsStarted() has been invoked or not.
+     * Note: To implement delayed start for a specific endpoint, simply hold off on invoking
+     * {@link MatsEndpoint#finishSetup()} until you are OK with it being started and hence starts consuming messages
+     * (e.g. when the needed cache service is finished populated); This semantics works both when
+     * holdEndpointsUntilFactoryIsStarted() has been invoked or not.
      *
      * @see MatsEndpoint#finishSetup()
      * @see MatsEndpoint#start()
@@ -357,6 +362,63 @@ public interface MatsFactory extends StartStoppable {
      */
     @Override
     boolean stop(int gracefulShutdownMillis);
+
+    /**
+     * Provides ThreadLocal access to elements from the {@link MatsStage} process context and {@link MatsInitiate}
+     * context - currently {@link #getAttribute(Class, String...)}.
+     */
+    class ContextLocal {
+        private static final ThreadLocal<Map<Object, Object>> THREAD_LOCAL_MAP = ThreadLocal.withInitial(HashMap::new);
+
+        public static void bindResource(Object key, Object value) {
+            THREAD_LOCAL_MAP.get().put(key, value);
+        }
+
+        public static void unbindResource(Object key) {
+            THREAD_LOCAL_MAP.get().remove(key);
+        }
+
+        /**
+         * Provides a ThreadLocal-accessible variant of the {@link ProcessContext#getAttribute(Class, String...)} and
+         * {@link MatsInitiate#getAttribute(Class, String...)} methods: If the executing thread is currently processing
+         * a {@link MatsStage}, or is within a {@link MatsInitiator#initiate(InitiateLambda) Mats initiation}, the
+         * return value will be the same as if the relevant method was invoked. Otherwise, if the current thread is not
+         * processing a stage or performing an initiation., <code>Optional.empty()</code> is returned.
+         * <p/>
+         * Mandatory: If the Mats implementation has a transactional SQL Connection, it shall be available by
+         * <code>'getAttribute(Connection.class)'</code>.
+         *
+         * @param type
+         *            The expected type of the attribute
+         * @param name
+         *            The (optional) (hierarchical) name(s) of the attribute.
+         * @param <T>
+         *            The type of the attribute.
+         * @return Optional of the attribute in question, the optionality pointing out that it depends on the Mats
+         *         implementation or configuration whether it is available.
+         *
+         * @see ProcessContext#getAttribute(Class, String...)
+         * @see MatsInitiate#getAttribute(Class, String...)
+         * @see #getDefaultInitiator()
+         */
+        public static <T> Optional<T> getAttribute(Class<T> type, String... name) {
+            ProcessContext<?> ctx = (ProcessContext<?>) THREAD_LOCAL_MAP.get().get(ProcessContext.class);
+            // ?: Did we find the ProcessContext?
+            if (ctx != null) {
+                // -> Yes, so invoke it.
+                return ctx.getAttribute(type, name);
+            }
+            // E-> No, check MatsInitiate
+            MatsInitiate init = (MatsInitiate) THREAD_LOCAL_MAP.get().get(MatsInitiate.class);
+            // ?: Did we find the MatsInitiate?
+            if (init != null) {
+                // -> Yes, so invoke it.
+                return init.getAttribute(type, name);
+            }
+            // E-> No luck.
+            return Optional.empty();
+        }
+    }
 
     /**
      * Provides for a way to configure factory-wide elements and defaults.

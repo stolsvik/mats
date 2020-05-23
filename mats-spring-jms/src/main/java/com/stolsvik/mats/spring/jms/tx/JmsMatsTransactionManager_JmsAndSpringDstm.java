@@ -144,7 +144,7 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
      * <p>
      * Uses the supplied {@link TransactionDefinition} Function to define the transactions - consider
      * {@link #create(DataSource)} if you are OK with the defaults.
-     * 
+     *
      * @param dataSource
      *            the DataSource to make a {@link DataSourceTransactionManager} from - which will be wrapped in a
      *            {@link LazyConnectionDataSourceProxy} if it not already is.
@@ -193,7 +193,7 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
      * {@link #create(DataSourceTransactionManager)} if you are OK with the defaults.
      * <p>
      * <b>NOTICE: If you can, rather use {@link #create(DataSource)} or {@link #create(DataSource, Function)}.</b>
-     * 
+     *
      * @param dataSourceTransactionManager
      *            the {@link DataSourceTransactionManager} to use for transaction management.
      * @param transactionDefinitionFunction
@@ -372,7 +372,7 @@ public class JmsMatsTransactionManager_JmsAndSpringDstm extends JmsMatsTransacti
                 // :: First make the potential SQL Connection available
                 // Notice how we here use the DataSourceUtils class, so that we get the tx ThreadLocal Connection.
                 // Read more at both DataSourceUtils and DataSourceTransactionManager.
-                jmsMatsMessageContext.setSqlConnection(() -> DataSourceUtils
+                jmsMatsMessageContext.setSqlConnectionSupplier(() -> DataSourceUtils
                         .getConnection(_dataSourceTransactionManager.getDataSource()));
                 jmsMatsMessageContext.setSqllConnectionEmployed(() -> _monitorConnectionGettingDataSourceWrapper
                         .getThreadLocalGottenConnection() != null);

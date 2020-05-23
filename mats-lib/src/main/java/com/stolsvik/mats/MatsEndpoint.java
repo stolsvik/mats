@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.function.Consumer;
 
 import com.stolsvik.mats.MatsConfig.StartStoppable;
+import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.MatsFactory.MatsWrapper;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
@@ -565,7 +566,8 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         /**
          * Provides a way to get hold of (optional) attributes/objects from the Mats implementation, either specific to
          * the Mats implementation in use, or configured into this instance of the Mats implementation. Is mirrored by
-         * the same method at {@link MatsInitiate#getAttribute(Class, String...)}.
+         * the same method at {@link MatsInitiate#getAttribute(Class, String...)}. There is also a
+         * ThreadLocal-accessible version at {@link ContextLocal#getAttribute(Class, String...)}.
          * <p/>
          * Mandatory: If the Mats implementation has a transactional SQL Connection, it shall be available by
          * <code>'context.getAttribute(Connection.class)'</code>.
@@ -578,6 +580,9 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          *            The type of the attribute.
          * @return Optional of the attribute in question, the optionality pointing out that it depends on the Mats
          *         implementation or configuration whether it is available.
+         *
+         * @see ProcessContext#getAttribute(Class, String...)
+         * @see ContextLocal#getAttribute(Class, String...)
          */
         <T> Optional<T> getAttribute(Class<T> type, String... name);
     }
@@ -640,8 +645,8 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * note that the field holding the wrapped instance is not volatile nor synchronized</b>. This means that if you
          * want to set it after it has been published to other threads, you will have to override both this method and
          * {@link #unwrap()} to provide for needed memory visibility semantics, i.e. establish a happens-before edge
-         * between the setting of the instance and any other threads getting it. A <code>volatile</code> field would work
-         * nice.
+         * between the setting of the instance and any other threads getting it. A <code>volatile</code> field would
+         * work nice.
          *
          * @param targetProcessContext
          *            the {@link ProcessContext} which is returned by {@link #unwrap()}, unless that is overridden.

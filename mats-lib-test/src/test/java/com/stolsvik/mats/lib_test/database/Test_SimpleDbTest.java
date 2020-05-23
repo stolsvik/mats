@@ -1,8 +1,10 @@
 package com.stolsvik.mats.lib_test.database;
 
 import java.sql.Connection;
+import java.util.Optional;
 import java.util.UUID;
 
+import com.stolsvik.mats.MatsFactory.ContextLocal;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,8 +34,22 @@ public class Test_SimpleDbTest extends MatsDbTest {
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
                 (context, dto) -> {
+                    Optional<Connection> connectionAttribute = context.getAttribute(Connection.class);
+                    if (!connectionAttribute.isPresent()) {
+                        throw new AssertionError("Missing context.getAttribute(Connection.class)");
+                    }
+                    Connection sqlConnection = connectionAttribute.get();
+
+                    Optional<Connection> contextLocalConnectionAttribute = ContextLocal.getAttribute(Connection.class);
+                    if (!contextLocalConnectionAttribute.isPresent()) {
+                        throw new AssertionError("Missing ContextLocal.getAttribute(Connection.class)");
+                    }
+
+                    // These should be the same.
+                    Assert.assertSame(sqlConnection, contextLocalConnectionAttribute.get());
+
                     // :: Get the data from the SQL table
-                    String data = matsRule.getDataFromDataTable(context.getAttribute(Connection.class).get());
+                    String data = matsRule.getDataFromDataTable(sqlConnection);
                     return new DataTO(dto.number * 2, dto.string + ":FromService:" + data);
                 });
     }
@@ -59,10 +75,27 @@ public class Test_SimpleDbTest extends MatsDbTest {
 
         // :: Insert into 'datatable' and send the request to SERVICE.
         matsRule.getMatsInitiator().initiateUnchecked(
-                (msg) -> {
-                    matsRule.insertDataIntoDataTable(msg.getAttribute(Connection.class).get(), randomData);
+                (init) -> {
+                    // :: Assert that SQL Connection is in places where it should be
+                    Optional<Connection> connectionAttribute = init.getAttribute(Connection.class);
+                    if (!connectionAttribute.isPresent()) {
+                        throw new AssertionError("Missing matsInitiate.getAttribute(Connection.class)");
+                    }
+                    Connection sqlConnection = connectionAttribute.get();
+
+                    Optional<Connection> contextLocalConnectionAttribute = ContextLocal.getAttribute(Connection.class);
+                    if (!contextLocalConnectionAttribute.isPresent()) {
+                        throw new AssertionError("Missing ContextLocal.getAttribute(Connection.class)");
+                    }
+
+                    // These should be the same.
+                    Assert.assertSame(sqlConnection, contextLocalConnectionAttribute.get());
+
+                    // :: Stick some data in table.
+                    matsRule.insertDataIntoDataTable(sqlConnection, randomData);
+
                     // :: Send the request
-                    msg.traceId(randomId())
+                    init.traceId(randomId())
                             .from(INITIATOR)
                             .to(SERVICE)
                             .replyTo(TERMINATOR, sto)

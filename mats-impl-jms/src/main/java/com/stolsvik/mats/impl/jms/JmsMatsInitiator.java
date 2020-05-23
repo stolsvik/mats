@@ -14,7 +14,9 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
+import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
@@ -85,8 +87,10 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(jmsSessionHolder, null);
                 _transactionContext.doTransaction(jmsMatsMessageContext, () -> {
                     List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
-                    lambda.initiate(new JmsMatsInitiate<>(_parentFactory, messagesToSend, jmsMatsMessageContext,
-                            doAfterCommitRunnableHolder));
+                    JmsMatsInitiate<Z> init = new JmsMatsInitiate<>(_parentFactory, messagesToSend,
+                            jmsMatsMessageContext, doAfterCommitRunnableHolder);
+                    ContextLocal.bindResource(MatsInitiate.class, init);
+                    lambda.initiate(init);
                     sendMatsMessages(log, nanosStart, jmsSessionHolder, _parentFactory, messagesToSend);
                 });
                 jmsSessionHolder.release();
@@ -120,6 +124,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 throw new MatsBackendException(
                         "Evidently have problems talking with our backend, which is a JMS Broker.",
                         e);
+            }
+            finally {
+                ContextLocal.unbindResource(MatsInitiate.class);
             }
         }
         finally {
@@ -595,6 +602,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                         _messagesToSend, _jmsMatsMessageContext,
                         outgoingProps,
                         _doAfterCommitRunnableHolder);
+
+                ContextLocal.bindResource(ProcessContext.class, processContext);
+
                 lambda.process(processContext, currentSto, incomingDto);
             }
             catch (MatsRefuseMessageException e) {
@@ -604,6 +614,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             }
             finally {
                 __stageDemarcatedMatsInitiate.remove();
+                ContextLocal.unbindResource(ProcessContext.class);
             }
 
             // No need to reset() here, as we've not touched the _from, _to, etc..

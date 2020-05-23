@@ -11,7 +11,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 /**
  * This is an internal context object, for the processing in JMS-MATS. This is used to communicate back and forth
  * between JmsMats proper, the {@link JmsMatsJmsSessionHandler} and {@link JmsMatsTransactionManager}.
- * 
+ *
  * @author Endre Stølsvik 2019-08-11 23:04 - http://stolsvik.com/, endre@stolsvik.com
  */
 public class JmsMatsMessageContext {
@@ -41,7 +41,7 @@ public class JmsMatsMessageContext {
     /**
      * Set supplier of SQL Connection if {@link JmsMatsTransactionManager} handles SQL Connections.
      */
-    public void setSqlConnection(Supplier<Connection> sqlConnectionSupplier) {
+    public void setSqlConnectionSupplier(Supplier<Connection> sqlConnectionSupplier) {
         _sqlConnectionSupplier = sqlConnectionSupplier;
     }
 
@@ -67,7 +67,7 @@ public class JmsMatsMessageContext {
     /**
      * Used by JMS Mats to point out whether the SQL Connection was actually employed (if this is not possible to
      * determine, then return whether it was gotten).
-     * 
+     *
      * @return true if the SQL Connection was actually employed (if this is not possible to determine, then return
      *         whether it was gotten).
      */

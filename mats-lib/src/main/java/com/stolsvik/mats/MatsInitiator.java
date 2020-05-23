@@ -9,6 +9,7 @@ import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
+import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.MatsFactory.MatsWrapper;
 
 /**
@@ -628,7 +629,8 @@ public interface MatsInitiator extends Closeable {
         /**
          * Provides a way to get hold of (optional) attributes/objects from the Mats implementation, either specific to
          * the Mats implementation in use, or configured into this instance of the Mats implementation. Mirrors the same
-         * method at {@link ProcessContext#getAttribute(Class, String...)}.
+         * method at {@link ProcessContext#getAttribute(Class, String...)}. There is also a ThreadLocal-accessible
+         * version at {@link ContextLocal#getAttribute(Class, String...)}.
          * <p/>
          * Mandatory: If the Mats implementation has a transactional SQL Connection, it shall be available by
          * <code>'context.getAttribute(Connection.class)'</code>.
@@ -641,6 +643,9 @@ public interface MatsInitiator extends Closeable {
          *            The type of the attribute.
          * @return Optional of the attribute in question, the optionality pointing out that it depends on the Mats
          *         implementation or configuration whether it is available.
+         *
+         * @see ProcessContext#getAttribute(Class, String...)
+         * @see ContextLocal#getAttribute(Class, String...)
          */
         <T> Optional<T> getAttribute(Class<T> type, String... name);
     }

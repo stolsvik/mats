@@ -91,9 +91,9 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
         public void doTransaction(JmsMatsMessageContext jmsMatsMessageContext, ProcessingLambda lambda)
                 throws JmsMatsJmsException {
             // :: First make the potential Connection available
-            LazyJdbcConnectionSupplier lazyConnectionSupplier = new LazyJdbcConnectionSupplier();
-            jmsMatsMessageContext.setSqlConnection(lazyConnectionSupplier);
-            jmsMatsMessageContext.setSqllConnectionEmployed(() -> _gottenConnection != null);
+            LazyJdbcConnectionSupplier lazyConSup = new LazyJdbcConnectionSupplier();
+            jmsMatsMessageContext.setSqlConnectionSupplier(lazyConSup);
+            jmsMatsMessageContext.setSqllConnectionEmployed(lazyConSup::wasConnectionEmployed);
 
             // :: We invoke the "outer" transaction, which is the JMS transaction.
             super.doTransaction(jmsMatsMessageContext, () -> {
@@ -121,14 +121,13 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 // Catch EVERYTHING that can come out of the try-block:
                 catch (MatsRefuseMessageException | RuntimeException | Error e) {
                     // ----- The user code had some error occur, or want to reject this message.
-                    // !!NOTE!!: The full Exception will be logged by outside JMS-trans class on JMS rollback handling.
                     log.error(LOG_PREFIX + "ROLLBACK SQL: " + e.getClass().getSimpleName() + " while processing "
                             + stageOrInit(_txContextKey) + " (most probably from user code)."
-                            + " Rolling back the SQL Connection.");
+                            + " Rolling back the SQL Connection.", e);
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                      */
-                    commitOrRollbackThenCloseConnection(false);
+                    commitOrRollbackThenCloseConnection(lazyConSup, false);
 
                     // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
@@ -137,14 +136,13 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 }
                 catch (Throwable t) {
                     // ----- This must have been a "sneaky throws"; Throwing an undeclared checked exception.
-                    // !!NOTE!!: The full Exception will be logged by outside JMS-trans class on JMS rollback handling.
                     log.error(LOG_PREFIX + "ROLLBACK SQL: Got an undeclared checked exception " + t.getClass()
                             .getSimpleName() + " while processing " + stageOrInit(_txContextKey)
-                            + " (probably 'sneaky throws' of checked exception). Rolling back the SQL Connection.");
+                            + " (probably 'sneaky throws' of checked exception). Rolling back the SQL Connection.", t);
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                      */
-                    commitOrRollbackThenCloseConnection(false);
+                    commitOrRollbackThenCloseConnection(lazyConSup, false);
 
                     // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
@@ -167,7 +165,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                      */
-                    commitOrRollbackThenCloseConnection(false);
+                    commitOrRollbackThenCloseConnection(lazyConSup, false);
 
                     // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
@@ -183,7 +181,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 /*
                  * IFF the SQL Connection was fetched, we will now commit (and close) it.
                  */
-                commitOrRollbackThenCloseConnection(true);
+                commitOrRollbackThenCloseConnection(lazyConSup, true);
 
                 // ----- We're now *outside* the SQL Transaction demarcation (committed).
 
@@ -193,15 +191,17 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
             });
         }
 
-        private void commitOrRollbackThenCloseConnection(boolean commit) {
+        private void commitOrRollbackThenCloseConnection(LazyJdbcConnectionSupplier lazyConSup, boolean commit) {
             // ?: Was connection gotten by code in ProcessingLambda (user code)
-            if (_gottenConnection == null) {
+            if (!lazyConSup.wasConnectionEmployed()) {
                 // -> No, Connection was not gotten
                 log.debug(LOG_PREFIX + "SQL Connection was not requested by stage processing lambda (user code),"
                         + " nothing to perform " + (commit ? "commit" : "rollback") + " on!");
                 return;
             }
             // E-> Yes, Connection was gotten by ProcessingLambda (user code)
+
+            Connection _gottenConnection = lazyConSup.getGottenConnection();
             // :: Commit or Rollback
             try {
                 if (commit) {
@@ -218,26 +218,10 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                         + " SQL Connection [" + _gottenConnection + "] - for stage [" + _txContextKey + "].", e);
             }
             // :: Set back the AutoCommit state
-            try {
-                _gottenConnection.setAutoCommit(_autoCommitModeBeforeFalse);
-                log.debug(LOG_PREFIX + "Reset AutoCommit mode to [" + _autoCommitModeBeforeFalse + "].");
-            }
-            catch (SQLException e) {
-                log.warn("After performing " + (commit ? "commit" : "rollback") + " on SQL Connection ["
-                        + _gottenConnection + "], we tried to reset AutoCommit mode to [" + _autoCommitModeBeforeFalse
-                        + "] - for stage [" + _txContextKey + "]. Will ignore this, since the operation should have"
-                        + " gone through.", e);
-            }
+            lazyConSup.resetAutoCommit();
+
             // :: Close
-            try {
-                _gottenConnection.close();
-                log.debug(LOG_PREFIX + "Closed SQL Connection [" + _gottenConnection + "].");
-            }
-            catch (SQLException e) {
-                log.warn("After performing " + (commit ? "commit" : "rollback") + " on SQL Connection ["
-                        + _gottenConnection + "], we tried to close it but that raised an exception - for stage ["
-                        + _txContextKey + "]. Will ignore this, since the operation should have gone through.", e);
-            }
+            lazyConSup.close();
         }
 
         /**
@@ -249,15 +233,15 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
             }
         }
 
-        private Connection _gottenConnection;
-        private boolean _autoCommitModeBeforeFalse;
-
         /**
          * Performs Lazy-getting (and setting AutoCommit false) of SQL Connection for the StageProcessor thread, by
          * means of being set on the {@link JmsMatsMessageContext}, which makes it available via
          * {@link JmsMatsProcessContext#getAttribute(Class, String...)}.
          */
         private class LazyJdbcConnectionSupplier implements Supplier<Connection> {
+            private Connection _gottenConnection;
+            private boolean _autoCommitModeBeforeFalse;
+
             @Override
             public Connection get() {
                 // NOTE: This shall only be done on one thread, which is the StageProcessor thread.
@@ -295,6 +279,40 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
                 // Return the gotten SQL Connection (either previously gotten, or just gotten)
                 return _gottenConnection;
+            }
+
+            boolean wasConnectionEmployed() {
+                return _gottenConnection != null;
+            }
+
+            Connection getGottenConnection() {
+                return _gottenConnection;
+            }
+
+            void resetAutoCommit() {
+                try {
+                    _gottenConnection.setAutoCommit(_autoCommitModeBeforeFalse);
+                    log.debug(LOG_PREFIX + "Reset AutoCommit mode to [" + _autoCommitModeBeforeFalse + "].");
+                }
+                catch (SQLException e) {
+                    log.warn("After performing commit or rollback on SQL Connection ["
+                            + _gottenConnection + "], we tried to reset AutoCommit mode to ["
+                            + _autoCommitModeBeforeFalse
+                            + "] - for stage [" + _txContextKey + "]. Will ignore this, since the operation should have"
+                            + " gone through.", e);
+                }
+            }
+
+            public void close() {
+                try {
+                    _gottenConnection.close();
+                    log.debug(LOG_PREFIX + "Closed SQL Connection [" + _gottenConnection + "].");
+                }
+                catch (SQLException e) {
+                    log.warn("After performing commit or rollback on SQL Connection ["
+                            + _gottenConnection + "], we tried to close it but that raised an exception - for stage ["
+                            + _txContextKey + "]. Will ignore this, since the operation should have gone through.", e);
+                }
             }
         }
 
