@@ -1,6 +1,6 @@
 package com.stolsvik.mats.impl.jms;
 
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,7 +70,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         // that is, "turn off" a MatsInitiator: Either hang requsts, or probably more interesting, fail them. And
         // that would be nice to use "close()" for: As long as it is closed, it can't be used. Need to evaluate.
 
-        try { // :: try-finally: Remove MDC_MATS_INITIATE
+        String existingTraceId = MDC.get(MDC_TRACE_ID);
+
+        try { // :: try-finally: Remove MDC_MATS_INITIATE and MDC_TRACE_ID
             MDC.put(MDC_MATS_INITIATE, "true");
 
             long nanosStart = System.nanoTime();
@@ -85,12 +88,22 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             try {
                 DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
                 JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(jmsSessionHolder, null);
+                // ===== Going into Transactional Demarcation
                 _transactionContext.doTransaction(jmsMatsMessageContext, () -> {
                     List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
                     JmsMatsInitiate<Z> init = new JmsMatsInitiate<>(_parentFactory, messagesToSend,
                             jmsMatsMessageContext, doAfterCommitRunnableHolder);
                     ContextLocal.bindResource(MatsInitiate.class, init);
                     lambda.initiate(init);
+
+                    // Trick to get the commit of transaction to contain TraceIds of all outgoing messages
+                    // - which should handle if we get any Exceptions when committing.
+                    String traceId = messagesToSend.stream()
+                            .map(m -> m.getMatsTrace().getTraceId())
+                            .distinct()
+                            .collect(Collectors.joining(";"));
+                    MDC.put(MDC_TRACE_ID, traceId);
+
                     sendMatsMessages(log, nanosStart, jmsSessionHolder, _parentFactory, messagesToSend);
                 });
                 jmsSessionHolder.release();
@@ -122,8 +135,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 // .. then throw on. This is a lesser evil than JmsMatsMessageSendException, as it probably have
                 // happened before we committed database etc.
                 throw new MatsBackendException(
-                        "Evidently have problems talking with our backend, which is a JMS Broker.",
-                        e);
+                        "Evidently have problems talking with our backend, which is a JMS Broker.", e);
             }
             finally {
                 ContextLocal.unbindResource(MatsInitiate.class);
@@ -131,6 +143,12 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
         finally {
             MDC.remove(MDC_MATS_INITIATE);
+            if (existingTraceId != null) {
+                MDC.put(MDC_TRACE_ID, existingTraceId);
+            }
+            else {
+                MDC.remove(MDC_TRACE_ID);
+            }
         }
     }
 
@@ -386,8 +404,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             long now = System.currentTimeMillis();
             MatsTrace<Z> matsTrace = createMatsTrace(ser, now)
-                    .addRequestCall(_from,
-                            _to, MessagingModel.QUEUE,
+                    .addRequestCall(_from, _to, MessagingModel.QUEUE,
                             _replyTo, (_replyToSubscription ? MessagingModel.TOPIC : MessagingModel.QUEUE),
                             ser.serializeObject(requestDto),
                             ser.serializeObject(_replySto),
@@ -442,8 +459,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             long now = System.currentTimeMillis();
             MatsTrace<Z> matsTrace = createMatsTrace(ser, now)
-                    .addSendCall(_from,
-                            _to, MessagingModel.QUEUE,
+                    .addSendCall(_from, _to, MessagingModel.QUEUE,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
 
             copyOverAnyExistingTraceProperties(matsTrace);
@@ -475,8 +491,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
             long now = System.currentTimeMillis();
             MatsTrace<Z> matsTrace = createMatsTrace(ser, now)
-                    .addSendCall(_from,
-                            _to, MessagingModel.TOPIC,
+                    .addSendCall(_from, _to, MessagingModel.TOPIC,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
 
             addDebugInfoToCurrentCall(now, matsTrace);
@@ -492,8 +507,6 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             return new MessageReferenceImpl(matsTrace.getCurrentCall().getMatsMessageId());
         }
-
-        private static final Charset CHARSET_UTF8 = Charset.forName("UTF-8");
 
         @Override
         public <R, S, I> void unstash(byte[] stash,
@@ -540,9 +553,10 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             // :: Metadata
             // :EndpointId
             String endpointId = new String(stash, zstartEndpointId + 1, zstartStageId - zstartEndpointId - 1,
-                    CHARSET_UTF8);
+                    StandardCharsets.UTF_8);
             // :StageId
-            String stageId = new String(stash, zstartStageId + 1, zstartNextStageId - zstartStageId - 1, CHARSET_UTF8);
+            String stageId = new String(stash, zstartStageId + 1, zstartNextStageId - zstartStageId - 1,
+                    StandardCharsets.UTF_8);
             // :NextStageId
             // If nextStageId == the special "no next stage" string, then null. Else get it.
             String nextStageId = (zstartMatsTraceMeta - zstartNextStageId
@@ -550,13 +564,13 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     stash[zstartNextStageId + 1] == JmsMatsProcessContext.NO_NEXT_STAGE[0]
                             ? null
                             : new String(stash, zstartNextStageId + 1,
-                                    zstartMatsTraceMeta - zstartNextStageId - 1, CHARSET_UTF8);
+                                    zstartMatsTraceMeta - zstartNextStageId - 1, StandardCharsets.UTF_8);
             // :MatsTrace Meta
             String matsTraceMeta = new String(stash, zstartMatsTraceMeta + 1,
-                    zstartSystemMessageId - zstartMatsTraceMeta - 1, CHARSET_UTF8);
+                    zstartSystemMessageId - zstartMatsTraceMeta - 1, StandardCharsets.UTF_8);
             // :MessageId
             String messageId = new String(stash, zstartSystemMessageId + 1,
-                    zstartMatsTrace - zstartSystemMessageId - 1, CHARSET_UTF8);
+                    zstartMatsTrace - zstartSystemMessageId - 1, StandardCharsets.UTF_8);
 
             // :Actual MatsTrace:
             MatsSerializer<Z> matsSerializer = _parentFactory.getMatsSerializer();

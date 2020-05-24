@@ -5,6 +5,7 @@ import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import javax.jms.Destination;
 import javax.jms.JMSException;
@@ -13,17 +14,17 @@ import javax.jms.Message;
 import javax.jms.MessageConsumer;
 import javax.jms.Session;
 
-import com.stolsvik.mats.MatsEndpoint.ProcessContext;
-import com.stolsvik.mats.MatsFactory.ContextLocal;
-import com.stolsvik.mats.MatsInitiator.MatsInitiate;
-import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.ProcessContext;
+import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
+import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsStage.StageConfig;
+import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
@@ -446,6 +447,14 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                             ContextLocal.bindResource(ProcessContext.class, processContext);
 
                             _jmsMatsStage.getProcessLambda().process(processContext, currentSto, incomingDto);
+
+                            // Trick to get the commit of transaction to contain TraceIds of all outgoing messages
+                            // - which should handle if we get any Exceptions when committing.
+                            String traceId = messagesToSend.stream()
+                                    .map(m -> m.getMatsTrace().getTraceId())
+                                    .distinct()
+                                    .collect(Collectors.joining(";"));
+                            MDC.put(MDC_TRACE_ID, traceId);
 
                             // :: Send any outgoing Mats messages (replies, requests, new messages etc..)
                             sendMatsMessages(log, nanosStart, _jmsSessionHolder, getFactory(), messagesToSend);
