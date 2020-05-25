@@ -764,72 +764,86 @@ public interface MatsInitiator extends Closeable {
 
         @Override
         public MatsInitiate traceId(String traceId) {
-            return unwrap().traceId(traceId);
+            unwrap().traceId(traceId);
+            return this;
         }
 
         @Override
         public MatsInitiate keepTrace(KeepTrace keepTrace) {
-            return unwrap().keepTrace(keepTrace);
+            unwrap().keepTrace(keepTrace);
+            return this;
         }
 
         @Override
         public MatsInitiate nonPersistent() {
-            return unwrap().nonPersistent();
+            unwrap().nonPersistent();
+            return this;
         }
 
         @Override
         public MatsInitiate nonPersistent(long timeToLiveMillis) {
-            return unwrap().nonPersistent(timeToLiveMillis);
+            unwrap().nonPersistent(timeToLiveMillis);
+            return this;
         }
 
         @Override
         public MatsInitiate interactive() {
-            return unwrap().interactive();
+            unwrap().interactive();
+            return this;
         }
 
         @Override
         public MatsInitiate timeToLive(long millis) {
-            return unwrap().timeToLive(millis);
+            unwrap().timeToLive(millis);
+            return this;
         }
 
         @Override
         public MatsInitiate noAudit() {
-            return unwrap().noAudit();
+            unwrap().noAudit();
+            return this;
         }
 
         @Override
         public MatsInitiate from(String initiatorId) {
-            return unwrap().from(initiatorId);
+            unwrap().from(initiatorId);
+            return this;
         }
 
         @Override
         public MatsInitiate to(String endpointId) {
-            return unwrap().to(endpointId);
+            unwrap().to(endpointId);
+            return this;
         }
 
         @Override
         public MatsInitiate replyTo(String endpointId, Object replySto) {
-            return unwrap().replyTo(endpointId, replySto);
+            unwrap().replyTo(endpointId, replySto);
+            return this;
         }
 
         @Override
         public MatsInitiate replyToSubscription(String endpointId, Object replySto) {
-            return unwrap().replyToSubscription(endpointId, replySto);
+            unwrap().replyToSubscription(endpointId, replySto);
+            return this;
         }
 
         @Override
         public MatsInitiate setTraceProperty(String propertyName, Object propertyValue) {
-            return unwrap().setTraceProperty(propertyName, propertyValue);
+            unwrap().setTraceProperty(propertyName, propertyValue);
+            return this;
         }
 
         @Override
         public MatsInitiate addBytes(String key, byte[] payload) {
-            return unwrap().addBytes(key, payload);
+            unwrap().addBytes(key, payload);
+            return this;
         }
 
         @Override
         public MatsInitiate addString(String key, String payload) {
-            return unwrap().addString(key, payload);
+            unwrap().addString(key, payload);
+            return this;
         }
 
         @Override
