@@ -4,8 +4,9 @@ import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 import javax.jms.Destination;
 import javax.jms.JMSException;
@@ -444,17 +445,45 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                     outgoingProps,
                                     doAfterCommitRunnableHolder);
 
+                            // .. stick the ProcessContext into the ThreadLocal scope
                             ContextLocal.bindResource(ProcessContext.class, processContext);
 
+                            // .. actually commit
                             _jmsMatsStage.getProcessLambda().process(processContext, currentSto, incomingDto);
 
-                            // Trick to get the commit of transaction to contain TraceIds of all outgoing messages
-                            // - which should handle if we get any Exceptions when committing.
-                            String traceId = messagesToSend.stream()
-                                    .map(m -> m.getMatsTrace().getTraceId())
-                                    .distinct()
-                                    .collect(Collectors.joining(";"));
-                            MDC.put(MDC_TRACE_ID, traceId);
+                            // :: Trick to get the MDC.traceId on commit of transaction to contain TraceIds of all
+                            // outgoing messages
+                            // ?: Are there any outgoing messages? (There are none for e.g. Terminator)
+                            if (!messagesToSend.isEmpty()) {
+                                // -> Yes, there are outgoing messages.
+                                // Handle standard-case where there is only one outgoing (i.e. a Service which replied)
+                                // ?: Only one message
+                                if (messagesToSend.size() == 1) {
+                                    // ?: Is the traceId different from the one we are processing?
+                                    // (This can happen if it is a Terminator, but which send a new message)
+                                    if (!messagesToSend.get(0).getMatsTrace().getTraceId().equals(matsTrace
+                                            .getTraceId())) {
+                                        // -> Yes, different, so make a new MDC for this containing both.
+                                        String bothTraceIds = matsTrace.getTraceId()
+                                                + ';' + messagesToSend.get(0).getMatsTrace().getTraceId();
+                                        MDC.put(MDC_TRACE_ID, bothTraceIds);
+                                    }
+                                    // E-> They are the same - so do not change it.
+                                }
+                                else {
+                                    // -> There are more than 1 outgoing message. Collect and concat.
+                                    // Using TreeSet to both: 1) de-duplicate, 2) get sort.
+                                    Set<String> allTraceIds = new TreeSet<>();
+                                    // Add the TraceId for the message we are processing.
+                                    allTraceIds.add(matsTrace.getTraceId());
+                                    // :: Add TraceIds for all the outgoing messages
+                                    for (JmsMatsMessage<Z> msg : messagesToSend) {
+                                        allTraceIds.add(msg.getMatsTrace().getTraceId());
+                                    }
+                                    // Set new concat'ed traceId (will probably still just be one..)
+                                    MDC.put(MDC_TRACE_ID, String.join(";", allTraceIds));
+                                }
+                            }
 
                             // :: Send any outgoing Mats messages (replies, requests, new messages etc..)
                             sendMatsMessages(log, nanosStart, _jmsSessionHolder, getFactory(), messagesToSend);
