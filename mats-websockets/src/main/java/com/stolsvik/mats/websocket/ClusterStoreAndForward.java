@@ -238,8 +238,8 @@ public interface ClusterStoreAndForward {
      * @return the current node holding MatsSocket Session, or empty if none.
      */
     Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
-            String clientMessageId, String traceId,
-            MessageType type, Long requestTimestamp, String envelope, String messageJson, byte[] messageBinary)
+            String clientMessageId, String traceId, MessageType type, Long requestTimestamp,
+            String envelope, String messageJson, byte[] messageBinary)
             throws DataAccessException;
 
     /**

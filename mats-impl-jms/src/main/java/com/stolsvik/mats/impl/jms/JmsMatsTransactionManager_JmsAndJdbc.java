@@ -118,7 +118,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                      */
                     lambda.performWithinTransaction();
                 }
-                // Catch EVERYTHING that can come out of the try-block:
+                // Catch EVERYTHING that "legally" can come out of the try-block:
                 catch (MatsRefuseMessageException | RuntimeException | Error e) {
                     // ----- The user code had some error occur, or want to reject this message.
                     log.error(LOG_PREFIX + "ROLLBACK SQL: " + e.getClass().getSimpleName() + " while processing "
@@ -159,9 +159,8 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 }
                 catch (JmsMatsJmsException e) {
                     // ----- Evidently the JMS Session is broken - so rollback SQL
-                    // !!NOTE!!: The full Exception will be logged by outside JMS-trans class on JMS rollback handling.
                     log.error(LOG_PREFIX + "ROLLBACK SQL: " + e.getClass().getSimpleName() + " when checking whether"
-                            + " the JMS Session was OK. Rolling back the SQL Connection.");
+                            + " the JMS Session was OK. Rolling back the SQL Connection.", e);
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                      */

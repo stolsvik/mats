@@ -942,7 +942,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
             // .. then go through all incoming Envelopes (both held, and from this pipeline).
             List<MatsSocketEnvelopeWithMetaDto> replyEnvelopes = new ArrayList<>();
-            for (MatsSocketEnvelopeWithMetaDto envelope : envelopes) {
+            for (Iterator<MatsSocketEnvelopeWithMetaDto> it = envelopes.iterator(); it.hasNext();) {
+                MatsSocketEnvelopeWithMetaDto envelope = it.next();
                 try { // try-finally: MDC.remove..
                     MDC.put(MDC_MESSAGE_TYPE, envelope.t.name());
                     if (envelope.tid != null) {
@@ -962,6 +963,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                             // -> No, badness ensued - handling has already closed session and websocket and the lot.
                             return;
                         }
+                        // The handling code will record this incoming message
+                        it.remove();
                         // The message is handled, so go to next message.
                         continue;
                     }
@@ -1052,15 +1055,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         // Close CSAF session
         if (_matsSocketSessionId != null) {
-            try {
-                _matsSocketServer.getClusterStoreAndForward().closeSession(_matsSocketSessionId);
-            }
-            catch (DataAccessException e) {
-                log.warn("Could not close session in CSAF. This is unfortunate, as it then is technically possible to"
-                        + " still reconnect to the session while this evidently was not the intention"
-                        + " (only the same user can reconnect, though). However, the session scavenger"
-                        + " will clean this lingering session out after some hours.", e);
-            }
+            _matsSocketServer.closeSessionFromCsaf(_matsSocketSessionId);
             // :: Invoke the SessionRemovedEvent listeners - AFTER it is removed from MatsSocketServer and CSAF
             _matsSocketServer.invokeSessionRemovedEventListeners(new SessionRemovedEventImpl(
                     SessionRemovedEventType.CLOSE, _matsSocketSessionId, closeCode, reason));
@@ -1607,7 +1602,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             return false;
         }
 
-        _matsSocketServer.getIncomingSendAndRequestAndRepliesHandler().handleSendOrRequestOrReply(this,
+        _matsSocketServer.getIncomingSrrMsgHandler().handleSendOrRequestOrReply(this,
                 receivedTimestamp, nanosStart, envelope);
 
         // This went OK

@@ -115,12 +115,12 @@ public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionMana
                  * Should only be user code, as errors from "ourselves" (the JMS MATS impl) should throw
                  * JmsMatsJmsException, and are caught earlier (see above).
                  */
-                log.error(LOG_PREFIX + "ROLLBACK JMS: " + e.getClass().getSimpleName() + " while transacting "
+                log.error(LOG_PREFIX + "ROLLBACK JMS: Got a " + e.getClass().getSimpleName() + " while transacting "
                         + stageOrInit(_txContextKey) + " (should only be from user code)."
                         + " Rolling back the JMS session.", e);
                 rollback(jmsSession, e);
                 // Throw on, so that if this is in an initiate-call, it will percolate all the way out.
-                // (NOTE! Inside JmsMatsStage, RuntimeExceptions won't recreate the JMS Connection..)
+                // (NOTE! Inside JmsMatsStageProcessor, RuntimeExceptions won't recreate the JMS Connection..)
                 throw e;
             }
             catch (Throwable t) {

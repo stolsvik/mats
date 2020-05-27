@@ -32,8 +32,8 @@ public class SaneThreadPoolExecutor implements Executor, MatsSocketStatics {
         };
         _threadPool = new ThreadPoolExecutor(corePoolSize, maxPoolSize,
                 5L, TimeUnit.MINUTES, runQueue,
-                r -> new Thread(r, THREAD_PREFIX + threadTypeName + " #"
-                        + _threadNumber.getAndIncrement() + " for " + serverId));
+                r -> new Thread(r, THREAD_PREFIX + threadTypeName + "#"
+                        + _threadNumber.getAndIncrement() + " {" + serverId + '}'));
 
         // Part 2: We make a special RejectionExecutionHandler ...
         _threadPool.setRejectedExecutionHandler((r, executor) -> {

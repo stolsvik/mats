@@ -44,17 +44,19 @@ import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.MatsSocketEndpoi
 import com.stolsvik.mats.websocket.impl.DefaultMatsSocketServer.ReplyHandleStateDto;
 
 /**
+ * Incoming (Client-to-Server) Send, Request and Replies (Resolve and Reject) handler.
+ *
  * @author Endre Stølsvik 2020-05-23 11:59 - http://stolsvik.com/, endre@stolsvik.com
  */
-public class IncomingSendAndRequestAndRepliesHandler implements MatsSocketStatics {
+public class IncomingSrrMsgHandler implements MatsSocketStatics {
 
-    private static final Logger log = LoggerFactory.getLogger(IncomingSendAndRequestAndRepliesHandler.class);
+    private static final Logger log = LoggerFactory.getLogger(IncomingSrrMsgHandler.class);
 
     private final DefaultMatsSocketServer _matsSocketServer;
 
     private final SaneThreadPoolExecutor _threadPool;
 
-    public IncomingSendAndRequestAndRepliesHandler(DefaultMatsSocketServer matsSocketServer, int corePoolSize,
+    public IncomingSrrMsgHandler(DefaultMatsSocketServer matsSocketServer, int corePoolSize,
             int maxPoolSize) {
         _matsSocketServer = matsSocketServer;
         _threadPool = new SaneThreadPoolExecutor(corePoolSize, maxPoolSize, this.getClass().getSimpleName(),
@@ -537,18 +539,17 @@ public class IncomingSendAndRequestAndRepliesHandler implements MatsSocketStatic
             handledEnvelope[0].desc = t.getClass().getSimpleName() + ": " + t.getMessage();
         }
 
+        // Store processing time taken on incoming envelope.
+        envelope.rm = msSince(nanosStart);
+        // Record the incoming envelope
+        session.recordEnvelopes(Collections.singletonList(envelope), receivedTimestamp, Direction.C2S);
+
         // Special handling for ACKs, unless the incoming message was a SEND
         if ((handledEnvelope[0].t == ACK) && (envelope.t != SEND)) {
             _matsSocketServer.getWebSocketOutgoingAcks().sendAck(matsSocketSessionId, envelope.cmid);
             return;
         }
         // E-> The Reply was not an ACK for a C2S SEND
-
-        // Record processing time taken on incoming envelope.
-        envelope.rm =
-
-                msSince(nanosStart);
-        handledEnvelope[0].icts = receivedTimestamp;
 
         // Return our produced ACK/NACK/RETRY/RESOLVE/REJECT
 
@@ -567,10 +568,12 @@ public class IncomingSendAndRequestAndRepliesHandler implements MatsSocketStatic
             return;
         }
 
+        // Set the incoming time
+        handledEnvelope[0].icts = receivedTimestamp;
         // Set total time.
         handledEnvelope[0].rttm = msSince(nanosStart);
 
-        // Record envelopes
+        // Record outgoing envelopes
         session.recordEnvelopes(envelopeList, System.currentTimeMillis(), Direction.S2C);
     }
 

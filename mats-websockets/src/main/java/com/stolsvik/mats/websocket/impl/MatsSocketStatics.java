@@ -37,6 +37,9 @@ public interface MatsSocketStatics {
 
     String MDC_MESSAGE_TYPE = "matssocket.msgType";
     String MDC_TRACE_ID = "traceId";
+    String MDC_CMID = "matssocket.cmid";
+    String MDC_SMID = "matssocket.smid";
+
 
     // Limits:
     int MAX_LENGTH_OF_TOPIC_NAME = 256;
@@ -68,7 +71,7 @@ public interface MatsSocketStatics {
 
     long MILLIS_BETWEEN_ACK_FLUSHES = 100;
 
-    String THREAD_PREFIX = "MatsSocket: ";
+    String THREAD_PREFIX = "MatsSocket:";
 
     default double ms(long nanos) {
         return Math.round(nanos / 10_000d) / 1_00d;

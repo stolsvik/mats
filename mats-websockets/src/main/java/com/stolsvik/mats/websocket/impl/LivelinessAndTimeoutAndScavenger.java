@@ -49,15 +49,15 @@ class LivelinessAndTimeoutAndScavenger implements MatsSocketStatics {
         _timeoutSessionsOlderThanTimestampSupplier = timeoutSessionsOlderThanTimestampSupplier;
 
         _sessionLivelinessUpdaterThread = new Thread(this::sessionLivelinessUpdaterRunnable,
-                THREAD_PREFIX + "CSAF LivelinessUpdater for " + _matsSocketServer.serverId());
+                THREAD_PREFIX + "CSAF LivelinessUpdater {" + _matsSocketServer.serverId() + '}');
         _sessionLivelinessUpdaterThread.start();
 
         _sessionTimeouterThread = new Thread(this::sessionTimeouterRunnable,
-                THREAD_PREFIX + "CSAF SessionTimeouter for " + _matsSocketServer.serverId());
+                THREAD_PREFIX + "CSAF SessionTimeouter {" + _matsSocketServer.serverId() + '}');
         _sessionTimeouterThread.start();
 
         _scavengeSessionRemnantsThread = new Thread(this::scavengeSessionRemnantsRunnable,
-                THREAD_PREFIX + "CSAF ScavengeSessionRemnants for " + _matsSocketServer.serverId());
+                THREAD_PREFIX + "CSAF ScavengeSessionRemnants {" + _matsSocketServer.serverId() + '}');
         _scavengeSessionRemnantsThread.start();
 
         log.info("Created [" + this.getClass().getSimpleName() + "] and Threads for"

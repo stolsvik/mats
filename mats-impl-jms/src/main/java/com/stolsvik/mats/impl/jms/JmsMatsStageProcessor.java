@@ -521,9 +521,14 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                 } // End: INNER RECEIVE-LOOP
             }
 
-            catch (Throwable t) { // .. amongst which is JmsMatsJmsException & JMSException
+            catch (Throwable t) { // .. amongst which is JmsMatsJmsException & JMSException (and AssertionError..)
                 /*
-                 * Annoying stuff of ActiveMQ that if you are "thrown out" due to interrupt from outside, it resets the
+                 * NOTE: All Errors, including AssertionError, also fall through here. Since I cannot be sure who have
+                 * thrown the AssertionError (it might be user code, but could also be JMS provider code), I cannot
+                 * assume that things are OK. So handle this as "total failure" as with JMSException..
+                 */
+                /*
+                 * Annoying stuff of ActiveMQ that if you are "thrown out" due to interrupt from outside, it sets the
                  * interrupted status of the thread before the throw, therefore any new actions on any JMS object will
                  * insta-throw InterruptedException again. Therefore, we read (and clear) the interrupted flag here,
                  * since we do actually check whether we should act on anything that legitimately could have interrupted
@@ -535,23 +540,29 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                  * due to shutdown. (ActiveMQ do not let you create Session if Connection is closed, and do not let you
                  * create a Consumer if Session is closed.)
                  */
-                String msg = "Got [" + t.getClass().getSimpleName() + "] inside the message processing"
-                        + " loop " + (isThreadInterrupted
-                                ? "(NOTE: Interrupted status of Thread was 'true', now cleared)"
-                                : "");
+                // ?: Should we still be running?
                 if (!_runFlag) {
+                    // -> No, not running anymore, so exit.
+                    // ?: Decide between INFO and WARN-with-Exception - this is to have a nice exit w/o stacktraces.
                     if (t.getCause().getClass().isAssignableFrom(InterruptedException.class)) {
-                        log.info(LOG_PREFIX + "Got JMSException->InterruptedException, and the run-flag was false,"
-                                + " so we shortcut to exit: " + msg);
+                        log.info(LOG_PREFIX + "Got [" + t.getClass().getSimpleName() + "]->cause:InterruptedException,"
+                                + " inside the message processing loop, and the run-flag was false,"
+                                + " so we shortcut to exit.");
                     }
                     else {
-                        log.warn(LOG_PREFIX + "Got JMSException, but the run-flag was false, so we shortcut to exit: "
-                                + msg, t);
+                        log.warn(LOG_PREFIX + "Got [" + t.getClass().getSimpleName() + "] inside the message processing"
+                                + "loop, but the run-flag was false, so we shortcut to exit.", t);
                     }
                     // Shortcut to exit.
                     break;
                 }
-                log.warn(LOG_PREFIX + msg + ", crashing JmsSessionHolder, chilling a bit, then looping.", t);
+                // E-> Yes, we should still be running.
+                // :: Log, "crash" JMS Session (thus ditching entire connection)
+                log.warn(LOG_PREFIX + "Got [" + t.getClass().getSimpleName() + "] inside the message processing"
+                        + " loop" + (isThreadInterrupted
+                                ? " (NOTE: Interrupted status of Thread was 'true', now cleared)"
+                                : "")
+                        + ", crashing JmsSessionHolder, chilling a bit, then looping.", t);
                 _jmsSessionHolder.crashed(t);
                 /*
                  * Doing a "chill-wait", so that if we're in a situation where this will tight-loop, we won't totally

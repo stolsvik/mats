@@ -68,20 +68,24 @@ Tools.<br>
     function doRequest(cellNum) {
         let requestCell = cells[cellNum];
         requestCell.innerText = "Req!";
+        let traceId = cellNum + ":" + matsSocket.id(6);
 
         // Fire off the MatsSocket request
-        matsSocket.request("Test.single", cellNum + ":" + matsSocket.id(6),
+        matsSocket.request("MatsSocket.matsPing", traceId,
             // The Request DTO
             {
-                string: "Request String:" + cellNum,
+                payload: "Payload:" + cellNum + ":" + matsSocket.jid(100),
                 number: Math.E * cellNum
             })
             .then(function (event) {
+                // Assert that it has been through Mats
+                if (event.data.number !== Math.E * cellNum * Math.PI) {
+                    throw new Error("Wrong 'number' for TraceId ["+traceId+"].");
+                }
                 // Setting data in Table's cell
                 let timeTakenMs = event.roundTripMillis;
                 sumTimeMillis += timeTakenMs;
-                let displayMs = Math.round(timeTakenMs * 100) / 100;
-                requestCell.innerText = displayMs;
+                requestCell.innerText = Math.round(timeTakenMs * 100) / 100;
 
                 let newCellNum = cellNum + 1;
                 if (newCellNum >= total) {
@@ -99,7 +103,7 @@ Tools.<br>
                     startMillis = now;
                 }
 
-                doRequest(newCellNum)
+                doRequest(newCellNum);
             });
         matsSocket.flush();
     }

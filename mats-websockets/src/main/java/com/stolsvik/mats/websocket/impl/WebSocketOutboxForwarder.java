@@ -60,9 +60,8 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
     }
 
     void newMessagesInCsafNotify(MatsSocketSessionAndMessageHandler matsSocketSessionAndMessageHandler) {
-        log.info("newMessagesInCsafNotify for MatsSocketSessionId:[" + matsSocketSessionAndMessageHandler
-                .getMatsSocketSessionId()
-                + "]");
+        if (log.isDebugEnabled()) log.debug("newMessagesInCsafNotify for MatsSocketSessionId:["
+                + matsSocketSessionAndMessageHandler.getMatsSocketSessionId() + "]");
         /*
          * Either there is already running a Forwarder for this MatsSocketSessionAndMessageHandler, in which case with
          * "latch on to" that one, or there is not, in which case we create one.
@@ -218,17 +217,9 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                         clearedOutbox = false;
                     }
 
-                    // :: Get the MessageIds to deliver (as List, for CSAF) and TraceIds (as String, for logging)
-                    List<String> messageIds = messagesToDeliver.stream()
-                            .map(StoredOutMessage::getServerMessageId)
-                            .collect(Collectors.toList());
-                    String messageTypesAndTraceIds = messagesToDeliver.stream()
-                            .map(msg -> "{" + msg.getType() + "} " + msg.getTraceId())
-                            .collect(Collectors.joining(", "));
-                    String traceIds = messagesToDeliver.stream()
-                            .map(StoredOutMessage::getTraceId)
-                            .collect(Collectors.joining(", "));
-                    MDC.put(MDC_TRACE_ID, traceIds);
+                    // Set MDC, with all TraceIds of messages we're going to deliver
+                    MDC.put(MDC_TRACE_ID, messagesToDeliver.stream()
+                            .map(StoredOutMessage::getTraceId).collect(Collectors.joining(";")));
 
                     long now = System.currentTimeMillis();
 
@@ -353,19 +344,22 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
 
                     // ----- We have all Envelopes that should go into this pipeline
 
-                    // Now, if there are any Replies, we can elide the sending of ACKs if it is not done yet
-                    for (MatsSocketEnvelopeWithMetaDto envelope : envelopeList) {
-                        if ((envelope.t == RESOLVE) || (envelope.t == REJECT)) {
-                            _matsSocketServer.getWebSocketOutgoingAcks().removeAck(matsSocketSessionId, envelope.cmid);
-                        }
-                    }
-
                     // Serialize the list of Envelopes
                     String jsonEnvelopeList = _matsSocketServer.getEnvelopeListObjectWriter()
                             .writeValueAsString(envelopeList);
 
                     // Register last activity time
                     matsSocketSessionAndMessageHandler.registerActivityTimestamp(System.currentTimeMillis());
+
+                    // Create list of smids we're going to deliver
+                    List<String> smids = messagesToDeliver.stream()
+                            .map(StoredOutMessage::getServerMessageId)
+                            .collect(Collectors.toList());
+
+                    // Create a String of concat'ed "{<type>}:<traceId>" for logging.
+                    String messageTypesAndTraceIds = messagesToDeliver.stream()
+                            .map(msg -> "{" + msg.getType() + "} " + msg.getTraceId())
+                            .collect(Collectors.joining(", "));
 
                     // ===== SENDING OVER WEBSOCKET!
 
@@ -376,7 +370,6 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                         long nanos_start_SendMessage = System.nanoTime();
                         matsSocketSessionAndMessageHandler.webSocketSendText(jsonEnvelopeList);
                         millisSendMessages = msSince(nanos_start_SendMessage);
-
                     }
                     catch (IOException ioe) {
                         // -> Evidently got problems forwarding the message over WebSocket
@@ -387,7 +380,7 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
 
                         // :: Mark as attempted delivered (set attempt timestamp, and increase delivery count)
                         try {
-                            _clusterStoreAndForward.outboxMessagesAttemptedDelivery(matsSocketSessionId, messageIds);
+                            _clusterStoreAndForward.outboxMessagesAttemptedDelivery(matsSocketSessionId, smids);
                         }
                         catch (DataAccessException e) {
                             log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
@@ -407,7 +400,7 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                         if (!dlqMessages.isEmpty()) {
                             // :: DLQ messages
                             try {
-                                _clusterStoreAndForward.outboxMessagesDeadLetterQueue(matsSocketSessionId, messageIds);
+                                _clusterStoreAndForward.outboxMessagesDeadLetterQueue(matsSocketSessionId, smids);
                             }
                             catch (DataAccessException e) {
                                 String dlqMessageTypesAndTraceIds = dlqMessages.stream()
@@ -441,6 +434,15 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                         continue RENOTIFY;
                     }
 
+                    // :: Now, if any of these was Replies, we can elide the sending of ACKs if it is not done yet
+                    for (MatsSocketEnvelopeWithMetaDto envelope : envelopeList) {
+                        // ?: Was this a RESOLVE or REJECT?
+                        if ((envelope.t == RESOLVE) || (envelope.t == REJECT)) {
+                            // -> Yes, and then we do not need to deliver ACK if not already sent.
+                            _matsSocketServer.getWebSocketOutgoingAcks().removeAck(matsSocketSessionId, envelope.cmid);
+                        }
+                    }
+
                     // :: Notify of Envelope sent
                     // Add meta to envelope
                     envelopeList.forEach(envelope -> {
@@ -462,7 +464,7 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                     // NOTE! They are COMPLETED when we get the ACK for the messageId from Client.
                     long nanos_start_MarkComplete = System.nanoTime();
                     try {
-                        _clusterStoreAndForward.outboxMessagesAttemptedDelivery(matsSocketSessionId, messageIds);
+                        _clusterStoreAndForward.outboxMessagesAttemptedDelivery(matsSocketSessionId, smids);
                     }
                     catch (DataAccessException e) {
                         log.warn("Got problems when trying to invoke 'messagesAttemptedDelivery' on CSAF for "
@@ -522,6 +524,17 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                  */
                 boolean shouldExit[] = new boolean[1];
                 _forwardersCurrentlyRunningWithNotificationCount.compute(instanceId, (s, count) -> {
+                    // ?: IntelliJ complains about missing null check. This should never happen, as this forwarder is
+                    // the only one that should remove it.
+                    if (count == null) {
+                        // -> Yes, it was null. Which should never happen.
+                        log.error("The 'count' of our forwarder was null when trying to get it, which should never"
+                                + " happen. MatsSocketSessionId ["+matsSocketSessionId+"]. Clearing out as if count"
+                                + " was 1.");
+                        // Exit out like if count == 1.
+                        shouldExit[0] = true;
+                        return null;
+                    }
                     // ?: Is this 1, meaning that we are finishing off our handler rounds?
                     if (count == 1) {
                         // -> Yes, so this would be a decrease to zero - we're done, remove ourselves, exit.
@@ -559,7 +572,7 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                 if (shouldExit[0]) {
                     // -> Yes, so do.
                     // We've already removed this handler (in above 'compute'), so must not do it again in the finally
-                    // handling: It could be a new instance that was just fired up.
+                    // handling: Any such instance could be a new instance that was just fired up.
                     removeOnExit = false;
                     // Return out.
                     return;
