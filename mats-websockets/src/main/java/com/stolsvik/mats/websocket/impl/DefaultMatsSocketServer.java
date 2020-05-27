@@ -526,7 +526,17 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             throw new DataStoreException("Could not store outgoing 'send' message in data store.", e);
         }
 
-        pingLocalOrRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.send");
+        /*
+         * NOTICE! It is tempting to do a shortcut if the MatsSocketSession's WebSocket resides on the "this" node, i.e.
+         * the one currently running this code. However, this posed a problem when this method was invoked from a Mats
+         * Stage after the change of CSAF_SQL where it utilizes the same SQL Connection that the MatsTransactionManager
+         * has set up: We then get the situation where the DB with the new message has not yet been committed, but the
+         * forwarder.newMessagesInCsafNotify(..) is invoked locally and then immediately performs a SELECT - not finding
+         * the message. Thus, if we just change to always do a "remote ping" instead, we circumvent the problem by
+         * relying on the transactional demarcation of the MatsStage: The outgoing "remote ping" Mats message won't be
+         * committed before the DB has been committed.
+         */
+        pingRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.send");
     }
 
     @Override
@@ -568,7 +578,17 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             throw new DataStoreException("Could not store outgoing 'request' message in data store.", e);
         }
 
-        pingLocalOrRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.request");
+        /*
+         * NOTICE! It is tempting to do a shortcut if the MatsSocketSession's WebSocket resides on the "this" node, i.e.
+         * the one currently running this code. However, this posed a problem when this method was invoked from a Mats
+         * Stage after the change of CSAF_SQL where it utilizes the same SQL Connection that the MatsTransactionManager
+         * has set up: We then get the situation where the DB with the new message has not yet been committed, but the
+         * forwarder.newMessagesInCsafNotify(..) is invoked locally and then immediately performs a SELECT - not finding
+         * the message. Thus, if we just change to always do a "remote ping" instead, we circumvent the problem by
+         * relying on the transactional demarcation of the MatsStage: The outgoing "remote ping" Mats message won't be
+         * committed before the DB has been committed.
+         */
+        pingRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.request");
     }
 
     ConcurrentHashMap<String, ConcurrentHashMap<String, MatsSocketSessionAndMessageHandler>> _topicSubscriptions = new ConcurrentHashMap<>();
