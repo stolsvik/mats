@@ -1827,7 +1827,7 @@ class MatsSocket {
           || (code == MatsSocketCloseCodes.CLOSE_SESSION.code)
           || (code == MatsSocketCloseCodes.SESSION_LOST.code)) {
           // -> One of the specific "Session is closed" CloseCodes -> Reject all outstanding, this MatsSocket is trashed.
-          error('session closed from server', 'The WebSocket was closed with a CloseCode [${MatsSocketCloseCodesExtension.fromCode(code)}] signifying that our MatsSocketSession is closed, reason:[${reason}].', closeEvent);
+          error('session closed from server', 'The WebSocket was closed with a CloseCode [${MatsSocketCloseCodesExtension.nameFor(code)}] signifying that our MatsSocketSession is closed, reason:[${reason}].', closeEvent);
 
           // Hold on to how many outstanding initiations there are now
           var outstandingInitiations = _outboxInitiations.length;
@@ -1842,7 +1842,7 @@ class MatsSocket {
       } else {
           // -> NOT one of the specific "Session is closed" CloseCodes -> Reconnect and Reissue all outstanding..
           if (code != MatsSocketCloseCodes.DISCONNECT.code) {
-              _logger.info('We were closed with a CloseCode [${MatsSocketCloseCodesExtension.fromCode(code)}] that does NOT denote that we should close the session. Initiate reconnect and reissue all outstanding.');
+              _logger.info('We were closed with a CloseCode [${MatsSocketCloseCodesExtension.nameFor(code)}] that does NOT denote that we should close the session. Initiate reconnect and reissue all outstanding.');
           } else {
               _logger.info('We were closed with the special DISCONNECT close code - act as we lost connection, but do NOT start to reconnect.');
           }

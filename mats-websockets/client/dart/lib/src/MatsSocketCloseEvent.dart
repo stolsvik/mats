@@ -93,7 +93,12 @@ enum MatsSocketCloseCodes {
   /// that a connection is wonky and wants to ditch it, but the server has not realized the same yet. When the
   /// server then gets the new connect, it'll see that there is an active WebSocket already. It needs to close
   /// that. But the client "must not do anything" other than what it already is doing - reconnecting.
-  DISCONNECT
+  DISCONNECT,
+
+  /// Indicates a WebSocket close code that does not map to any specific MatsSocketCloseCode.
+  /// This can occur when there WebSocket is closed by other mechanisms than vie MatsSocket, and the
+  /// close code is one that is unknown to the MatsSocket library.
+  UNKNOWN
 }
 
 extension MatsSocketCloseCodesExtension on MatsSocketCloseCodes {
@@ -117,6 +122,8 @@ extension MatsSocketCloseCodesExtension on MatsSocketCloseCodes {
         return 4002;
       case MatsSocketCloseCodes.DISCONNECT:
         return 4003;
+      case MatsSocketCloseCodes.UNKNOWN:
+        return -1;
       default:
         throw ArgumentError.value(this, 'MatsSocketCloseCodes', 'No code defined for enum value');
     }
@@ -142,11 +149,17 @@ extension MatsSocketCloseCodesExtension on MatsSocketCloseCodes {
         return 'RECONNECT';
       case MatsSocketCloseCodes.DISCONNECT:
         return 'DISCONNECT';
+      case MatsSocketCloseCodes.UNKNOWN:
+        return 'UNKNOWN';
       default:
         throw ArgumentError.value(this, 'MatsSocketCloseCodes', 'No name defined for enum value');
     }
   }
 
+  static String nameFor(final int code) {
+    var matsSocketCloseCode = fromCode(code);
+    return (matsSocketCloseCode == MatsSocketCloseCodes.UNKNOWN) ? 'UNKNOWN($code)' : matsSocketCloseCode.name;
+  }
 
   /// Convert a close code int to a ClodeCodes enum.
   static MatsSocketCloseCodes fromCode(final int code) {
@@ -175,7 +188,7 @@ extension MatsSocketCloseCodesExtension on MatsSocketCloseCodes {
       case 4003:
         return MatsSocketCloseCodes.DISCONNECT;
       default:
-        throw ArgumentError.value(code, 'code', 'Unknown MatsSocketCloseCodes code');
+        return MatsSocketCloseCodes.UNKNOWN;
     }
   }
 }
@@ -248,7 +261,12 @@ enum CloseCodes {
   /// applications expecting a status code to indicate that the
   /// connection was closed due to a failure to perform a TLS handshake
   /// (e.g., the server certificate can't be verified).
-  TLS_HANDSHAKE_FAILURE
+  TLS_HANDSHAKE_FAILURE,
+  /// To handle close codes that are not defined in the spec (it could be any integer, we can't predict everything
+  /// that occurs in the wild), we need to use this UNKNOWN enum value. When this occurs, we will also lose the
+  /// information about which specific closeCode was used. In the library we do log the closeCode directly, rather
+  /// than this resolved enum value, so this does not have any practical concerns for the library itself.
+  UNKNOWN
 }
 
 extension CloseCodesExtension on CloseCodes {
@@ -284,6 +302,11 @@ extension CloseCodesExtension on CloseCodes {
         return 1013;
       case CloseCodes.TLS_HANDSHAKE_FAILURE:
         return 1015;
+      case CloseCodes.UNKNOWN:
+        // Since we do not know which close code we are dealing with, we do not
+        // know which integer to return here either. -1 seems like a good enough compromise
+        // to represent this.
+        return -1;
       default:
         throw ArgumentError.value(this, 'CloseCodes', 'No code defined for enum value');
     }
@@ -321,6 +344,8 @@ extension CloseCodesExtension on CloseCodes {
         return 'TRY_AGAIN_LATER';
       case CloseCodes.TLS_HANDSHAKE_FAILURE:
         return 'TLS_HANDSHAKE_FAILURE';
+      case CloseCodes.UNKNOWN:
+        return 'UNKNOWN';
       default:
         throw ArgumentError.value(this, 'CloseCodes', 'No name defined for enum value');
     }
@@ -361,7 +386,7 @@ extension CloseCodesExtension on CloseCodes {
       case 1015:
         return CloseCodes.TLS_HANDSHAKE_FAILURE;
       default:
-        throw ArgumentError.value(code, 'code', 'Unknown CloseCode value');
+        return CloseCodes.UNKNOWN;
     }
   }
 }
