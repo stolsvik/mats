@@ -62,6 +62,7 @@ import com.stolsvik.mats.websocket.AuthenticationPlugin.SessionAuthenticator;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.CurrentNode;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.MessageIdAlreadyExistsException;
 import com.stolsvik.mats.websocket.MatsSocketServer;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession.MatsSocketSessionState;
 import com.stolsvik.mats.websocket.MatsSocketServer.MatsSocketEnvelopeDto.DebugDto;
@@ -496,9 +497,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     public void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto)
             throws DataStoreException {
         long now = System.currentTimeMillis();
-        // Create ServerMessageId
-        String serverMessageId = serverMessageId();
-        // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants.
+        // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants at this point.
         DebugDto debug = new DebugDto();
         debug.smcts = now;
         debug.smcnn = getMyNodename();
@@ -507,34 +506,25 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         MatsSocketEnvelopeDto envelope = new MatsSocketEnvelopeDto();
         envelope.t = SEND;
         envelope.eid = clientTerminatorId;
-        envelope.smid = serverMessageId;
         envelope.tid = traceId;
         envelope.debug = debug;
 
-        // Serialize and store the envelope for forward ("StoreAndForward")
-        String serializedEnvelope = serializeEnvelope(envelope);
         // Serialize the actual message
         String serializedMessage = serializeMessageObject(messageDto);
 
-        Optional<CurrentNode> currentNode;
-        try {
-            currentNode = _clusterStoreAndForward.storeMessageInOutbox(
-                    sessionId, serverMessageId, null, traceId, envelope.t, now, serializedEnvelope, serializedMessage,
-                    null);
-        }
-        catch (DataAccessException e) {
-            throw new DataStoreException("Could not store outgoing 'send' message in data store.", e);
-        }
+        // Store it, with SMID-retry
+        Optional<CurrentNode> currentNode = storeMessageInCsafOutbox_WithSmidRetry(envelope, sessionId, traceId, now,
+                serializedMessage, null);
 
         /*
          * NOTICE! It is tempting to do a shortcut if the MatsSocketSession's WebSocket resides on the "this" node, i.e.
-         * the one currently running this code. However, this posed a problem when this method was invoked from a Mats
-         * Stage after the change of CSAF_SQL where it utilizes the same SQL Connection that the MatsTransactionManager
-         * has set up: We then get the situation where the DB with the new message has not yet been committed, but the
+         * the one currently running this code. However, this posed a problem when this method was invoked from within a
+         * Mats Stage since the CSAF_SQL utilizes the same SQL Connection that the MatsTransactionManager has set up: We
+         * then get the situation where the DB with the new message has not yet been committed, but the
          * forwarder.newMessagesInCsafNotify(..) is invoked locally and then immediately performs a SELECT - not finding
-         * the message. Thus, if we just change to always do a "remote ping" instead, we circumvent the problem by
-         * relying on the transactional demarcation of the MatsStage: The outgoing "remote ping" Mats message won't be
-         * committed before the DB has been committed.
+         * the message (since it is not committed yet!). Thus, if we just instead always do a "remote ping" (even if the
+         * WebSocket resides on this node), we circumvent the problem by relying on the transactional demarcation of the
+         * MatsStage: The outgoing "remote ping" Mats message won't be committed before the DB has been committed.
          */
         pingRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.send");
     }
@@ -544,9 +534,18 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             String replyToMatsSocketTerminatorId, String correlationString, byte[] correlationBinary)
             throws DataStoreException {
         long now = System.currentTimeMillis();
-        // Create ServerMessageId
-        String serverMessageId = serverMessageId();
-        // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants.
+        // :: Create ServerMessageId
+        /*
+         * NOTE: On 'replyHandler' and S2C Send, we rely on unique constraint violation to to retry if we choose an
+         * already existing ServerMessageId (and can thus employ rather small ids). Due to the need to store the
+         * correlation information /before/ storing the message in the outbox (due to the insanely unlikely situation
+         * that otherwise the forwarder would pick up the outgoing message AND the client reply /before/ we had gotten
+         * the correlation info stored), we instead create a much larger ServerMessageId for S2C REQUESTs, thus relying
+         * on statistics to not pick an already used id.
+         */
+        String serverMessageId = serverMessageId() + serverMessageId() + serverMessageId();
+
+        // Create DebugDto - must do this "eagerly", as we do not know what the client actually wants at this point.
         DebugDto debug = new DebugDto();
         debug.smcts = now;
         debug.smcnn = getMyNodename();
@@ -566,6 +565,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         Optional<CurrentNode> currentNode;
         try {
+            // NOTE! The order here is important! First correlation info, then the message. Read comment above.
             // Store Correlation information
             _clusterStoreAndForward.storeRequestCorrelation(sessionId, serverMessageId, now,
                     replyToMatsSocketTerminatorId, correlationString, correlationBinary);
@@ -577,16 +577,23 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         catch (DataAccessException e) {
             throw new DataStoreException("Could not store outgoing 'request' message in data store.", e);
         }
+        catch (MessageIdAlreadyExistsException e) {
+            // Well, this was sad stuff. We now have little options other than throwing to the invoker.
+            // Also, you should start doing Lotto.
+            throw new DataStoreException("Incredibly, even with this smid [" + serverMessageId
+                    + "], we managed to hit an exact same id as a message that was already stored. Sorry, this"
+                    + " didn't work out as expected.", e);
+        }
 
         /*
          * NOTICE! It is tempting to do a shortcut if the MatsSocketSession's WebSocket resides on the "this" node, i.e.
-         * the one currently running this code. However, this posed a problem when this method was invoked from a Mats
-         * Stage after the change of CSAF_SQL where it utilizes the same SQL Connection that the MatsTransactionManager
-         * has set up: We then get the situation where the DB with the new message has not yet been committed, but the
+         * the one currently running this code. However, this posed a problem when this method was invoked from within a
+         * Mats Stage since the CSAF_SQL utilizes the same SQL Connection that the MatsTransactionManager has set up: We
+         * then get the situation where the DB with the new message has not yet been committed, but the
          * forwarder.newMessagesInCsafNotify(..) is invoked locally and then immediately performs a SELECT - not finding
-         * the message. Thus, if we just change to always do a "remote ping" instead, we circumvent the problem by
-         * relying on the transactional demarcation of the MatsStage: The outgoing "remote ping" Mats message won't be
-         * committed before the DB has been committed.
+         * the message (since it is not committed yet!). Thus, if we just instead always do a "remote ping" (even if the
+         * WebSocket resides on this node), we circumvent the problem by relying on the transactional demarcation of the
+         * MatsStage: The outgoing "remote ping" Mats message won't be committed before the DB has been committed.
          */
         pingRemoteNodeAfterMessageStored(sessionId, currentNode, "MatsSocketServer.request");
     }
@@ -947,7 +954,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     .traceId("ServerCloseWebSocket[" + matsSocketSessionId + "]" + rnd(5))
                     .to(nodeSubscriptionTerminatorId_NodeControl_ForNode(currentNode.getNodename()))
                     .publish(new NodeControl_CloseWebSocketDto(matsSocketSessionId, currentNode.getConnectionId()),
-                            new NodeControlStateDto(NodeControlStateDto.CLOSE_WEBSOCKET)));
+                            new NodeControlStateDto(NodeControlStateDto.DISCONNECT_WEBSOCKET)));
         }
         catch (MatsBackendException | MatsMessageSendException e) {
             log.warn("Trying to close existing WebSocket due to reconnect for MatsSocketSessionId, but we"
@@ -1279,7 +1286,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private static class NodeControlStateDto {
         static String NEW_MESSAGE_FOR_SESSION = "NewMsg";
         static String CLOSE_SESSION = "CloseSess";
-        static String CLOSE_WEBSOCKET = "CloseWS";
+        static String DISCONNECT_WEBSOCKET = "CloseWS";
         String t;
 
         public NodeControlStateDto() {
@@ -1341,9 +1348,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
             NodeControl_CloseSessionDto dto = incomingMsg.toClass(NodeControl_CloseSessionDto.class);
             nodeControl_closeSession(dto.sid, dto.reason);
         }
-        if (NodeControlStateDto.CLOSE_WEBSOCKET.equals(state.t)) {
+        if (NodeControlStateDto.DISCONNECT_WEBSOCKET.equals(state.t)) {
             NodeControl_CloseWebSocketDto dto = incomingMsg.toClass(NodeControl_CloseWebSocketDto.class);
-            nodeControl_closeWebSocket(dto.sid, dto.cid);
+            nodeControl_disconnectWebSocket(dto.sid, dto.cid);
         }
     }
 
@@ -1359,6 +1366,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
         else {
             // -> No, it was not present here after all (somebody thought that it was).
+
+            // TODO: If the MatsSocketSession has "moved" in CSAF, should we try to forward the close?!
+
             // We'll have to invoked SessionRemovedEvent listeners about CLOSE (it is our responsibility).
             invokeSessionRemovedEventListeners(new SessionRemovedEventImpl(SessionRemovedEventType.CLOSE,
                     matsSocketSessionId, null, reason));
@@ -1367,7 +1377,13 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         }
     }
 
-    private void nodeControl_closeWebSocket(String matsSocketSessionId, String connectionId) {
+    /**
+     * Used in the situation where a MatsSocketSessionId reconnects to another node, but the existing WebSocket (i.e.
+     * "Connection") is still open on this node. We should then just get rid of the existing WebSocket (it is not
+     * allowed to have two connections to the same MatsSocketSessionId) - most probably this is only an async-situation
+     * where this node hasn't yet realized that the WebSocket is closed.
+     */
+    private void nodeControl_disconnectWebSocket(String matsSocketSessionId, String connectionId) {
         // Find local session
         Optional<MatsSocketSessionAndMessageHandler> localMatsSocketSession = getRegisteredLocalMatsSocketSession(
                 matsSocketSessionId);
@@ -1627,30 +1643,41 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                 .newMessagesInCsafNotify(localMatsSocketSession.get()));
     }
 
-    private Optional<CurrentNode> storeMessageInCsafOutbox_WithSmidRetry(MatsSocketEnvelopeWithMetaDto replyEnvelope,
+    private Optional<CurrentNode> storeMessageInCsafOutbox_WithSmidRetry(MatsSocketEnvelopeDto outEnvelope,
             String sessionId, String traceId, Long clientMessageReceivedTimestamp, String serializedMessage,
             byte[] messageBinary) {
-        Optional<CurrentNode> currentNode;
-        // Generate the SMID
-        String serverMessageId = serverMessageId();
-        // Stick it on the MDC
-        MDC.put(MDC_SMID, serverMessageId);
-        // Set it on the envelope
-        replyEnvelope.smid = serverMessageId;
+        // :: Store outgoing message, and retry if we get unique constraint violation.
+        for (int attempt = 0; attempt < MAX_NUMBER_OF_OUTBOX_STORE_ATTEMPTS_CSAF; attempt++) {
+            // Generate the SMID
+            String serverMessageId = serverMessageId();
+            // Stick it on the MDC
+            MDC.put(MDC_SMID, serverMessageId);
+            // Set it on the envelope
+            outEnvelope.smid = serverMessageId;
 
-        // Now serialize and store the envelope for forward ("StoreAndForward")
-        String serializedEnvelope = serializeEnvelope(replyEnvelope);
+            // Now serialize and store the envelope for forward ("StoreAndForward")
+            String serializedEnvelope = serializeEnvelope(outEnvelope);
 
-        try {
-            currentNode = _clusterStoreAndForward.storeMessageInOutbox(
-                    sessionId, serverMessageId, replyEnvelope.cmid, traceId, replyEnvelope.t,
-                    clientMessageReceivedTimestamp, serializedEnvelope, serializedMessage, messageBinary);
-            return currentNode;
+            try {
+                Optional<CurrentNode> currentNode = _clusterStoreAndForward.storeMessageInOutbox(
+                        sessionId, serverMessageId, outEnvelope.cmid, traceId, outEnvelope.t,
+                        clientMessageReceivedTimestamp, serializedEnvelope, serializedMessage, messageBinary);
+                return currentNode;
+            }
+            catch (MessageIdAlreadyExistsException e) {
+                log.warn("Got " + e.getClass().getSimpleName() + " when trying to store outgoing [" + outEnvelope.t
+                        + "] message with CMID [" + outEnvelope.cmid + "] for MatsSocketSession [" + sessionId
+                        + "], tried using SMID [" + serverMessageId + "] - this is attempt [" + attempt
+                        + "]. Will try again.");
+            }
+            catch (DataAccessException e) {
+                throw new DataStoreException("Got problems storing the outgoing [" + outEnvelope.t
+                        + "] message in CSAF Outbox.", e);
+            }
         }
-        catch (DataAccessException e) {
-            // TODO: Fix
-            throw new AssertionError("Damn", e);
-        }
+        throw new DataStoreException("Even after trying [" + MAX_NUMBER_OF_OUTBOX_STORE_ATTEMPTS_CSAF + "] times to"
+                + " generate a unique ServerMessageId (smid), we still got unique constraint violation. This does not"
+                + " make sense, so need to abort.");
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
@@ -1840,17 +1867,19 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     }
 
     /**
-     * Returns a string of 4 chars from a 92-char alphabet, consisting of all the visible and JSON-non-quoted ASCII
-     * chars. 92^4 = 71.639.296. Notice that if we end up duplicating on the server side, this can be caught. The ONLY
-     * time span where this MUST be "globally unique", is after ACK, when we delete the id on server side (and another
-     * message conceivably can get the Id again) and then send ACK2, before the client receives the ACK2 and deletes the
-     * Id from its inbox. If a message from the server managed to pick the same Id in <i>that particular timespan</i>,
-     * the client would refuse it as a double delivery.
+     * Returns a string of 5 chars from a 92-char alphabet, consisting of all the visible and JSON-non-quoted ASCII
+     * chars. 92^5 = 6,590,815,232.
+     * <p />
+     * NOTICE! If we end up duplicating on the server side, this is caught and retried. The ONLY time span where this
+     * MUST be "globally unique", is after ACK, when we delete the id on server side (and another message conceivably
+     * can get the Id again) and then send ACK2, before the client receives the ACK2 and deletes the Id from its inbox.
+     * If a message from the server managed to pick the same Id in <i>that particular timespan</i>, the client would
+     * refuse it as a double delivery.
      *
-     * @return a 4-char invocation of {@link #rndJsonId(int)}.
+     * @return a 5-char invocation of {@link #rndJsonId(int)}.
      */
     static String serverMessageId() {
-        return rndJsonId(8);
+        return rndJsonId(5);
     }
 
     static String id(Object x) {

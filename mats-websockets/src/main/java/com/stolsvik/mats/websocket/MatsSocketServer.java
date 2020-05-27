@@ -255,6 +255,10 @@ public interface MatsSocketServer {
      * Note: Given that the session actually is live and the client is connected or connects before the session is
      * closed or times out, the guaranteed delivery and exactly-once features are in effect, and this still holds in
      * face of session reconnects.
+     *
+     * @throws DataStoreException
+     *             if the {@link ClusterStoreAndForward} makes any problems when putting the outgoing message in the
+     *             oubox.
      */
     void send(String sessionId, String traceId, String clientTerminatorId, Object messageDto) throws DataStoreException;
 
@@ -289,6 +293,10 @@ public interface MatsSocketServer {
      * Note: Given that the session actually is live and the client is connected or connects before the session is
      * closed or times out, the guaranteed delivery and exactly-once features are in effect, and this still holds in
      * face of session reconnects.
+     *
+     * @throws DataStoreException
+     *             if the {@link ClusterStoreAndForward} makes any problems when putting the outgoing message in the
+     *             oubox.
      */
     void request(String sessionId, String traceId, String clientEndpointId, Object requestDto,
             String replyToMatsSocketTerminatorId, String correlationString, byte[] correlationBinary)
@@ -645,9 +653,12 @@ public interface MatsSocketServer {
      *            values.
      * @return the list of all MatsSocketSessions currently registered with this MatsSocketServer instance matching the
      *         constraints if set - as read from the {@link ClusterStoreAndForward data store}.
+     *
+     * @throws DataStoreException
+     *             if the {@link ClusterStoreAndForward} makes any problems when reading sessions from it.
      */
     List<MatsSocketSessionDto> getMatsSocketSessions(boolean onlyActive, String userId,
-            String appName, String appVersionAtOrAbove);
+            String appName, String appVersionAtOrAbove) throws DataStoreException;
 
     /**
      * Like {@link #getMatsSocketSessions(boolean, String, String, String)}, only returning the count - this might be
@@ -656,9 +667,12 @@ public interface MatsSocketServer {
      *
      * @return the count of all MatsSocketSessions currently registered with this MatsSocketServer instance matching the
      *         constraints if set - as read from the {@link ClusterStoreAndForward data store}.
+     *
+     * @throws DataStoreException
+     *             if the {@link ClusterStoreAndForward} makes any problems when reading sessions from it.
      */
     int getMatsSocketSessionsCount(boolean onlyActive, String userId,
-            String appName, String appVersionAtOrAbove);
+            String appName, String appVersionAtOrAbove) throws DataStoreException;
 
     /**
      * A MatsSocketSession, either as represented in the {@link ClusterStoreAndForward data store} when gotten via
@@ -1240,8 +1254,9 @@ public interface MatsSocketServer {
      * RuntimeException raised from methods which directly interfaces with the {@link ClusterStoreAndForward} and which
      * cannot "hide" the situation if the data store doesn't work. These methods are
      * {@link #send(String, String, String, Object) send(..)},
-     * {@link #request(String, String, String, Object, String, String, byte[]) request(..)} and
-     * {@link #getMatsSocketSessions(boolean, String, String, String) getMatsSocketSessions(..)}.
+     * {@link #request(String, String, String, Object, String, String, byte[]) request(..)},
+     * {@link #getMatsSocketSessions(boolean, String, String, String) getMatsSocketSessions(..)} and
+     * {@link #getMatsSocketSessionsCount(boolean, String, String, String)} getMatsSocketSessionsCount(..)}.
      */
     class DataStoreException extends RuntimeException {
         public DataStoreException(String message) {

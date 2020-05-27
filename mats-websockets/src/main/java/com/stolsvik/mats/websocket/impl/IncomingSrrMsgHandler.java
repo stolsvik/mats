@@ -25,7 +25,7 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsInitiator.MatsInitiateWrapper;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendRuntimeException;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
-import com.stolsvik.mats.websocket.ClusterStoreAndForward.ClientMessageIdAlreadyExistsException;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.MessageIdAlreadyExistsException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.RequestCorrelation;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredInMessage;
@@ -145,7 +145,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                         throw new DatabaseRuntimeException("Got problems when trying to store incoming " + type
                                 + " Client Message Id [" + envelope.cmid + "] in CSAF Inbox", e);
                     }
-                    catch (ClientMessageIdAlreadyExistsException e) {
+                    catch (MessageIdAlreadyExistsException e) {
                         // -> Already have this in the inbox, so this is a dupe
                         // Double delivery: Fetch the answer we said last time, and just answer that!
 

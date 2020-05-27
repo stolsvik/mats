@@ -173,19 +173,24 @@ public interface ClusterStoreAndForward {
     // ---------- Inbox ----------
 
     /**
-     * Stores the incoming message Id, to avoid double delivery. If the messageId already exists, a
-     * {@link ClientMessageIdAlreadyExistsException} will be raised.
+     * Stores the incoming message Id, to avoid double delivery. If the Client MessageId (cmid) already exists, a
+     * {@link MessageIdAlreadyExistsException} will be raised - this implies that a double delivery has occurred.
      *
      * @param matsSocketSessionId
      *            the MatsSocketSessionId for which to store the incoming message id.
      * @param clientMessageId
      *            the client's message Id for the incoming message.
-     * @throws ClientMessageIdAlreadyExistsException
-     *             if this messageId already existed for this SessionId.
+     * @throws MessageIdAlreadyExistsException
+     *             if the Client MessageId (cmid) already existed for this SessionId.
      */
     void storeMessageIdInInbox(String matsSocketSessionId, String clientMessageId)
-            throws ClientMessageIdAlreadyExistsException, DataAccessException;
+            throws MessageIdAlreadyExistsException, DataAccessException;
 
+    /**
+     * Stores the resulting message (envelope and binary), so that if the incoming messages comes again (based on
+     * {@link #storeMessageIdInInbox(String, String)} throwing {@link MessageIdAlreadyExistsException}), the result from
+     * the previous processing can be returned right away.
+     */
     void updateMessageInInbox(String matsSocketSessionId, String clientMessageId, String messageJson,
             byte[] messageBinary) throws DataAccessException;
 
@@ -208,8 +213,9 @@ public interface ClusterStoreAndForward {
     /**
      * Stores the message for the Session, returning the nodename for the node holding the session, if any. If the
      * session is closed/timed out, the message won't be stored (i.e. dumped on the floor) and the return value is
-     * empty. The ServerMessageId is set by the CSAF, and available when {@link #getMessagesFromOutbox(String, int)
-     * getting messages}.
+     * empty. The Server MessageId (smid) is set by the caller - and since this might have a collision, the method
+     * throws {@link MessageIdAlreadyExistsException} if unique constraint fails. In this case, a new Server MessageId
+     * should be picked and try again.
      *
      * @param matsSocketSessionId
      *            the matsSocketSessionId that the message is meant for.
@@ -236,11 +242,13 @@ public interface ClusterStoreAndForward {
      * @param messageBinary
      *            the binary part of an outgoing message. (Nullable)
      * @return the current node holding MatsSocket Session, or empty if none.
+     * @throws MessageIdAlreadyExistsException
+     *             if the Server MessageId (smid) already existed for this SessionId.
      */
     Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
             String clientMessageId, String traceId, MessageType type, Long requestTimestamp,
             String envelope, String messageJson, byte[] messageBinary)
-            throws DataAccessException;
+            throws DataAccessException, MessageIdAlreadyExistsException;
 
     /**
      * Fetch a set of messages, up to 'maxNumberOfMessages' - but do not include messages that have been attempted
@@ -325,10 +333,11 @@ public interface ClusterStoreAndForward {
 
     /**
      * Thrown if the operation resulted in a Unique Constraint situation. Relevant for
-     * {@link #storeMessageIdInInbox(String, String)}.
+     * {@link #storeMessageIdInInbox(String, String)} and
+     * {@link #storeMessageInOutbox(String, String, String, String, MessageType, Long, String, String, byte[])}.
      */
-    class ClientMessageIdAlreadyExistsException extends Exception {
-        public ClientMessageIdAlreadyExistsException(String message, Throwable cause) {
+    class MessageIdAlreadyExistsException extends Exception {
+        public MessageIdAlreadyExistsException(String message, Throwable cause) {
             super(message, cause);
         }
     }

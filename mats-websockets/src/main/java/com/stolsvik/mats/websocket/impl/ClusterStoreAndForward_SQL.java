@@ -436,7 +436,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public void storeMessageIdInInbox(String matsSocketSessionId, String clientMessageId)
-            throws ClientMessageIdAlreadyExistsException, DataAccessException {
+            throws MessageIdAlreadyExistsException, DataAccessException {
         // Note: Need a bit special handling here, as we must check whether we get an IntegrityConstraintViolation
         try {
             withConnectionVoid(con -> {
@@ -451,12 +451,11 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             });
         }
         catch (DataAccessException e) {
-            // ?: Was the cause here IntegrityConstraintViolation - i.e. "message already exists"?
+            // ?: Was the cause here IntegrityConstraintViolation - i.e. "Client MessageId already exists"?
             if (e.getCause() instanceof SQLIntegrityConstraintViolationException) {
                 // -> Yes, evidently - so throw specific Exception
-                throw new ClientMessageIdAlreadyExistsException("Could not insert the ClientMessageId ["
-                        + clientMessageId
-                        + "] for MatsSocketSessionId [" + matsSocketSessionId + "].", e);
+                throw new MessageIdAlreadyExistsException("Could not insert the ClientMessageId ["
+                        + clientMessageId + "] for MatsSocketSessionId [" + matsSocketSessionId + "].", e);
             }
             // E-> No, so just throw on.
             throw e;
@@ -525,33 +524,46 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
     @Override
     public Optional<CurrentNode> storeMessageInOutbox(String matsSocketSessionId, String serverMessageId,
             String clientMessageId, String traceId, MessageType type, Long requestTimestamp, String envelope,
-            String messageJson, byte[] messageBinary) throws DataAccessException {
-        return withConnectionReturn(con -> {
-            PreparedStatement insert = con.prepareStatement("INSERT INTO " + outboxTableName(matsSocketSessionId)
-                    + "(session_id, smid, trace_id, type,"
-                    + " cmid, request_timestamp,"
-                    + " stored_timestamp, delivery_count,"
-                    + " envelope, message_text, message_binary)"
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            String messageJson, byte[] messageBinary) throws DataAccessException, MessageIdAlreadyExistsException {
+        // Note: Need a bit special handling here, as we must check whether we get an IntegrityConstraintViolation
+        try {
+            return withConnectionReturn(con -> {
+                PreparedStatement insert = con.prepareStatement("INSERT INTO " + outboxTableName(matsSocketSessionId)
+                        + "(session_id, smid, trace_id, type,"
+                        + " cmid, request_timestamp,"
+                        + " stored_timestamp, delivery_count,"
+                        + " envelope, message_text, message_binary)"
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
-            insert.setString(1, matsSocketSessionId);
-            insert.setString(2, serverMessageId);
-            insert.setString(3, traceId);
-            insert.setString(4, type.name());
+                insert.setString(1, matsSocketSessionId);
+                insert.setString(2, serverMessageId);
+                insert.setString(3, traceId);
+                insert.setString(4, type.name());
 
-            insert.setString(5, clientMessageId); // May be null
-            insert.setLong(6, requestTimestamp); // May be null
+                insert.setString(5, clientMessageId); // May be null
+                insert.setLong(6, requestTimestamp); // May be null
 
-            insert.setLong(7, _clock.millis());
-            insert.setInt(8, 0);
+                insert.setLong(7, _clock.millis());
+                insert.setInt(8, 0);
 
-            insert.setString(9, envelope);
-            insert.setString(10, messageJson); // May be null
-            insert.setBytes(11, messageBinary); // May be null
-            insert.execute();
+                insert.setString(9, envelope);
+                insert.setString(10, messageJson); // May be null
+                insert.setBytes(11, messageBinary); // May be null
+                insert.execute();
 
-            return _getCurrentNode(matsSocketSessionId, con, true);
-        });
+                return _getCurrentNode(matsSocketSessionId, con, true);
+            });
+        }
+        catch (DataAccessException e) {
+            // ?: Was the cause here IntegrityConstraintViolation - i.e. "Server MessageId already exists"?
+            if (e.getCause() instanceof SQLIntegrityConstraintViolationException) {
+                // -> Yes, evidently - so throw specific Exception
+                throw new MessageIdAlreadyExistsException("Could not insert the ServerMessageId ["
+                        + serverMessageId + "] for MatsSocketSessionId [" + matsSocketSessionId + "].", e);
+            }
+            // E-> No, so just throw on.
+            throw e;
+        }
     }
 
     @Override

@@ -57,6 +57,8 @@ public interface MatsSocketStatics {
     int MIN_FORWARDER_CORE_POOL_SIZE = 5;
     int MIN_FORWARDER_MAX_POOL_SIZE = 100;
 
+    int MAX_NUMBER_OF_OUTBOX_STORE_ATTEMPTS_CSAF = 100;
+
     // For Incoming Send, Request and Reply handling, if "VERY BAD!" occurs.
     int MAX_NUMBER_OF_COMPENSATING_TRANSACTIONS_ATTEMPTS = 60;  // 60 * 250ms = 15 seconds.
     int MILLIS_BETWEEN_COMPENSATING_TRANSACTIONS_ATTEMPTS = 250;
