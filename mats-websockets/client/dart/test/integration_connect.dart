@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:mats_socket/mats_socket.dart';
 import 'package:test/test.dart';
+
 import 'lib/env.dart';
 
 void main() {
@@ -22,13 +23,11 @@ void main() {
           'DummyAuth:$userId:${expiry.millisecondsSinceEpoch}', expiry, roomForLatencyMillis);
     }
 
-    setUp(() {
-      matsSocket = MatsSocket('TestApp', '1.2.3', serverUris);
-      _logger.info('Created MatsSocket instance [${matsSocket.matsSocketInstanceId}]');
-    });
+    setUp(() => matsSocket = createMatsSocket());
 
     tearDown(() async  {
       await matsSocket.close('Test done');
+      _logger.info('=========== Closed MatsSocket [${matsSocket?.matsSocketInstanceId}] ===========');
     });
 
     /*

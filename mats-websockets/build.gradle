@@ -1,5 +1,8 @@
 import java.nio.charset.StandardCharsets
 import java.time.LocalDateTime
+import java.util.concurrent.DelayQueue
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.PriorityBlockingQueue
 
 // mats-websockets
 plugins {
@@ -49,7 +52,7 @@ dependencies {
 
 // Task to start a MatsTestWebsocketServer for integration tests. We will monitor the log until we get the expected number
 // of ws urls, that other tasks can then depend on
-task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspath, compileTestJava]) {
+task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspath, compileTestJava, processTestResources]) {
     ext {
         wsUrls = []
     }
