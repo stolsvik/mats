@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:logging/logging.dart';
 import 'package:mats_socket/mats_socket.dart';
-import 'package:mats_socket/src/InitiationProcessedEvent.dart';
 import 'package:test/test.dart';
+
 import 'lib/env.dart';
-import 'dart:math' as math;
 
 void main() {
   configureLogging();
@@ -25,13 +26,11 @@ void main() {
           'DummyAuth:$userId:${expiry.millisecondsSinceEpoch}', expiry, roomForLatencyMillis);
     }
 
-    setUp(() {
-      matsSocket = MatsSocket('TestApp', '1.2.3', serverUris);
-      _logger.info('Created MatsSocket instance [${matsSocket.matsSocketInstanceId}]');
-    });
+    setUp(() => matsSocket = createMatsSocket());
 
     tearDown(() async  {
       await matsSocket.close('Test done');
+      _logger.info('=========== Closed MatsSocket [${matsSocket?.matsSocketInstanceId}] ===========');
     });
 
     group('MatsSocketServer.send()', () {
@@ -70,6 +69,7 @@ void main() {
 
         // This endpoint will get a request from the Server, to which we respond - and the server will then send the reply back to the Terminator below.
         matsSocket.endpoint('ClientSide.endpoint', (messageEvent) {
+          _logger.info('[sid:${matsSocket.sessionId}] We received a request to [ClientSide.endpoint], which we will [${resolveReject ? 'resolve' : 'reject'}], then wait for our terminator to be called');
           expect(messageEvent.traceId, equals(traceId));
           var promise = Completer();
           // Resolve it a tad later, to "emulate" some kind of processing
@@ -90,9 +90,12 @@ void main() {
         var terminator = matsSocket.terminator('ClientSide.terminator');
 
         // Here we send the message that starts the cascade
+        _logger.info('[sid:${matsSocket.sessionId}] Sending to [$startEndpoint], thus triggering the server to send a request');
         await matsSocket.send(startEndpoint, traceId, {'string': initialMessage, 'number': math.e});
+        _logger.info('[sid:${matsSocket.sessionId}] Sending ACKed on server, the server should have sent a request, the client shall reply, and then the server should send to our terminator, which we are waiting for now');
 
         var msg = await terminator.first;
+        _logger.info('[sid:${matsSocket.sessionId}] Terminator message received [$msg}], assrting content');
         expect(msg.data['number'], math.e + math.pi);
         expect(msg.data['string'], contains('From_IntegrationEndpointA'));
         expect(msg.data['string'], contains((resolveReject ? 'RESOLVE' : 'REJECT')));

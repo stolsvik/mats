@@ -75,7 +75,7 @@ task dartTest(dependsOn: startMatsTestWebsocketServer) {
                 platform = project.getProperties()['platform']
             }
             def testFiles = file("$projectDir/client/dart/test").listFiles().findAll { it.name.endsWith(".dart") }
-            args = ['run', 'test'] + testFiles + ['-p', platform]
+            args = ['run', 'test'] + testFiles + ['-p', platform, '--reporter=expanded', '-j', '1']
         }
 
     }

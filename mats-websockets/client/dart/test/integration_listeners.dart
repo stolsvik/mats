@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:logging/logging.dart';
 import 'package:mats_socket/mats_socket.dart';
 import 'package:mats_socket/src/InitiationProcessedEvent.dart';
 import 'package:test/test.dart';
+
 import 'lib/env.dart';
-import 'dart:math' as math;
 
 void main() {
   configureLogging();
@@ -25,13 +26,11 @@ void main() {
           'DummyAuth:$userId:${expiry.millisecondsSinceEpoch}', expiry, roomForLatencyMillis);
     }
 
-    setUp(() {
-      matsSocket = MatsSocket('TestApp', '1.2.3', serverUris);
-      _logger.info('Created MatsSocket instance [${matsSocket.matsSocketInstanceId}]');
-    });
+    setUp(() => matsSocket = createMatsSocket());
 
     tearDown(() async  {
       await matsSocket.close('Test done');
+      _logger.info('=========== Closed MatsSocket [${matsSocket?.matsSocketInstanceId}] ===========');
     });
 
     // TODO: Check ConnectionEventListeners, including matsSocket.state
