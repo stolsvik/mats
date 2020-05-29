@@ -212,7 +212,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
     public MatsInitiator getDefaultInitiator() {
         final MatsInitiator initiator = getOrCreateInitiator("default");
 
-        return new MatsInitiator() {
+        MatsInitiator matsInitiator = new MatsInitiator() {
             @Override
             public String getName() {
                 return "default";
@@ -228,7 +228,9 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
                 }
                 else {
                     // -> No, not within a MatsStage, so use the proper MatsInitiate.
-                    initiator.initiate(lambda);
+                    // We need to wrap the lambda, so that the __stageDemarcatedMatsInitiate is set
+                    // before invoking the lambda.
+                    initiator.initiate(wrapWithStageDemarcation(lambda));
                 }
             }
 
@@ -243,8 +245,41 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
                 }
                 else {
                     // -> No, not within a MatsStage, so use the proper MatsInitiate.
-                    initiator.initiateUnchecked(lambda);
+                    // We need to wrap the lambda, so that the __stageDemarcatedMatsInitiate is set
+                    // before invoking the lambda.
+                    initiator.initiateUnchecked(wrapWithStageDemarcation(lambda));
                 }
+            }
+
+            /**
+             * Wrap a InitateLambda so that it sets the stage demarcated for nested calls.
+             *
+             * When an initial call is made to {@link #initiate(InitiateLambda)} or
+             * {@link #initiateUnchecked(InitiateLambda)}, we want all nested calls within that Lambda to
+             * use the same initiate, rather than create a new MatsInitiate. The reason for this
+             * is that we can run into a situation where an outer {@link com.stolsvik.mats.MatsInitiator.InitiateLambda}
+             * will commit things to the database that messages from the inner initiate sends requests based on.
+             * <p/>
+             * One scenario that has been encountered, was that a MatsInitiate commited messages to a database, then
+             * in an inner MatsInitiate sendt a message to consume these. Since the inner messages would be commited
+             * and submitted to JMS before the outer initiate was done, the messages where not yet visible in the
+             * database that consumed those messages. By enforcing that there will only be one initiate, and no
+             * nesting, we ensure that all {@link com.stolsvik.mats.MatsInitiator.MatsInitiate} calls are resolved
+             * together.
+             *
+             * @param lambda to wrap, so that the __stageDemarcatedMatsInitiate is set and cleared.
+             * @return the {@link com.stolsvik.mats.MatsInitiator.InitiateLambda} to process.
+             */
+            private InitiateLambda wrapWithStageDemarcation(InitiateLambda lambda) {
+                return initiate -> {
+                    __stageDemarcatedMatsInitiate.set(() -> initiate);
+                    try {
+                        lambda.initiate(initiate);
+                    }
+                    finally {
+                        __stageDemarcatedMatsInitiate.remove();
+                    }
+                };
             }
 
             @Override
@@ -272,6 +307,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
                         + " within MatsStage: " + initiator.toString() + "]";
             }
         };
+        return matsInitiator;
     }
 
     @Override
