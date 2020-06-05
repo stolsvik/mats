@@ -65,14 +65,15 @@ import com.stolsvik.mats.spring.MatsClassMapping.Stage;
 
 /**
  * The {@link BeanPostProcessor}-class specified by the {@link EnableMats @EnableMats} annotation.
- * <p>
- * It checks all Spring beans in the current Spring {@link ApplicationContext} for whether they have methods annotated
- * with {@link MatsMapping @MatsMapping} or {@link MatsEndpointSetup @MatsEndpointSetup}, and if so configures Mats
- * endpoints for them on the (possibly specified) {@link MatsFactory}. It will also control any registered
- * {@link MatsFactory} beans, invoking {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} early in the startup
- * procedure before adding the endpoints, and then {@link MatsFactory#start() MatsFactory.start()} as late as possible
- * in the startup procedure, then {@link MatsFactory#stop(int) MatsFactory.stop(..)} as early as possible in the
- * shutdown procedure.
+ * <p />
+ * It checks all Spring beans in the current Spring {@link ApplicationContext} for whether their classes are annotated
+ * with {@link MatsClassMapping @MatsClassMapping}, or if they have methods annotated with
+ * {@link MatsMapping @MatsMapping} or {@link MatsEndpointSetup @MatsEndpointSetup}, and if so configures Mats endpoints
+ * for them on the (possibly specified) {@link MatsFactory}. It will also control any registered {@link MatsFactory}
+ * beans, invoking {@link MatsFactory#holdEndpointsUntilFactoryIsStarted()} early in the startup procedure before adding
+ * the endpoints, and then {@link MatsFactory#start() MatsFactory.start()} as late as possible in the startup procedure.
+ * Upon Spring context shutdown, it invokes {@link MatsFactory#stop(int) MatsFactory.stop(..)} as early as possible in
+ * the shutdown procedure.
  *
  * <h3>This is the startup procedure:</h3>
  * <ol>
@@ -100,7 +101,7 @@ import com.stolsvik.mats.spring.MatsClassMapping.Stage;
  * Do notice that <i>all</i> MatsFactories in the Spring ApplicationContext are started, regardless of whether they had
  * any Mats endpoints registered using the Mats SpringConfig. This implies that if you register any Mats endpoints
  * programmatically using e.g. <code>@PostConstruct</code> or similar functionality, these will also be started.
- *
+ * <p />
  * <h3>This is the shutdown procedure:</h3>
  * <ol>
  * <li>Upon {@link ContextClosedEvent}, all MatsFactories in the ApplicationContext will have their

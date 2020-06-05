@@ -33,10 +33,6 @@ import org.springframework.test.context.junit4.SpringRunner;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.impl.jms.JmsMatsFactory;
-import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler;
-import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
@@ -51,14 +47,14 @@ import com.stolsvik.mats.util.RandomString;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
 /**
- * Testing Spring DB Transaction management.
+ * Abstract test of Spring DB Transaction management - subclasses specifies how the MatsFactory method is created.
  *
  * @author Endre Stølsvik 2019-05-06 21:35 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class SpringManagedTx_H2Based {
+public abstract class Test_SpringManagedTx_H2Based_Base {
 
-    private static final Logger log = LoggerFactory.getLogger(SpringManagedTx_H2Based.class);
+    private static final Logger log = LoggerFactory.getLogger(Test_SpringManagedTx_H2Based_Base.class);
 
     public static final String SERVICE = "mats.spring.SpringManagedTx_H2Based";
     public static final String TERMINATOR = SERVICE + ".TERMINATOR";
@@ -69,46 +65,27 @@ public class SpringManagedTx_H2Based {
 
     @Configuration
     @EnableMats
-    static class MultipleMappingsConfiguration {
+    static class SpringConfiguration_Base {
         @Bean
-        MatsLocalVmActiveMq getMatsTestActiveMq() {
+        MatsLocalVmActiveMq createMatsTestActiveMq() {
             return MatsLocalVmActiveMq.createRandomInVmActiveMq();
         }
 
         @Bean
-        public ConnectionFactory getConnectionFactory(MatsLocalVmActiveMq matsLocalVmActiveMq) {
+        public ConnectionFactory createJmsConnectionFactory(MatsLocalVmActiveMq matsLocalVmActiveMq) {
             return matsLocalVmActiveMq.getConnectionFactory();
         }
 
         @Bean
-        public MatsTestLatch testLatch() {
-            return new MatsTestLatch();
-        }
-
-        @Bean
-        MatsSerializer<String> getMatsSerializer() {
+        MatsSerializer<String> createMatsSerializer() {
             return new MatsSerializer_DefaultJson();
-        }
-
-        @Bean
-        protected MatsFactory createMatsFactory(DataSource dataSource,
-                ConnectionFactory connectionFactory, MatsSerializer<String> matsSerializer) {
-            // Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
-            JmsMatsJmsSessionHandler jmsSessionHandler = JmsMatsJmsSessionHandler_Pooling.create(connectionFactory);
-            JmsMatsTransactionManager txMgrSpring = JmsMatsTransactionManager_JmsAndSpringDstm.create(dataSource);
-
-            JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory(this.getClass().getSimpleName(),
-                    "*testing*", jmsSessionHandler, txMgrSpring, matsSerializer);
-            // For the MULTIPLE test scenario, it makes sense to test concurrency, so we go for 5.
-            matsFactory.getFactoryConfig().setConcurrency(5);
-            return matsFactory;
         }
 
         /**
          * @return a H2 test database.
          */
         @Bean
-        public DataSource dataSource() {
+        public DataSource createDataSource() {
             log.info("Creating H2 DataSource (url:'" + H2_DATABASE_URL
                     + "'), run 'DROP ALL OBJECTS DELETE FILES' on it,"
                     + " then 'CREATE TABLE datatable (data VARCHAR {UNIQUE})'.");
@@ -132,9 +109,13 @@ public class SpringManagedTx_H2Based {
                 stmt.execute("CREATE TABLE datatable ( data VARCHAR NOT NULL, CONSTRAINT UC_data UNIQUE (data))");
             }
             catch (SQLException e) {
-                throw new DatabaseException("Got problems creating the SQL 'datatable'.", e);
+                throw new DatabaseException("Got problems creating the SQL table 'datatable'.", e);
             }
 
+            return optionallyWrapDataSource(dataSource);
+        }
+
+        protected DataSource optionallyWrapDataSource(DataSource dataSource) {
             return dataSource;
         }
 
@@ -155,8 +136,8 @@ public class SpringManagedTx_H2Based {
          * This is just to "emulate" a proper Spring-managed JdbcTemplate; Could have made it directly in the endpoint.
          */
         @Bean
-        public JdbcTemplate jdbcTemplate() {
-            return new JdbcTemplate(dataSource());
+        public JdbcTemplate jdbcTemplate(DataSource dataSource) {
+            return new JdbcTemplate(dataSource);
         }
 
         /**
@@ -164,18 +145,23 @@ public class SpringManagedTx_H2Based {
          * endpoint.
          */
         @Bean
-        public SimpleJdbcInsert simpleJdbcInsert() {
-            return new SimpleJdbcInsert(dataSource()).withTableName("datatable");
+        public SimpleJdbcInsert simpleJdbcInsert(DataSource dataSource) {
+            return new SimpleJdbcInsert(dataSource).withTableName("datatable");
+        }
+
+        @Bean
+        public MatsTestLatch createTestLatch() {
+            return new MatsTestLatch();
         }
 
         @Inject
-        private JdbcTemplate _jdbcTemplate;
+        protected JdbcTemplate _jdbcTemplate;
 
         @Inject
-        private SimpleJdbcInsert _simpleJdbcInsert;
+        protected SimpleJdbcInsert _simpleJdbcInsert;
 
         @Inject
-        private MatsTestLatch _latch;
+        protected MatsTestLatch _latch;
 
         /**
          * Setting up the single-stage endpoint that will store a row in the database, but which will throw if the
@@ -233,27 +219,27 @@ public class SpringManagedTx_H2Based {
     private DataSource _dataSource;
 
     @Inject
-    private MatsFactory _matsFactory;
+    protected MatsFactory _matsFactory;
 
     @Inject
-    private MatsTestLatch _latch;
+    protected MatsTestLatch _latch;
 
     @Inject
-    private MatsLocalVmActiveMq _matsLocalVmActiveMq;
+    protected MatsLocalVmActiveMq _matsLocalVmActiveMq;
 
     @Inject
-    private MatsSerializer<String> _matsSerializer;
+    protected MatsSerializer<String> _matsSerializer;
 
-    private static final String GOOD = "Good";
-    private static final String THROW = "Throw";
-    private static final String MULTIPLE = "Multiple";
+    protected static final String GOOD = "Good";
+    protected static final String THROW = "Throw";
+    protected static final String MULTIPLE = "Multiple";
 
     @Test
     @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)
     public void test_Good() throws SQLException {
         SpringTestDataTO dto = new SpringTestDataTO(27, GOOD);
         String traceId = "testGood_TraceId:" + RandomString.randomCorrelationId();
-        sendMessage(dto, traceId);
+        sendMessage(SERVICE, dto, traceId);
 
         Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
         Assert.assertEquals(traceId, result.getContext().getTraceId());
@@ -272,7 +258,7 @@ public class SpringManagedTx_H2Based {
     @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)
     public void test_MultipleGood() throws SQLException {
         for (int i = 0; i < MULTIPLE_COUNT; i++) {
-            sendMessage(new SpringTestDataTO(i, MULTIPLE + i), RandomString.randomCorrelationId());
+            sendMessage(SERVICE, new SpringTestDataTO(i, MULTIPLE + i), RandomString.randomCorrelationId());
         }
 
         // Wait for the message that counts it down to zero
@@ -293,7 +279,7 @@ public class SpringManagedTx_H2Based {
     public void test_ThrowsShouldRollback() throws SQLException {
         SpringTestDataTO dto = new SpringTestDataTO(13, THROW);
         String traceId = "testBad_TraceId:" + RandomString.randomCorrelationId();
-        sendMessage(dto, traceId);
+        sendMessage(SERVICE, dto, traceId);
 
         // :: This should result in a DLQ, since the SERVICE throws.
         MatsTrace<String> dlqMessage = _matsLocalVmActiveMq.getDlqMessage(_matsSerializer,
@@ -314,18 +300,18 @@ public class SpringManagedTx_H2Based {
         Assert.assertEquals(0, dataFromDatabase.size());
     }
 
-    private void sendMessage(SpringTestDataTO dto, String traceId) {
+    protected void sendMessage(String serviceId, SpringTestDataTO dto, String traceId) {
         log.debug("Sending message: " + dto.string);
         _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
             init.traceId(traceId)
-                    .from(SpringManagedTx_H2Based.class.getSimpleName())
-                    .to(SERVICE)
+                    .from(Test_SpringManagedTx_H2Based_Base.class.getSimpleName())
+                    .to(serviceId)
                     .replyTo(TERMINATOR, null)
                     .request(dto);
         });
     }
 
-    private List<String> getDataFromDatabase() throws SQLException {
+    protected List<String> getDataFromDatabase() throws SQLException {
         Connection connection = _dataSource.getConnection();
         PreparedStatement pstmt = connection.prepareStatement("SELECT * FROM datatable ORDER BY data");
         ResultSet rs = pstmt.executeQuery();

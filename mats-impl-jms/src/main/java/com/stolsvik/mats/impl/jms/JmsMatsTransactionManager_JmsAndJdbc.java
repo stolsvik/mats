@@ -93,7 +93,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
             // :: First make the potential Connection available
             LazyJdbcConnectionSupplier lazyConSup = new LazyJdbcConnectionSupplier();
             jmsMatsMessageContext.setSqlConnectionSupplier(lazyConSup);
-            jmsMatsMessageContext.setSqllConnectionEmployed(lazyConSup::wasConnectionEmployed);
+            jmsMatsMessageContext.setSqlConnectionEmployedSupplier(lazyConSup::wasConnectionEmployed);
 
             // :: We invoke the "outer" transaction, which is the JMS transaction.
             super.doTransaction(jmsMatsMessageContext, () -> {

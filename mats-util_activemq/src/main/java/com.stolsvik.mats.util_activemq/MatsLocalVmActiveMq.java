@@ -27,7 +27,7 @@ import com.stolsvik.mats.serial.MatsTrace;
  * A special utility class utilized in tests and Mats test infrastructure - it starts an in-vm ActiveMQ Broker (unless a
  * special system property is set), and a corresponding {@link ConnectionFactory} to this broker. It also has a
  * convenience DLQ fetcher for testing.
- * 
+ *
  * If the system property "{@link #SYSPROP_MATS_TEST_ACTIVEMQ mats.test.activemq}" is set to any string, the in-vm
  * ActiveMQ Broker instance <i>will not</i> be created, and the supplied string will be used for the
  * {@link ActiveMQConnectionFactory ActiveMQ ConnectionFactory} (i.e. the client) brokerURL. The special value
@@ -170,7 +170,7 @@ public class MatsLocalVmActiveMq {
 
     /**
      * <b>Remember to {@link #stopBrokerService(BrokerService) stop the broker} after use!</b>
-     * 
+     *
      * @return a newly created ActiveMQ BrokerService, <b>unless</b> the {@link #SYSPROP_MATS_TEST_ACTIVEMQ} is set to
      *         something, <b>in which case it returns <code>null</code></b> (The broker is then assumed to be running
      *         outside of this JVM).
@@ -253,7 +253,7 @@ public class MatsLocalVmActiveMq {
 
     /**
      * Stops the supplied BrokerService <b>if non-null</b> (that is, nothing happens if null is supplied).
-     * 
+     *
      * @param brokerService
      *            the BrokerService that was gotten with {@link #createBrokerService(String)}, which might be null.
      */

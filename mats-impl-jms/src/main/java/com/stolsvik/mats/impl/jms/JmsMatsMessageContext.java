@@ -60,7 +60,7 @@ public class JmsMatsMessageContext {
      * The {@link JmsMatsTransactionManager} should set a way to determine whether the SQL Connection was actually
      * employed (if this is not possible to determine, then return whether it was gotten).
      */
-    public void setSqllConnectionEmployed(Supplier<Boolean> sqlConnectionEmployed) {
+    public void setSqlConnectionEmployedSupplier(Supplier<Boolean> sqlConnectionEmployed) {
         _sqlConnectionEmployed = sqlConnectionEmployed;
     }
 

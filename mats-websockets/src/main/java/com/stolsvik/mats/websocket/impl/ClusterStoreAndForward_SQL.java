@@ -571,7 +571,7 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             throws DataAccessException {
         return withConnectionReturn(con -> {
             // The old MS JDBC Driver 'jtds' don't handle parameter insertion for 'TOP' statement.
-            PreparedStatement insert = con.prepareStatement("SELECT TOP " + maxNumberOfMessages
+            PreparedStatement selectMsgs = con.prepareStatement("SELECT TOP " + maxNumberOfMessages
                     + " smid, trace_id, type,"
                     + " cmid, request_timestamp,"
                     + " stored_timestamp, delivery_count,"
@@ -580,8 +580,8 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
                     + " WHERE session_id = ?"
                     + "   AND attempt_timestamp IS NULL"
                     + "   AND delivery_count <> " + DLQ_DELIVERY_COUNT_MARKER);
-            insert.setString(1, matsSocketSessionId);
-            ResultSet rs = insert.executeQuery();
+            selectMsgs.setString(1, matsSocketSessionId);
+            ResultSet rs = selectMsgs.executeQuery();
             List<StoredOutMessage> list = new ArrayList<>();
             while (rs.next()) {
                 MessageType type = MessageType.valueOf(rs.getString(3));

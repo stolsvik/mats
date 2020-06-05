@@ -17,11 +17,11 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.MatsScenario;
-import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringDstm;
+import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringManagedSqlTx;
 
 /**
  * Provides an easy to get hold of the most probable {@link JmsMatsFactory} transaction manager configuration in the
- * Spring world (using {@link JmsMatsTransactionManager_JmsAndSpringDstm}).
+ * Spring world (using {@link JmsMatsTransactionManager_JmsAndSpringManagedSqlTx}).
  *
  * @author Endre Stølsvik 2019-06-10 02:45 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -61,7 +61,7 @@ public class JmsSpringMatsFactoryProducer {
         // JmsSessionHandler (pooler)
         JmsMatsJmsSessionHandler jmsSessionHandler = JmsMatsJmsSessionHandler_Pooling.create(jmsConnectionFactory);
         // JMS + Spring's DataSourceTransactionManager-based MatsTransactionManager
-        JmsMatsTransactionManager springSqlTxMgr = JmsMatsTransactionManager_JmsAndSpringDstm.create(sqlDataSource);
+        JmsMatsTransactionManager springSqlTxMgr = JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.create(sqlDataSource);
 
         // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
         JmsMatsFactory<?> matsFactory = JmsMatsFactory

@@ -365,7 +365,8 @@ public interface MatsFactory extends StartStoppable {
 
     /**
      * Provides ThreadLocal access to elements from the {@link MatsStage} process context and {@link MatsInitiate}
-     * context - currently {@link #getAttribute(Class, String...)}.
+     * context - currently {@link #getAttribute(Class, String...)}, which can provide you with the transactionally
+     * demarcated SQL Connection if the Mats implementation provides such.
      */
     class ContextLocal {
         private static final ThreadLocal<Map<Object, Object>> THREAD_LOCAL_MAP = ThreadLocal.withInitial(HashMap::new);
