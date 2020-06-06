@@ -17,10 +17,11 @@ import com.stolsvik.mats.spring.EnableMats;
  * @author Endre Stølsvik 2020-06-05 00:10 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class Test_SpringManagedTx_H2Based_DataSourceTransactionaManager extends Test_SpringManagedTx_H2Based_AbstractResourceTransactionaManager{
+public class Test_SpringManagedTx_H2Based_DataSourceTransactionaManager
+        extends Test_SpringManagedTx_H2Based_AbstractResourceTransactionaManager {
     @Configuration
     @EnableMats
-    static class SpringConfiguration_DataSourceTxMgr extends SpringConfiguration_UsingPlatformTransactionManager {
+    static class SpringConfiguration_DataSourceTxMgr extends SpringConfiguration_AbstractPlatformTransactionManager {
         @Bean
         PlatformTransactionManager createDataSourceTransactionaManager(DataSource dataSource) {
             return new DataSourceTransactionManager(dataSource);

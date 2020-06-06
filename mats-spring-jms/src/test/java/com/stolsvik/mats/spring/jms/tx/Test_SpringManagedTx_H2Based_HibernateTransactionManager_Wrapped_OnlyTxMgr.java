@@ -17,12 +17,11 @@ import com.stolsvik.mats.spring.EnableMats;
  * @author Endre Stølsvik 2020-06-05 00:10 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class Test_SpringManagedTx_H2Based_HibernateTransactionManager_Wrapped_OnlyTxMgr extends
-        Test_SpringManagedTx_H2Based_HibernateTransactionManager {
+public class Test_SpringManagedTx_H2Based_HibernateTransactionManager_Wrapped_OnlyTxMgr
+        extends Test_SpringManagedTx_H2Based_HibernateTransactionManager {
     @Configuration
     @EnableMats
-    static class SpringConfiguration_Hibernate_Wrapped extends
-            SpringConfiguration_HibernateTxMgr {
+    static class SpringConfiguration_Hibernate_Wrapped extends SpringConfiguration_HibernateTxMgr {
         @Bean
         LocalSessionFactoryBean createHibernateSessionFactory(DataSource dataSource) {
             // This is a FactoryBean that creates a Hibernate SessionFactory working with Spring's HibernateTxMgr

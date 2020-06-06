@@ -55,9 +55,9 @@ import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
  * @author Endre Stølsvik 2019-05-06 21:35 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public abstract class Test_SpringManagedTx_H2Based_Base {
+public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
 
-    private static final Logger log = LoggerFactory.getLogger(Test_SpringManagedTx_H2Based_Base.class);
+    private static final Logger log = LoggerFactory.getLogger(Test_SpringManagedTx_H2Based_AbstractBase.class);
 
     public static final String SERVICE = "mats.spring.SpringManagedTx_H2Based";
     public static final String TERMINATOR = SERVICE + ".TERMINATOR";
@@ -68,7 +68,7 @@ public abstract class Test_SpringManagedTx_H2Based_Base {
 
     @Configuration
     @EnableMats
-    static class SpringConfiguration_Base {
+    static abstract class SpringConfiguration_AbstractBase {
         @Bean
         MatsLocalVmActiveMq createMatsTestActiveMq() {
             return MatsLocalVmActiveMq.createRandomInVmActiveMq();
@@ -219,7 +219,7 @@ public abstract class Test_SpringManagedTx_H2Based_Base {
          * Terminator, which also inserts a row in the database.
          */
         @MatsMapping(endpointId = TERMINATOR)
-        protected void springMatsTerminatorEndpoint(ProcessContext context, @Dto SpringTestDataTO msg,
+        protected void springMatsTerminatorEndpoint(ProcessContext<?> context, @Dto SpringTestDataTO msg,
                 @Sto SpringTestStateTO state) {
 
             String value = TERMINATOR + '[' + msg.string + ']';
@@ -336,7 +336,7 @@ public abstract class Test_SpringManagedTx_H2Based_Base {
         log.debug("Sending message: " + dto.string);
         _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
             init.traceId(traceId)
-                    .from(Test_SpringManagedTx_H2Based_Base.class.getSimpleName())
+                    .from(Test_SpringManagedTx_H2Based_AbstractBase.class.getSimpleName())
                     .to(serviceId)
                     .replyTo(TERMINATOR, null)
                     .request(dto);

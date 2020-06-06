@@ -34,19 +34,20 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.MatsMapping;
-import com.stolsvik.mats.spring.jms.tx.Test_SpringManagedTx_H2Based_AbstractResourceTransactionaManager.SpringConfiguration_UsingPlatformTransactionManager;
+import com.stolsvik.mats.spring.jms.tx.Test_SpringManagedTx_H2Based_AbstractResourceTransactionaManager.SpringConfiguration_AbstractPlatformTransactionManager;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.util.RandomString;
 
 /**
  * Testing Spring DB Transaction management, using HibernateTransactionManager - also including tests using all of
- * Hibernate/JPA, Spring JDBC and Plain JDBC in a single Stage, all being tx-managed from the
- * sole HibernateTransactionManager.
+ * Hibernate/JPA, Spring JDBC and Plain JDBC in a single Stage, all being tx-managed from the sole
+ * HibernateTransactionManager.
  *
  * @author Endre Stølsvik 2020-06-05 00:10 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class Test_SpringManagedTx_H2Based_HibernateTransactionManager extends Test_SpringManagedTx_H2Based_Base {
+public class Test_SpringManagedTx_H2Based_HibernateTransactionManager
+        extends Test_SpringManagedTx_H2Based_AbstractBase {
 
     private static final Logger log = LoggerFactory.getLogger(
             Test_SpringManagedTx_H2Based_HibernateTransactionManager.class);
@@ -55,8 +56,8 @@ public class Test_SpringManagedTx_H2Based_HibernateTransactionManager extends Te
 
     @Configuration
     @EnableMats
-    static class SpringConfiguration_HibernateTxMgr extends
-            SpringConfiguration_UsingPlatformTransactionManager {
+    static class SpringConfiguration_HibernateTxMgr
+            extends SpringConfiguration_AbstractPlatformTransactionManager {
 
         @Bean
         LocalSessionFactoryBean createHibernateSessionFactory(DataSource dataSource) {

@@ -25,19 +25,20 @@ import com.stolsvik.mats.spring.EnableMats;
  * @author Endre Stølsvik 2019-05-06 21:35 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class Test_SpringManagedTx_H2Based_DataSource extends Test_SpringManagedTx_H2Based_Base {
+public class Test_SpringManagedTx_H2Based_OnlyDataSource extends Test_SpringManagedTx_H2Based_AbstractBase {
 
-    private static final Logger log = LoggerFactory.getLogger(Test_SpringManagedTx_H2Based_DataSource.class);
+    private static final Logger log = LoggerFactory.getLogger(Test_SpringManagedTx_H2Based_OnlyDataSource.class);
 
     @Configuration
     @EnableMats
-    static class SpringConfiguration_DataSource extends SpringConfiguration_Base {
+    static class SpringConfiguration_DataSource extends SpringConfiguration_AbstractBase {
         @Bean
         protected MatsFactory createMatsFactory(DataSource dataSource,
                 ConnectionFactory connectionFactory, MatsSerializer<String> matsSerializer) {
             // Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
             JmsMatsJmsSessionHandler jmsSessionHandler = JmsMatsJmsSessionHandler_Pooling.create(connectionFactory);
-            JmsMatsTransactionManager txMgrSpring = JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.create(dataSource);
+            JmsMatsTransactionManager txMgrSpring = JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.create(
+                    dataSource);
 
             JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory(this.getClass().getSimpleName(),
                     "*testing*", jmsSessionHandler, txMgrSpring, matsSerializer);

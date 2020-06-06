@@ -23,11 +23,12 @@ import com.stolsvik.mats.spring.EnableMats;
  * @author Endre Stølsvik 2020-06-05 00:10 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public abstract class Test_SpringManagedTx_H2Based_AbstractResourceTransactionaManager extends
-        Test_SpringManagedTx_H2Based_Base {
+public abstract class Test_SpringManagedTx_H2Based_AbstractResourceTransactionaManager
+        extends Test_SpringManagedTx_H2Based_AbstractBase {
     @Configuration
     @EnableMats
-    static class SpringConfiguration_UsingPlatformTransactionManager extends SpringConfiguration_Base {
+    static abstract class SpringConfiguration_AbstractPlatformTransactionManager
+            extends SpringConfiguration_AbstractBase {
         @Bean
         protected MatsFactory createMatsFactory(PlatformTransactionManager platformTransactionManager,
                 ConnectionFactory connectionFactory, MatsSerializer<String> matsSerializer) {

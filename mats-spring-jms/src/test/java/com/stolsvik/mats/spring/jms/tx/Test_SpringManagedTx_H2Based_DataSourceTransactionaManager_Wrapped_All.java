@@ -15,12 +15,11 @@ import com.stolsvik.mats.spring.EnableMats;
  * @author Endre Stølsvik 2020-06-05 00:10 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class Test_SpringManagedTx_H2Based_DataSourceTransactionaManager_Wrapped_All extends
-        Test_SpringManagedTx_H2Based_DataSourceTransactionaManager {
+public class Test_SpringManagedTx_H2Based_DataSourceTransactionaManager_Wrapped_All
+        extends Test_SpringManagedTx_H2Based_DataSourceTransactionaManager {
     @Configuration
     @EnableMats
-    static class SpringConfiguration_Test extends
-            SpringConfiguration_DataSourceTxMgr {
+    static class SpringConfiguration_Test extends SpringConfiguration_DataSourceTxMgr {
         @Override
         protected DataSource optionallyWrapDataSource(DataSource dataSource) {
             return JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.wrapLazyConnectionDatasource(dataSource);
