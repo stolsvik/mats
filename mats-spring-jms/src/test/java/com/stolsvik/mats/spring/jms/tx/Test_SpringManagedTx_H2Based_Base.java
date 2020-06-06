@@ -8,6 +8,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -27,6 +28,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.annotation.DirtiesContext.MethodMode;
 import org.springframework.test.context.junit4.SpringRunner;
@@ -47,7 +49,8 @@ import com.stolsvik.mats.util.RandomString;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
 /**
- * Abstract test of Spring DB Transaction management - subclasses specifies how the MatsFactory method is created.
+ * Abstract test of Spring DB Transaction management, performing INSERTs using Spring JdbcTemplate and Plain JDBC,
+ * checking commit and rollback - subclasses specifies how the MatsFactory method is created.
  *
  * @author Endre Stølsvik 2019-05-06 21:35 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -172,11 +175,38 @@ public abstract class Test_SpringManagedTx_H2Based_Base {
                 SpringTestDataTO msg) {
             log.info("Incoming message for '" + SERVICE + "': DTO:[" + msg + "], context:\n" + context);
 
-            String value = SERVICE + '[' + msg.string + ']';
-            log.info("SERVICE: Inserting row in database, data='" + value + "'");
-            _jdbcTemplate.update("INSERT INTO datatable VALUES (?)", value);
+            // :: Perform an INSERT using Spring JDBC:
+            String valueSpringJdbc = SERVICE + '[' + msg.string + "]-SpringJdbc";
+            log.info("SERVICE: Inserting row in database, data='" + valueSpringJdbc + "'");
+            // (using "update" to perform INSERT..)
+            _jdbcTemplate.update("INSERT INTO datatable VALUES (?)", valueSpringJdbc);
 
+            // :: Perform an INSERT using pure JDBC
+            String valuePlainJdbc = SERVICE + '[' + msg.string + "]-PlainJdbc";
+            // Note how we're using DataSourceUtils to get the Spring Managed Transactional Connection.
+            // .. and do NOT close it afterwards, but use DataSourceUtils.releaseConnection instead
+            // Notice how this is exactly like JdbcTemplate.execute() does it.
+            Connection con = DataSourceUtils.getConnection(_dataSource);
+            try {
+                PreparedStatement stmt = con.prepareStatement("INSERT INTO datatable VALUES (?)");
+                stmt.setString(1, valuePlainJdbc);
+                stmt.execute();
+                stmt.close();
+                // NOTE: Must NOT close Connection, but can "release" it back using DataSourceUtils:
+                // ("Release" does a close if outside Spring Managed TX, and does NOT close if inside a TX)
+                DataSourceUtils.releaseConnection(con, _dataSource);
+            }
+            catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+
+            // Assert that this is the same Connection instance that we would get from the ProcessContext
+            Optional<Connection> contextAttributeConnection = context.getAttribute(Connection.class);
+            Assert.assertSame(con, contextAttributeConnection.get());
+
+            // ?: Are we instructed to throw now, thereby rolling back the above changes?
             if (msg.string.startsWith(THROW)) {
+                // -> Yes, we should throw - and this should rollback all DB, eventually DLQing the message.
                 log.info("Asked to throw RuntimeException, and that we do!");
                 throw new RuntimeException("This RTE should make the SQL INSERT rollback!");
             }
@@ -249,7 +279,8 @@ public abstract class Test_SpringManagedTx_H2Based_Base {
         List<String> expected = new ArrayList<>(2);
         // Add in expected order based on "ORDER BY data"
         expected.add(TERMINATOR + '[' + GOOD + ']');
-        expected.add(SERVICE + '[' + GOOD + ']');
+        expected.add(SERVICE + '[' + GOOD + "]-PlainJdbc");
+        expected.add(SERVICE + '[' + GOOD + "]-SpringJdbc");
 
         Assert.assertEquals(expected, getDataFromDatabase());
     }
@@ -268,8 +299,9 @@ public abstract class Test_SpringManagedTx_H2Based_Base {
         // Make expected follow order based on "ORDER BY data", by using TreeSet.
         SortedSet<String> expected = new TreeSet<>();
         for (int i = 0; i < MULTIPLE_COUNT; i++) {
-            expected.add(TERMINATOR + '[' + MULTIPLE + i + ']');
-            expected.add(SERVICE + '[' + MULTIPLE + i + ']');
+            expected.add(TERMINATOR + '[' + MULTIPLE + i + "]");
+            expected.add(SERVICE + '[' + MULTIPLE + i + "]-PlainJdbc");
+            expected.add(SERVICE + '[' + MULTIPLE + i + "]-SpringJdbc");
         }
         Assert.assertEquals(new ArrayList<>(expected), getDataFromDatabase());
     }

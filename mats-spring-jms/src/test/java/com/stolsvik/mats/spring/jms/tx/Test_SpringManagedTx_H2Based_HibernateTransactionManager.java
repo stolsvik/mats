@@ -103,23 +103,30 @@ public class Test_SpringManagedTx_H2Based_HibernateTransactionManager extends Te
 
             // :: .. and finally insert row using pure JDBC
             String valuePlainJdbc = SERVICE_HIBERNATE + '[' + msg.string + "]-PlainJdbc";
+            // Note how we're using DataSourceUtils to get the Spring Managed Transactional Connection.
+            // .. and do NOT close it afterwards, but use DataSourceUtils.releaseConnection instead
+            // Notice how this is exactly like JdbcTemplate.execute() does it.
             Connection con = DataSourceUtils.getConnection(_dataSource);
             try {
                 PreparedStatement stmt = con.prepareStatement("INSERT INTO datatable VALUES (?)");
                 stmt.setString(1, valuePlainJdbc);
                 stmt.execute();
                 stmt.close();
-                // NOTE: Must NOT close Connection.
+                // NOTE: Must NOT close Connection, but can "release" it back using DataSourceUtils:
+                // ("Release" does a close if outside Spring Managed TX, and does NOT close if inside a TX)
+                DataSourceUtils.releaseConnection(con, _dataSource);
             }
             catch (SQLException e) {
                 throw new RuntimeException(e);
             }
 
-            // Assert that this is the same Connection that we get from the ProcessContext
+            // Assert that this is the same Connection instance that we would get from the ProcessContext
             Optional<Connection> contextAttributeConnection = context.getAttribute(Connection.class);
             Assert.assertSame(con, contextAttributeConnection.get());
 
+            // ?: Are we instructed to throw now, thereby rolling back the above changes?
             if (msg.string.startsWith(THROW)) {
+                // -> Yes, we should throw - and this should rollback all DB, eventually DLQing the message.
                 log.info("Asked to throw RuntimeException, and that we do!");
                 throw new RuntimeException("This RTE should make the SQL INSERT rollback!");
             }
