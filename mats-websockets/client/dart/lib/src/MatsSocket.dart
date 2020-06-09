@@ -22,7 +22,7 @@ final Logger _logger = Logger('MatsSocket');
 const String ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 // JSON-non-quoted and visible Alphabet: 92 chars.
 const String JSON_ALPHABET = '!#\$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~';
-const CLIENT_LIB_NAME_AND_VERSION = 'MatsSocket_old.dart,v0.13.0;';
+const CLIENT_LIB_NAME_AND_VERSION = 'MatsSocket_old.dart,v0.13.1;';
 
 
 typedef SessionClosedEventListener = Function(MatsSocketCloseEvent);
@@ -1048,7 +1048,7 @@ class MatsSocket {
     }
     _webSocket = null;
   }
-  
+
   void _closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages() {
     _logger.info('closeSessionAndClearStateAndPipelineAndFuturesAndOutstandingMessages(). Current WebSocket:$_webSocket');
     // Clear state

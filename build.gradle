@@ -5,9 +5,7 @@ wrapper {
     setDistributionType(Wrapper.DistributionType.ALL)
 }
 
-// Version of Mats
-allprojects {
-}
+// NOTE: MATS VERSION is set in gradle.properties
 
 // Spring, ActiveMQ and Jackson JSON versions: Used in several sub projects
 ext {
