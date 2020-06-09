@@ -152,48 +152,6 @@ public class MatsSpringAnnotationRegistration implements
 
     private final Map<String, MatsFactory> _matsFactories = new HashMap<>();
     private final IdentityHashMap<MatsFactory, String> _matsFactoriesToName = new IdentityHashMap<>();
-
-    @Override
-    public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
-        // ?: Is this bean a MatsFactory?
-        if (bean instanceof MatsFactory) {
-            // -> Yes, MatsFactory, so ask it to hold any subsequently registered endpoints until the MatsFactory is
-            // explicitly started.
-            MatsFactory matsFactory = (MatsFactory) bean;
-            // ?: However, have we already had the ContextRefreshedEvent presented?
-            if (_contextHasBeenRefreshed) {
-                // -> Yes, so then we should not hold anyway.
-                log.info(LOG_PREFIX + "postProcessBeforeInitialization(bean) invoked, and the bean is a MatsFactory."
-                        + " However, the context is already refreshed, so we won't invoke"
-                        + " matsFactory.holdEndpointsUntilFactoryIsStarted() - but instead invoke matsFactory.start()."
-                        + " This means that any not yet started endpoints will start, and any subsequently registered"
-                        + " endpoints will start immediately. The reason why this has happened is most probably due"
-                        + " to lazy initialization, where beans are being instantiated \"on demand\" after the "
-                        + " life cycle processing has happened (i.e. we got ContextRefreshedEvent already).");
-                matsFactory.start();
-            }
-            else {
-                // -> No, have not had ContextRefreshedEvent presented yet - so hold endpoints.
-                log.info(LOG_PREFIX + "postProcessBeforeInitialization(bean) invoked, and the bean is a MatsFactory."
-                        + " We invoke matsFactory.holdEndpointsUntilFactoryIsStarted(), ensuring that any subsequently"
-                        + " registered endpoints is held until we explicitly invoke matsFactory.start() later at"
-                        + " ContextRefreshedEvent, so that they do not start processing messages until the entire"
-                        + " application is ready for service. We also sets the name to the beanName if not already"
-                        + " set.");
-                // Ensure that any subsequently registered endpoints won't start until we hit matsFactory.start()
-                matsFactory.holdEndpointsUntilFactoryIsStarted();
-            }
-            // Add to map for later use
-            _matsFactories.put(beanName, matsFactory);
-            _matsFactoriesToName.put(matsFactory, beanName);
-            // Set the name of the MatsFactory to the Spring bean name if it is not already set.
-            if ("".equals(matsFactory.getFactoryConfig().getName())) {
-                matsFactory.getFactoryConfig().setName(beanName);
-            }
-        }
-        return bean;
-    }
-
     private final Set<Class<?>> _classesWithNoMatsMappingAnnotations = ConcurrentHashMap.newKeySet();
 
     private static Class<?> getClassOfBean(Object bean) {
@@ -212,12 +170,73 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     @Override
+    public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
+        /* no-op */
+        return bean;
+    }
+
+    @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
+        if (log.isTraceEnabled()) log.trace(LOG_PREFIX + getClass().getSimpleName()
+                + ".postProcessAfterInitialization(bean, \"" + beanName + "\"), bean class:[" + bean.getClass()
+                + "], bean instance:[" + bean.toString() + "]");
+        /*
+         * We check if this is a MatsFactory, in which case we set it to ".holdEndpointsUntilFactoryStarted()", and
+         * perform ".start()" on it when we get the ContextRefreshedEvent.
+         *
+         * We then check if the bean has any Mats SpringConfig @Annotations on it, and if so store it for later
+         * processing when we get the ContextRefreshedEvent.
+         *
+         * Note that both of these "handle later" logics are shortcut if we have already gotten the
+         * ContextRefreshedEvent - this is to handle lazy initialization, which typically happens if using e.g. Remock
+         * or MockBean in testing scenarios.
+         */
+
+        // ?: Is this bean a MatsFactory?
+        if (bean instanceof MatsFactory) {
+            // -> Yes, MatsFactory, so ask it to hold any subsequently registered endpoints until the MatsFactory is
+            // explicitly started.
+            MatsFactory matsFactory = (MatsFactory) bean;
+            // ?: However, have we already had the ContextRefreshedEvent presented?
+            // This may happen if we're in some kind of lazy instantiation mode, like when using Remock or MockBean.
+            if (_contextHasBeenRefreshed) {
+                // -> Yes, so then we should not hold anyway.
+                log.info(LOG_PREFIX + "Found a MatsFactory [" + bean + "]."
+                        + " HOWEVER, the context is already refreshed, so we won't invoke"
+                        + " matsFactory.holdEndpointsUntilFactoryIsStarted() - but instead invoke matsFactory.start()."
+                        + " This means that any not yet started endpoints will start, and any subsequently registered"
+                        + " endpoints will start immediately. The reason why this has happened is most probably due"
+                        + " to lazy initialization, where beans are being instantiated \"on demand\" after the "
+                        + " life cycle processing has happened (i.e. we got ContextRefreshedEvent already).");
+                matsFactory.start();
+            }
+            else {
+                // -> No, have not had ContextRefreshedEvent presented yet - so hold endpoints.
+                log.info(LOG_PREFIX + "Found a MatsFactory [" + bean + "]."
+                        + " We invoke matsFactory.holdEndpointsUntilFactoryIsStarted(), ensuring that any subsequently"
+                        + " registered endpoints is held until we explicitly invoke matsFactory.start() later at"
+                        + " ContextRefreshedEvent, so that they do not start processing messages until the entire"
+                        + " application is ready for service. We also sets the name to the beanName if not already"
+                        + " set.");
+                // Ensure that any subsequently registered endpoints won't start until we hit matsFactory.start()
+                matsFactory.holdEndpointsUntilFactoryIsStarted();
+            }
+            // Add to map for later use
+            _matsFactories.put(beanName, matsFactory);
+            _matsFactoriesToName.put(matsFactory, beanName);
+            // Set the name of the MatsFactory to the Spring bean name if it is not already set.
+            if ("".equals(matsFactory.getFactoryConfig().getName())) {
+                matsFactory.getFactoryConfig().setName(beanName);
+            }
+        }
+
         // Find actual class of bean (in case of AOPed bean)
         Class<?> targetClass = getClassOfBean(bean);
         // ?: Have we checked this bean before and found no @Mats..-annotations? (might happen with prototype beans)
         if (_classesWithNoMatsMappingAnnotations.contains(targetClass)) {
             // -> Yes, we've checked it before, and it has no @Mats..-annotations.
+            if (log.isTraceEnabled()) log.trace(LOG_PREFIX + "Already checked bean [" + beanName
+                    + "], bean class: [" + bean.getClass().getSimpleName() + "]: No Mats SpringConfig annotations.");
             return bean;
         }
 
@@ -235,8 +254,9 @@ public class MatsSpringAnnotationRegistration implements
                 && matsEndpointSetupAnnotationsOnClasses.isEmpty()) {
             // -> No, so cache that fact, to short-circuit discovery next time for this class (e.g. prototype beans)
             _classesWithNoMatsMappingAnnotations.add(targetClass);
-            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "No @MatsMapping, @MatsClassMapping or @MatsEndpointSetup"
-                    + " annotations found on bean class [" + bean.getClass() + "].");
+            if (log.isTraceEnabled()) log.trace(LOG_PREFIX + "No @MatsMapping, @MatsClassMapping or @MatsEndpointSetup"
+                    + " annotations found on bean [" + beanName + "], bean class: [" + bean.getClass()
+                    + "], bean instance: [" + bean + "].");
             return bean;
         }
 
@@ -352,8 +372,9 @@ public class MatsSpringAnnotationRegistration implements
      */
     @EventListener
     public void onContextRefreshedEvent(ContextRefreshedEvent e) {
-        log.info(LOG_PREFIX + "ContextRefreshedEvent: Registering all Endpoints, then running MatsFactory.start()"
-                + " on all MatsFactories in the Spring Context to start all registered MATS Endpoints.");
+        log.info(LOG_PREFIX + "ContextRefreshedEvent: Registering all SpringConfig-defined Mats Endpoints, then"
+                + " running MatsFactory.start() on all MatsFactories in the Spring Context to start all registered"
+                + " Mats Endpoints.");
 
         /*
          * This is a mega-hack to handle the situation where the entire Spring context's bean definitions has been put
