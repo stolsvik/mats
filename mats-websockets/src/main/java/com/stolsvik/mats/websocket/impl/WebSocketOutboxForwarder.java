@@ -1,5 +1,6 @@
 package com.stolsvik.mats.websocket.impl;
 
+import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.REAUTH;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.REJECT;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RESOLVE;
 
@@ -10,6 +11,7 @@ import java.util.EnumSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -180,8 +182,10 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                     // ?: Was Auth OK for doing a outgoing message forward round?
                     if (!authOk) {
                         // -> No, Auth not OK: Send "REAUTH" message, to get Client to send us new auth
-                        matsSocketSessionAndMessageHandler.webSocketSendText(
-                                "[{\"t\":\"" + MessageType.REAUTH + "\"}]");
+                        MatsSocketEnvelopeWithMetaDto reauthEnv = new MatsSocketEnvelopeWithMetaDto();
+                        reauthEnv.t = REAUTH;
+                        _matsSocketServer.getWebSocketOutgoingEnvelopes().sendEnvelope(matsSocketSessionId, reauthEnv,
+                                2, TimeUnit.MILLISECONDS);
                         /*
                          * NOTE: The not-ok return above will also have set "holdOutgoingMessages", which is evaluated
                          * at the very top of the outer 'RENOTIFY' loop.
@@ -342,14 +346,10 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                         }
                     });
 
-                    // ----- We have all Envelopes that should go into this pipeline
-
-                    // Serialize the list of Envelopes
-                    String jsonEnvelopeList = _matsSocketServer.getEnvelopeListObjectWriter()
-                            .writeValueAsString(envelopeList);
-
                     // Register last activity time
                     matsSocketSessionAndMessageHandler.registerActivityTimestamp(System.currentTimeMillis());
+
+                    // ----- We have all Envelopes that should go into this pipeline
 
                     // Create list of smids we're going to deliver
                     List<String> smids = messagesToDeliver.stream()
@@ -366,12 +366,16 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                     // :: Forward message(s) over WebSocket
                     double millisSendMessages;
                     try {
+                        // Serialize the list of Envelopes
+                        String jsonEnvelopeList = _matsSocketServer.getEnvelopeListObjectWriter()
+                                .writeValueAsString(envelopeList);
+
                         // :: Actually send message(s) over WebSocket.
                         long nanos_start_SendMessage = System.nanoTime();
                         matsSocketSessionAndMessageHandler.webSocketSendText(jsonEnvelopeList);
                         millisSendMessages = msSince(nanos_start_SendMessage);
                     }
-                    catch (IOException ioe) {
+                    catch (IOException | RuntimeException ioe) { // Also catch RuntimeException, since Jetty may throw
                         // -> Evidently got problems forwarding the message over WebSocket
                         log.warn("Got [" + ioe.getClass().getSimpleName()
                                 + "] while trying to send " + messagesToDeliver.size()
@@ -439,7 +443,8 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                         // ?: Was this a RESOLVE or REJECT?
                         if ((envelope.t == RESOLVE) || (envelope.t == REJECT)) {
                             // -> Yes, and then we do not need to deliver ACK if not already sent.
-                            _matsSocketServer.getWebSocketOutgoingAcks().removeAck(matsSocketSessionId, envelope.cmid);
+                            _matsSocketServer.getWebSocketOutgoingEnvelopes().removeAck(matsSocketSessionId,
+                                    envelope.cmid);
                         }
                     }
 
@@ -529,7 +534,7 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
                     if (count == null) {
                         // -> Yes, it was null. Which should never happen.
                         log.error("The 'count' of our forwarder was null when trying to get it, which should never"
-                                + " happen. MatsSocketSessionId ["+matsSocketSessionId+"]. Clearing out as if count"
+                                + " happen. MatsSocketSessionId [" + matsSocketSessionId + "]. Clearing out as if count"
                                 + " was 1.");
                         // Exit out like if count == 1.
                         shouldExit[0] = true;
@@ -580,7 +585,7 @@ class WebSocketOutboxForwarder implements MatsSocketStatics {
             }
         }
         catch (Throwable t) {
-            log.error("This should never happen.", t);
+            log.error("Caught unexpected Exception [" + t.getClass().getName() + "] - This should never happen.", t);
         }
         finally {
             // ?: If we exited out in any other fashion than "end of messages", then we must clean up after ourselves.

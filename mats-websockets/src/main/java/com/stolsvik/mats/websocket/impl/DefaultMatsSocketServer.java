@@ -277,7 +277,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
     private final String _endpointId_MatsPing;
     private final IncomingSrrMsgHandler _incomingSrrMsgHandler;
     private final WebSocketOutboxForwarder _webSocketOutboxForwarder;
-    private final WebSocketOutgoingAcks _webSocketOutgoingAcks;
+    private final WebSocketOutgoingEnvelopes _webSocketOutgoingEnvelopes;
     private final LivelinessAndTimeoutAndScavenger _casfUpdateAndTimeouter;
     private final AuthenticationPlugin _authenticationPlugin;
     private final String _serverId;
@@ -319,7 +319,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         _webSocketOutboxForwarder = new WebSocketOutboxForwarder(this,
                 clusterStoreAndForward, forwarder_corePoolSize, forwarder_maxPoolSize);
 
-        _webSocketOutgoingAcks = new WebSocketOutgoingAcks(this, forwarder_corePoolSize, forwarder_maxPoolSize);
+        _webSocketOutgoingEnvelopes = new WebSocketOutgoingEnvelopes(this, forwarder_corePoolSize, forwarder_maxPoolSize);
 
         _incomingSrrMsgHandler = new IncomingSrrMsgHandler(this,
                 forwarder_corePoolSize, forwarder_maxPoolSize);
@@ -423,8 +423,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         return _webSocketOutboxForwarder;
     }
 
-    public WebSocketOutgoingAcks getWebSocketOutgoingAcks() {
-        return _webSocketOutgoingAcks;
+    public WebSocketOutgoingEnvelopes getWebSocketOutgoingEnvelopes() {
+        return _webSocketOutgoingEnvelopes;
     }
 
     public IncomingSrrMsgHandler getIncomingSrrMsgHandler() {
@@ -1011,7 +1011,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         // :: Shut down rest of subsystems
 
         // Shut down outgoing acks subsystem.
-        _webSocketOutgoingAcks.shutdown(gracefulShutdownMillis);
+        _webSocketOutgoingEnvelopes.shutdown(gracefulShutdownMillis);
 
         // Shut down Liveliness Updater and Timeouter subsystem.
         _casfUpdateAndTimeouter.shutdown(gracefulShutdownMillis);

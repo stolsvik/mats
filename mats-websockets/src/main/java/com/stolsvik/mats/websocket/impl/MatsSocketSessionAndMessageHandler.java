@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.websocket.MessageHandler.Whole;
@@ -416,6 +417,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         try { // try-finally: MDC.clear();
             setMDC();
             long receivedTimestamp = System.currentTimeMillis();
+            // Record start of handling
+            long nanosStart = System.nanoTime();
 
             // ?: Do we accept messages?
             if (!_state.isHandlesMessages()) {
@@ -440,7 +443,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             }
             catch (IOException e) {
                 log.error("Could not parse WebSocket message into MatsSocket envelope(s).", e);
-                closeSessionAndWebSocketWithMatsSocketProtocolError("Could not parse message into MatsSocket envelope(s)");
+                closeSessionAndWebSocketWithMatsSocketProtocolError(
+                        "Could not parse message into MatsSocket envelope(s)");
                 return;
             }
 
@@ -493,8 +497,6 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // ?: Is this message a PING?
                 if (envelope.t == PING) {
                     // -> Yes, so handle it.
-                    // Record start of handling
-                    long nanosStart = System.nanoTime();
                     // Record received Envelope
                     recordEnvelopes(Collections.singletonList(envelope), receivedTimestamp, Direction.C2S);
 
@@ -512,29 +514,15 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     _lastClientPingTimestamp.set(receivedTimestamp);
 
                     // :: Create PONG message
-                    MatsSocketEnvelopeWithMetaDto replyEnvelope = new MatsSocketEnvelopeWithMetaDto();
-                    replyEnvelope.t = PONG;
-                    replyEnvelope.x = envelope.x;
+                    MatsSocketEnvelopeWithMetaDto pongEnvelope = new MatsSocketEnvelopeWithMetaDto();
+                    pongEnvelope.t = PONG;
+                    pongEnvelope.x = envelope.x;
+                    // "temp-holding" of when we started processing this.
+                    pongEnvelope.icnanos = nanosStart;
 
-                    // Pack the PONG over to client ASAP.
-                    // TODO: Consider doing this async, probably with MessageToWebSocketForwarder
-                    List<MatsSocketEnvelopeWithMetaDto> replySingleton = Collections.singletonList(
-                            replyEnvelope);
-                    try {
-                        String json = _envelopeListObjectWriter.writeValueAsString(replySingleton);
-                        webSocketSendText(json);
-                    }
-                    catch (JsonProcessingException e) {
-                        throw new AssertionError("Huh, couldn't serialize message?!", e);
-                    }
-                    catch (IOException e) {
-                        // TODO: Handle!
-                        throw new AssertionError("Hot damn.", e);
-                    }
-                    // Record sent Envelope
-                    replyEnvelope.rttm = msSince(nanosStart);
-                    recordEnvelopes(Collections.singletonList(replyEnvelope), System.currentTimeMillis(),
-                            Direction.S2C);
+                    // Send the PONG
+                    _matsSocketServer.getWebSocketOutgoingEnvelopes().sendEnvelope(_matsSocketSessionId, pongEnvelope,
+                            0, TimeUnit.MILLISECONDS);
                 }
             }
 
@@ -609,7 +597,6 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             // .. now actually act on the ACK and NACKs (delete from outbox, then Reply with ACK2)
             // TODO: Make this a bit more nifty, putting such Ids on a queue of sorts, finishing async
             if (clientAckIds != null) {
-                long nanosStart = System.nanoTime();
                 log.debug("Got ACK/NACK for messages " + clientAckIds + ".");
                 try {
                     _matsSocketServer.getClusterStoreAndForward().outboxMessagesComplete(_matsSocketSessionId,
@@ -626,7 +613,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     closeSessionAndWebSocketWithMatsSocketProtocolError("An empty list of ackids was sent");
                     return;
                 }
-                _matsSocketServer.getWebSocketOutgoingAcks().sendAck2s(_matsSocketSessionId, clientAckIds);
+                _matsSocketServer.getWebSocketOutgoingEnvelopes().sendAck2s(_matsSocketSessionId, clientAckIds);
 
                 // Record sent Envelope
             }
@@ -723,7 +710,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 _numberOfInformationBearingIncomingWhileWaitingForReauth += envelopes.size();
 
                 // Make reply envelope list
-                List<MatsSocketEnvelopeWithMetaDto> replyEnvelopes = new ArrayList<>();
+                List<MatsSocketEnvelopeWithMetaDto> reauthRetryEnvs = new ArrayList<>();
 
                 // ?: Have we already asked for REAUTH?
                 if (!_askedClientForReauth) {
@@ -733,7 +720,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // Record the S2C REAUTH Envelope
                     recordEnvelopes(Collections.singletonList(reauthEnvelope), System.currentTimeMillis(),
                             Direction.S2C);
-                    replyEnvelopes.add(reauthEnvelope);
+                    reauthRetryEnvs.add(reauthEnvelope);
                     // We've now asked Client for REAUTH, so don't do it again until he has given us new.
                     _askedClientForReauth = true;
                 }
@@ -828,21 +815,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     MatsSocketEnvelopeWithMetaDto retryReplyEnvelope = new MatsSocketEnvelopeWithMetaDto();
                     retryReplyEnvelope.t = RETRY;
                     retryReplyEnvelope.cmid = envelopeToRetry.cmid;
-                    replyEnvelopes.add(retryReplyEnvelope);
+                    reauthRetryEnvs.add(retryReplyEnvelope);
                 }
 
-                try {
-                    String json = _envelopeListObjectWriter.writeValueAsString(replyEnvelopes);
-                    webSocketSendText(json);
-                }
-                catch (JsonProcessingException e) {
-                    throw new AssertionError("Huh, couldn't serialize message?!", e);
-                }
-                catch (IOException e) {
-                    // TODO: Handle!
-                    // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
-                    throw new AssertionError("Hot damn.", e);
-                }
+                // Send the REAUTH and RETRYs
+                _matsSocketServer.getWebSocketOutgoingEnvelopes().sendEnvelopes(_matsSocketSessionId, reauthRetryEnvs,
+                        2, TimeUnit.MILLISECONDS);
                 // We're finished handling all Envelopes in incoming WebSocket Message that was blocked by REAUTH
                 return;
             }
@@ -1009,21 +987,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             // :: 10. Send any replies
 
             if (replyEnvelopes.size() > 0) {
-                // TODO: Use the MessageToWebSocketForwarder for this.
-                try {
-                    String json = _envelopeListObjectWriter.writeValueAsString(replyEnvelopes);
-                    webSocketSendText(json);
-                }
-                catch (JsonProcessingException e) {
-                    throw new AssertionError("Huh, couldn't serialize message?!", e);
-                }
-                catch (IOException e) {
-                    // TODO: Handle!
-                    throw new AssertionError("Hot damn.", e);
-                }
-
-                // Record these replied Envelopes
-                recordEnvelopes(replyEnvelopes, System.currentTimeMillis(), Direction.S2C);
+                _matsSocketServer.getWebSocketOutgoingEnvelopes().sendEnvelopes(_matsSocketSessionId, replyEnvelopes,
+                        2, TimeUnit.MILLISECONDS);
             }
         }
         finally {
@@ -1387,7 +1352,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         // ----- HELLO was good (and authentication is already performed, earlier in process)
 
-        MatsSocketEnvelopeWithMetaDto replyEnvelope = new MatsSocketEnvelopeWithMetaDto();
+        MatsSocketEnvelopeWithMetaDto welcomeEnvelope = new MatsSocketEnvelopeWithMetaDto();
 
         // ?: Do the client want to reconnecting using existing MatsSocketSessionId
         if (envelope.sid != null) {
@@ -1420,7 +1385,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 }
                 // You're allowed to use this, since the sessionId was already existing.
                 _matsSocketSessionId = envelope.sid;
-                replyEnvelope.desc = "reconnected - existing local";
+                welcomeEnvelope.desc = "reconnected - existing local";
             }
             else {
                 log.info(" \\- No existing local Session found (i.e. at this node), check CSAF..");
@@ -1433,7 +1398,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         log.info(" \\- Existing CSAF Session found!");
                         // -> Yes, there is a CSAF Session - so client can use this session
                         _matsSocketSessionId = envelope.sid;
-                        replyEnvelope.desc = "reconnected - existing in CSAF";
+                        welcomeEnvelope.desc = "reconnected - existing in CSAF";
                         MDC.put(MDC_SESSION_ID, _matsSocketSessionId);
                         // :: Check if there is a current node where it is not yet closed
                         Optional<CurrentNode> currentNode = _matsSocketServer
@@ -1539,9 +1504,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         // :: Create reply WELCOME message
 
         // Stack it up with props
-        replyEnvelope.t = WELCOME;
-        replyEnvelope.sid = _matsSocketSessionId;
-        replyEnvelope.tid = envelope.tid;
+        welcomeEnvelope.t = WELCOME;
+        welcomeEnvelope.sid = _matsSocketSessionId;
+        welcomeEnvelope.tid = envelope.tid;
 
         log.info("Sending WELCOME! MatsSocketSessionId:[" + _matsSocketSessionId + "]!");
 
@@ -1549,24 +1514,22 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         // NOTICE: Since this is the first message ever for this connection, there will not be any currently-sending
         // messages the other way (i.e. server-to-client, from the MessageToWebSocketForwarder). Therefore, it is
         // perfectly OK to do this synchronously right here.
-        List<MatsSocketEnvelopeWithMetaDto> replySingleton = Collections.singletonList(replyEnvelope);
         try {
-            String json = _envelopeListObjectWriter.writeValueAsString(replySingleton);
-            webSocketSendText(json);
+            String welcomeEnvelopeJson = _envelopeListObjectWriter
+                    .writeValueAsString(Collections.singletonList(welcomeEnvelope));
+            webSocketSendText(welcomeEnvelopeJson);
         }
         catch (JsonProcessingException e) {
             throw new AssertionError("Huh, couldn't serialize message?!", e);
         }
         catch (IOException e) {
-            // TODO: Handle!
-            // TODO: At least store last messageSequenceId that we had ASAP. Maybe do it async?!
-            throw new AssertionError("Hot damn.", e);
+            throw new SocketSendIOException(e);
         }
 
         // :: Record outgoing Envelope
-        replyEnvelope.icts = clientMessageReceivedTimestamp;
-        replyEnvelope.rttm = msSince(nanosStart);
-        recordEnvelopes(Collections.singletonList(replyEnvelope), System.currentTimeMillis(), Direction.S2C);
+        welcomeEnvelope.icts = clientMessageReceivedTimestamp;
+        welcomeEnvelope.rttm = msSince(nanosStart);
+        recordEnvelopes(Collections.singletonList(welcomeEnvelope), System.currentTimeMillis(), Direction.S2C);
 
         // MessageForwarder-> There might be EXISTING messages waiting for this MatsSocketSession!
         _matsSocketServer.getWebSocketOutboxForwarder().newMessagesInCsafNotify(this);
@@ -1706,81 +1669,78 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         // Note: No reply-message
     }
 
-    void publishToTopic(String topicId, String env, String msg) {
-        long nanos_start_Deserialize = System.nanoTime();
-        MatsSocketEnvelopeWithMetaDto envelope;
-        try {
-            envelope = _matsSocketServer.getEnvelopeObjectReader().readValue(env);
-        }
-        catch (JsonProcessingException e) {
-            throw new AssertionError("Could not deserialize Envelope DTO.");
-        }
-        // Set the message onto the envelope, in "raw" mode (it is already json)
-        envelope.msg = DirectJson.of(msg);
-        // Handle debug
-        if (envelope.debug != null) {
-            /*
-             * For Server-initiated messages, we do not know what the user wants wrt. debug information until now, and
-             * thus the initiation always adds it. We thus need to check with the AuthenticationPlugin's resolved auth
-             * vs. what the client has asked for wrt. Server-initiated.
-             */
-            // Find what the client requests along with what authentication allows
-            EnumSet<DebugOption> debugOptions = getCurrentResolvedServerToClientDebugOptions();
-            // ?: How's the standing wrt. DebugOptions?
-            if (debugOptions.isEmpty()) {
-                // -> Client either do not request anything, or server does not allow anything for
-                // this user.
-                // Null out the already existing DebugDto
-                envelope.debug = null;
+    void publishToTopic(String topicId, String envelopeJson, String msg) {
+
+        // TODO: This must be moved over to async
+
+        try { // try-finally: MDC clean
+
+            MDC.put(MDC_SESSION_ID, _matsSocketSessionId);
+            MDC.put(MDC_PRINCIPAL_NAME, _principal.getName());
+            MDC.put(MDC_USER_ID, _userId);
+
+            long nanos_start_Deserialize = System.nanoTime();
+            MatsSocketEnvelopeWithMetaDto publishEnvelope;
+            try {
+                publishEnvelope = _matsSocketServer.getEnvelopeObjectReader().readValue(envelopeJson);
             }
-            else {
-                // -> Client requests, and user is allowed, to query for some DebugOptions.
-                // Set which flags are resolved
-                envelope.debug.resd = DebugOption.flags(debugOptions);
-                // Add timestamp and nodename depending on options
-                if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
-                    envelope.debug.mscts = System.currentTimeMillis();
+            catch (JsonProcessingException e) {
+                throw new AssertionError("Could not deserialize Envelope DTO.");
+            }
+            // Set the message onto the envelope, in "raw" mode (it is already json)
+            publishEnvelope.msg = DirectJson.of(msg);
+            // Handle debug
+            if (publishEnvelope.debug != null) {
+                /*
+                 * For Server-initiated messages, we do not know what the user wants wrt. debug information until now,
+                 * and thus the initiation always adds it. We thus need to check with the AuthenticationPlugin's
+                 * resolved auth vs. what the client has asked for wrt. Server-initiated.
+                 */
+                // Find what the client requests along with what authentication allows
+                EnumSet<DebugOption> debugOptions = getCurrentResolvedServerToClientDebugOptions();
+                // ?: How's the standing wrt. DebugOptions?
+                if (debugOptions.isEmpty()) {
+                    // -> Client either do not request anything, or server does not allow anything for this user.
+                    // Null out the already existing DebugDto
+                    publishEnvelope.debug = null;
                 }
                 else {
-                    // Need to null this out, since set unconditionally upon server send/request
-                    envelope.debug.smcts = null;
-                }
-                if (debugOptions.contains(DebugOption.NODES)) {
-                    envelope.debug.mscnn = _matsSocketServer.getMyNodename();
-                }
-                else {
-                    // Need to null this out, since set unconditionally upon server send/request
-                    envelope.debug.smcnn = null;
+                    // -> Client requests, and user is allowed, to query for some DebugOptions.
+                    // Set which flags are resolved
+                    publishEnvelope.debug.resd = DebugOption.flags(debugOptions);
+                    // Add timestamp and nodename depending on options
+                    if (debugOptions.contains(DebugOption.TIMESTAMPS)) {
+                        publishEnvelope.debug.mscts = System.currentTimeMillis();
+                    }
+                    else {
+                        // Need to null this out, since set unconditionally upon server send/request
+                        publishEnvelope.debug.smcts = null;
+                    }
+                    if (debugOptions.contains(DebugOption.NODES)) {
+                        publishEnvelope.debug.mscnn = _matsSocketServer.getMyNodename();
+                    }
+                    else {
+                        // Need to null this out, since set unconditionally upon server send/request
+                        publishEnvelope.debug.smcnn = null;
+                    }
                 }
             }
-        }
-        double milliDeserializeMessage = msSince(nanos_start_Deserialize);
 
-        registerActivityTimestamp(System.currentTimeMillis());
+            double milliDeserializeMessage = msSince(nanos_start_Deserialize);
 
-        long nanos_start_Serialize = System.nanoTime();
-        String jsonEnvelopeList;
-        try {
-            jsonEnvelopeList = _envelopeListObjectWriter.writeValueAsString(Collections.singletonList(envelope));
-        }
-        catch (JsonProcessingException e) {
-            // TODO: Fix
-            throw new AssertionError("Hot damn.");
-        }
-        double milliSerializeMessage = msSince(nanos_start_Serialize);
+            registerActivityTimestamp(System.currentTimeMillis());
 
-        // :: Actually send message over WebSocket.
-        long nanos_start_SendMessage = System.nanoTime();
-        try {
-            webSocketSendText(jsonEnvelopeList);
+            _matsSocketServer.getWebSocketOutgoingEnvelopes().sendEnvelope(_matsSocketSessionId, publishEnvelope,
+                    10, TimeUnit.MILLISECONDS);
+
+            if (log.isDebugEnabled()) log.debug("Forwarded a topic message for [" + topicId +
+                    "], time taken to deserialize: [" + milliDeserializeMessage + "].");
         }
-        catch (IOException e) {
-            // TODO: Fix
-            throw new AssertionError("Hot damn.");
+        finally {
+            MDC.remove(MDC_SESSION_ID);
+            MDC.remove(MDC_PRINCIPAL_NAME);
+            MDC.remove(MDC_USER_ID);
         }
-        double millisSendMessages = msSince(nanos_start_SendMessage);
-        log.debug("Forwarded a topic message [" + topicId + "], time taken to deserialize: [" + milliDeserializeMessage
-                + "], serialize:[" + milliSerializeMessage + "], send:[" + millisSendMessages + "]");
     }
 
     @Override

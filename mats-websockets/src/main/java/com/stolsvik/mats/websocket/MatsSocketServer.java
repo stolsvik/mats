@@ -1424,6 +1424,7 @@ public interface MatsSocketServer {
         // -> WELCOME (HELLO), ACK + RESOLVE/REJECT (REQUEST), PONG (PING), ACK2 (ACK/NACK), SUB_OK/.. (SUB)
 
         public Long icts; // Incoming Timestamp
+        public Long icnanos; // Temp-holder for Incoming System.nanoTime() - will be nulled before exposed.
         public Double rttm; // Round Trip Time Millis. May be fractional.
 
         // ===== For Client-to-Server SEND / REQUEST
@@ -1749,7 +1750,7 @@ public interface MatsSocketServer {
 
         /**
          * 4004: From Server side: Client should REJECT all outstanding and "crash"/reboot application: Used when the
-         * client does not speak the MatsSocket protocol correctly.
+         * client does not speak the MatsSocket protocol correctly. Session is closed.
          */
         MATS_SOCKET_PROTOCOL_ERROR(4004);
 

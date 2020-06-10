@@ -92,7 +92,7 @@ enum MatsSocketCloseCodes {
   DISCONNECT,
 
   /// 4004: From Server side: Client should REJECT all outstanding and "crash"/reboot application: Used when the
-  /// client does not speak the MatsSocket protocol correctly.
+  /// client does not speak the MatsSocket protocol correctly. Session is closed.
   MATS_SOCKET_PROTOCOL_ERROR,
 
   /// Indicates a WebSocket close code that does not map to any specific MatsSocketCloseCode.

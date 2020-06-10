@@ -40,7 +40,6 @@ public interface MatsSocketStatics {
     String MDC_CMID = "matssocket.cmid";
     String MDC_SMID = "matssocket.smid";
 
-
     // Limits:
     int MAX_LENGTH_OF_TOPIC_NAME = 256;
 
@@ -60,7 +59,7 @@ public interface MatsSocketStatics {
     int MAX_NUMBER_OF_OUTBOX_STORE_ATTEMPTS_CSAF = 100;
 
     // For Incoming Send, Request and Reply handling, if "VERY BAD!" occurs.
-    int MAX_NUMBER_OF_COMPENSATING_TRANSACTIONS_ATTEMPTS = 60;  // 60 * 250ms = 15 seconds.
+    int MAX_NUMBER_OF_COMPENSATING_TRANSACTIONS_ATTEMPTS = 60; // 60 * 250ms = 15 seconds.
     int MILLIS_BETWEEN_COMPENSATING_TRANSACTIONS_ATTEMPTS = 250;
 
     // Constants:
@@ -193,6 +192,16 @@ public interface MatsSocketStatics {
 
         public String getJson() {
             return _json;
+        }
+    }
+
+    /**
+     * When trying to send messages over WebSocket and get an IOException, we do not have many options of handling - the
+     * socket has probably closed.
+     */
+    class SocketSendIOException extends RuntimeException {
+        public SocketSendIOException(IOException cause) {
+            super("Got problems sending message over WebSocket", cause);
         }
     }
 }

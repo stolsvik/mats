@@ -8,12 +8,11 @@ import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RESOLVE;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.RETRY;
 import static com.stolsvik.mats.websocket.MatsSocketServer.MessageType.SEND;
 
-import java.io.IOException;
 import java.security.Principal;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,8 +24,8 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsInitiator.MatsInitiateWrapper;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendRuntimeException;
 import com.stolsvik.mats.websocket.AuthenticationPlugin.DebugOption;
-import com.stolsvik.mats.websocket.ClusterStoreAndForward.MessageIdAlreadyExistsException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.DataAccessException;
+import com.stolsvik.mats.websocket.ClusterStoreAndForward.MessageIdAlreadyExistsException;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.RequestCorrelation;
 import com.stolsvik.mats.websocket.ClusterStoreAndForward.StoredInMessage;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession.MatsSocketSessionState;
@@ -92,15 +91,16 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
     }
 
     void handlerRunnable(MatsSocketSessionAndMessageHandler session, long receivedTimestamp,
-            long nanosStart, MatsSocketEnvelopeWithMetaDto envelope, String authorization, Principal principal) {
+            long nanosStart, MatsSocketEnvelopeWithMetaDto incomingEnvelope, String authorization,
+            Principal principal) {
 
         String matsSocketSessionId = session.getMatsSocketSessionId();
-        MessageType type = envelope.t;
+        MessageType type = incomingEnvelope.t;
 
         // Hack for lamba processing
         MatsSocketEnvelopeWithMetaDto[] handledEnvelope = new MatsSocketEnvelopeWithMetaDto[] {
                 new MatsSocketEnvelopeWithMetaDto() };
-        handledEnvelope[0].cmid = envelope.cmid; // Client MessageId.
+        handledEnvelope[0].cmid = incomingEnvelope.cmid; // Client MessageId.
 
         // :: Perform the entire handleIncoming(..) inside Mats initiate-lambda
         RequestCorrelation[] _correlationInfo_LambdaHack = new RequestCorrelation[1];
@@ -121,7 +121,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                     // -> Yes, this is a Client-to-Server REQUEST or SEND:
 
                     // With a message initiated on the client, the targetEndpointId is embedded in the message
-                    targetEndpointId = envelope.eid;
+                    targetEndpointId = incomingEnvelope.eid;
 
                     // Store the ClientMessageId in the Inbox to catch double deliveries.
                     /*
@@ -138,12 +138,12 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                      */
                     try {
                         _matsSocketServer.getClusterStoreAndForward().storeMessageIdInInbox(matsSocketSessionId,
-                                envelope.cmid);
+                                incomingEnvelope.cmid);
                     }
                     catch (DataAccessException e) {
                         // DB-Problems: Throw out of the lambda, handled outside, letting Mats do rollback.
                         throw new DatabaseRuntimeException("Got problems when trying to store incoming " + type
-                                + " Client Message Id [" + envelope.cmid + "] in CSAF Inbox", e);
+                                + " Client Message Id [" + incomingEnvelope.cmid + "] in CSAF Inbox", e);
                     }
                     catch (MessageIdAlreadyExistsException e) {
                         // -> Already have this in the inbox, so this is a dupe
@@ -153,12 +153,12 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                         StoredInMessage messageFromInbox;
                         try {
                             messageFromInbox = _matsSocketServer.getClusterStoreAndForward()
-                                    .getMessageFromInbox(matsSocketSessionId, envelope.cmid);
+                                    .getMessageFromInbox(matsSocketSessionId, incomingEnvelope.cmid);
                         }
                         catch (DataAccessException ex) {
                             // DB-Problems: Throw out of the lambda, handled outside, letting Mats do rollback.
                             throw new DatabaseRuntimeException("Got problems when trying to store incoming " + type
-                                    + " Client Message Id [" + envelope.cmid + "] in CSAF Inbox", e);
+                                    + " Client Message Id [" + incomingEnvelope.cmid + "] in CSAF Inbox", e);
                         }
 
                         // ?: Did we have a serialized message here?
@@ -166,9 +166,11 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                             // -> We did NOT have a previous JSON stored, which means that it was the default: ACK
                             handledEnvelope[0].t = MessageType.ACK;
                             // Note that it was a dupe in desc-field
-                            handledEnvelope[0].desc = "dupe " + envelope.t + " ACK";
-                            log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
-                                    + "] of type [" + envelope.t + "] - it was NOT stored, thus it was an ACK.");
+                            handledEnvelope[0].desc = "dupe " + incomingEnvelope.t + " ACK";
+                            log.info("We have evidently got a double-delivery for ClientMessageId ["
+                                    + incomingEnvelope.cmid
+                                    + "] of type [" + incomingEnvelope.t
+                                    + "] - it was NOT stored, thus it was an ACK.");
                         }
                         else {
                             // -> Yes, we had the JSON from last processing stored!
@@ -191,9 +193,10 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                             // Now just REPLACE the existing handledEnvelope with the old one.
                             handledEnvelope[0] = previousReplyEnvelope;
                             // Note that it was a dupe in desc-field
-                            handledEnvelope[0].desc = "dupe " + envelope.t + " stored";
-                            log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
-                                    + "] of type [" + envelope.t + "] - we had it stored, so just replying the"
+                            handledEnvelope[0].desc = "dupe " + incomingEnvelope.t + " stored";
+                            log.info("We have evidently got a double-delivery for ClientMessageId ["
+                                    + incomingEnvelope.cmid
+                                    + "] of type [" + incomingEnvelope.t + "] - we had it stored, so just replying the"
                                     + " previous answer again.");
                         }
                         // Return from Mats-initiate lambda - We're done here.
@@ -209,17 +212,18 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                         // Therefore: Delete won't go through unless entire message handling goes through.
                         // Also: If we get "VERY BAD!", we try to do compensating transaction.
                         Optional<RequestCorrelation> correlationInfoO = _matsSocketServer.getClusterStoreAndForward()
-                                .getAndDeleteRequestCorrelation(matsSocketSessionId, envelope.smid);
+                                .getAndDeleteRequestCorrelation(matsSocketSessionId, incomingEnvelope.smid);
                         // ?: Did we have CorrelationInformation?
                         if (!correlationInfoO.isPresent()) {
                             // -> NO, no CorrelationInformation present, so this is a dupe
                             // Double delivery: Simply say "yes, yes, good, good" to client, as we have already
                             // processed this one.
-                            log.info("We have evidently got a double-delivery for ClientMessageId [" + envelope.cmid
-                                    + "] of type [" + envelope.t + "], fixing by ACK it again"
+                            log.info("We have evidently got a double-delivery for ClientMessageId ["
+                                    + incomingEnvelope.cmid
+                                    + "] of type [" + incomingEnvelope.t + "], fixing by ACK it again"
                                     + " (it's already processed).");
                             handledEnvelope[0].t = ACK;
-                            handledEnvelope[0].desc = "dupe " + envelope.t;
+                            handledEnvelope[0].desc = "dupe " + incomingEnvelope.t;
                             // return from lambda
                             return;
                         }
@@ -228,7 +232,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                         RequestCorrelation correlationInfo = correlationInfoO.get();
                         // Store it for half-assed attempt at un-fucking the situation if we get "VERY BAD!"-situation.
                         _correlationInfo_LambdaHack[0] = correlationInfo;
-                        log.info("Incoming REPLY for Server-to-Client Request for smid[" + envelope.smid
+                        log.info("Incoming REPLY for Server-to-Client Request for smid[" + incomingEnvelope.smid
                                 + "], time since request: [" + (System.currentTimeMillis() - correlationInfo
                                         .getRequestTimestamp()) + " ms].");
                         correlationString = correlationInfo.getCorrelationString();
@@ -239,7 +243,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                     catch (DataAccessException e) {
                         // TODO: Do something with these exceptions - more types?
                         throw new DatabaseRuntimeException("Got problems trying to get Correlation information for"
-                                + " REPLY for smid:[" + envelope.smid + "].", e);
+                                + " REPLY for smid:[" + incomingEnvelope.smid + "].", e);
                     }
                 }
                 else {
@@ -256,10 +260,10 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                 if (!registrationO.isPresent()) {
                     // -> No, unknown MatsSocket EndpointId.
                     handledEnvelope[0].t = NACK;
-                    handledEnvelope[0].desc = "An incoming " + envelope.t
+                    handledEnvelope[0].desc = "An incoming " + incomingEnvelope.t
                             + " envelope targeted a non-existing MatsSocketEndpoint";
                     log.warn("Unknown MatsSocketEndpointId [" + targetEndpointId + "] for incoming envelope "
-                            + envelope);
+                            + incomingEnvelope);
                     // Return from Mats-initiate lambda - We're done here.
                     return;
                 }
@@ -273,20 +277,20 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                     handledEnvelope[0].desc = "An incoming REQUEST envelope targeted a MatsSocketEndpoint which is a"
                             + " Terminator, i.e. it won't ever reply";
                     log.warn("MatsSocketEndpointId targeted by Client REQUEST is a Terminator [" + targetEndpointId
-                            + "] for incoming envelope " + envelope);
+                            + "] for incoming envelope " + incomingEnvelope);
                     // Return from Mats-initiate lambda - We're done here.
                     return;
                 }
 
                 // Deserialize the message with the info from the registration
-                Object msg = deserializeIncomingMessage((String) envelope.msg, registration.getIncomingClass());
+                Object msg = deserializeIncomingMessage((String) incomingEnvelope.msg, registration.getIncomingClass());
 
                 // ===== Actually invoke the IncomingAuthorizationAndAdapter.handleIncoming(..)
 
                 // .. create the Context
                 @SuppressWarnings({ "unchecked", "rawtypes" })
                 MatsSocketEndpointIncomingContextImpl<?, ?, ?> requestContext = new MatsSocketEndpointIncomingContextImpl(
-                        _matsSocketServer, registration, matsSocketSessionId, init, envelope,
+                        _matsSocketServer, registration, matsSocketSessionId, init, incomingEnvelope,
                         receivedTimestamp, session, authorization, principal,
                         type, correlationString, correlationBinary, msg);
 
@@ -324,7 +328,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                 }
 
                 // Record the resolution in the incoming Envelope
-                envelope.ir = requestContext._handled;
+                incomingEnvelope.ir = requestContext._handled;
 
                 // :: Based on the situation in the RequestContext, we return ACK/NACK/RETRY/RESOLVE/REJECT
                 switch (requestContext._handled) {
@@ -358,10 +362,10 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                                 ? RESOLVE
                                 : REJECT;
                         // Add standard Reply message properties, since this is no longer just an ACK/NACK
-                        handledEnvelope[0].tid = envelope.tid; // TraceId
+                        handledEnvelope[0].tid = incomingEnvelope.tid; // TraceId
 
                         // Handle DebugOptions
-                        EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(envelope.rd);
+                        EnumSet<DebugOption> debugOptions = DebugOption.enumSetOf(incomingEnvelope.rd);
                         debugOptions.retainAll(session.getAllowedDebugOptions());
                         if (!debugOptions.isEmpty()) {
                             DebugDto debug = new DebugDto();
@@ -388,7 +392,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                     case FORWARD:
                         handledEnvelope[0].t = ACK;
                         // Record the forwarded-to-Mats Endpoint as resolution.
-                        envelope.fmeid = requestContext._forwardedMatsEndpoint;
+                        incomingEnvelope.fmeid = requestContext._forwardedMatsEndpoint;
                         log.info("handleIncoming(..) forwarded the incoming message to Mats Endpoint ["
                                 + requestContext._forwardedMatsEndpoint + "]. Replying with"
                                 + " [" + handledEnvelope[0] + "]");
@@ -407,7 +411,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                         String envelopeJson = _matsSocketServer.getEnvelopeObjectWriter().writeValueAsString(
                                 handledEnvelope[0]);
                         _matsSocketServer.getClusterStoreAndForward().updateMessageInInbox(matsSocketSessionId,
-                                envelope.cmid, envelopeJson, null);
+                                incomingEnvelope.cmid, envelopeJson, null);
                     }
                     catch (JsonProcessingException e) {
                         // TODO: Handle
@@ -421,11 +425,9 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
             });
 
         }
-        catch (
-
-        SessionLostException e) {
+        catch (SessionLostException e) {
             // During handling, we found that the session was /not/ SESSION_ESTABLISHED anymore.
-            envelope.ir = IncomingResolution.EXCEPTION;
+            incomingEnvelope.ir = IncomingResolution.EXCEPTION;
             log.warn("Session evidently lost - replying RETRY to client (however, the sending of the message"
                     + " will probably also crash..).", e);
             // Futile attempt at telling the client to RETRY. Which will not work, since this WebSocket is closed..!
@@ -434,7 +436,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
         }
         catch (DatabaseRuntimeException e) {
             // Problems adding the ClientMessageId to outbox. Ask client to RETRY.
-            envelope.ir = IncomingResolution.EXCEPTION;
+            incomingEnvelope.ir = IncomingResolution.EXCEPTION;
             // TODO: This log line is wrong.
             log.warn("Got problems storing incoming ClientMessageId in inbox - replying RETRY to client.",
                     e);
@@ -443,7 +445,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
         }
         catch (MatsBackendRuntimeException e) {
             // Evidently got problems talking to Mats backend, probably DB commit fail. Ask client to RETRY.
-            envelope.ir = IncomingResolution.EXCEPTION;
+            incomingEnvelope.ir = IncomingResolution.EXCEPTION;
             log.warn("Got problems running handleIncoming(..), probably due to DB - replying RETRY to client.",
                     e);
             handledEnvelope[0].t = RETRY;
@@ -451,7 +453,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
         }
         catch (MatsMessageSendRuntimeException e) {
             // Evidently got problems talking to MQ, aka "VERY BAD!". Trying to do compensating tx, then client RETRY
-            envelope.ir = IncomingResolution.EXCEPTION;
+            incomingEnvelope.ir = IncomingResolution.EXCEPTION;
             log.warn("Got major problems running handleIncoming(..) due to DB committing, but MQ not committing."
                     + " Now trying compensating transaction - deleting from inbox (SEND or REQUEST) or"
                     + " re-inserting Correlation info (REPLY) - then replying RETRY to client.", e);
@@ -485,7 +487,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                         // it after all (so go for RETRY from Client).
                         RequestCorrelation c = _correlationInfo_LambdaHack[0];
                         _matsSocketServer.getClusterStoreAndForward()
-                                .storeRequestCorrelation(matsSocketSessionId, envelope.smid,
+                                .storeRequestCorrelation(matsSocketSessionId, incomingEnvelope.smid,
                                         c.getRequestTimestamp(), c.getReplyTerminatorId(),
                                         c.getCorrelationString(), c.getCorrelationBinary());
                     }
@@ -493,7 +495,8 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                         // -> No, this was SEND or REQUEST, so try to delete the entry in the inbox since we did not
                         // handle it after all (so go for RETRY from Client).
                         _matsSocketServer.getClusterStoreAndForward()
-                                .deleteMessageIdsFromInbox(matsSocketSessionId, Collections.singleton(envelope.cmid));
+                                .deleteMessageIdsFromInbox(matsSocketSessionId, Collections.singleton(
+                                        incomingEnvelope.cmid));
                     }
                     // YES, this worked out!
                     break;
@@ -532,7 +535,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
         }
         catch (Throwable t) {
             // Evidently the handleIncoming didn't handle this message. This is a NACK.
-            envelope.ir = IncomingResolution.EXCEPTION;
+            incomingEnvelope.ir = IncomingResolution.EXCEPTION;
             log.warn("handleIncoming(..) raised exception, and the session is still SESSION_ESTABLISHED -"
                     + " must assume that it didn't like the incoming message - replying NACK to client.", t);
             handledEnvelope[0].t = NACK;
@@ -540,41 +543,18 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
         }
 
         // Store processing time taken on incoming envelope.
-        envelope.rm = msSince(nanosStart);
-        // Record the incoming envelope
-        session.recordEnvelopes(Collections.singletonList(envelope), receivedTimestamp, Direction.C2S);
+        incomingEnvelope.rm = msSince(nanosStart);
+        // Record the incoming envelope (Outgoing will be recorded in the WebSocketOutgoingEnvelopes)
+        session.recordEnvelopes(Collections.singletonList(incomingEnvelope), receivedTimestamp, Direction.C2S);
 
-        // Special handling for ACKs, unless the incoming message was a SEND
-        if ((handledEnvelope[0].t == ACK) && (envelope.t != SEND)) {
-            _matsSocketServer.getWebSocketOutgoingAcks().sendAck(matsSocketSessionId, envelope.cmid);
-            return;
-        }
-        // E-> The Reply was not an ACK for a C2S SEND
-
-        // Return our produced ACK/NACK/RETRY/RESOLVE/REJECT
-
-        List<MatsSocketEnvelopeWithMetaDto> envelopeList = Collections.singletonList(handledEnvelope[0]);
-        try {
-            String json = _matsSocketServer.getEnvelopeListObjectWriter().writeValueAsString(
-                    envelopeList);
-            session.webSocketSendText(json);
-        }
-        catch (IOException e) {
-            // I believe IOExceptions here to be utterly final - the session is gone. So just ignore this.
-            // If he comes back, he will have to send the causes for these ACKs again.
-            log.info("When trying to send handled-envelope of type [" + handledEnvelope[0].t
-                    + "] for MatsSocketSession [" + matsSocketSessionId + "], we got IOException. Assuming session is"
-                    + " gone. Ignoring, if the session comes back, he will send the causes for these ACKs again.", e);
-            return;
-        }
-
+        // Temp-store the nanos when we received this envelope
+        handledEnvelope[0].icnanos = nanosStart;
         // Set the incoming time
         handledEnvelope[0].icts = receivedTimestamp;
-        // Set total time.
-        handledEnvelope[0].rttm = msSince(nanosStart);
 
-        // Record outgoing envelopes
-        session.recordEnvelopes(envelopeList, System.currentTimeMillis(), Direction.S2C);
+        // Send the message
+        _matsSocketServer.getWebSocketOutgoingEnvelopes().sendEnvelope(matsSocketSessionId, handledEnvelope[0],
+                2, TimeUnit.MILLISECONDS);
     }
 
     @SuppressWarnings({ "rawtypes", "unchecked" })
