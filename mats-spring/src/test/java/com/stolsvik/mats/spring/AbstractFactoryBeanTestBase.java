@@ -2,10 +2,7 @@ package com.stolsvik.mats.spring;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
-import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.function.Consumer;
 
 import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
@@ -24,13 +21,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.ImportBeanDefinitionRegistrar;
 import org.springframework.core.type.AnnotationMetadata;
 
-import com.stolsvik.mats.MatsEndpoint;
-import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
-import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
-import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.MatsStage.StageConfig;
+import com.stolsvik.mats.MatsFactory.MatsFactoryWrapper;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
@@ -117,17 +109,10 @@ public class AbstractFactoryBeanTestBase {
         }
     }
 
-    /**
-     *
-     */
     public static class MatsMServiceMatsFactory_FactoryBean extends AbstractFactoryBean<MatsFactoryVerifiableStopWrapper> {
 
         @Inject
         private ConnectionFactory _connectionFactory;
-
-        public MatsMServiceMatsFactory_FactoryBean() {
-        }
-
 
         @Override
         public Class<?> getObjectType() {
@@ -155,9 +140,6 @@ public class AbstractFactoryBeanTestBase {
 
         private Map<String, Boolean> _stoppedServices = new LinkedHashMap<>();
 
-        public StoppedRegistry() {
-        }
-
         public void registerStopped(String clazzName, boolean stopped) {
             _stoppedServices.put(clazzName, stopped);
         }
@@ -169,127 +151,28 @@ public class AbstractFactoryBeanTestBase {
 
     // ===============================================================================================================
 
+
+
     /**
      * Wrapper replicating the behavior of {@link JmsMatsFactory} by passing all calls through to the internal
      * {@link JmsMatsFactory} given to the constructor. The key method is
      * {@link MatsFactoryVerifiableStopWrapper#stop(int)} which's stops the underlying factory and utilizes a finally
      * clause to register itself with the {@link StoppedRegistry} that this instance was indeed stopped.
      */
-    public static class MatsFactoryVerifiableStopWrapper implements MatsFactory {
+    public static class MatsFactoryVerifiableStopWrapper extends MatsFactoryWrapper {
 
-        private MatsFactory _matsFactory;
         private StoppedRegistry _stoppedRegistry;
 
         public MatsFactoryVerifiableStopWrapper(MatsFactory matsFactory,
                 StoppedRegistry stoppedRegistry) {
-            _matsFactory = matsFactory;
+            super(matsFactory);
             _stoppedRegistry = stoppedRegistry;
         }
-
-        @Override
-        public FactoryConfig getFactoryConfig() {
-            return _matsFactory.getFactoryConfig();
-        }
-
-        @Override
-        public <R, S> MatsEndpoint<R, S> staged(String endpointId, Class<R> replyClass, Class<S> stateClass) {
-            return _matsFactory.staged(endpointId, replyClass, stateClass);
-        }
-
-        @Override
-        public <R, S> MatsEndpoint<R, S> staged(String endpointId, Class<R> replyClass, Class<S> stateClass,
-                Consumer<? super EndpointConfig<R, S>> endpointConfigLambda) {
-            return _matsFactory.staged(endpointId, replyClass, stateClass, endpointConfigLambda);
-        }
-
-        @Override
-        public <R, I> MatsEndpoint<R, Void> single(String endpointId, Class<R> replyClass, Class<I> incomingClass,
-                ProcessSingleLambda<R, I> processor) {
-            return _matsFactory.single(endpointId, replyClass, incomingClass, processor);
-        }
-
-        @Override
-        public <R, I> MatsEndpoint<R, Void> single(String endpointId, Class<R> replyClass, Class<I> incomingClass,
-                Consumer<? super EndpointConfig<R, Void>> endpointConfigLambda,
-                Consumer<? super StageConfig<R, Void, I>> stageConfigLambda, ProcessSingleLambda<R, I> processor) {
-            return _matsFactory
-                    .single(endpointId, replyClass, incomingClass, endpointConfigLambda, stageConfigLambda, processor);
-        }
-
-        @Override
-        public <S, I> MatsEndpoint<Void, S> terminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
-                ProcessTerminatorLambda<S, I> processor) {
-            return _matsFactory.terminator(endpointId, stateClass, incomingClass, processor);
-        }
-
-        @Override
-        public <S, I> MatsEndpoint<Void, S> terminator(String endpointId, Class<S> stateClass, Class<I> incomingClass,
-                Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
-                Consumer<? super StageConfig<Void, S, I>> stageConfigLambda, ProcessTerminatorLambda<S, I> processor) {
-            return _matsFactory
-                    .terminator(endpointId, stateClass, incomingClass, endpointConfigLambda, stageConfigLambda,
-                            processor);
-        }
-
-        @Override
-        public <S, I> MatsEndpoint<Void, S> subscriptionTerminator(String endpointId, Class<S> stateClass,
-                Class<I> incomingClass, ProcessTerminatorLambda<S, I> processor) {
-            return _matsFactory.subscriptionTerminator(endpointId, stateClass, incomingClass, processor);
-        }
-
-        @Override
-        public <S, I> MatsEndpoint<Void, S> subscriptionTerminator(String endpointId, Class<S> stateClass,
-                Class<I> incomingClass, Consumer<? super EndpointConfig<Void, S>> endpointConfigLambda,
-                Consumer<? super StageConfig<Void, S, I>> stageConfigLambda, ProcessTerminatorLambda<S, I> processor) {
-            return _matsFactory.subscriptionTerminator(endpointId, stateClass, incomingClass, endpointConfigLambda,
-                    stageConfigLambda, processor);
-        }
-
-        @Override
-        public List<MatsEndpoint<?, ?>> getEndpoints() {
-            return _matsFactory.getEndpoints();
-        }
-
-        @Override
-        public Optional<MatsEndpoint<?, ?>> getEndpoint(String endpointId) {
-            return _matsFactory.getEndpoint(endpointId);
-        }
-
-        @Override
-        public MatsInitiator getDefaultInitiator() {
-            return _matsFactory.getDefaultInitiator();
-        }
-
-        @Override
-        public MatsInitiator getOrCreateInitiator(String name) {
-            return _matsFactory.getOrCreateInitiator(name);
-        }
-
-        @Override
-        public List<MatsInitiator> getInitiators() {
-            return _matsFactory.getInitiators();
-        }
-
-        @Override
-        public void start() {
-            _matsFactory.start();
-        }
-
-        @Override
-        public void holdEndpointsUntilFactoryIsStarted() {
-            _matsFactory.holdEndpointsUntilFactoryIsStarted();
-        }
-
-        @Override
-        public boolean waitForStarted(int timeoutMillis) {
-            return _matsFactory.waitForStarted(timeoutMillis);
-        }
-
         @Override
         public boolean stop(int gracefulShutdownMillis) {
             boolean returnBoolean = false;
             try {
-                returnBoolean = _matsFactory.stop(gracefulShutdownMillis);
+                returnBoolean = unwrap().stop(gracefulShutdownMillis);
             }
             finally {
                 _stoppedRegistry.registerStopped(getClass().getSimpleName(), returnBoolean);
