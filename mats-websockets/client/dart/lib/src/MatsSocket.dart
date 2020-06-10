@@ -22,7 +22,7 @@ final Logger _logger = Logger('MatsSocket');
 const String ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 // JSON-non-quoted and visible Alphabet: 92 chars.
 const String JSON_ALPHABET = '!#\$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~';
-const CLIENT_LIB_NAME_AND_VERSION = 'MatsSocket_old.dart,v0.13.1;';
+const String CLIENT_LIB_NAME_AND_VERSION = 'MatsSocket.dart,v0.13.2;';
 
 
 typedef SessionClosedEventListener = Function(MatsSocketCloseEvent);
@@ -82,8 +82,6 @@ class MatsSocket {
   final String appName;
   final String appVersion;
   MatsSocketPlatform platform;
-
-  final clientLibNameAndVersion = 'MatsSocket.dart,v0.10.0';
 
   String sessionId;
 
@@ -1004,7 +1002,7 @@ class MatsSocket {
   }
 
   void _beforeunloadHandler(event) {
-    close(clientLibNameAndVersion + ' unload');
+    close(CLIENT_LIB_NAME_AND_VERSION + ' unload');
   }
 
   void error(String type, String msg, [Object error]) {
