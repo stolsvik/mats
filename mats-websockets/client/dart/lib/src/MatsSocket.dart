@@ -1822,7 +1822,7 @@ class MatsSocket {
 
       // ?: Special codes, that signifies that we should close (terminate) the MatsSocketSession.
       if ((code == MatsSocketCloseCodes.UNEXPECTED_CONDITION.code)
-          || (code == MatsSocketCloseCodes.PROTOCOL_ERROR.code)
+          || (code == MatsSocketCloseCodes.MATS_SOCKET_PROTOCOL_ERROR.code)
           || (code == MatsSocketCloseCodes.VIOLATED_POLICY.code)
           || (code == MatsSocketCloseCodes.CLOSE_SESSION.code)
           || (code == MatsSocketCloseCodes.SESSION_LOST.code)) {

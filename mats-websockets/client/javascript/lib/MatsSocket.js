@@ -190,12 +190,6 @@
      */
     const MatsSocketCloseCodes = Object.freeze({
         /**
-         * Standard code 1002 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
-         * used when the client does not observe the protocol.
-         */
-        PROTOCOL_ERROR: 1002,
-
-        /**
          * Standard code 1008 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
          * used when the we cannot authenticate.
          * <p/>
@@ -278,6 +272,12 @@
          * to close that. But the client "must not do anything" other than what it already is doing - reconnecting.
          */
         DISCONNECT: 4003,
+
+        /**
+         * 4004: From Server side: Client should REJECT all outstanding and "crash"/reboot application: Used when the
+         * client does not speak the MatsSocket protocol correctly.
+         */
+        MATS_SOCKET_PROTOCOL_ERROR: 4004,
 
         /**
          * Resolves the numeric "close code" to the String key name of this enum, or <code>"UNKNOWN("+closeCode+")"</code>
@@ -1418,7 +1418,8 @@
          *   <li>{@link MatsSocketCloseCodes#UNEXPECTED_CONDITION UNEXPECTED_CONDITION}: Error on the Server side,
          *   typically that the data store (DB) was unavailable, and the MatsSocketServer could not reliably recover
          *   the processing of your message.</li>
-         *   <li>{@link MatsSocketCloseCodes#PROTOCOL_ERROR PROTOCOL_ERROR}: This client library has a bug!</li>
+         *   <li>{@link MatsSocketCloseCodes#MATS_SOCKET_PROTOCOL_ERROR MATS_SOCKET_PROTOCOL_ERROR}: This client library
+         *   has a bug!</li>
          *   <li>{@link MatsSocketCloseCodes#VIOLATED_POLICY VIOLATED_POLICY}: Initial Authorization was wrong. Always
          *   supply a correct and non-expired Authorization value, which has sufficient 'roomForLatency' wrt.
          *   the expiry time.</li>
@@ -3406,7 +3407,7 @@
 
             // ?: Special codes, that signifies that we should close (terminate) the MatsSocketSession.
             if ((closeEvent.code === MatsSocketCloseCodes.UNEXPECTED_CONDITION)
-                || (closeEvent.code === MatsSocketCloseCodes.PROTOCOL_ERROR)
+                || (closeEvent.code === MatsSocketCloseCodes.MATS_SOCKET_PROTOCOL_ERROR)
                 || (closeEvent.code === MatsSocketCloseCodes.VIOLATED_POLICY)
                 || (closeEvent.code === MatsSocketCloseCodes.CLOSE_SESSION)
                 || (closeEvent.code === MatsSocketCloseCodes.SESSION_LOST)) {

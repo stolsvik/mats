@@ -1658,12 +1658,6 @@ public interface MatsSocketServer {
      */
     enum MatsSocketCloseCodes implements CloseCode {
         /**
-         * Standard code 1002 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
-         * used when the client does not observe the protocol.
-         */
-        PROTOCOL_ERROR(CloseCodes.PROTOCOL_ERROR.getCode()),
-
-        /**
          * Standard code 1008 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
          * used when the we cannot authenticate.
          * <p/>
@@ -1751,7 +1745,13 @@ public interface MatsSocketServer {
          * actual use. In this case the "original" client being closed with this close code must not start
          * reconnecting!)
          */
-        DISCONNECT(4003);
+        DISCONNECT(4003),
+
+        /**
+         * 4004: From Server side: Client should REJECT all outstanding and "crash"/reboot application: Used when the
+         * client does not speak the MatsSocket protocol correctly.
+         */
+        MATS_SOCKET_PROTOCOL_ERROR(4004);
 
         private final int _closeCode;
 

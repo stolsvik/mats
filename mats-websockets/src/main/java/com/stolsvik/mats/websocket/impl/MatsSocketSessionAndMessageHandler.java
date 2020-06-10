@@ -440,7 +440,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             }
             catch (IOException e) {
                 log.error("Could not parse WebSocket message into MatsSocket envelope(s).", e);
-                closeSessionAndWebSocketWithProtocolError("Could not parse message into MatsSocket envelope(s)");
+                closeSessionAndWebSocketWithMatsSocketProtocolError("Could not parse message into MatsSocket envelope(s)");
                 return;
             }
 
@@ -504,7 +504,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // NOTICE! We will handle PINGs without valid Authorization, but only if we've already established
                     // Session, as checked by seeing if we've processed HELLO
                     if (!isSessionEstablished()) {
-                        closeSessionAndWebSocketWithProtocolError(
+                        closeSessionAndWebSocketWithMatsSocketProtocolError(
                                 "Cannot process PING before HELLO and session established");
                         return;
                     }
@@ -553,7 +553,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // NOTICE! We will handle PONGs without valid Authorization, but only if we've already established
                     // Session, as checked by seeing if we've processed HELLO
                     if (!isSessionEstablished()) {
-                        closeSessionAndWebSocketWithProtocolError(
+                        closeSessionAndWebSocketWithMatsSocketProtocolError(
                                 "Cannot process PONG before HELLO and session established");
                         return;
                     }
@@ -578,12 +578,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     recordEnvelopes(Collections.singletonList(envelope), receivedTimestamp, Direction.C2S);
                     // Assert correctness
                     if ((envelope.smid == null) && (envelope.ids == null)) {
-                        closeSessionAndWebSocketWithProtocolError("Received " + envelope.t
+                        closeSessionAndWebSocketWithMatsSocketProtocolError("Received " + envelope.t
                                 + " message with missing both 'smid' and 'ids'.");
                         return;
                     }
                     if ((envelope.smid != null) && (envelope.ids != null)) {
-                        closeSessionAndWebSocketWithProtocolError("Received " + envelope.t
+                        closeSessionAndWebSocketWithMatsSocketProtocolError("Received " + envelope.t
                                 + " message with both 'smid' and 'ids' - only set one!");
                         return;
                     }
@@ -591,7 +591,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // NOTICE! We will handle ACK/NACKs without valid Authorization, but only if we've already
                     // established Session, as checked by seeing if we've processed HELLO
                     if (!isSessionEstablished()) {
-                        closeSessionAndWebSocketWithProtocolError(
+                        closeSessionAndWebSocketWithMatsSocketProtocolError(
                                 "Cannot process " + envelope.t + " before HELLO and session established");
                         return;
                     }
@@ -623,7 +623,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // Send "ACK2", i.e. "I've now deleted these Ids from my outbox".
                 if (clientAckIds.isEmpty()) {
                     // This should not happen, the client should not send an empty list.
-                    closeSessionAndWebSocketWithProtocolError("An empty list of ackids was sent");
+                    closeSessionAndWebSocketWithMatsSocketProtocolError("An empty list of ackids was sent");
                     return;
                 }
                 _matsSocketServer.getWebSocketOutgoingAcks().sendAck2s(_matsSocketSessionId, clientAckIds);
@@ -647,12 +647,12 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                     // NOTICE! We will handle ACK2s without valid Authorization, but only if we've already established
                     // Session, as checked by seeing if we've processed HELLO
                     if (!isSessionEstablished()) {
-                        closeSessionAndWebSocketWithProtocolError(
+                        closeSessionAndWebSocketWithMatsSocketProtocolError(
                                 "Cannot process ACK2 before HELLO and session established");
                         return;
                     }
                     if ((envelope.cmid == null) && (envelope.ids == null)) {
-                        closeSessionAndWebSocketWithProtocolError("Received ACK2 envelope with missing 'cmid'"
+                        closeSessionAndWebSocketWithMatsSocketProtocolError("Received ACK2 envelope with missing 'cmid'"
                                 + " or 'ids'.");
                         return;
                     }
@@ -787,7 +787,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                 // messages from the Client, and thus contain 'cmid'.
                 for (MatsSocketEnvelopeWithMetaDto envelope : envelopes) {
                     if (envelope.cmid == null) {
-                        closeSessionAndWebSocketWithProtocolError("Missing 'cmid' on message of type ["
+                        closeSessionAndWebSocketWithMatsSocketProtocolError("Missing 'cmid' on message of type ["
                                 + envelope.t + "]");
                         return;
                     }
@@ -853,7 +853,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             if (authenticationHandlingResult != AuthenticationHandlingResult.OK) {
                 log.error("Unknown AuthenticationHandlingResult [" + authenticationHandlingResult
                         + "], what on earth is this?!");
-                closeSessionAndWebSocketWithProtocolError("Internal Server error.");
+                closeSessionAndWebSocketWithMatsSocketProtocolError("Internal Server error.");
                 return;
             }
 
@@ -988,7 +988,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         // -> Unknown message: We're not very lenient her - CLOSE SESSION AND CONNECTION!
                         log.error("Got an unknown message type [" + envelope.t
                                 + "] from client. Answering by closing connection with PROTOCOL_ERROR.");
-                        closeSessionAndWebSocketWithProtocolError("Received unknown message type.");
+                        closeSessionAndWebSocketWithMatsSocketProtocolError("Received unknown message type.");
                         return;
                     }
                 }
@@ -1062,8 +1062,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
     }
 
-    void closeSessionAndWebSocketWithProtocolError(String reason) {
-        closeSessionAndWebSocket(MatsSocketCloseCodes.PROTOCOL_ERROR, reason);
+    void closeSessionAndWebSocketWithMatsSocketProtocolError(String reason) {
+        closeSessionAndWebSocket(MatsSocketCloseCodes.MATS_SOCKET_PROTOCOL_ERROR, reason);
     }
 
     void closeSessionAndWebSocketWithPolicyViolation(String reason) {
@@ -1365,19 +1365,19 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         _clientLibAndVersions = envelope.clv;
         if (_clientLibAndVersions == null) {
-            closeSessionAndWebSocketWithProtocolError("Missing ClientLibAndVersion (clv) in HELLO envelope.");
+            closeSessionAndWebSocketWithMatsSocketProtocolError("Missing ClientLibAndVersion (clv) in HELLO envelope.");
             return false;
         }
         // NOTE: Setting MDC_CLIENT_LIB_AND_VERSIONS for the rest of this pipeline, but not for every onMessage!
         MDC.put(MDC_CLIENT_LIB_AND_VERSIONS, _clientLibAndVersions);
         String appName = envelope.an;
         if (appName == null) {
-            closeSessionAndWebSocketWithProtocolError("Missing AppName (an) in HELLO envelope.");
+            closeSessionAndWebSocketWithMatsSocketProtocolError("Missing AppName (an) in HELLO envelope.");
             return false;
         }
         String appVersion = envelope.av;
         if (appVersion == null) {
-            closeSessionAndWebSocketWithProtocolError("Missing AppVersion (av) in HELLO envelope.");
+            closeSessionAndWebSocketWithMatsSocketProtocolError("Missing AppVersion (av) in HELLO envelope.");
             return false;
         }
         _appName = appName;
@@ -1586,18 +1586,18 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
         // 1. All "information bearing messages" shall have TraceId
         if (envelope.tid == null) {
-            closeSessionAndWebSocketWithProtocolError("Missing 'tid' (TraceId) on " + envelope.t + ", cmid:["
+            closeSessionAndWebSocketWithMatsSocketProtocolError("Missing 'tid' (TraceId) on " + envelope.t + ", cmid:["
                     + envelope.cmid + "].");
             return false;
         }
         // 2. All "information bearing messages" shall have sender specific message Id, for C2S this means 'cmid'.
         if (envelope.cmid == null) {
-            closeSessionAndWebSocketWithProtocolError("Missing 'cmid' on " + envelope.t + ".");
+            closeSessionAndWebSocketWithMatsSocketProtocolError("Missing 'cmid' on " + envelope.t + ".");
             return false;
         }
         // 3. If this is a Reply to a Server-to-Client REQUEST, it shall have the sender specific message Id; 'smid'
         if (((envelope.t == RESOLVE) || (envelope.t == REJECT)) && (envelope.smid == null)) {
-            closeSessionAndWebSocketWithProtocolError("Missing 'smid' on a Client Reply to a Server-to-Client"
+            closeSessionAndWebSocketWithMatsSocketProtocolError("Missing 'smid' on a Client Reply to a Server-to-Client"
                     + " REQUEST, for message with cmid:[" + envelope.cmid + "].");
             return false;
         }
@@ -1613,13 +1613,13 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
             MatsSocketEnvelopeWithMetaDto envelope) {
         long nanosStart = System.nanoTime();
         if ((envelope.eid == null) || (envelope.eid.trim().isEmpty())) {
-            closeSessionAndWebSocketWithProtocolError("SUB: Topic is null or empty.");
+            closeSessionAndWebSocketWithMatsSocketProtocolError("SUB: Topic is null or empty.");
             return;
         }
         // ?: Already subscribed to this topic?
         if (_subscribedTopics.contains(envelope.eid)) {
             // -> Yes, already subscribed - client shall locally handle multi-subscriptions to same topic: Error.
-            closeSessionAndWebSocketWithProtocolError("SUB: Already subscribed to Topic ["
+            closeSessionAndWebSocketWithMatsSocketProtocolError("SUB: Already subscribed to Topic ["
                     + envelope.eid + "]");
             return;
         }
@@ -1633,7 +1633,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         // ?: "DoS-protection", from inadvertent or malicious subscription to way too many topics.
         if (_subscribedTopics.size() >= MAX_NUMBER_OF_TOPICS_PER_SESSION) {
             // -> Yes, too many subscriptions: Error.
-            closeSessionAndWebSocketWithProtocolError("SUB: Subscribed to way too many topics ["
+            closeSessionAndWebSocketWithMatsSocketProtocolError("SUB: Subscribed to way too many topics ["
                     + _subscribedTopics.size() + "]");
             return;
         }
@@ -1698,7 +1698,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
     private void handleUnsub(MatsSocketEnvelopeWithMetaDto envelope) {
         if ((envelope.eid == null) || (envelope.eid.trim().isEmpty())) {
-            closeSessionAndWebSocketWithProtocolError("UNSUB: Topic is null or empty.");
+            closeSessionAndWebSocketWithMatsSocketProtocolError("UNSUB: Topic is null or empty.");
             return;
         }
         _subscribedTopics.remove(envelope.eid);

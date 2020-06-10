@@ -22,10 +22,6 @@ class MatsSocketCloseEvent {
 /// Note: Plural "Codes" since that is what the JSR 356 Java WebSocket API {@link CloseCodes does..!}
 /// Copied from MatsSocketServer.java
 enum MatsSocketCloseCodes {
-  /// Standard code 1002 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
-  /// used when the client does not observe the protocol.
-  PROTOCOL_ERROR,
-
   /// Standard code 1008 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
   /// used when the we cannot authenticate.
   /// <p/>
@@ -95,6 +91,10 @@ enum MatsSocketCloseCodes {
   /// that. But the client "must not do anything" other than what it already is doing - reconnecting.
   DISCONNECT,
 
+  /// 4004: From Server side: Client should REJECT all outstanding and "crash"/reboot application: Used when the
+  /// client does not speak the MatsSocket protocol correctly.
+  MATS_SOCKET_PROTOCOL_ERROR,
+
   /// Indicates a WebSocket close code that does not map to any specific MatsSocketCloseCode.
   /// This can occur when there WebSocket is closed by other mechanisms than vie MatsSocket, and the
   /// close code is one that is unknown to the MatsSocket library.
@@ -104,8 +104,6 @@ enum MatsSocketCloseCodes {
 extension MatsSocketCloseCodesExtension on MatsSocketCloseCodes {
   int get code {
     switch (this) {
-      case MatsSocketCloseCodes.PROTOCOL_ERROR:
-        return CloseCodes.PROTOCOL_ERROR.code;
       case MatsSocketCloseCodes.VIOLATED_POLICY:
         return CloseCodes.VIOLATED_POLICY.code;
       case MatsSocketCloseCodes.UNEXPECTED_CONDITION:
@@ -122,6 +120,8 @@ extension MatsSocketCloseCodesExtension on MatsSocketCloseCodes {
         return 4002;
       case MatsSocketCloseCodes.DISCONNECT:
         return 4003;
+      case MatsSocketCloseCodes.MATS_SOCKET_PROTOCOL_ERROR:
+        return 4004;
       case MatsSocketCloseCodes.UNKNOWN:
         return -1;
       default:
@@ -131,8 +131,6 @@ extension MatsSocketCloseCodesExtension on MatsSocketCloseCodes {
 
   String get name {
     switch (this) {
-      case MatsSocketCloseCodes.PROTOCOL_ERROR:
-        return 'PROTOCOL_ERROR';
       case MatsSocketCloseCodes.VIOLATED_POLICY:
         return 'VIOLATED_POLICY';
       case MatsSocketCloseCodes.UNEXPECTED_CONDITION:
@@ -149,6 +147,8 @@ extension MatsSocketCloseCodesExtension on MatsSocketCloseCodes {
         return 'RECONNECT';
       case MatsSocketCloseCodes.DISCONNECT:
         return 'DISCONNECT';
+      case MatsSocketCloseCodes.MATS_SOCKET_PROTOCOL_ERROR:
+        return 'MATS_SOCKET_PROTOCOL_ERROR';
       case MatsSocketCloseCodes.UNKNOWN:
         return 'UNKNOWN';
       default:
@@ -163,10 +163,7 @@ extension MatsSocketCloseCodesExtension on MatsSocketCloseCodes {
 
   /// Convert a close code int to a ClodeCodes enum.
   static MatsSocketCloseCodes fromCode(final int code) {
-    if (code == CloseCodes.PROTOCOL_ERROR.code) {
-      return MatsSocketCloseCodes.PROTOCOL_ERROR;
-    }
-    else if (code == CloseCodes.VIOLATED_POLICY.code) {
+    if (code == CloseCodes.VIOLATED_POLICY.code) {
       return MatsSocketCloseCodes.VIOLATED_POLICY;
     }
     else if (code == CloseCodes.UNEXPECTED_CONDITION.code) {
@@ -187,6 +184,8 @@ extension MatsSocketCloseCodesExtension on MatsSocketCloseCodes {
         return MatsSocketCloseCodes.RECONNECT;
       case 4003:
         return MatsSocketCloseCodes.DISCONNECT;
+      case 4004:
+        return MatsSocketCloseCodes.MATS_SOCKET_PROTOCOL_ERROR;
       default:
         return MatsSocketCloseCodes.UNKNOWN;
     }

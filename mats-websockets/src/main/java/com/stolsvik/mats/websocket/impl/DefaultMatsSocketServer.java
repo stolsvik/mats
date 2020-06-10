@@ -1168,7 +1168,8 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     // ?: Did the client or Server want to actually Close Session?
                     // NOTE: Need to check by the 'code' integers, since no real enum (CloseCode is an interface).
                     if ((MatsSocketCloseCodes.UNEXPECTED_CONDITION.getCode() == closeReason.getCloseCode().getCode())
-                            || (MatsSocketCloseCodes.PROTOCOL_ERROR.getCode() == closeReason.getCloseCode().getCode())
+                            || (MatsSocketCloseCodes.MATS_SOCKET_PROTOCOL_ERROR.getCode() == closeReason.getCloseCode()
+                                    .getCode())
                             || (MatsSocketCloseCodes.VIOLATED_POLICY.getCode() == closeReason.getCloseCode().getCode())
                             || (MatsSocketCloseCodes.CLOSE_SESSION.getCode() == closeReason.getCloseCode().getCode())
                             || (MatsSocketCloseCodes.SESSION_LOST.getCode() == closeReason.getCloseCode().getCode())
