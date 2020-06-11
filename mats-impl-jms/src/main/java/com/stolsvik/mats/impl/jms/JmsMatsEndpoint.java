@@ -151,6 +151,16 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
     }
 
     @Override
+    public boolean remove(int gracefulShutdownMillis) {
+        boolean stopped = stop(gracefulShutdownMillis);
+        if (!stopped) {
+            return false;
+        }
+        _parentFactory.removeEndpoint(this);
+        return true;
+    }
+
+    @Override
     public String toString() {
         return idThis() + "_" + _parentFactory.getFactoryConfig().getName() + "|" + _endpointId;
     }

@@ -44,11 +44,11 @@ public interface JmsMatsStartStoppable extends JmsMatsStatics, StartStoppable {
     }
 
     default boolean stopPhase3GracefulAfterInterrupt() {
-        boolean started = true;
+        boolean stopped = true;
         for (JmsMatsStartStoppable child : getChildrenStartStoppable()) {
-            started &= child.stopPhase3GracefulAfterInterrupt();
+            stopped &= child.stopPhase3GracefulAfterInterrupt();
         }
-        return started;
+        return stopped;
     }
 
     @Override

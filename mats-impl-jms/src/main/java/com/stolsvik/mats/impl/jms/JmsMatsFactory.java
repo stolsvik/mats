@@ -255,19 +255,19 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
              * Wrap a InitateLambda so that it sets the stage demarcated for nested calls.
              *
              * When an initial call is made to {@link #initiate(InitiateLambda)} or
-             * {@link #initiateUnchecked(InitiateLambda)}, we want all nested calls within that Lambda to
-             * use the same initiate, rather than create a new MatsInitiate. The reason for this
-             * is that we can run into a situation where an outer {@link com.stolsvik.mats.MatsInitiator.InitiateLambda}
-             * will commit things to the database that messages from the inner initiate sends requests based on.
+             * {@link #initiateUnchecked(InitiateLambda)}, we want all nested calls within that Lambda to use the same
+             * initiate, rather than create a new MatsInitiate. The reason for this is that we can run into a situation
+             * where an outer {@link com.stolsvik.mats.MatsInitiator.InitiateLambda} will commit things to the database
+             * that messages from the inner initiate sends requests based on.
              * <p/>
-             * One scenario that has been encountered, was that a MatsInitiate commited messages to a database, then
-             * in an inner MatsInitiate sendt a message to consume these. Since the inner messages would be commited
-             * and submitted to JMS before the outer initiate was done, the messages where not yet visible in the
-             * database that consumed those messages. By enforcing that there will only be one initiate, and no
-             * nesting, we ensure that all {@link com.stolsvik.mats.MatsInitiator.MatsInitiate} calls are resolved
-             * together.
+             * One scenario that has been encountered, was that a MatsInitiate commited messages to a database, then in
+             * an inner MatsInitiate sendt a message to consume these. Since the inner messages would be commited and
+             * submitted to JMS before the outer initiate was done, the messages where not yet visible in the database
+             * that consumed those messages. By enforcing that there will only be one initiate, and no nesting, we
+             * ensure that all {@link com.stolsvik.mats.MatsInitiator.MatsInitiate} calls are resolved together.
              *
-             * @param lambda to wrap, so that the __stageDemarcatedMatsInitiate is set and cleared.
+             * @param lambda
+             *            to wrap, so that the __stageDemarcatedMatsInitiate is set and cleared.
              * @return the {@link com.stolsvik.mats.MatsInitiator.InitiateLambda} to process.
              */
             private InitiateLambda wrapWithStageDemarcation(InitiateLambda lambda) {
@@ -350,6 +350,18 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
                         + "], attempted registered:[" + newEndpoint + "].");
             }
             _createdEndpoints.add(newEndpoint);
+        }
+    }
+
+    void removeEndpoint(JmsMatsEndpoint<?, ?, Z> endpointToRemove) {
+        synchronized (_createdEndpoints) {
+            Optional<MatsEndpoint<?, ?>> existingEndpoint = getEndpoint(endpointToRemove.getEndpointConfig()
+                    .getEndpointId());
+            if (!existingEndpoint.isPresent()) {
+                throw new IllegalStateException("The endpoint [" + endpointToRemove + "] was not present!"
+                        + " EndpointId:[" + endpointToRemove.getEndpointId() + "]");
+            }
+            _createdEndpoints.remove(endpointToRemove);
         }
     }
 

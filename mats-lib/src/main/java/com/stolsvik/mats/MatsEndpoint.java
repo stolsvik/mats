@@ -144,15 +144,35 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
     /**
      * Waits till all stages of the endpoint has started, i.e. invokes {@link MatsStage#waitForStarted(int)} on all
      * {@link MatsStage}s of the endpoint.
+     *
+     * @return whether it was started (i.e. <code>true</code> if successfully started listening for messages).
      */
     @Override
     boolean waitForStarted(int timeoutMillis);
 
     /**
      * Stops the endpoint, invoking {@link MatsStage#stop(int)} on all {@link MatsStage}s.
+     *
+     * @return whether it was successfully stopped (i.e. <code>true</code> if successfully stopped all listening
+     *         threads).
      */
     @Override
     boolean stop(int gracefulShutdownMillis);
+
+    /**
+     * <b>Should most probably only be used for testing!</b>
+     * <p />
+     * First invokes {@link #stop(int) stop(gracefulShutdownMillis)}, and if successful <b>removes</b> the endpoint from
+     * its MatsFactory. This enables a new endpoint to be registered with the same endpointId as the one removed (which
+     * otherwise is not accepted). This might be of interest in testing scenarios, where you want to <i>change</i> the
+     * implementation of an endpoint from one test to another. There is currently no known situation where this makes
+     * sense to do "in production": Once the system is set up with the correct endpoints, it should most probably stay
+     * that way!
+     *
+     * @return whether the {@link #stop(int gracefulShutdownMillis)} was successful, and thus whether the endpoint was
+     *         removed from its MatsFactory.
+     */
+    boolean remove(int gracefulShutdownMillis);
 
     /**
      * For the incoming message type, this represents the equivalent of Java's {@link Object} - a "generic" incoming
