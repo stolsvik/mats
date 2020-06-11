@@ -70,7 +70,7 @@ public interface MatsSocketStatics {
     // Sessions times out if last liveliness was three days ago
     Supplier<Long> MILLIS_SESSION_TIMEOUT_SUPPLIER = () -> System.currentTimeMillis() - 3 * 24 * 60 * 60 * 1000L;
 
-    long MILLIS_BETWEEN_ACK_FLUSHES = 100;
+    int NUMBER_OF_OUTGOING_ENVELOPES_SCHEDULER_THREADS = Runtime.getRuntime().availableProcessors();
 
     String THREAD_PREFIX = "MatsSocket:";
 

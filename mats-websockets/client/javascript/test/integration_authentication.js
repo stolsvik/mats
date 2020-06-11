@@ -192,7 +192,7 @@
                         const expiry = Date.now() + 20000;
                         authValue = "DummyAuth:MatsSocket.renewAuth_" + matsSocket.id(10) + ":" + expiry;
                         matsSocket.setCurrentAuthorization(authValue, expiry, 0);
-                    }, 50);
+                    }, 5);
                 });
 
                 matsSocket.terminator("Client.renewAuth_terminator", function (messageEvent) {

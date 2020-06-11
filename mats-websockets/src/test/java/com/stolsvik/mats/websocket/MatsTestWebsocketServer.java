@@ -106,6 +106,7 @@ public class MatsTestWebsocketServer {
             h2Ds.setURL("jdbc:h2:~/temp/matsproject_dev_h2database/matssocket_dev"
                     + ";AUTO_SERVER=TRUE;DB_CLOSE_ON_EXIT=FALSE");
             JdbcConnectionPool dataSource = JdbcConnectionPool.create(h2Ds);
+            dataSource.setMaxConnections(5);
 
             // ## Create MatsFactory
             // ActiveMQ ConnectionFactory

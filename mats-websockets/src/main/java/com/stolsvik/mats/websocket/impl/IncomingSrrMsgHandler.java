@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
@@ -93,6 +94,26 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
     void handlerRunnable(MatsSocketSessionAndMessageHandler session, long receivedTimestamp,
             long nanosStart, MatsSocketEnvelopeWithMetaDto incomingEnvelope, String authorization,
             Principal principal) {
+        try {
+            session.setMDC();
+            MDC.put(MDC_MESSAGE_TYPE, incomingEnvelope.t.toString());
+            if (incomingEnvelope.tid != null) {
+                MDC.put(MDC_TRACE_ID, incomingEnvelope.tid);
+            }
+            if (incomingEnvelope.cmid != null) {
+                MDC.put(MDC_CMID, incomingEnvelope.cmid);
+            }
+
+            handlerRunnable_MDCed(session, receivedTimestamp, nanosStart, incomingEnvelope, authorization, principal);
+        }
+        finally {
+            MDC.clear();
+        }
+    }
+
+    void handlerRunnable_MDCed(MatsSocketSessionAndMessageHandler session, long receivedTimestamp,
+            long nanosStart, MatsSocketEnvelopeWithMetaDto incomingEnvelope, String authorization,
+            Principal principal) {
 
         String matsSocketSessionId = session.getMatsSocketSessionId();
         MessageType type = incomingEnvelope.t;
@@ -104,7 +125,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
 
         // :: Perform the entire handleIncoming(..) inside Mats initiate-lambda
         RequestCorrelation[] _correlationInfo_LambdaHack = new RequestCorrelation[1];
-        try {
+        try { // try-catch Throwable
             _matsSocketServer.getMatsFactory().getDefaultInitiator().initiateUnchecked(init -> {
 
                 // ===== PRE message handling.
@@ -552,9 +573,11 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
         // Set the incoming time
         handledEnvelope[0].icts = receivedTimestamp;
 
+        int delay = (handledEnvelope[0].t == ACK) && (incomingEnvelope.t != SEND) ? 100 : 2;
+
         // Send the message
         _matsSocketServer.getWebSocketOutgoingEnvelopes().sendEnvelope(matsSocketSessionId, handledEnvelope[0],
-                2, TimeUnit.MILLISECONDS);
+                delay, TimeUnit.MILLISECONDS);
     }
 
     @SuppressWarnings({ "rawtypes", "unchecked" })

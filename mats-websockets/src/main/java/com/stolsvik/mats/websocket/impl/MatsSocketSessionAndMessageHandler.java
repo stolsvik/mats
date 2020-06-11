@@ -383,6 +383,15 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
     }
 
+    private void setThreadName(String origThreadName) {
+        StringBuilder threadName = new StringBuilder().append("WebSocket-Msg");
+        if (_matsSocketSessionId != null) {
+            threadName.append(':').append(_matsSocketSessionId);
+        }
+        threadName.append(" {").append(origThreadName).append('}');
+        Thread.currentThread().setName(threadName.toString());
+    }
+
     void recordEnvelopes(List<MatsSocketEnvelopeWithMetaDto> envelopes, long timestamp, Direction direction) {
         // Enrich the "WithMeta" part some more, and handle the DirectJson -> String conversion.
         envelopes.forEach(envelope -> {
@@ -414,11 +423,14 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
 
     @Override
     public void onMessage(String message) {
+        // Record start of handling
+        long receivedTimestamp = System.currentTimeMillis();
+        long nanosStart = System.nanoTime();
+
+        String origThreadName = Thread.currentThread().getName();
         try { // try-finally: MDC.clear();
             setMDC();
-            long receivedTimestamp = System.currentTimeMillis();
-            // Record start of handling
-            long nanosStart = System.nanoTime();
+            setThreadName(origThreadName);
 
             // ?: Do we accept messages?
             if (!_state.isHandlesMessages()) {
@@ -872,7 +884,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
                         }
                         // E-> First time we see HELLO
                         // :: Handle the HELLO
-                        boolean handleHelloOk = handleHello(receivedTimestamp, envelope);
+                        boolean handleHelloOk = handleHello(receivedTimestamp, envelope, origThreadName);
                         // ?: Did the HELLO go OK?
                         if (!handleHelloOk) {
                             // -> No, not OK - handleHello(..) has already closed session and websocket and the lot.
@@ -993,6 +1005,7 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
         finally {
             MDC.clear();
+            Thread.currentThread().setName(origThreadName);
         }
     }
 
@@ -1317,7 +1330,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         }
     }
 
-    private boolean handleHello(long clientMessageReceivedTimestamp, MatsSocketEnvelopeWithMetaDto envelope) {
+    private boolean handleHello(long clientMessageReceivedTimestamp, MatsSocketEnvelopeWithMetaDto envelope,
+            String origThreadName) {
         long nanosStart = System.nanoTime();
         log.info("Handling HELLO!");
         // ?: Auth is required - should already have been processed
@@ -1446,6 +1460,9 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         // Ensure MDC is as current as possible
         setMDC();
 
+        // Ensure ThreadName gets SessionId appended
+        setThreadName(origThreadName);
+
         // Register Session at this node
         _matsSocketServer.registerLocalMatsSocketSession(this);
         // :: Register Session in CSAF, and reset "attempted delivery" mark.
@@ -1508,7 +1525,8 @@ class MatsSocketSessionAndMessageHandler implements Whole<String>, MatsSocketSta
         welcomeEnvelope.sid = _matsSocketSessionId;
         welcomeEnvelope.tid = envelope.tid;
 
-        log.info("Sending WELCOME! MatsSocketSessionId:[" + _matsSocketSessionId + "]!");
+        log.info("Sending WELCOME! {" + (newSession ? "NEW" : "RECONNECT") + "} MatsSocketSessionId:["
+                + _matsSocketSessionId + "]!");
 
         // Pack it over to client
         // NOTICE: Since this is the first message ever for this connection, there will not be any currently-sending
