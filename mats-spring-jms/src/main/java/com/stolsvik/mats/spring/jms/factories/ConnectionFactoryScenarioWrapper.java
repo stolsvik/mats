@@ -149,6 +149,7 @@ public class ConnectionFactoryScenarioWrapper
     protected void createTargetConnectionFactoryBasedOnScenarioDecider() {
         if (_targetConnectionFactory != null) {
             log.info(LOG_PREFIX + "  \\- Target ConnectionFactory already present, not creating again.");
+            return;
         }
         ConnectionFactoryProvider provider;
         _matsScenarioDecision = _scenarioDecider.decision(_environment);
@@ -166,8 +167,7 @@ public class ConnectionFactoryScenarioWrapper
                 throw new AssertionError("Unknown MatsScenario enum value [" + _matsScenarioDecision + "]!");
         }
         log.info(LOG_PREFIX + "Creating ConnectionFactory decided by MatsScenario [" + _matsScenarioDecision
-                + "] from provider ["
-                + provider + "].");
+                + "] from provider [" + provider + "].");
 
         // :: Actually get the ConnectionFactory.
 
@@ -187,8 +187,8 @@ public class ConnectionFactoryScenarioWrapper
         if (_targetConnectionFactory instanceof ConnectionFactoryWithStartStopWrapper) {
             // -> Yes, start-stoppable, so start it now (and set any returned target ConnectionFactory..)
             log.info(LOG_PREFIX + "The provided ConnectionFactory from Scenario [" + _matsScenarioDecision
-                    + "] implements "
-                    + ConnectionFactoryWithStartStopWrapper.class.getSimpleName() + ", so invoking start(..) on it.");
+                    + "] implements " + ConnectionFactoryWithStartStopWrapper.class.getSimpleName()
+                    + ", so invoking start(..) on it.");
             ConnectionFactoryWithStartStopWrapper startStopWrapper = (ConnectionFactoryWithStartStopWrapper) _targetConnectionFactory;
             try {
                 ConnectionFactory targetConnectionFactory = startStopWrapper.start(_beanName);
