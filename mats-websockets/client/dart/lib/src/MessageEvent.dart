@@ -72,6 +72,23 @@ class MessageEvent {
 
   MessageEvent(this.type, this.data, this.traceId, this.messageId, this.receivedTimestamp);
 
+  Map<String, dynamic> toJson() {
+    return {
+      'type': type.name,
+      // If data is not json serializable, it will fail to send as well, so
+      // we should be ok to include this directly
+      'data': data,
+      'traceId': traceId,
+      'messageId': messageId,
+      'receivedTimestamp': receivedTimestamp?.millisecondsSinceEpoch,
+      'clientRequestTimestamp': clientRequestTimestamp?.millisecondsSinceEpoch,
+      // correlationInformation is never sent, so we have no garuantees that its
+      // serializable, so we will have to rely on toString.
+      'correlationInformation': correlationInformation?.toString(),
+      'debug': debug,
+      'roundTripMillis': roundTripMillis
+    };
+  }
 }
 
 /// Types of {@link MessageEvent}.
@@ -94,6 +111,29 @@ enum MessageEventType {
   /// server. In these situations, the Request Promise is rejected with a {@link MessageEvent} of this type, and
   /// the {@link MessageEvent#data} value is undefined.
   SESSION_CLOSED
+}
+
+extension MessageEventTypeExtension on MessageEventType {
+  String get name {
+    switch (this) {
+      case MessageEventType.RESOLVE:
+        return 'RESOLVE';
+      case MessageEventType.REJECT:
+        return 'REJECT';
+      case MessageEventType.SEND:
+        return 'SEND';
+      case MessageEventType.REQUEST:
+        return 'REQUEST';
+      case MessageEventType.PUB:
+        return 'PUB';
+      case MessageEventType.TIMEOUT:
+        return 'TIMEOUT';
+      case MessageEventType.SESSION_CLOSED:
+        return 'SESSION_CLOSED';
+      default:
+        throw ArgumentError.value(this, 'MessageEventType', 'Not a recognized enum value');
+    }
+  }
 }
 
 /// <b>Copied directly from AuthenticationPlugin.java</b>:

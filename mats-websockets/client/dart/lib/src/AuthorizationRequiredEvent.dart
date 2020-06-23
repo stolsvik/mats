@@ -1,4 +1,5 @@
 import 'MatsSocket.dart';
+import 'mats_socket_util.dart';
 
 /// Signature for callback of [AuthorizationRequiredEvent].
 ///
@@ -17,6 +18,13 @@ class AuthorizationRequiredEvent {
   /// [type] type type of the event, one of [AuthorizationRequiredEvent].
   /// [currentExpiration] when the current Authorization expires.
   AuthorizationRequiredEvent(this.type, [this.currentExpiration]);
+
+  Map<String, dynamic> toJson() {
+    return removeNullValues({
+      'type': type.name,
+      'currentExpiration': currentExpiration?.millisecondsSinceEpoch
+    });
+  }
 }
 
 /// Type of [AuthorizationRequiredEvent].
@@ -34,4 +42,19 @@ enum AuthorizationRequiredEventType {
   /// it might suspect that the current authentication session has been invalidated, and need proof that the app
   /// can still produce new authorizations/tokens).
   REAUTHENTICATE,
+}
+
+extension AuthorizationRequiredEventTypeExtension on AuthorizationRequiredEventType {
+  String get name {
+    switch (this) {
+      case AuthorizationRequiredEventType.EXPIRED:
+        return 'EXPIRED';
+      case AuthorizationRequiredEventType.NOT_PRESENT:
+        return 'NOT_PRESENT';
+      case AuthorizationRequiredEventType.REAUTHENTICATE:
+        return 'REAUTHENTICATE';
+      default:
+        throw ArgumentError.value(this, 'ConnectionEventType', 'Unknown enum value');
+    }
+  }
 }

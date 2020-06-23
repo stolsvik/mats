@@ -1,3 +1,5 @@
+import 'package:mats_socket/src/mats_socket_util.dart';
+
 class MatsSocketCloseEvent {
   final int code;
   final String reason;
@@ -12,6 +14,17 @@ class MatsSocketCloseEvent {
 
   MatsSocketCloseCodes get type {
     return MatsSocketCloseCodesExtension.fromCode(code);
+  }
+
+  Map<String, dynamic> toJson() {
+    return removeNullValues({
+      'code': code,
+      'reason': reason,
+      'outstandingInitiations': outstandingInitiations,
+      'nativeEvent': nativeEvent?.toString(),
+      'websocketCloseCode': websocketCloseCode.name,
+      'matsSocketCloseCode': type.name,
+    });
   }
 }
 
