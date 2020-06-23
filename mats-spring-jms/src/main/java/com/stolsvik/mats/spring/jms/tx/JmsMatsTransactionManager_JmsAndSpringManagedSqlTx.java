@@ -395,8 +395,8 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
             _monitorDataSource.enableThreadLocals();
         }
 
-        Optional<Connection> getThreadLocalGottenConnection() {
-            return _monitorDataSource.getThreadLocalGottenConnection();
+        boolean wasConnectionGotten() {
+            return _monitorDataSource.wasConnectionGotten();
         }
 
         void clearThreadLocals() {
@@ -431,22 +431,18 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
         }
 
         private ThreadLocal<Boolean> _enabledThreadLocals = ThreadLocal.withInitial(() -> Boolean.FALSE);
-        private ThreadLocal<ConnectionAndStacktraceHolder> _connectionThreadLocal = new ThreadLocal<>();
+        private ThreadLocal<Boolean> _connectionThreadLocal = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
         void enableThreadLocals() {
             _enabledThreadLocals.set(Boolean.TRUE);
         }
 
-        Optional<Connection> getThreadLocalGottenConnection() {
+        boolean wasConnectionGotten() {
             if (!_enabledThreadLocals.get()) {
                 throw new IllegalStateException("The ThreadLocalConnection logic has not been enabled for this code"
                         + " path, so why is this method invoked?");
             }
-            ConnectionAndStacktraceHolder gottenConnection = _connectionThreadLocal.get();
-            if (gottenConnection == null) {
-                return Optional.empty();
-            }
-            return Optional.of(gottenConnection.connection);
+            return _connectionThreadLocal.get();
         }
 
         void clearThreadLocals() {
@@ -473,26 +469,11 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
         }
 
         private Connection getConnection_Internal(ConnectionGetter lambda) throws SQLException {
-            // :: Assert that we are not getting a new Connection within the transactional demarcation of Mats
-            // NOTE: This MIGHT come in the way if you REALLY wanted a new Connection. Read the Exception's message
-            // for a way around this problem.
-            if (_connectionThreadLocal.get() != null) {
-                throw new IllegalStateException("A SQL Connection is already gotten at this point in this Thread's"
-                        + " code path, so why is it that you come again getting a new one? This code path is within a"
-                        + " Mats transaction demarcation using Spring, and therefore the existing one should reside in"
-                        + " the ThreadLocal of the DataSourceTransactionManager/DataSourceUtil (i.e. you could get it"
-                        + " by doing DataSourceUtil.getConnection(dataSource)). *A stacktrace of the point where the"
-                        + " Connection was initially gotten is attached as this exception's cause*. If you REALLY need"
-                        + " a different Connection outside of the transactional demarcation, you will need make the"
-                        + " wrapped DataSource (the one below this wrapper) available to your code and perform"
-                        + " getConnection() on that.", _connectionThreadLocal.get().debugStacktrace);
-            }
             // Actually fetch the Connection
             Connection connection = lambda.getConnection();
             // If enabled, store it in the ThreadLocal
             if (_enabledThreadLocals.get()) {
-                _connectionThreadLocal.set(new ConnectionAndStacktraceHolder(connection,
-                        new DebugStacktrace("This is where the SQL Connection was initially gotten.")));
+                _connectionThreadLocal.set(true);
             }
             return connection;
         }
@@ -511,17 +492,6 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                 return ((InfrastructureProxy) targetDataSource).getWrappedObject();
             }
             return targetDataSource;
-        }
-
-        private static class ConnectionAndStacktraceHolder {
-            private final Connection connection;
-            private final DebugStacktrace debugStacktrace;
-
-            public ConnectionAndStacktraceHolder(Connection connection,
-                    DebugStacktrace debugStacktrace) {
-                this.connection = connection;
-                this.debugStacktrace = debugStacktrace;
-            }
         }
 
         private static class DebugStacktrace extends Exception {
@@ -577,10 +547,10 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
             public boolean isConnectionEmployed() {
                 // ?: Is this an instance of our "magic" wrapper?
                 if (_dataSource instanceof LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) {
-                    // -> Yes, magic, thus ask whether the Connection was /actually/ employed.#
+                    // -> Yes, magic, thus ask whether the Connection was /actually/ employed.
                     log.debug("The Spring TransactionManager is employing our \"magic\" DataSource proxy.");
                     return ((LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) _dataSource)
-                            .getThreadLocalGottenConnection().isPresent();
+                            .wasConnectionGotten();
                 }
                 // E-> No, not magic - so then check if the TransactionSynchronizationManager has gotten it yet.
                 log.debug("The Spring TransactionManager is NOT employing our \"magic\" DataSource proxy.");
@@ -729,12 +699,12 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
          * eventually calls connection.close().
          */
         private void commitOrRollbackSqlTransaction(boolean commit, TransactionStatus transactionStatus) {
-            // NOTICE: JUST FOR LOGGING!
+            // NOTICE: THE FOLLOWING if-STATEMENT IS JUST FOR LOGGING!
             // ?: Was connection gotten by code in ProcessingLambda (user code)
             // NOTICE: We must commit or rollback the Spring TransactionManager nevertheless, to clean up
             if ((_dataSource instanceof LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy)
                     && !((LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) _dataSource)
-                            .getThreadLocalGottenConnection().isPresent()) {
+                            .wasConnectionGotten()) {
                 // -> No, Connection was not gotten
                 if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "NOTICE: SQL Connection was not requested by stage"
                         + " or initiation (user code), the following commit is no-op.");
