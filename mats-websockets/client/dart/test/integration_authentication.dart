@@ -182,7 +182,7 @@ void main() {
         test('When the test-servers PreConnectOperation HTTP Auth-to-Cookie Servlet repeatedly returns [400 <= status <= 599], we should eventually get SessionClosedEvent.VIOLATED_POLICY.', () async {
           // This is what we're going to test. Cannot be done in Node.js, as there is no common Cookie-jar there.
           matsSocket.preconnectoperation = matsSocket.platform.sendAuthorizationHeader;
-          matsSocket.maxConsecutiveFailsOrErrors = 2; // "Magic option" that is just meant for integration testing.
+          matsSocket.maxConnectionAttempts = 2; // "Magic option" that is just meant for integration testing.
           var testCompleter = Completer();
 
           matsSocket.setAuthorizationExpiredCallback((event) {
@@ -209,8 +209,12 @@ void main() {
         test('When the test-servers authPlugin.checkHandshake(..) repeatedly returns false, we should eventually get SessionClosedEvent.VIOLATED_POLICY.', () async {
           // This is what we're going to test. Cannot be done in Node.js, as there is no common Cookie-jar there.
           matsSocket.preconnectoperation = matsSocket.platform.sendAuthorizationHeader;
-          matsSocket.maxConsecutiveFailsOrErrors = 2; // "Magic option" that is just meant for integration testing.
+          matsSocket.maxConnectionAttempts = 2; // "Magic option" that is just meant for integration testing.
           var testCompleter = Completer();
+
+          matsSocket.addConnectionEventListener((event) {
+            _logger.info('Connection attempt: ${event.connectionAttempt}, type: ${event.type}, countDown: ${event.countdownSeconds}');
+          });
 
           matsSocket.setAuthorizationExpiredCallback((event) {
             var expiry = DateTime.now().add(Duration(milliseconds: 1000));

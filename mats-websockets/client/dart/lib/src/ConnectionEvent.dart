@@ -76,10 +76,13 @@ class ConnectionEvent {
     var countdown = (timeout ?? Duration.zero) - (elapsed ?? Duration.zero);
     var seconds = countdown.inSeconds;
     var tenthSeconds = (countdown.inMilliseconds % 1000) / 100;
-    return '${seconds}.${tenthSeconds}';
+    return '${seconds}.${tenthSeconds.toInt()}';
   }
 
-  const ConnectionEvent(this.type, this.webSocketUrl, this.webSocketEvent, [this.timeout, this.elapsed]);
+  /// The connection attempt count, starts at 0th attempt and increases for each time the connection attempt fails.
+  final int connectionAttempt;
+
+  const ConnectionEvent(this.type, this.webSocketUrl, this.webSocketEvent, [this.timeout, this.elapsed, this.connectionAttempt]);
 
   Map<String, dynamic> toJson() {
     return removeNullValues({
@@ -87,7 +90,8 @@ class ConnectionEvent {
       'webSocketUrl': webSocketUrl.toString(),
       'webSocketEvent': webSocketEvent?.toString(),
       'timeoutMs': timeout?.inMilliseconds,
-      'elapsedMs': elapsed?.inMilliseconds
+      'elapsedMs': elapsed?.inMilliseconds,
+      'connectionAttempt': connectionAttempt,
     });
   }
 }
@@ -168,12 +172,11 @@ enum ConnectionEventType {
   ///
   /// User Info Tip: Read more at [CONNECTING] and [WAITING].
   COUNTDOWN,
-
 }
 
 extension ConnectionEventTypeExtension on ConnectionEventType {
   String get name {
-    switch(this) {
+    switch (this) {
       case ConnectionEventType.CONNECTING:
         return 'CONNECTING';
       case ConnectionEventType.CONNECTION_ERROR:
@@ -192,6 +195,7 @@ extension ConnectionEventTypeExtension on ConnectionEventType {
         throw ArgumentError.value(this, 'ConnectionEventType', 'Unknown enum value');
     }
   }
+
   ConnectionState get connectionState {
     switch (this) {
       case ConnectionEventType.CONNECTING:

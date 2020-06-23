@@ -226,7 +226,7 @@ class MatsSocket {
     _shuffleList(_useUrls);
     _connectionTimeoutMin = _useUrls.length > 1 ? _connectionTimeoutBase : _connectionTimeoutMinIfSingleUrl;
 
-    // .. Invoke resetConnectStateVars() right away to get params set.
+    // .. Invoke resetConnectStateVars() right away to get URL set.
     _resetReconnectStateVars();
 
     _endpoints['MatsSocket.renewAuth'] = (messageEvent) {
@@ -1406,6 +1406,7 @@ class MatsSocket {
       // E-> We do have 'authorizationExpiredCallback', so ask app for new auth
       _authorizationExpiredCallback(event);
   }
+  int _connectionAttempt = 0; // A counter of how many times a connection attempt has been performed, starts at 0th attempt.
 
   int _urlIndexCurrentlyConnecting = 0; // Cycles through the URLs
   int _connectionAttemptRound = 0; // When cycled one time through URLs, this increases.
@@ -1417,16 +1418,16 @@ class MatsSocket {
 
   // Based on whether there is multiple URLs, or just a single one, we choose the short "timeout base", or a longer one, as minimum.
   int _connectionTimeoutMin;
-  int _consecutiveAuthFailOrWebSocketErrors = 0; // Increased each time PreConnectionOperation returns 400 <= status <= 599, OR WebSocket.onerror is triggered when trying to connect.
 
-  int maxConsecutiveFailsOrErrors;
+  int maxConnectionAttempts;
 
-  int _maxConsecutiveFailsOrErrors() {
+  int _maxConnectionAttempts() {
       // Way to let integration tests take a bit less time.
-      return maxConsecutiveFailsOrErrors ?? _useUrls.length * 3;
+      return maxConnectionAttempts ?? 40320; // The default should be about a week..! 15 sec per attempt: 40320*15 = 60*60*24*7
   }
 
   void _increaseReconnectStateVars() {
+      _connectionAttempt++;
       _urlIndexCurrentlyConnecting++;
       if (_urlIndexCurrentlyConnecting >= _useUrls.length) {
           _urlIndexCurrentlyConnecting = 0;
@@ -1437,6 +1438,7 @@ class MatsSocket {
   }
 
   void _resetReconnectStateVars() {
+      _connectionAttempt = 0;
       _urlIndexCurrentlyConnecting = 0;
       _connectionAttemptRound = 0;
       _currentWebSocketUrl = _useUrls[_urlIndexCurrentlyConnecting];
@@ -1501,14 +1503,15 @@ class MatsSocket {
       var timeoutMs = math.max(_connectionTimeoutMin,
           math.min(_connectionTimeoutMax,  _connectionTimeoutBase * math.pow(2, _connectionAttemptRound)));
       var timeout = Duration(milliseconds: timeoutMs);
-      var currentCountdownTargetTimestamp = DateTime.now();
+      var attemptStart = DateTime.now();
+      var currentCountdownTargetTimestamp = attemptStart;
       var targetTimeoutTimestamp = currentCountdownTargetTimestamp.add(timeout);
       var elapsed = () {
-          return DateTime.now().difference(currentCountdownTargetTimestamp);
+          return DateTime.now().difference(attemptStart);
       };
 
       // About to create WebSocket, so notify our listeners about this.
-      _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.CONNECTING, _currentWebSocketUrl, null, timeout, elapsed()));
+      _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.CONNECTING, _currentWebSocketUrl, null, timeout, elapsed(), _connectionAttempt));
 
       Function() preConnectOperationAbortFunction;
       WebSocket websocketAttempt;
@@ -1546,7 +1549,7 @@ class MatsSocket {
           } else {
               // -> No, we've NOT hit timeout-target, so sleep till next countdown-target, where we re-invoke ourselves (this w_countDownTimer())
               // Notify ConnectionEvent listeners about this COUNTDOWN event.
-              _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.COUNTDOWN, _currentWebSocketUrl, null, timeout, elapsed()));
+              _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.COUNTDOWN, _currentWebSocketUrl, null, timeout, elapsed(), _connectionAttempt));
               final sleep = math.max(5, currentCountdownTargetTimestamp.difference(DateTime.now()).inMilliseconds);
               countdownId = Timer(Duration(milliseconds: sleep), () {
                   w_countDownTimer();
@@ -1579,7 +1582,7 @@ class MatsSocket {
                 _logger.fine(() => '!! websocketAttempt.onclose: Forced close by timeout, instanceId:[${target.webSocketInstanceId}], event:[$closeEvent]');
               };
               // Close the current WebSocket connection attempt (i.e. abort connect if still trying).
-              websocketAttempt.close(4999, 'WebSocket connect aborted');
+              websocketAttempt.close(MatsSocketCloseCodes.CLOSE_SESSION.code, 'WebSocket connect aborted');
               // Clear out the attempt
               websocketAttempt = null;
           }
@@ -1596,7 +1599,7 @@ class MatsSocket {
               // We are not connecting anymore
               _webSocketConnecting = false;
               // Cancel the "connection timeout" thingy
-              countdownId.cancel();
+              countdownId?.cancel();
               // Request new auth
               _requestNewAuthorizationFromApp('expired', AuthorizationRequiredEvent(AuthorizationRequiredEventType.EXPIRED, _expirationTimestamp));
               return;
@@ -1627,11 +1630,6 @@ class MatsSocket {
                   if (preConnectOperationAbortFunction != null) {
                       // -> Yes, not timed out, so then we'll notify about our failed attempt
                     _logger.info(() => 'PreConnectionOperation failed [${statusMessage}] - retrying.');
-                      // ?: Is the statusMessage between 400 and 599 - indicating that we actually got a response, but not anything good?
-                      if ((statusMessage >= 400) && (statusMessage <= 599)) {
-                          // Yes, so increase consecutive auth fails
-                          _consecutiveAuthFailOrWebSocketErrors++;
-                      }
                       // Go for next retry
                       w_connectFailed_RetryOrWaitForTimeout();
                   }
@@ -1641,7 +1639,7 @@ class MatsSocket {
       w_attemptWebSocket = () {
           // We're not trying to perform the preConnectOperation anymore, so clear it.
           preConnectOperationAbortFunction = null;
-          // :: Assert that we're not already trying to make a WebSocket
+          // :? Assert that we're not already trying to make a WebSocket
           if (websocketAttempt != null) {
               throw StateError('When going for attempt on creating WebSocket, there was already an attempt in place.');
           }
@@ -1653,7 +1651,7 @@ class MatsSocket {
               return;
           }
 
-          // Actually create the instance
+          // :: Actually create the WebSocket instance
 
           var url = (preconnectoperation != null ? _currentWebSocketUrl.replace(queryParameters: { 'preconnect': 'true' }) : _currentWebSocketUrl);
 
@@ -1664,18 +1662,17 @@ class MatsSocket {
 
           // :: Add the handlers for this "trying to acquire" procedure.
 
-          // Error: Mainly just log for debugging - but also keep tally of fails in a row. NOTICE: Upon Error, Close is also always invoked.
+          // Error: Just log for debugging, as an "onclose" will always follow.
           websocketAttempt.onError = (target, event) {
             _logger.fine(() => 'Create WebSocket: error. InstanceId:[${target.webSocketInstanceId}], event:[$event]');
-              // Increase consecutive errors
-            _consecutiveAuthFailOrWebSocketErrors++;
+            // onClose will not be called, so we need to trigger connect failed
             w_connectFailed_RetryOrWaitForTimeout();
           };
 
           // Close: Log + IF this is the first "round" AND there is multiple URLs, then immediately try the next URL. (Close may happen way before the Connection Timeout)
           websocketAttempt.onClose = (target, code, reason, closeEvent) {
               _logger.fine(() => 'Create WebSocket: close. InstanceId:[${target.webSocketInstanceId}], Code:${code}, Reason:$reason, event: $closeEvent');
-              _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.WAITING, _currentWebSocketUrl, closeEvent, timeout, elapsed()));
+              _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.WAITING, _currentWebSocketUrl, closeEvent, timeout, elapsed(), _connectionAttempt));
               w_connectFailed_RetryOrWaitForTimeout();
           };
 
@@ -1699,9 +1696,6 @@ class MatsSocket {
               _webSocketConnecting = false;
               // Since we've just established this WebSocket, we have obviously not sent HELLO yet.
               _helloSent = false;
-
-              // The consecutive fails is now 0 - because /this/ is a SUCCESS!
-              _consecutiveAuthFailOrWebSocketErrors = 0;
 
               // Set our proper handlers
               _webSocket.onOpen = null; // No need for 'onopen', it is already open. Also, node.js evidently immediately fires it again, even though it was already fired.
@@ -1733,11 +1727,11 @@ class MatsSocket {
               countdownId.cancel();
               return;
           }
-          // ?: Have we had to many auth failures (in PreConnectOperation) or WebSocket error events upon WebSocket creation?
-          if (_consecutiveAuthFailOrWebSocketErrors >= _maxConsecutiveFailsOrErrors()) {
+          // ?: Have we had WAY too many connection attempts?
+          if (_connectionAttempt >= _maxConnectionAttempts()) {
               // -> Yes, too much fails or errors - stop nagging server.
-              var reason = 'Trying to create WebSocket: Too many consecutive PreConnectionOperation failures or WebSocket errors [${_consecutiveAuthFailOrWebSocketErrors}]';
-              error('too many consecutive connection attempts', reason);
+              var reason = 'Trying to create WebSocket: Too many consecutive connection attempts [$_connectionAttempt]';
+              error('too many connection attempts', reason);
               // Hold on to how many outstanding initiations there are now
               var outstandingInitiations = _outboxInitiations.length;
               // Abort connecting
@@ -1810,7 +1804,7 @@ class MatsSocket {
   void _onerror(WebSocket target, dynamic event) {
       error('websocket.onerror', 'Got \'onerror\' event from WebSocket, instanceId:[${target.webSocketInstanceId}].', event);
       // :: Synchronously notify our ConnectionEvent listeners.
-      _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.CONNECTION_ERROR, _currentWebSocketUrl, event));
+      _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.CONNECTION_ERROR, _currentWebSocketUrl, event, null, null, _connectionAttempt));
   }
 
   void _onclose(WebSocket target, int code, String reason, dynamic closeEvent) {
@@ -1852,7 +1846,7 @@ class MatsSocket {
           _forcePipelineProcessing = true;
 
           // :: Synchronously notify our ConnectionEvent listeners.
-          _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.LOST_CONNECTION, _currentWebSocketUrl, closeEvent));
+          _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.LOST_CONNECTION, _currentWebSocketUrl, closeEvent, null, null, _connectionAttempt));
 
           // ?: Is this the special DISCONNECT that asks us to NOT start reconnecting?
           if (code != MatsSocketCloseCodes.DISCONNECT.code) {
@@ -1905,7 +1899,7 @@ class MatsSocket {
           _initialSessionEstablished_PerformanceNow ??= platform.performanceTime();
           // :: Synchronously notify our ConnectionEvent listeners.
           _updateStateAndNotifyConnectionEventListeners(
-              ConnectionEvent(ConnectionEventType.SESSION_ESTABLISHED, _currentWebSocketUrl, null));
+              ConnectionEvent(ConnectionEventType.SESSION_ESTABLISHED, _currentWebSocketUrl, null, null, null, _connectionAttempt));
           // Start pinger (AFTER having set ConnectionState to SESSION_ESTABLISHED, otherwise it'll exit!)
           _startPinger();
 
