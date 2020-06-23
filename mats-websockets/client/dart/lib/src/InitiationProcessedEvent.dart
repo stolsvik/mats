@@ -1,4 +1,5 @@
 import 'package:mats_socket/src/MessageEvent.dart';
+import 'package:mats_socket/src/mats_socket_util.dart';
 import 'MatsSocket.dart';
 
 typedef InitiationProcessedEventListener = Function(InitiationProcessedEvent);
@@ -108,6 +109,23 @@ class InitiationProcessedEvent {
       type = InitiationProcessedEventType.SEND;
     }
   }
+
+  Map<String, dynamic> toJson() {
+    return removeNullValues({
+      'type' : type.name,
+      'endpointId' : endpointId,
+      'clientMessageId' : clientMessageId,
+      'sentTimestamp' : sentTimestamp.millisecondsSinceEpoch,
+      'sessionEstablishedOffsetMillis' : sessionEstablishedOffsetMillis,
+      'traceId' : traceId,
+      'initiationMessage' : initiationMessage,
+      'acknowledgeRoundTripMillis' : acknowledgeRoundTripMillis,
+      'replyMessageEventType' : replyMessageEventType.name,
+      'replyToTerminatorId' : replyToTerminatorId,
+      'requestReplyRoundTripMillis' : requestReplyRoundTripMillis,
+      'replyMessageEvent' : replyMessageEvent
+    });
+  }
 }
 
 /// Type of [InitiationProcessedEvent] - the type of the *initiation* of a flow, which also
@@ -123,4 +141,19 @@ enum InitiationProcessedEventType {
 
   /// Flow initiated with [MatsSocket.requestReplyTo]. Will have *all* fields set.
   REQUEST_REPLY_TO,
+}
+
+extension InitiationProcessedEventTypeExtension on InitiationProcessedEventType {
+  String get name {
+    switch (this) {
+      case InitiationProcessedEventType.SEND:
+        return 'SEND';
+      case InitiationProcessedEventType.REQUEST:
+        return 'REQUEST';
+      case InitiationProcessedEventType.REQUEST_REPLY_TO:
+        return 'REQUEST_REPLY_TO';
+      default:
+        throw ArgumentError.value(this, 'ConnectionEventType', 'Unknown enum value');
+    }
+  }
 }

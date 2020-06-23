@@ -1,3 +1,5 @@
+import 'package:mats_socket/src/mats_socket_util.dart';
+
 /// Message Received on Server event: "acknowledge" or "negative acknowledge" - these are the events which the
 /// returned Promise of a send(..) is settled with (i.e. then() and catch()), and which
 /// {@link MatsSocket#request request}'s receivedCallback function are invoked with.
@@ -32,6 +34,17 @@ class ReceivedEvent {
 
   const ReceivedEvent(this.type, this.traceId, this.sentTimestamp, this.receivedTimestamp,
       this.roundTripMillis, this.description);
+
+  Map<String, dynamic> toJson() {
+    return removeNullValues({
+      'type': type.name,
+      'traceId': traceId,
+      'sentTimestamp': sentTimestamp.millisecondsSinceEpoch,
+      'receivedTimestamp': receivedTimestamp.millisecondsSinceEpoch,
+      'roundTripMillis': roundTripMillis,
+      'description': description
+    });
+  }
 }
 
 
@@ -64,4 +77,21 @@ enum ReceivedEventType {
   /// closed with outstanding Initiations not yet Received on Server. In these situations, any nack- or
   /// receivedCallback will be invoked with a {@link ReceivedEvent} of this type.
   SESSION_CLOSED,
+}
+
+extension ReceivedEventTypeExtension on ReceivedEventType {
+  String get name {
+    switch (this) {
+      case ReceivedEventType.ACK:
+        return 'ACK';
+      case ReceivedEventType.NACK:
+        return 'NACK';
+      case ReceivedEventType.TIMEOUT:
+        return 'TIMEOUT';
+      case ReceivedEventType.SESSION_CLOSED:
+        return 'SESSION_CLOSED';
+      default:
+        throw ArgumentError.value(this, 'ReceivedEventType', 'Unknown enum value');
+    }
+  }
 }
