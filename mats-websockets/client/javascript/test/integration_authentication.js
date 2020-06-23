@@ -251,10 +251,10 @@
                     });
             });
 
-            it('When the test-server\'s PreConnectOperation HTTP Auth-to-Cookie Servlet repeatedly returns [400 <= status <= 599], we should eventually get SessionClosedEvent.VIOLATED_POLICY.', function (done) {
+            it('When the test-server\'s PreConnectOperation HTTP Auth-to-Cookie Servlet repeatedly returns non-good status, we should eventually get SessionClosedEvent.VIOLATED_POLICY.', function (done) {
                 // This is what we're going to test. Cannot be done in Node.js, as there is no common Cookie-jar there.
                 matsSocket.preconnectoperation = true;
-                matsSocket.maxConsecutiveFailsOrErrors = 2; // "Magic option" that is just meant for integration testing.
+                matsSocket.maxConnectionAttempts = 2; // "Magic option" that is just meant for integration testing.
                 matsSocket.logging = logging;
 
                 // .. skip if in Node.js
@@ -286,7 +286,7 @@
             it('When the test-server\'s authPlugin.checkHandshake(..) repeatedly returns false, we should eventually get SessionClosedEvent.VIOLATED_POLICY.', function (done) {
                 // This is what we're going to test. Cannot be done in Node.js, as there is no common Cookie-jar there.
                 matsSocket.preconnectoperation = true;
-                matsSocket.maxConsecutiveFailsOrErrors = 2; // "Magic option" that is just meant for integration testing.
+                matsSocket.maxConnectionAttempts = 2; // "Magic option" that is just meant for integration testing.
                 matsSocket.logging = logging;
 
                 // .. skip if in Node.js
