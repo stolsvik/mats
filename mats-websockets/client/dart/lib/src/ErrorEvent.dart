@@ -36,4 +36,12 @@ class ErrorEvent {
     // If result is non-null and longer than maxLength, return a substring of the result
     return (result != null && result.length > maxLength) ? result.substring(0, maxLength - 3) + '...' : result;
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'type': type,
+      'message': message,
+      'reference': reference?.toString()
+    };
+  }
 }

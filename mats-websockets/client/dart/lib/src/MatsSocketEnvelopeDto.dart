@@ -1,5 +1,7 @@
 import 'package:mats_socket/src/MessageType.dart';
 
+import 'mats_socket_util.dart';
+
 class MatsSocketEnvelopeDto {
   MessageType type;
   String clientLibAndVersion;
@@ -94,7 +96,7 @@ class MatsSocketEnvelopeDto {
   /// Convert this Envelope to a Json Map representation, this is used by dart:convert
   /// to encode this object for JSON.
   Map<String, dynamic> toJson() {
-    var json = {
+    return removeNullValues({
       't': type.name,
       'tid': traceId,
       'clv': clientLibAndVersion,
@@ -111,19 +113,7 @@ class MatsSocketEnvelopeDto {
       'auth': authorization,
       'sid': sessionId,
       'rd': requesterDebug
-    };
-
-    // Need to remove all keys where we have a null value, otherwise those fields will be
-    // included in the serialized json
-    var nullKeys = [];
-    json.forEach((key, value) {
-      if (value == null) {
-        nullKeys.add(key);
-      }
     });
-    nullKeys.forEach(json.remove);
-
-    return json;
   }
 
   /// If debug data was requested, and we also got debug data back from the server, this will return
@@ -231,6 +221,26 @@ class DebugDto {
     this.messageSentToClientNodename,
     this.logLines,
   });
+
+  Map<String, dynamic> toJson() {
+    return removeNullValues({
+    'clientMessageSent': clientMessageSent?.millisecondsSinceEpoch,
+    'messageReceived': messageReceived?.millisecondsSinceEpoch,
+    'requestedDebugOptions': requestedDebugOptions,
+    'resolvedDebugOptions': resolvedDebugOptions,
+    'description': description,
+    'clientMessageReceived': clientMessageReceived?.millisecondsSinceEpoch,
+    'clientMessageReceivedNodename': clientMessageReceivedNodename,
+    'matsMessageSent': matsMessageSent?.millisecondsSinceEpoch,
+    'matsMessageReplyReceived': matsMessageReplyReceived?.millisecondsSinceEpoch,
+    'matsMessageReplyReceivedNodename': matsMessageReplyReceivedNodename,
+    'serverMessageCreated': serverMessageCreated?.millisecondsSinceEpoch,
+    'serverMessageCreatedNodename': serverMessageCreatedNodename,
+    'messageSentToClient': messageSentToClient?.millisecondsSinceEpoch,
+    'messageSentToClientNodename': messageSentToClientNodename,
+    'logLines': logLines
+    });
+  }
 }
 
 class LogLineDto {
@@ -258,4 +268,19 @@ class LogLineDto {
     this.exception,
     this.mdc,
   });
+
+  Map<String, dynamic> toJson() {
+    return removeNullValues({
+      'timestamp': timestamp?.millisecondsSinceEpoch,
+      'system': system,
+      'host': host,
+      'appName': appName,
+      'appVersion': appVersion,
+      'threadName': threadName,
+      'level': level,
+      'message': message,
+      'exception': exception,
+      'mdc': mdc,
+    });
+  }
 }

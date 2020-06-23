@@ -1,4 +1,5 @@
 import 'MatsSocket.dart';
+import 'mats_socket_util.dart';
 
 /// Method signature for listeners wishing to accept [ConnectionEvent]
 typedef ConnectionEventListener = Function(ConnectionEvent);
@@ -79,6 +80,16 @@ class ConnectionEvent {
   }
 
   const ConnectionEvent(this.type, this.webSocketUrl, this.webSocketEvent, [this.timeout, this.elapsed]);
+
+  Map<String, dynamic> toJson() {
+    return removeNullValues({
+      'type': type.name,
+      'webSocketUrl': webSocketUrl.toString(),
+      'webSocketEvent': webSocketEvent?.toString(),
+      'timeoutMs': timeout?.inMilliseconds,
+      'elapsedMs': elapsed?.inMilliseconds
+    });
+  }
 }
 
 /// The event types of [ConnectionEvent] - four of the event types are state-transitions into different states
@@ -161,6 +172,26 @@ enum ConnectionEventType {
 }
 
 extension ConnectionEventTypeExtension on ConnectionEventType {
+  String get name {
+    switch(this) {
+      case ConnectionEventType.CONNECTING:
+        return 'CONNECTING';
+      case ConnectionEventType.CONNECTION_ERROR:
+        return 'CONNECTION_ERROR';
+      case ConnectionEventType.LOST_CONNECTION:
+        return 'LOST_CONNECTION';
+      case ConnectionEventType.COUNTDOWN:
+        return 'COUNTDOWN';
+      case ConnectionEventType.WAITING:
+        return 'WAITING';
+      case ConnectionEventType.CONNECTED:
+        return 'CONNECTED';
+      case ConnectionEventType.SESSION_ESTABLISHED:
+        return 'SESSION_ESTABLISHED';
+      default:
+        throw ArgumentError.value(this, 'ConnectionEventType', 'Unknown enum value');
+    }
+  }
   ConnectionState get connectionState {
     switch (this) {
       case ConnectionEventType.CONNECTING:
