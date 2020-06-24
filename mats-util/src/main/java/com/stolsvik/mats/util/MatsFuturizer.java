@@ -382,7 +382,7 @@ public class MatsFuturizer implements AutoCloseable {
         // ?: Have we already checked that the reply endpoint is running?
         if (!_replyHandlerEndpointStarted) {
             // -> No, so wait for it to start now
-            boolean started = _replyHandlerEndpoint.waitForStarted(30_000);
+            boolean started = _replyHandlerEndpoint.waitForReceiving(30_000);
             // ?: Did it start?
             if (!started) {
                 // -> No, so that's bad.

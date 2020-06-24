@@ -1,12 +1,12 @@
-package com.stolsvik.mats.spring;
+package com.stolsvik.mats.spring.shutdownorder;
 
 import java.util.LinkedHashMap;
-import java.util.LinkedList;
 import java.util.Map;
 
 import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
 
+import com.stolsvik.mats.spring.EnableMats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -30,8 +30,8 @@ import com.stolsvik.mats.spring.matsfactoryqualifier.AbstractQualificationTest;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
 /**
- * Base class for {@link VerifyShutdownOrderUsingFactoryBeanTest} - we do not use SpringRunner or other frameworks,
- * but instead do all Spring config ourselves. This so that the testing is as application-like as possible.
+ * Base class for {@link VerifyShutdownOrderUsingFactoryBeanTest} - we do not use SpringRunner or other frameworks, but
+ * instead do all Spring config ourselves. This so that the testing is as application-like as possible.
  * <p>
  * The the beans created in this configuration have been wrapped in a thin shell which replicates the calls straight
  * down to their respective counter parts. The reason for wrapping, is that we want access and the possibility to track
@@ -76,8 +76,8 @@ public class AbstractFactoryBeanTestBase {
     // =============================================== App configuration ==============================================
 
     /**
-     * Context was extracted into a separate class as the approach utilized inside {@link AbstractQualificationTest}
-     * did not detected the usage of {@link Import} as utilized on {@link DI_MainContext}.
+     * Context was extracted into a separate class as the approach utilized inside {@link AbstractQualificationTest} did
+     * not detected the usage of {@link Import} as utilized on {@link DI_MainContext}.
      */
     @Configuration
     @Import(MatsFactoryBeanDefRegistrar.class)
@@ -109,7 +109,8 @@ public class AbstractFactoryBeanTestBase {
         }
     }
 
-    public static class MatsMServiceMatsFactory_FactoryBean extends AbstractFactoryBean<MatsFactoryVerifiableStopWrapper> {
+    public static class MatsMServiceMatsFactory_FactoryBean extends
+            AbstractFactoryBean<MatsFactoryVerifiableStopWrapper> {
 
         @Inject
         private ConnectionFactory _connectionFactory;
@@ -132,9 +133,9 @@ public class AbstractFactoryBeanTestBase {
     // ===============================================================================================================
 
     /**
-     * Simple class which contains a {@link LinkedList}, since a LinkedList maintain the elements by insertion order
-     * we can be sure that index 0 happened before index 1. This gives us a reason to be reasonable certain that
-     * the elements contained within the list happen in this order.
+     * Simple class which contains a {@link LinkedHashMap}, since a LinkedList maintain the elements by insertion order
+     * we can be sure that index 0 happened before index 1. This gives us a reason to be reasonable certain that the
+     * elements contained within the list happen in this order.
      */
     public static class StoppedRegistry {
 
@@ -151,8 +152,6 @@ public class AbstractFactoryBeanTestBase {
 
     // ===============================================================================================================
 
-
-
     /**
      * Wrapper replicating the behavior of {@link JmsMatsFactory} by passing all calls through to the internal
      * {@link JmsMatsFactory} given to the constructor. The key method is
@@ -168,6 +167,7 @@ public class AbstractFactoryBeanTestBase {
             super(matsFactory);
             _stoppedRegistry = stoppedRegistry;
         }
+
         @Override
         public boolean stop(int gracefulShutdownMillis) {
             boolean returnBoolean = false;
@@ -203,7 +203,8 @@ public class AbstractFactoryBeanTestBase {
                 _matsLocalVmActiveMq.close();
             }
             finally {
-                _stoppedRegistry.registerStopped(getClass().getSimpleName(), _matsLocalVmActiveMq.getBrokerService().isStopped());
+                _stoppedRegistry.registerStopped(getClass().getSimpleName(), _matsLocalVmActiveMq.getBrokerService()
+                        .isStopped());
             }
         }
 

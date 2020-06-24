@@ -135,7 +135,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
     }
 
     @Override
-    public boolean waitForStarted(int timoutMillis) {
+    public boolean waitForReceiving(int timoutMillis) {
         try {
             return _anyProcessorMadeConsumerLatch.await(timoutMillis, TimeUnit.MILLISECONDS);
         }

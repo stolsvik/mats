@@ -347,11 +347,13 @@ public interface MatsFactory extends StartStoppable {
     void holdEndpointsUntilFactoryIsStarted();
 
     /**
-     * Waits until all endpoints are started, i.e. runs {@link MatsEndpoint#waitForStarted(int)} on all the endpoints
-     * started from this factory.
+     * Waits until all endpoints have fully entered the receive-loops, i.e. runs
+     * {@link MatsEndpoint#waitForReceiving(int)} on all the endpoints started from this factory.
+     * <p />
+     * <b>Note: If there are no Endpoints registered, this will immediately return <code>true</code>!</b>
      */
     @Override
-    boolean waitForStarted(int timeoutMillis);
+    boolean waitForReceiving(int timeoutMillis);
 
     /**
      * Stops all endpoints and initiators, by invoking {@link MatsEndpoint#stop(int)} on all the endpoints, and
@@ -756,8 +758,8 @@ public interface MatsFactory extends StartStoppable {
         }
 
         @Override
-        public boolean waitForStarted(int timeoutMillis) {
-            return unwrap().waitForStarted(timeoutMillis);
+        public boolean waitForReceiving(int timeoutMillis) {
+            return unwrap().waitForReceiving(timeoutMillis);
         }
 
         @Override

@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring;
+package com.stolsvik.mats.spring.shutdownorder;
 
 import java.util.Map;
 
@@ -13,9 +13,9 @@ import com.stolsvik.mats.MatsFactory;
 
 /**
  * The intention of this test is to verify that a {@link MatsFactory} created through the use of a
- * {@link AbstractFactoryBean} is shutdown BEFORE the {@link javax.jms.ConnectionFactory JMS ConnectionFactory}.
- * The reason we want to verify that this is true is to ensure that there are no unwanted exceptions being generated
- * during shutdown, as shutting down the connectionFactory before shutting down the MatsFactory can lead to
+ * {@link AbstractFactoryBean} is shutdown BEFORE the {@link javax.jms.ConnectionFactory JMS ConnectionFactory}. The
+ * reason we want to verify that this is true is to ensure that there are no unwanted exceptions being generated during
+ * shutdown, as shutting down the connectionFactory before shutting down the MatsFactory can lead to.
  *
  * @author Kevin Mc Tiernan, 10-06-2020 - kmctiernan@gmail.com
  */
@@ -24,7 +24,7 @@ public class VerifyShutdownOrderUsingFactoryBeanTest extends AbstractFactoryBean
     /**
      * Default timeout in milliseconds utilized for methods requiring a specified timeout.
      *
-     * @see MatsFactory#waitForStarted(int)
+     * @see MatsFactory#waitForReceiving(int)
      */
     private static final int DEFAULT_TIMEOUT_MILLIS = 10_000;
 
@@ -44,32 +44,25 @@ public class VerifyShutdownOrderUsingFactoryBeanTest extends AbstractFactoryBean
         // Spring context has been started, and autowiring should be complete. Verify that this is in fact the case.
         Assert.assertNotNull(_matsFactory);
 
-        // Assert that the matsFactory is running. The matsFactory as the act of starting the factory is hooked into
-        // the spring life cycle, thus after executing the startSpring() method the context should be up and running.
-        Assert.assertTrue(_matsFactory.waitForStarted(DEFAULT_TIMEOUT_MILLIS));
+        // ----- There are no Endpoints configured at this point!
+
+        // There are no Endpoints at this point, and thus waitForReceiving() should return true.
+        Assert.assertTrue(_matsFactory.waitForReceiving(DEFAULT_TIMEOUT_MILLIS));
 
         // The factoryConfig will only return "true" if there are any endpoints registered and running. Thus this
         // first call should result in a return "false".
         Assert.assertFalse(_matsFactory.getFactoryConfig().isRunning());
 
         // Register an endpoint for no other purpose than to verify that the MatsFactory is indeed running.
-        MatsEndpoint<String, Void> anEndpoint =
-                _matsFactory.single("anEndpoint", String.class, String.class, (ctx, msg) -> "I do nothing.");
+        MatsEndpoint<String, Void> anEndpoint = _matsFactory.single("anEndpoint", String.class, String.class, (ctx,
+                msg) -> "I do nothing.");
 
-        // Notice that fact that the endpoint will return "true" even though it MIGHT not actually be ready to process
-        // requests. This is because the "isRunning()" method only checks if there are any registered stageProcessors
-        // for the endpoint, and since this is a the create blocks until it has created these there will of course
-        // be registered stage processors on the endpoint even though they might not have completed their start up
-        // routine.
+        // This endpoint should immediately be running, since the MatsFactory is started.
         Assert.assertTrue(anEndpoint.getEndpointConfig().isRunning());
 
-        // Wait for the endpoint to actually start - If you change the timeout to "1" milliseconds you can observe
-        // the fact that the endpoint hasn't started (Usually works).
-        // We could here assert on this:
-        // Assert.assertFalse(anEndpoint.waitForStarted(1));
-        // To verify this, however, this MIGHT cause the test to be unstable thus I leave this comment here to highlight
-        // the fact that this is observable.
-        Assert.assertTrue(anEndpoint.waitForStarted(DEFAULT_TIMEOUT_MILLIS));
+        // Wait for the endpoint to enter the receive-loop - If you change the timeout to "1" milliseconds you can
+        // observe the fact that the endpoint hasn't done that yet (Usually works).
+        Assert.assertTrue(anEndpoint.waitForReceiving(DEFAULT_TIMEOUT_MILLIS));
 
         // Secondary call to the "isRunning()", notice that this of course also returns true.
         Assert.assertTrue(anEndpoint.getEndpointConfig().isRunning());
@@ -89,18 +82,17 @@ public class VerifyShutdownOrderUsingFactoryBeanTest extends AbstractFactoryBean
         // "false".
         Assert.assertFalse(anEndpoint.getEndpointConfig().isRunning());
 
-        // Verify that the endpoint is indeed stopped.
-        Assert.assertTrue(anEndpoint.stop(DEFAULT_TIMEOUT_MILLIS));
-
-        // Verify that the Mats Factory is indeed stopped.
-        Assert.assertTrue(_matsFactory.stop(DEFAULT_TIMEOUT_MILLIS));
-
-        // Notice: The MatsFactory "isRunning()" will now return "false" as even though it as an endpoint within, the
+        // The MatsFactory "isRunning()" will now return "false" as even though it as an endpoint within, the
         // the shutdown of the factory cause all the stageProcessors of the endpoint to be shutdown and removed
         // from the endpoint.
-
         Assert.assertEquals(1, _matsFactory.getEndpoints().size());
         Assert.assertFalse(_matsFactory.getFactoryConfig().isRunning());
+
+        // Verify that stopping the Endpoint is idempotent.
+        Assert.assertTrue(anEndpoint.stop(DEFAULT_TIMEOUT_MILLIS));
+
+        // Verify that stopping the MatsFactory is idempotent.
+        Assert.assertTrue(_matsFactory.stop(DEFAULT_TIMEOUT_MILLIS));
 
         Map<String, Boolean> stoppedServices = _stoppedRegistry.getStoppedServices();
 

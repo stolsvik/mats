@@ -52,7 +52,8 @@ public interface MatsConfig {
 
     /**
      * @return whether the MATS entity has been started and not stopped. For the {@link MatsFactory}, it returns true if
-     *         any of the endpoints return true. For {@link MatsEndpoint}s, it returns true if any stage is running.
+     *         any of the endpoints return true (which also implies that if there are no Endpoints registered, it will
+     *         return <code>false</code>). For {@link MatsEndpoint}s, it returns true if any stage is running.
      */
     boolean isRunning();
 
@@ -69,12 +70,22 @@ public interface MatsConfig {
         void start();
 
         /**
-         * If the entity is stopped or starting, it will wait till it is started (i.e. that some {@link MatsStage}
-         * Processor has actually started its consume-loop of messages). If the entity is already started, this method
-         * immediately returns.
+         * Deprecated! Use {@link #waitForReceiving(int)} instead!
+         *
+         * @deprecated This was an inconsistent name, renamed to {@link #waitForReceiving(int)}.
+         */
+        @Deprecated
+        default boolean waitForStarted(int timeoutMillis) {
+            return waitForReceiving(timeoutMillis);
+        }
+
+        /**
+         * If the entity is stopped or starting, this method won't return until it has actually started the receive-loop
+         * (i.e. that some {@link MatsStage} Processor has actually entered its receive-loop, consuming messages). If
+         * the entity has already gotten into the receive loop, the method immediately returns.
          * <p/>
-         * Note: Currently, this only holds for the initial start. If the entity has started at some point, it will
-         * always immediately return - even though it is currently stopped.
+         * Note: Currently, this only holds for the initial start. If the entity has started the receive-loop at some
+         * point, it will always immediately return - even though it is currently stopped.
          * <p/>
          * Further documentation on extensions.
          *
@@ -83,7 +94,7 @@ public interface MatsConfig {
          *            wait, negative values are not allowed.
          * @return <code>true</code> if the entity started within the timeout, <code>false</code> if it did not start.
          */
-        boolean waitForStarted(int timeoutMillis);
+        boolean waitForReceiving(int timeoutMillis);
 
         /**
          * Will stop the entity - or the entities below it (the only "active" entity is a {@link MatsStage} Processor).

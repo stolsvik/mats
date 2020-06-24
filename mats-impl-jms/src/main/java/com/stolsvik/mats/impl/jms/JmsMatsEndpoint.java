@@ -141,8 +141,8 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
     }
 
     @Override
-    public boolean waitForStarted(int timeoutMillis) {
-        return JmsMatsStartStoppable.super.waitForStarted(timeoutMillis);
+    public boolean waitForReceiving(int timeoutMillis) {
+        return JmsMatsStartStoppable.super.waitForReceiving(timeoutMillis);
     }
 
     @Override

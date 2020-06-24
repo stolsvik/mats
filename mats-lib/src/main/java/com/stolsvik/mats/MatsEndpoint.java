@@ -142,13 +142,28 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
     void start();
 
     /**
-     * Waits till all stages of the endpoint has started, i.e. invokes {@link MatsStage#waitForStarted(int)} on all
-     * {@link MatsStage}s of the endpoint.
+     * Waits till all stages of the endpoint has entered their receive-loops, i.e. invokes
+     * {@link MatsStage#waitForReceiving(int)} on all {@link MatsStage}s of the endpoint.
+     * <p/>
+     * Note: This method makes most sense for
+     * {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
+     * SubscriptionTerminators}: These are based on MQ Topics, whose semantics are that if you do not listen right when
+     * someone says something, you will not hear it. This means that a SubscriptionTerminator will never receive a
+     * message that was sent <i>before</i> it had started the receive-loop. Thus, if you in a service-"boot" phase send
+     * a message whose result will come in to a SubscriptionTerminator, you will not receive this result if the
+     * receive-loop has not started. This is relevant for certain cache setups where you listen for event updates, and
+     * when "booting" the cache, you need to be certain that you have started receiving updates before asking for the
+     * "initial load" of the cache. It is also relevant for tools like the <code>MatsFuturizer</code>, which uses a
+     * node-specific Topic for the final reply message from the requested service; If the SubscriptionTerminator has not
+     * yet made it to the receive-loop, any replies will simply be lost and the future never completed.
+     * <p/>
+     * Note: Currently, this only holds for the initial start. If the entity has started the receive-loop at some point,
+     * it will always immediately return - even though it is currently stopped.
      *
      * @return whether it was started (i.e. <code>true</code> if successfully started listening for messages).
      */
     @Override
-    boolean waitForStarted(int timeoutMillis);
+    boolean waitForReceiving(int timeoutMillis);
 
     /**
      * Stops the endpoint, invoking {@link MatsStage#stop(int)} on all {@link MatsStage}s.

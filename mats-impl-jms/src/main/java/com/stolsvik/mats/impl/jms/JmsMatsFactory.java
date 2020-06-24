@@ -445,8 +445,8 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
     }
 
     @Override
-    public boolean waitForStarted(int timeoutMillis) {
-        return JmsMatsStartStoppable.super.waitForStarted(timeoutMillis);
+    public boolean waitForReceiving(int timeoutMillis) {
+        return JmsMatsStartStoppable.super.waitForReceiving(timeoutMillis);
     }
 
     public boolean isHoldEndpointsUntilFactoryIsStarted() {

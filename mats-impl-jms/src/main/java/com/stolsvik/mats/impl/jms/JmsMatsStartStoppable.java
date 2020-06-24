@@ -12,12 +12,12 @@ public interface JmsMatsStartStoppable extends JmsMatsStatics, StartStoppable {
     List<JmsMatsStartStoppable> getChildrenStartStoppable();
 
     @Override
-    default boolean waitForStarted(int timeoutMillis) {
+    default boolean waitForReceiving(int timeoutMillis) {
         int millisLeft = timeoutMillis;
         boolean started = true;
         for (JmsMatsStartStoppable child : getChildrenStartStoppable()) {
             long millisBefore = System.currentTimeMillis();
-            started &= child.waitForStarted(millisLeft);
+            started &= child.waitForReceiving(millisLeft);
             millisLeft -= (System.currentTimeMillis() - millisBefore);
             millisLeft = millisLeft < EXTRA_GRACE_MILLIS ? EXTRA_GRACE_MILLIS : millisLeft;
         }

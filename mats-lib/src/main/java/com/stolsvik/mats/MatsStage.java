@@ -28,10 +28,10 @@ public interface MatsStage<R, S, I> extends StartStoppable {
     void start();
 
     /**
-     * Will wait until at least one processor of the stage has started and has entered the receive loop.
+     * Will wait until at least one processor of the stage has entered its receive-loop.
      */
     @Override
-    boolean waitForStarted(int timeoutMillis);
+    boolean waitForReceiving(int timeoutMillis);
 
     /**
      * Stops this stage. This may be used to temporarily stop processing of this stage by means of some external
