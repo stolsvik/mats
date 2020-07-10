@@ -73,10 +73,15 @@ class ConnectionEvent {
   /// Truncated exponential backoff: The timeouts starts at 500 ms (unless there is only 1 URL configured, in which
   /// case 5 seconds), and then increases exponentially, but maxes out at 15 seconds.
   String get countdownSeconds {
-    var countdown = (timeout ?? Duration.zero) - (elapsed ?? Duration.zero);
-    var seconds = countdown.inSeconds;
-    var tenthSeconds = (countdown.inMilliseconds % 1000) / 100;
-    return '${seconds}.${tenthSeconds.toInt()}';
+    if (timeout == null || elapsed == null) {
+      return '';
+    }
+    var countdown = timeout - elapsed;
+    // Round down the elapsed microseconds to deci seconds (10th of a second)
+    var deciSeconds = (countdown.inMicroseconds / 100000).round();
+    var seconds = (deciSeconds / 10).floor();
+    var tenthSeconds = deciSeconds % 10;
+    return '${seconds}.${tenthSeconds}';
   }
 
   /// The connection attempt count, starts at 0th attempt and increases for each time the connection attempt fails.
