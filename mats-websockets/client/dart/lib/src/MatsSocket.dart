@@ -1705,7 +1705,7 @@ class MatsSocket {
 
               platform.registerBeforeunload(_beforeunloadHandler);
 
-              _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.CONNECTED, _currentWebSocketUrl, event));
+              _updateStateAndNotifyConnectionEventListeners(ConnectionEvent(ConnectionEventType.CONNECTED, _currentWebSocketUrl, event, timeout, elapsed(), _connectionAttempt));
 
               // Fire off any waiting messages, next tick
               Future(() {

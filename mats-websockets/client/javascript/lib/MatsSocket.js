@@ -3296,7 +3296,7 @@
 
                     _registerBeforeunload();
 
-                    _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTED, _currentWebSocketUrl, event, undefined, undefined, _connectionAttempt));
+                    _updateStateAndNotifyConnectionEventListeners(new ConnectionEvent(ConnectionEventType.CONNECTED, _currentWebSocketUrl, event, _secondsTenths(timeout), secondsLeft(), _connectionAttempt));
 
                     // Fire off any waiting messages, next tick
                     _invokeLater(function () {
