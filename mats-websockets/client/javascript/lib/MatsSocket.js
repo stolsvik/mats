@@ -192,10 +192,6 @@
         /**
          * Standard code 1008 - From Server side, Client should REJECT all outstanding and "crash"/reboot application:
          * used when the we cannot authenticate.
-         * <p/>
-         * May also be used locally from the Client: If the PreConnectOperation return status code 401 or 403 or the
-         * WebSocket connect attempt raises error too many times (e.g. total 3x number of URLs), the MatsSocket will be
-         * "Closed Session" with this status code.
          */
         VIOLATED_POLICY: 1008,
 
@@ -755,7 +751,7 @@
         /**
          * "Synthetic" event in that it is not a message from Server: A Client-to-Server
          * {@link MatsSocket#request() Request} was not replied to by the server within the
-         * {@link MatsSocket#requestTimeoutMillis default request timeout} - or a specific timeout specified in the request
+         * {@link MatsSocket#requestTimeout default request timeout} - or a specific timeout specified in the request
          * invocation. In these situations, the Request Promise is rejected with a {@link MessageEvent} of this type,
          * and the {@link MessageEvent#data} value is undefined.
          */
@@ -951,7 +947,7 @@
 
     /**
      * (Metric) A "holding struct" for pings and their experienced round-trip times - you may "subscribe" to ping results
-     * using {@link MatsSocket#addPingListener()}, and you may get the latest pings from the property
+     * using {@link MatsSocket#addPingPongListener()}, and you may get the latest pings from the property
      * {@link MatsSocket#pings}.
      *
      * @param {number} pingId
