@@ -229,7 +229,7 @@ public interface JmsMatsStatics {
                     // Get FactoryConfig
                     FactoryConfig factoryConfig = jmsMatsFactory.getFactoryConfig();
 
-                    // Create the JMS Message that will be sent.
+                    // Create the JMS MapMessage that will be sent.
                     MapMessage mm = jmsSession.createMapMessage();
                     // Set the MatsTrace.
                     mm.setBytes(factoryConfig.getMatsTraceKey(), matsTraceBytes);
@@ -270,9 +270,6 @@ public interface JmsMatsStatics {
                     Destination destination = toChannel.getMessagingModel() == MessagingModel.QUEUE
                             ? jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + toChannel.getId())
                             : jmsSession.createTopic(factoryConfig.getMatsDestinationPrefix() + toChannel.getId());
-
-                    // TODO: OPTIMIZE: Use "asynchronous sends", i.e. register completion listeners (catch exceptions)
-                    // and close at the end.
 
                     // :: Send the message (but since transactional, won't be committed until TransactionContext does).
                     messageProducer.send(destination, mm, deliveryMode, priority, timeToLive);

@@ -150,6 +150,20 @@ public class JmsMatsMessageBrokerSpecifics {
         /* Relying on static init block for init. */
     }
 
+    /**
+     * For an ActiveMQ JMS Connection, this method throws {@link JmsMatsJmsException} if any of the following methods
+     * return <code>true</code>:
+     * <ul>
+     * <li>jmsConnection.isClosing()</li>
+     * <li>jmsConnection.isClosed()</li>
+     * <li>jmsConnection.isTransportFailed()</li>
+     * </ul>
+     *
+     * @param jmsConnection
+     *            the JMS Connection to check.
+     * @throws JmsMatsJmsException
+     *             if it seems like this Connection is dead.
+     */
     public static void isConnectionLive(Connection jmsConnection) throws JmsMatsJmsException {
         if ((_activeMqConnection_class != null) && _activeMqConnection_class.isInstance(jmsConnection)) {
             try {
@@ -166,7 +180,7 @@ public class JmsMatsMessageBrokerSpecifics {
             }
             catch (IllegalAccessException | InvocationTargetException e) {
                 log.warn("Invoking ActiveMqConnection.is[Closing|Closed|TransportFailed]() raised exception, which"
-                        + "is not expected: Report a bug!", e);
+                        + "is not expected: Report a bug on Mats!", e);
             }
         }
         // ----- No problems found, return w/o throwing.
@@ -196,7 +210,7 @@ public class JmsMatsMessageBrokerSpecifics {
             }
             catch (IllegalAccessException | InvocationTargetException e) {
                 log.warn("Invoking ActiveMqMessageConsumer.[get|set]RedeliveryPolicy() raised exception, which"
-                        + "is not expected: Report a bug!", e);
+                        + "is not expected: Report a bug on Mats!", e);
             }
             try {
                 rollbackLambda.run();
@@ -207,7 +221,7 @@ public class JmsMatsMessageBrokerSpecifics {
                 }
                 catch (IllegalAccessException | InvocationTargetException e) {
                     log.warn("Invoking ActiveMqMessageConsumer.setRedeliveryPolicy() raised exception, which"
-                            + "is not expected: Report a bug!", e);
+                            + "is not expected: Report a bug on Mats!", e);
                 }
             }
         }

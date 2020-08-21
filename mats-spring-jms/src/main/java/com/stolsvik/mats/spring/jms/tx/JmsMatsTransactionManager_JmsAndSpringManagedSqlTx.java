@@ -4,7 +4,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -31,7 +30,7 @@ import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsException;
 import com.stolsvik.mats.impl.jms.JmsMatsMessageContext;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_Jms;
 
 /**
  * Implementation of {@link JmsMatsTransactionManager} that in addition to the JMS transaction keeps a Spring
@@ -68,7 +67,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly;
  * disk on Message Broker). This is called "Best Effort 1PC", and is nicely explained in <a href=
  * "http://www.javaworld.com/article/2077963/open-source-tools/distributed-transactions-in-spring--with-and-without-xa.html?page=2">
  * this article</a>. If this failure occurs, it will be caught and logged on ERROR level (by
- * {@link JmsMatsTransactionManager_JmsOnly}) - and then the Message Broker will probably try to redeliver the message.
+ * {@link JmsMatsTransactionManager_Jms}) - and then the Message Broker will probably try to redeliver the message.
  * Also read the <a href="http://activemq.apache.org/should-i-use-xa.html">Should I use XA Transactions</a> from Apache
  * Active MQ.
  * <p />
@@ -88,7 +87,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly;
  *
  * @author Endre Stølsvik 2019-05-09 20:27 - http://stolsvik.com/, endre@stolsvik.com
  */
-public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsTransactionManager_JmsOnly {
+public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsTransactionManager_Jms {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.class);
 
     private final PlatformTransactionManager _platformTransactionManager;
@@ -512,7 +511,7 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
     /**
      * The {@link TransactionContext}-implementation for {@link JmsMatsTransactionManager_JmsAndSpringManagedSqlTx}.
      */
-    private static class TransactionalContext_JmsAndSpringDstm extends TransactionalContext_JmsOnly {
+    private static class TransactionalContext_JmsAndSpringDstm extends TransactionalContext_Jms {
         private final static String LOG_PREFIX = "#SPRINGJMATS# ";
 
         private final PlatformTransactionManager _platformTransactionManager;

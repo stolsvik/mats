@@ -34,7 +34,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
  * Broker). This is called "Best Effort 1PC", and is nicely explained in <a href=
  * "http://www.javaworld.com/article/2077963/open-source-tools/distributed-transactions-in-spring--with-and-without-xa.html?page=2">
  * this article</a>. If this failure occurs, it will be caught and logged on ERROR level (by
- * {@link JmsMatsTransactionManager_JmsOnly}) - and then the Message Broker will probably try to redeliver the message.
+ * {@link JmsMatsTransactionManager_Jms}) - and then the Message Broker will probably try to redeliver the message.
  * Also read the <a href="http://activemq.apache.org/should-i-use-xa.html">Should I use XA Transactions</a> from Apache
  * Active MQ.
  * <p>
@@ -57,7 +57,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
  *
  * @author Endre Stølsvik - 2015-12-06 - http://endre.stolsvik.com
  */
-public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionManager_JmsOnly {
+public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionManager_Jms {
     private static final Logger log = LoggerFactory.getLogger(JmsMatsTransactionManager_JmsAndJdbc.class);
 
     private final DataSource _dataSource;
@@ -77,9 +77,9 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
     }
 
     /**
-     * The {@link TransactionContext}-implementation for {@link JmsMatsTransactionManager_JmsOnly}.
+     * The {@link TransactionContext}-implementation for {@link JmsMatsTransactionManager_Jms}.
      */
-    public static class TransactionalContext_JmsAndJdbc extends TransactionalContext_JmsOnly {
+    public static class TransactionalContext_JmsAndJdbc extends TransactionalContext_Jms {
         private final DataSource _dataSource;
 
         public TransactionalContext_JmsAndJdbc(DataSource dataSource, JmsMatsTxContextKey txContextKey) {
@@ -134,6 +134,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                     // We will now throw on the Exception, which will rollback the JMS Transaction.
                     throw e;
                 }
+                // Catch ANYTHING ELSE that can come out of the try-block (i.e. "sneaky throws"):
                 catch (Throwable t) {
                     // ----- This must have been a "sneaky throws"; Throwing an undeclared checked exception.
                     log.error(LOG_PREFIX + "ROLLBACK SQL: Got an undeclared checked exception " + t.getClass()

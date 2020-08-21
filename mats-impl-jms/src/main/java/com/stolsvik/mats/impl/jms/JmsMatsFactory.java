@@ -31,7 +31,7 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
             JmsMatsJmsSessionHandler jmsMatsJmsSessionHandler,
             MatsSerializer<Z> matsSerializer) {
         return createMatsFactory(appName, appVersion, jmsMatsJmsSessionHandler,
-                JmsMatsTransactionManager_JmsOnly.create(), matsSerializer);
+                JmsMatsTransactionManager_Jms.create(), matsSerializer);
     }
 
     public static <Z> JmsMatsFactory<Z> createMatsFactory_JmsAndJdbcTransactions(String appName, String appVersion,

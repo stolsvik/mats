@@ -18,35 +18,35 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
  * transaction managers).
  * <p>
  * The JMS Connection and Session handling is performed in calling code, where the resulting {@link JmsSessionHolder} is
- * provided to the {@link TransactionalContext_JmsOnly#doTransaction(JmsMatsMessageContext, ProcessingLambda)}.
+ * provided to the {@link TransactionalContext_Jms#doTransaction(JmsMatsMessageContext, ProcessingLambda)}.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class JmsMatsTransactionManager_JmsOnly implements JmsMatsTransactionManager, JmsMatsStatics {
-    private static final Logger log = LoggerFactory.getLogger(JmsMatsTransactionManager_JmsOnly.class);
+public class JmsMatsTransactionManager_Jms implements JmsMatsTransactionManager, JmsMatsStatics {
+    private static final Logger log = LoggerFactory.getLogger(JmsMatsTransactionManager_Jms.class);
 
     public static JmsMatsTransactionManager create() {
-        return new JmsMatsTransactionManager_JmsOnly();
+        return new JmsMatsTransactionManager_Jms();
     }
 
-    protected JmsMatsTransactionManager_JmsOnly() {
+    protected JmsMatsTransactionManager_Jms() {
         /* hide; use factory method */
     }
 
     @Override
     public TransactionContext getTransactionContext(JmsMatsTxContextKey txContextKey) {
-        return new TransactionalContext_JmsOnly(txContextKey);
+        return new TransactionalContext_Jms(txContextKey);
     }
 
     /**
      * The {@link JmsMatsTransactionManager.TransactionContext} implementation for
-     * {@link JmsMatsTransactionManager_JmsOnly}.
+     * {@link JmsMatsTransactionManager_Jms}.
      */
-    public static class TransactionalContext_JmsOnly implements TransactionContext, JmsMatsStatics {
+    public static class TransactionalContext_Jms implements TransactionContext, JmsMatsStatics {
 
         protected final JmsMatsTxContextKey _txContextKey;
 
-        public TransactionalContext_JmsOnly(JmsMatsTxContextKey txContextKey) {
+        public TransactionalContext_Jms(JmsMatsTxContextKey txContextKey) {
             _txContextKey = txContextKey;
         }
 

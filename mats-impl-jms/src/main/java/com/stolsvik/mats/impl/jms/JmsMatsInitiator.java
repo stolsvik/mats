@@ -23,7 +23,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly.JmsMatsMessageSendException;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_Jms.JmsMatsMessageSendException;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsSerializer.DeserializedMatsTrace;
 import com.stolsvik.mats.serial.MatsTrace;

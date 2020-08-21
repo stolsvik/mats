@@ -16,6 +16,8 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling.PoolingKeyInitiator;
+import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling.PoolingKeyStageProcessor;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
@@ -71,7 +73,8 @@ public class Rule_Mats extends ExternalResource {
             ConnectionFactory connectionFactory) {
         JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
                 this.getClass().getSimpleName(), "*testing*",
-                JmsMatsJmsSessionHandler_Pooling.create(connectionFactory),
+                JmsMatsJmsSessionHandler_Pooling.create(connectionFactory,
+                        PoolingKeyInitiator.FACTORY, PoolingKeyStageProcessor.FACTORY), // FACTORY,FACTORY is default
                 _matsSerializer);
         // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
         matsFactory.getFactoryConfig().setConcurrency(1);

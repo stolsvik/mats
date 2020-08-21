@@ -14,7 +14,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_Jms;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.MatsScenario;
 import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringManagedSqlTx;
@@ -113,7 +113,7 @@ public class JmsSpringMatsFactoryProducer {
         // JmsSessionHandler (pooler)
         JmsMatsJmsSessionHandler jmsSessionHandler = JmsMatsJmsSessionHandler_Pooling.create(jmsConnectionFactory);
         // JMS only MatsTransactionManager
-        JmsMatsTransactionManager jmsOnlyTxMgr = JmsMatsTransactionManager_JmsOnly.create();
+        JmsMatsTransactionManager jmsOnlyTxMgr = JmsMatsTransactionManager_Jms.create();
 
         // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
         JmsMatsFactory<?> matsFactory = JmsMatsFactory

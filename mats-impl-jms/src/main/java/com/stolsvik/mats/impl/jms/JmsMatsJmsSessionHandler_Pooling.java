@@ -168,22 +168,24 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         synchronized (this) {
             liveConnectionsBefore = _liveConnectionWithSessionPools.size();
             // Copying over the liveConnections, since it hopefully will be modified.
-            ArrayList<ConnectionWithSessionPool> connWithSessionPool = new ArrayList<>(_liveConnectionWithSessionPools
+            ArrayList<ConnectionWithSessionPool> connWithSessionPools = new ArrayList<>(_liveConnectionWithSessionPools
                     .values());
-            for (ConnectionWithSessionPool connectionAndSession : connWithSessionPool) {
+            // :: Iterate over the pools
+            for (ConnectionWithSessionPool connectionWithSessionPool : connWithSessionPools) {
                 // Copying over the availableSessionHolders, since it hopefully will be modified.
                 ArrayList<JmsSessionHolderImpl> availableSessionHolders = new ArrayList<>(
-                        connectionAndSession._availableSessionHolders);
+                        connectionWithSessionPool._availableSessionHolders);
                 availableSessionsNowClosed += availableSessionHolders.size();
+                // :: Iterate over the available SessionHolders in each pool
                 for (JmsSessionHolderImpl availableHolder : availableSessionHolders) {
-                    connectionAndSession.internalClose(availableHolder);
+                    connectionWithSessionPool.internalClose(availableHolder);
                 }
             }
 
             // ----- Closed all available JmsSessionHolders
 
             liveConnectionsAfter = _liveConnectionWithSessionPools.size();
-            for (ConnectionWithSessionPool connectionAndSession : connWithSessionPool) {
+            for (ConnectionWithSessionPool connectionAndSession : connWithSessionPools) {
                 employedSessions += connectionAndSession._employedSessionHolders.size();
             }
         }
@@ -283,10 +285,10 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         protected Connection getOrWaitForPoolJmsConnection() throws JmsMatsJmsException {
             try {
-                boolean ok = _creatingConnectionCountDownLatch.await(10, TimeUnit.SECONDS);
+                boolean ok = _creatingConnectionCountDownLatch.await(30, TimeUnit.SECONDS);
                 if (!ok) {
-                    throw new JmsMatsJmsException(
-                            "Waited too long for a Connection to appear in the ConnectionWithSessionPool instance.");
+                    throw new JmsMatsJmsException("Waited too long for a Connection to appear in the"
+                            + " ConnectionWithSessionPool instance.");
                 }
                 if (_exceptionWhenCreatingConnection != null) {
                     throw new JmsMatsJmsException("Someone else got Exception when they tried to create Connection.",
@@ -361,19 +363,19 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         void release(JmsSessionHolderImpl jmsSessionHolder) {
             // ?: Is the pool already crashed?
             if (_poolIsCrashed_StackTrace != null) {
-                jmsSessionHolder.setCurrentContext("released-crashed");
-                log.info(LOG_PREFIX + "[" + this + "] release() from [" + jmsSessionHolder
-                        + "], but evidently the pool is already crashed. Cleaning it out.");
+                jmsSessionHolder.setCurrentContext("crashed+released");
+                log.info(LOG_PREFIX + "release() invoked from [" + jmsSessionHolder + "] on [" + this
+                        + "] , but evidently the pool is already crashed. Cleaning it out.");
                 // NOTICE! Since the ConnectionWithSessionPool is already crashed, the JMS Connection is already closed,
                 // which again implies that the JMS Session is already closed.
                 // Thus, only need to remove the SessionHolder; the JMS Session is already closed.
-                removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(jmsSessionHolder);
+                removeSessionHolderFromPool_And_EvaluateIfEmpty(jmsSessionHolder);
                 return;
             }
             // E-> Not already crashed, so enpool it.
             jmsSessionHolder.setCurrentContext("available");
-            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "[" + this + "] release() from [" + jmsSessionHolder
-                    + "] - moving from 'employed' to 'available' set.");
+            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "release() invoked from [" + jmsSessionHolder
+                    + "] on [" + this + "] -> moving from 'employed' to 'available' set.");
             synchronized (this) {
                 _employedSessionHolders.remove(jmsSessionHolder);
                 _availableSessionHolders.addFirst(jmsSessionHolder);
@@ -388,19 +390,21 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
          */
         void close(JmsSessionHolderImpl jmsSessionHolder) {
             if (_poolIsCrashed_StackTrace != null) {
-                jmsSessionHolder.setCurrentContext("closed-crashed");
-                log.info(LOG_PREFIX + "[" + this + "] close() from [" + jmsSessionHolder
-                        + "], but evidently the pool is already crashed. Cleaning it out.");
+                jmsSessionHolder.setCurrentContext("crashed+closed");
+                log.info(LOG_PREFIX + "close() invoked from [" + jmsSessionHolder + "] on [" + this + "],"
+                        + " but evidently the pool is already crashed. Removing SessionHolder from pool, cleaning."
+                        + " Underlying JMS Connection is [" + id(_jmsConnection) + ":" + _jmsConnection + "]");
                 // NOTICE! Since the ConnectionWithSessionPool is already crashed, the JMS Connection is already closed,
                 // which again implies that the JMS Session is already closed.
                 // Thus, only need to remove the SessionHolder; the JMS Session is already closed.
-                removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(jmsSessionHolder);
+                removeSessionHolderFromPool_And_EvaluateIfEmpty(jmsSessionHolder);
                 return;
             }
             // E-> Not already crashed, so close it nicely.
             jmsSessionHolder.setCurrentContext("closed");
-            log.info(LOG_PREFIX + "[" + this + "] close() from [" + jmsSessionHolder + "]"
-                    + " - removing from pool and then physically closing JMS Session.");
+            log.info(LOG_PREFIX + "close() invoked from [" + jmsSessionHolder + "] on [" + this + "] "
+                    + " -> removing from pool and then physically closing JMS Session."
+                    + " Underlying JMS Connection is [" + id(_jmsConnection) + ":" + _jmsConnection + "]");
             internalClose(jmsSessionHolder);
         }
 
@@ -414,34 +418,41 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
          */
         void crashed(JmsSessionHolderImpl jmsSessionHolder, Throwable reasonException) {
             jmsSessionHolder.setCurrentContext("crashed");
-            if (log.isWarnEnabled()) log.warn(LOG_PREFIX + "[" + this + "] crashed() from [" + jmsSessionHolder
-                    + "] - crashing: Closing JMS Connection, which closes all its Sessions.");
 
             // ?: Are we already crashed?
             if (_poolIsCrashed_StackTrace != null) {
                 // -> Yes, so then everything should already have been taken care of.
-                log.info(LOG_PREFIX + " -> Already crashed and closed.");
+                log.info(LOG_PREFIX + "crashed() invoked from [" + jmsSessionHolder + "] on [" + this + "], but pool"
+                        + " was already crashed and JMS Connection closed."
+                        + " Underlying JMS Connection is [" + id(_jmsConnection) + ":" + _jmsConnection + "]");
                 // NOTICE! Since the ConnectionWithSessionPool is already crashed, the JMS Connection is already closed,
                 // which again implies that the JMS Session is already closed.
                 // Thus, only need to remove the SessionHolder, the JMS Session is already closed.
-                removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(jmsSessionHolder);
+                removeSessionHolderFromPool_And_EvaluateIfEmpty(jmsSessionHolder);
                 return;
             }
+
+            // E-> Not already crashed, must crash now
+            if (log.isWarnEnabled()) log.warn(LOG_PREFIX + "crashed() invoked from [" + jmsSessionHolder + "] on ["
+                    + this + "] -> crashing: Marking pool as crashed, clearing available SessionHolders. If pool"
+                    + " is empty of SessionHolders (i.e. employed == 0), then close JMS Connection."
+                    + " Underlying JMS Connection is [" + id(_jmsConnection) + ":" + _jmsConnection + "]");
+
             // Lock both the whole Handler, and this ConnectionWithSessionPool instance, to avoid having threads sneak
             // by and getting either an available Session, or the Connection.
             // Lock order: Bigger to smaller objects.
-            log.info(LOG_PREFIX + "[" + this
-                    + "] Marking as crashed, clearing available SessionHolders, moving us from"
-                    + " live to dead ConnectionWithSessionPool.");
+            log.info(LOG_PREFIX + "Marking pool as crashed, clearing available SessionHolders, moving us"
+                    + " from live to dead ConnectionWithSessionPool. [" + this + "].");
             assertBigToSmallLockOrder();
             synchronized (JmsMatsJmsSessionHandler_Pooling.this) {
                 synchronized (this) {
                     // Crash this pool
                     _poolIsCrashed_StackTrace = new Exception("This [" + this + "] was crashed.", reasonException);
-                    // Clear available SessionHolders (will close Connection, and thus Sessions, outside of synch).
+                    // Clear *available* SessionHolders. (Employed list will empty out eventually)
+                    // NOITE: Closing JMS Connection unconditionally, and thus Sessions, outside of synch..
                     _availableSessionHolders.clear();
                     // Removing this SessionHolder from employed
-                    boolean closeJmsConnection = removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(
+                    boolean closeJmsConnection = removeSessionHolderFromPool_And_EvaluateIfEmpty(
                             jmsSessionHolder);
                     // ?: Was this the last session?
                     if (!closeJmsConnection) {
@@ -479,7 +490,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         protected void internalClose(JmsSessionHolderImpl jmsSessionHolder) {
             jmsSessionHolder.setCurrentContext("closed");
             // Remove this SessionHolder from pool, and remove ConnectionWithSessionPool if empty (if so, returns true)
-            boolean closeJmsConnection = removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(
+            boolean closeJmsConnection = removeSessionHolderFromPool_And_EvaluateIfEmpty(
                     jmsSessionHolder);
             // ?: Was this the last SessionHolder in use?
             if (closeJmsConnection) {
@@ -504,9 +515,9 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             }
         }
 
-        protected boolean removeSessionHolderFromPool_AndRemoveConnectionAndSessionsIfEmpty(
+        protected boolean removeSessionHolderFromPool_And_EvaluateIfEmpty(
                 JmsSessionHolderImpl jmsSessionHolder) {
-            log.info(LOG_PREFIX + "[" + this + "] Removing [" + jmsSessionHolder + "] from pool.");
+            log.info(LOG_PREFIX + "Removing [" + jmsSessionHolder + "] from pool [" + this + "].");
 
             // Lock both the whole Handler, and this ConnectionWithSessionPool instance, to avoid having threads sneak
             // by and getting either an available Session, or the Connection.
@@ -521,9 +532,9 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                     // ?: Is the ConnectionWithSessionPool now empty?
                     if (_employedSessionHolders.isEmpty() && _availableSessionHolders.isEmpty()) {
                         // -> Yes, none in either employed nor available set.
-                        // Remove us from live map, if this is where this ConnectionWithSessionPool live
+                        // Remove us from live map, if this is where this ConnectionWithSessionPool resides
                         _liveConnectionWithSessionPools.remove(_poolingKey);
-                        // Remove us fom dead map, if this is where this ConnectionWithSessionPool are
+                        // Remove us fom dead map, if this is where this ConnectionWithSessionPool resides
                         _crashedConnectionWithSessionPools.remove(_poolingKey);
                         // We removed the ConnectionWithSessionPool - so close the actual JMS Connection.
                         return true;
@@ -535,22 +546,25 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
         }
 
         protected void closeJmsConnection() {
-            log.info(LOG_PREFIX + "[" + this + "] Closing JMS Connection [" + _jmsConnection + "]");
+            log.info(LOG_PREFIX + "Closing JMS Connection [" + _jmsConnection + "] for pool [" + this + "].");
             try {
                 _jmsConnection.close();
             }
             catch (Throwable t) {
-                log.info(LOG_PREFIX + "[" + this + "] Got a [" + t.getClass().getSimpleName()
-                        + "] when trying to close a crashed JMS Connection. Ignoring.", t);
+                log.info(LOG_PREFIX + "Got a [" + t.getClass().getSimpleName()
+                        + "] when trying to close JMS Connection for pool [" + this + "]. Ignoring.", t);
             }
         }
 
         /**
          * Will be invoked by all SessionHolders at various times in {@link JmsMatsStageProcessor}.
          */
-        void isConnectionLive() throws JmsMatsJmsException {
+        void isConnectionLive(JmsSessionHolder jmsSessionHolder) throws JmsMatsJmsException {
             if (_poolIsCrashed_StackTrace != null) {
-                throw new JmsMatsJmsException("Connection is crashed.", _poolIsCrashed_StackTrace);
+                throw new JmsMatsJmsException("When checking if [" + jmsSessionHolder + "] was live, we found that the"
+                        + " pool's underlying JMS Connection had crashed with ["
+                        + _poolIsCrashed_StackTrace.getCause().getClass().getSimpleName() + "]. JMS Connection: ["
+                        + id(_jmsConnection) + ":" + _jmsConnection + "].");
             }
             JmsMatsMessageBrokerSpecifics.isConnectionLive(_jmsConnection);
         }
@@ -563,8 +577,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                 employed = _employedSessionHolders.size();
             }
             return idThis() + "{pool:" + (_poolIsCrashed_StackTrace == null ? "live" : "crashed") + "|sess avail:"
-                    + available
-                    + ",empl:" + employed + "}";
+                    + available + ",empl:" + employed + "}";
         }
     }
 
@@ -591,7 +604,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         @Override
         public void isSessionOk() throws JmsMatsJmsException {
-            _connectionWithSessionPool.isConnectionLive();
+            _connectionWithSessionPool.isConnectionLive(this);
         }
 
         @Override
@@ -608,9 +621,9 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         @Override
         public void close() {
-            boolean alreadyClosed = _closedOrCrashed.getAndSet(true);
-            if (alreadyClosed) {
-                if (log.isDebugEnabled()) log.info(LOG_PREFIX + "When trying to close [" + this
+            boolean alreadyClosedOrCrashed = _closedOrCrashed.getAndSet(true);
+            if (alreadyClosedOrCrashed) {
+                log.info(LOG_PREFIX + "When about to close [" + this + " from " + _connectionWithSessionPool
                         + "], it was already closed or crashed.");
                 return;
             }
@@ -626,9 +639,9 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         @Override
         public void crashed(Throwable t) {
-            boolean alreadyClosed = _closedOrCrashed.getAndSet(true);
-            if (alreadyClosed) {
-                if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "When trying to crash [" + this
+            boolean alreadyClosedOrCrashed = _closedOrCrashed.getAndSet(true);
+            if (alreadyClosedOrCrashed) {
+                log.info(LOG_PREFIX + "When about to crash [" + this + " from " + _connectionWithSessionPool
                         + "], it was already closed or crashed.");
                 return;
             }
@@ -637,8 +650,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         @Override
         public String toString() {
-            return idThis() + "{pool:@" + Integer.toHexString(System.identityHashCode(_connectionWithSessionPool))
-                    + ",ctx:" + _currentContext + "}";
+            return idThis() + ",ctx:" + _currentContext;
         }
     }
 }

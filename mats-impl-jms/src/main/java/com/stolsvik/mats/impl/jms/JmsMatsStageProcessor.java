@@ -118,12 +118,19 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         // E-> ?: Is thread currently waiting in consumer.receive()?
         // First we do a repeated "pre-check", and wait a tad if it isn't in receive yet (this happens too often in
         // tests, where the system is being closed down before the run-loop has gotten back to consumer.receive())
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 100; i++) {
+            // ?: Have we gotten to receive?
             if (_processorInReceive) {
+                // -> Yes, gotten to receive, so break out of chill-loop.
                 break;
             }
-            log.debug(LOG_PREFIX + ident() + " has not gotten to consumer.receive() yet, but give it a chance..");
-            chillWait(10);
+            chillWait(1);
+            // ?: Is the thread dead?
+            if (! _processorThread.isAlive()) {
+                // -> Yes, thread is dead, so it has already exited.
+                log.info(LOG_PREFIX + ident() + " has now exited, it should have closed JMS Session.");
+                return;
+            }
         }
         if (_processorInReceive) {
             // -> Yes, waiting in receive(), so close session, thus making receive() return null.
@@ -231,7 +238,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                 synchronized (this) {
                     // ?: Check the run-flag one more time!
                     if (!_runFlag) {
-                        // -> No, we're asked to exit.
+                        // -> we're asked to exit.
                         // NOTICE! Since this JMS Session has not been "published" outside yet, we'll have to
                         // close it directly.
                         newJmsSessionHolder.close();
@@ -430,6 +437,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                             __stageDemarcatedMatsInitiate.set(initiateSupplier);
 
                             // :: Invoke the process lambda (the actual user code).
+
+                            // .. create the ProcessContext
                             JmsMatsProcessContext<R, S, Z> processContext = new JmsMatsProcessContext<>(
                                     getFactory(),
                                     _jmsMatsStage.getParentEndpoint().getEndpointId(),
@@ -448,7 +457,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                             // .. stick the ProcessContext into the ThreadLocal scope
                             ContextLocal.bindResource(ProcessContext.class, processContext);
 
-                            // .. actually commit
+                            // .. actually process the user code
                             _jmsMatsStage.getProcessLambda().process(processContext, currentSto, incomingDto);
 
                             // :: Trick to get the MDC.traceId on commit of transaction to contain TraceIds of all
@@ -463,7 +472,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                     // (This can happen if it is a Terminator, but which send a new message)
                                     if (!messagesToSend.get(0).getMatsTrace().getTraceId().equals(matsTrace
                                             .getTraceId())) {
-                                        // -> Yes, different, so make a new MDC for this containing both.
+                                        // -> Yes, different, so create a new MDC traceId value containing both.
                                         String bothTraceIds = matsTrace.getTraceId()
                                                 + ';' + messagesToSend.get(0).getMatsTrace().getTraceId();
                                         MDC.put(MDC_TRACE_ID, bothTraceIds);

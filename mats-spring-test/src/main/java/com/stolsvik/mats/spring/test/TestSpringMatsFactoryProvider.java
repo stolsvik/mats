@@ -15,7 +15,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_JmsOnly;
+import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_Jms;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
 import com.stolsvik.mats.spring.jms.factories.JmsSpringConnectionFactoryProducer;
@@ -115,7 +115,7 @@ public class TestSpringMatsFactoryProvider {
         // JmsSessionHandler (pooler)
         JmsMatsJmsSessionHandler jmsSessionHandler = JmsMatsJmsSessionHandler_Pooling.create(jmsConnectionFactory);
         // JMS only MatsTransactionManager
-        JmsMatsTransactionManager jmsOnlyTxMgr = JmsMatsTransactionManager_JmsOnly.create();
+        JmsMatsTransactionManager jmsOnlyTxMgr = JmsMatsTransactionManager_Jms.create();
 
         // Serializer
         MatsSerializer<String> matsSerializer = new MatsSerializer_DefaultJson();
