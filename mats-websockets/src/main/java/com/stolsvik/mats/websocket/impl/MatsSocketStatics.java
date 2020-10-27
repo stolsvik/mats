@@ -53,8 +53,8 @@ public interface MatsSocketStatics {
 
     int MAX_NUMBER_OF_MESSAGES_PER_FORWARD_LOOP = 20;
 
-    int MIN_FORWARDER_CORE_POOL_SIZE = 5;
-    int MIN_FORWARDER_MAX_POOL_SIZE = 100;
+    int MIN_FORWARDER_POOL_SIZE = 5;
+    int MAX_FORWARDER_POOL_SIZE = 100;
 
     int MAX_NUMBER_OF_OUTBOX_STORE_ATTEMPTS_CSAF = 100;
 
@@ -65,8 +65,7 @@ public interface MatsSocketStatics {
     // Constants:
     long MILLIS_BETWEEN_LIVELINESS_UPDATE_RUN = 54 * 1000; // <One minute (54 sec + Random(10%))
     long MILLIS_BETWEEN_SESSION_TIMEOUT_RUN = 5 * 60 * 1000; // Five minutes
-
-    long MILLIS_BETWEEN_SCAVENGE_SESSION_REMNANTS_RUN = 60 * 60 * 1000; // One hour
+    long MILLIS_BETWEEN_SCAVENGE_SESSION_REMNANTS_RUN = 90 * 60 * 1000; // 1.5 hours
     // Sessions times out if last liveliness was three days ago
     Supplier<Long> MILLIS_SESSION_TIMEOUT_SUPPLIER = () -> System.currentTimeMillis() - 3 * 24 * 60 * 60 * 1000L;
 

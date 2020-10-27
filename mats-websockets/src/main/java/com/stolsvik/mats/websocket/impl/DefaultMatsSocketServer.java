@@ -312,9 +312,9 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         _endpointId_MatsPing = MATS_EP_PREFIX + '.' + instanceName + '.' + MATS_EP_POSTFIX_MATS_PING;
 
         // :: Create active (using threads) Message Forwarder (employs the out-side of the WebSocket).
-        int forwarder_corePoolSize = Math.max(MIN_FORWARDER_CORE_POOL_SIZE,
+        int forwarder_corePoolSize = Math.max(MIN_FORWARDER_POOL_SIZE,
                 matsFactory.getFactoryConfig().getConcurrency() * 4);
-        int forwarder_maxPoolSize = Math.max(MIN_FORWARDER_MAX_POOL_SIZE,
+        int forwarder_maxPoolSize = Math.max(MAX_FORWARDER_POOL_SIZE,
                 matsFactory.getFactoryConfig().getConcurrency() * 20);
         _webSocketOutboxForwarder = new WebSocketOutboxForwarder(this,
                 clusterStoreAndForward, forwarder_corePoolSize, forwarder_maxPoolSize);

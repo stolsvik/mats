@@ -413,18 +413,23 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
 
     @Override
     public int scavengeSessionRemnants() throws DataAccessException {
-        String whereSessionIdNotExists = " AS m WHERE NOT EXISTS"
-                + " (SELECT 1 FROM mats_socket_session AS s WHERE s.session_id = m.session_id)";
+        String commonSQL = " WHERE NOT EXISTS"
+                + " (SELECT 1 FROM mats_socket_session WHERE mats_socket_session.session_id = ";
         return withConnectionReturn((con) -> {
             Statement stmt = con.createStatement();
             int count = 0;
             // :: Perform scavenge from all box-tables
             for (int i = 0; i < NUMBER_OF_BOX_TABLES; i++) {
-                stmt.execute("DELETE FROM " + inboxTableName(i) + whereSessionIdNotExists);
+                String inboxTable = inboxTableName(i);
+                stmt.execute("DELETE FROM " + inboxTable + commonSQL + inboxTable + ".session_id)");
                 count += stmt.getUpdateCount();
-                stmt.execute("DELETE FROM " + outboxTableName(i) + whereSessionIdNotExists);
+
+                String outboxTable = outboxTableName(i);
+                stmt.execute("DELETE FROM " + outboxTable + commonSQL + outboxTable + ".session_id)");
                 count += stmt.getUpdateCount();
-                stmt.execute("DELETE FROM " + requestOutTableName(i) + whereSessionIdNotExists);
+
+                String requestOutTable = requestOutTableName(i);
+                stmt.execute("DELETE FROM " + requestOutTable + commonSQL + requestOutTable + ".session_id)");
                 count += stmt.getUpdateCount();
             }
             stmt.close();
