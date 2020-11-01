@@ -116,8 +116,8 @@ public @interface MatsSimpleTestContext {
      * thwarted.
      * 
      * @see <a href=
-     *      "https://docs.spring.io/spring/docs/current/spring-framework-reference/testing.html#testcontext-ctx-management-initializers">Test
-     *      doc about ContextConfiguration</a>.
+     *      "https://docs.spring.io/spring/docs/current/spring-framework-reference/testing.html#testcontext-ctx-management-initializers">
+     *      Test doc about ContextConfiguration</a>.
      */
     class MatsSimpleTestInfrastructureContextInitializer implements
             ApplicationContextInitializer<ConfigurableApplicationContext> {

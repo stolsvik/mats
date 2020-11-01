@@ -183,7 +183,7 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
     }
 
     /**
-     * Standard implementation of {@linl SpecificScenarioDecider} used in the default configuration of
+     * Standard implementation of {@link SpecificScenarioDecider} used in the default configuration of
      * {@link ConfigurableScenarioDecider}, which takes a set of profile-or-properties names and checks whether they are
      * present as a Spring Profile or (with the "-" replaced by ".") whether it exists as a property in the Spring
      * Environment.

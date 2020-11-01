@@ -345,9 +345,19 @@ public interface MatsSocketServer {
      */
     interface MatsSocketEndpointContext<I, MR, R> {
         /**
-         * @return the {@link MatsSocketEndpoint} for which this context relates - has e.g. the endpointId.
+         * @return the {@link MatsSocketEndpoint} instance for which this context relates.
          */
         MatsSocketEndpoint<I, MR, R> getMatsSocketEndpoint();
+
+        /**
+         * Convenience method, default implementation is
+         * <code>this.getMatsSocketEndpoint().getMatsSocketEndpointId()</code>.
+         * 
+         * @return the MatsSocket EndpointId for which this context relates.
+         */
+        default String getMatsSocketEndpointId() {
+            return getMatsSocketEndpoint().getMatsSocketEndpointId();
+        }
     }
 
     /**
@@ -463,6 +473,91 @@ public interface MatsSocketServer {
         void deny();
 
         /**
+         * Employ this for pure, non-state changing "GET-style" Requests, or Sends for e.g. log event store/processing
+         * (do not use this method for audit logging, though - those you want reliable).
+         * <p />
+         * Sets the following properties on the forwarded message:
+         * <ul>
+         * <li><b>Non-persistent</b>: Since it is not vitally important that this message is not lost, non-persistent
+         * messaging can be used. The minuscule chance for this message to disappear is not worth the considerable
+         * overhead of store-and-forward multiple times to persistent storage. Also, speed is much more
+         * interesting.</li>
+         * <li><b>No audit</b>: Since this message will not change the state of the system (i.e. the "GET-style"
+         * requests), using storage on auditing requests and replies is not worthwhile. Or this is a log event that will
+         * be stored by other means.</li>
+         * <li><b>Interactive</b>: Set if a REQUEST, since a human is probably then waiting for the result. NOT set for
+         * other message types (SEND, RESOLVE or REJECT).</li>
+         * </ul>
+         * If the {@link #getMessageType() MessageType} of the incoming message from the Client is
+         * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
+         * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
+         * will be a Mats send(..) message.
+         * 
+         * @param toMatsEndpointId
+         *            which Mats endpoint to send to. Be observant of the skew between the two different name spaces: A
+         *            MatsSocket EndpointId is local to this MatsSocketFactory, while a Mats EndpointId is global for
+         *            the entire Mats fabric the MatsFactory resides on (i.e. which message queue it communicates with).
+         * @param matsMessage
+         *            the message to send to the Mats endpoint.
+         */
+        void forwardNonessential(String toMatsEndpointId, Object matsMessage);
+
+        /**
+         * Employ this for Requests or Sends whose call flow can potentially change state in the system.
+         * <p />
+         * Sets the following properties on the forwarded message:
+         * <ul>
+         * <li><b>Persistent</b>: Since it actually is vitally important that this message is not lost, persistent
+         * messaging must be used. It is worth the considerable overhead of store-and-forward multiple times to
+         * persistent storage to be sure that the message flow is finished. Also, reliability is much more important
+         * than speed.</li>
+         * <li><b>Audited</b>: Since this message might change the state of the system, logging the entire message and
+         * response in an audit log is worth the storage use.</li>
+         * <li><b>Interactive</b>: Set if a REQUEST, since a human is probably then waiting for the result. NOT set for
+         * other message types (SEND, RESOLVE or REJECT).</li>
+         * </ul>
+         * If the {@link #getMessageType() MessageType} of the incoming message from the Client is
+         * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
+         * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
+         * will be a Mats send(..) message.
+         *
+         * @param toMatsEndpointId
+         *            which Mats endpoint to send to. Be observant of the skew between the two different name spaces: A
+         *            MatsSocket EndpointId is local to this MatsSocketFactory, while a Mats EndpointId is global for
+         *            the entire Mats fabric the MatsFactory resides on (i.e. which message queue it communicates with).
+         * @param matsMessage
+         *            the message to send to the Mats endpoint.
+         */
+        void forwardEssential(String toMatsEndpointId, Object matsMessage);
+
+        /**
+         * Generic forward method. You are provided the {@link InitiateLambda InitiateLambda} so that you can customize
+         * the created message, including setting {@link MatsInitiate#setTraceProperty(String, Object) TraceProperties}.
+         * <b>Note that {@link MatsInitiate#from(String) "from"} {@link MatsInitiate#to(String) "to"}, and if REQUEST,
+         * {@link MatsInitiate#replyTo(String, Object) "replyTo"} with MatsSockets correlation state, will be set by the
+         * system.</b> Also, the invocation of {@link MatsInitiate#request(Object) request(..)} or
+         * {@link MatsInitiate#send(Object) send(..)} will be done by the system - you are not supposed to do it! None
+         * of the {@link MatsInitiate#interactive() "interactive"}, {@link MatsInitiate#nonPersistent() "nonPersistent"}
+         * nor {@link MatsInitiate#noAudit() "noAudit"} flags will be set (but you may set them!).
+         * <p/>
+         * If the {@link #getMessageType() MessageType} of the incoming message from the Client is
+         * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
+         * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
+         * will be a Mats send(..) message.
+         * 
+         * @param toMatsEndpointId
+         *            which Mats endpoint to send to. Be observant of the skew between the two different name spaces: A
+         *            MatsSocket EndpointId is local to this MatsSocketFactory, while a Mats EndpointId is global for
+         *            the entire Mats fabric the MatsFactory resides on (i.e. which message queue it communicates with).
+         * @param matsMessage
+         *            the message to send to the Mats endpoint.
+         * @param customInit
+         *            the {@link InitiateLambda} of the Mats message, where you can customize the sending of the
+         *            message.
+         */
+        void forward(String toMatsEndpointId, Object matsMessage, InitiateLambda customInit);
+
+        /**
          * <b>TYPICALLY for pure "GET-style" Requests, or Sends for e.g. log event store/processing</b> (not audit
          * logging, though - those you want reliable): Both the "nonPersistent" flag <i>(messages in flow are not stored
          * and only lives "in-memory", can thus be lost, i.e. is unreliable, but is very fast)</i> and "interactive"
@@ -473,7 +568,10 @@ public interface MatsSocketServer {
          * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
          * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
          * will be a Mats send(..) message.
+         *
+         * @deprecated use {@link #forwardNonessential(String, Object)} instead.
          */
+        @Deprecated
         void forwardInteractiveUnreliable(Object matsMessage);
 
         /**
@@ -486,7 +584,10 @@ public interface MatsSocketServer {
          * {@link MessageType#REQUEST REQUEST}, it will be a Mats request(..) message, while if it was a
          * {@link MessageType#SEND SEND}, {@link MessageType#RESOLVE RESOLVE} or {@link MessageType#REJECT REJECT}, it
          * will be a Mats send(..) message.
+         *
+         * @deprecated use {@link #forwardEssential(String, Object)} instead.
          */
+        @Deprecated
         void forwardInteractivePersistent(Object matsMessage);
 
         /**
@@ -506,15 +607,18 @@ public interface MatsSocketServer {
          * @param customInit
          *            the {@link InitiateLambda} instance where you can customize the Mats message - read more at
          *            {@link MatsInitiator#initiate(InitiateLambda)}.
+         *
+         * @deprecated use {@link #forward(String, Object, InitiateLambda)} instead.
          */
+        @Deprecated
         void forwardCustom(Object matsMessage, InitiateLambda customInit);
 
         /**
          * Using the returned {@link MatsInitiate MatsInitiate} instance, which is the same as the
-         * {@link #forwardCustom(Object, InitiateLambda) forwardXX(..)} methods utilize, you can initiate one or several
-         * Mats flows, <i>in addition</i> to your actual handling of the incoming message - within the same Mats
-         * transactional demarcation as the handling of the incoming message ("actual handling" referring to
-         * {@link #forwardCustom(Object, InitiateLambda) forward}, {@link #resolve(Object) resolve},
+         * {@link #forward(String, Object, InitiateLambda) forwardXX(..)} methods utilize, you can initiate one or
+         * several Mats flows, <b><i>in addition</i> to your actual handling of the incoming message</b> - within the
+         * same Mats transactional demarcation as the handling of the incoming message ("actual handling" referring to
+         * {@link #forward(String, Object, InitiateLambda) forward}, {@link #resolve(Object) resolve},
          * {@link #reject(Object) reject} or even {@link #deny() deny} or ignore - the latter two being a bit hard to
          * understand why you'd want).
          * <p/>
@@ -524,8 +628,8 @@ public interface MatsSocketServer {
          * {@link MatsInitiate#request(Object) .request(..)} methods.
          *
          * @return the {@link MatsInitiate MatsInitiate} instance which the
-         *         {@link #forwardCustom(Object, InitiateLambda) forward} methods utilize, where you can initiate one or
-         *         several other Mats flows (in addition to actual handling of incoming message) within the same Mats
+         *         {@link #forward(String, Object, InitiateLambda) forward} methods utilize, where you can initiate one
+         *         or several other Mats flows (in addition to actual handling of incoming message) within the same Mats
          *         transactional demarcation as the handling of the message.
          */
         MatsInitiate getMatsInitiate();
@@ -1504,7 +1608,7 @@ public interface MatsSocketServer {
             /**
              * The IncomingHandler forwarded the SEND or REQUEST to a Mats Endpoint.
              * <p />
-             * {@link MatsSocketEndpointIncomingContext#forwardCustom(Object, InitiateLambda)} or its ilk was invoked.
+             * {@link MatsSocketEndpointIncomingContext#forward(String, Object, InitiateLambda)} or its ilk was invoked.
              */
             FORWARD,
         }

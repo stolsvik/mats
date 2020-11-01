@@ -112,9 +112,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                     log.info(" \\- Principal:     " + ctx.getPrincipal());
                     log.info(" \\- UserId:        " + ctx.getUserId());
                     log.info(" \\- Message:       " + msg);
-                    ctx.forwardCustom(new MatsDataTO(msg.number, msg.string),
-                            init -> init.to(ctx.getMatsSocketEndpoint().getMatsSocketEndpointId())
-                                    .interactive()
+                    ctx.forward(ctx.getMatsSocketEndpointId(), new MatsDataTO(msg.number, msg.string),
+                            init -> init.interactive()
                                     .nonPersistent()
                                     .setTraceProperty("requestTimestamp", msg.requestTimestamp));
                 },
@@ -138,7 +137,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         // :: Make "Test.simpleMats" MatsSocket Endpoint
         matsSocketServer.matsSocketEndpoint("Test.simpleMats",
                 MatsDataTO.class, MatsDataTO.class,
-                (ctx, principal, msg) -> ctx.forwardInteractivePersistent(msg));
+                (ctx, principal, msg) -> ctx.forwardEssential(ctx.getMatsSocketEndpointId(), msg));
 
         // :: Make "Test.simpleMats" Endpoint
         matsFactory.single("Test.simpleMats", SetupTestMatsAndMatsSocketEndpoints.MatsDataTO.class,
@@ -195,8 +194,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setupSocket_IgnoreInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.ignoreInReplyAdapter",
                 MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
-                        init -> init.to(STANDARD_ENDPOINT)),
+                (ctx, principal, msg) -> ctx.forwardEssential(STANDARD_ENDPOINT, new MatsDataTO(1, "string1")),
                 // IGNORE - i.e. do nothing
                 (ctx, matsReply) -> {
                 });
@@ -205,8 +203,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setupSocket_ResolveInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.resolveInReplyAdapter",
                 MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(1, "string1"),
-                        init -> init.to(STANDARD_ENDPOINT)),
+                (ctx, principal, msg) -> ctx.forwardEssential(STANDARD_ENDPOINT, new MatsDataTO(1, "string1")),
                 // RESOLVE
                 (ctx, matsReply) -> ctx.resolve(new MatsSocketReplyDto(1, 2, 123)));
     }
@@ -214,8 +211,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setupSocket_RejectInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.rejectInReplyAdapter",
                 MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(2, "string2"),
-                        init -> init.to(STANDARD_ENDPOINT)),
+                (ctx, principal, msg) -> ctx.forwardEssential(STANDARD_ENDPOINT, new MatsDataTO(2, "string2")),
                 // REJECT
                 (ctx, matsReply) -> ctx.reject(new MatsSocketReplyDto(1, 2, 123)));
     }
@@ -223,8 +219,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
     private static void setupSocket_ThrowsInReplyAdapter(MatsSocketServer matsSocketServer) {
         matsSocketServer.matsSocketEndpoint("Test.throwsInReplyAdapter",
                 MatsSocketRequestDto.class, MatsDataTO.class, MatsSocketReplyDto.class,
-                (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(3, "string3"),
-                        init -> init.to(STANDARD_ENDPOINT)),
+                (ctx, principal, msg) -> ctx.forwardEssential(STANDARD_ENDPOINT, new MatsDataTO(3, "string3")),
                 // THROW
                 (ctx, matsReply) -> {
                     throw new IllegalStateException("Exception in ReplyAdapter should REJECT.");
@@ -245,7 +240,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                     catch (InterruptedException e) {
                         throw new RuntimeException(e);
                     }
-                    ctx.forwardInteractivePersistent(msg);
+                    ctx.forwardNonessential(ctx.getMatsSocketEndpointId(), msg);
                 });
 
         // :: Simple endpoint that just sleeps a tad, to simulate "long(er) running process".
@@ -270,12 +265,12 @@ public class SetupTestMatsAndMatsSocketEndpoints {
 
     private static void setup_ServerPush_Send(MatsSocketServer matsSocketServer, MatsFactory matsFactory) {
         matsSocketServer.matsSocketTerminator("Test.server.send.matsStage",
-                MatsDataTO.class, (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(msg.number,
-                        ctx.getMatsSocketSessionId(), 1), init -> init.to("Test.server.send")));
+                MatsDataTO.class, (ctx, principal, msg) -> ctx.forwardEssential("Test.server.send", new MatsDataTO(
+                        msg.number, ctx.getMatsSocketSessionId(), 1)));
 
         matsSocketServer.matsSocketTerminator("Test.server.send.thread",
-                MatsDataTO.class, (ctx, principal, msg) -> ctx.forwardCustom(new MatsDataTO(msg.number,
-                        ctx.getMatsSocketSessionId(), 2), init -> init.to("Test.server.send")));
+                MatsDataTO.class, (ctx, principal, msg) -> ctx.forwardEssential("Test.server.send", new MatsDataTO(
+                        msg.number, ctx.getMatsSocketSessionId(), 2)));
 
         // :: Simple endpoint that does a MatsSocketServer.send(..), either inside MatsStage, or in separate thread.
         matsFactory.terminator("Test.server.send", Void.TYPE, MatsDataTO.class,
@@ -329,8 +324,7 @@ public class SetupTestMatsAndMatsSocketEndpoints {
         matsSocketServer.matsSocketTerminator("Test.server.request.viaMats",
                 MatsDataTO.class,
                 // Pass the message directly on
-                (ctx, principal, msg) -> ctx.forwardCustom(msg,
-                        init -> init.to("Test.server.requestToClient.viaMats")));
+                (ctx, principal, msg) -> ctx.forwardEssential("Test.server.requestToClient.viaMats", msg));
 
         // .. which initiates a request to Client Endpoint, asking for Reply to go to the following MatsSocket Endpoint
         matsFactory.terminator("Test.server.requestToClient.viaMats", Void.TYPE, MatsDataTO.class,
@@ -351,9 +345,8 @@ public class SetupTestMatsAndMatsSocketEndpoints {
                     Assert.assertArrayEquals("CorrelationBinary".getBytes(StandardCharsets.UTF_8),
                             ctx.getCorrelationBinary());
                     // Forward to the Mats terminator that sends to Client. Pass message directly on.
-                    ctx.forwardCustom(msg, init -> {
+                    ctx.forward("Test.server.sendReplyBackToClient.viaMats", msg, init -> {
                         init.addString("resolveReject", ctx.getMessageType().name());
-                        init.to("Test.server.sendReplyBackToClient.viaMats");
                     });
                 });
 

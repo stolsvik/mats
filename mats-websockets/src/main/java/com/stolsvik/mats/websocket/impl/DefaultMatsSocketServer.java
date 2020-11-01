@@ -334,7 +334,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
 
         // MATS: Register our Mats Reply handler Terminator (common on all nodes, note: QUEUE-based!).
         // (Note that the reply often comes in on wrong note, in which case we forward it using NodeControl.)
-        MatsEndpoint<Void, ReplyHandleStateDto> replyHandler = matsFactory.terminator(_terminatorId_ReplyHandler,
+        matsFactory.terminator(_terminatorId_ReplyHandler,
                 ReplyHandleStateDto.class, MatsObject.class, epConfig -> {
                     int currentConcurrency = epConfig.getConcurrency();
                     // TODO: constant
@@ -343,11 +343,11 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
                     }
                 }, MatsFactory.NO_CONFIG, this::mats_replyHandler);
 
-        // MATS: Register Publish subscriptionTerminator (common on all nodes, note: TOPIC-based!)
+        // MATS: Register NodeControl subscriptionTerminator (node-specific, note: TOPIC-based!)
         matsFactory.subscriptionTerminator(nodeSubscriptionTerminatorId_NodeControl_ForNode(getMyNodename()),
                 NodeControlStateDto.class, MatsObject.class, this::mats_nodeControl);
 
-        // MATS: Register NodeControl subscriptionTerminator (node-specific)
+        // MATS: Register Publish subscriptionTerminator (common on all nodes (i.e. broadcast), note: TOPIC-based!)
         matsFactory.subscriptionTerminator(_subscriptionTerminatorId_Publish,
                 Void.TYPE, PublishedMessageDto.class, this::mats_publish);
 
@@ -361,7 +361,7 @@ public class DefaultMatsSocketServer implements MatsSocketServer, MatsSocketStat
         // .. create it
         MatsSocketEndpointRegistration<MatsPingPongDto, MatsPingPongDto, MatsPingPongDto> pingReg = new MatsSocketEndpointRegistration<>(
                 "MatsSocket.matsPing", MatsPingPongDto.class, MatsPingPongDto.class, MatsPingPongDto.class,
-                (ctx, principal, ping) -> ctx.forwardCustom(ping, init -> init.interactive().to(_endpointId_MatsPing)),
+                (ctx, principal, ping) -> ctx.forwardEssential(_endpointId_MatsPing, ping),
                 null);
         // .. register it.
         _matsSocketEndpointsByMatsSocketEndpointId.putIfAbsent(pingReg.getMatsSocketEndpointId(), pingReg);

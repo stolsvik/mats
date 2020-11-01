@@ -358,16 +358,17 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                         if (type == REQUEST) {
                             // -> Yes, REQUEST, so then it is not allowed to Ignore it.
                             handledEnvelope[0].t = NACK;
-                            handledEnvelope[0].desc = "An incoming REQUEST envelope was ignored by the MatsSocket incoming handler.";
-                            log.warn("handleIncoming(..) ignored an incoming REQUEST, i.e. not answered at all."
-                                    + " Replying with [" + handledEnvelope[0]
-                                    + "] to reject the outstanding request promise");
+                            handledEnvelope[0].desc = "An incoming REQUEST envelope was ignored by the MatsSocket"
+                                    + " incoming handler.";
+                            log.warn("handleIncoming(..) ignored an incoming REQUEST, i.e. neither forwarded, denied"
+                                    + " nor  insta-settled. Replying with [" + handledEnvelope[0] + "] to reject the"
+                                    + " outstanding Request promise.");
                         }
                         else {
-                            // -> No, not REQUEST, i.e. either SEND, RESOLVE or REJECT, and then Ignore is OK.
+                            // -> No, not REQUEST, i.e. either SEND, RESOLVE or REJECT, and then ignoring is OK.
                             handledEnvelope[0].t = ACK;
-                            log.info("handleIncoming(..) evidently ignored the incoming SEND envelope. Responding"
-                                    + " [" + handledEnvelope[0] + "], since that is OK.");
+                            log.info("handleIncoming(..) handled incoming " + type + " without any action."
+                                    + " Responding [" + handledEnvelope[0] + "].");
                         }
                         break;
                     case DENY:
@@ -379,6 +380,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                     case REJECT:
                         // -> Yes, the handleIncoming insta-settled the incoming message, so we insta-reply
                         // NOTICE: We thus elide the "RECEIVED", as the client will handle the missing RECEIVED
+                        // Translate between IncomingResolution and MessageType (same names, different enum)
                         handledEnvelope[0].t = requestContext._handled == IncomingResolution.RESOLVE
                                 ? RESOLVE
                                 : REJECT;
@@ -748,29 +750,32 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
         }
 
         @Override
-        public void forwardInteractiveUnreliable(Object matsMessage) {
-            forwardCustom(matsMessage, customInit -> {
-                customInit.to(getMatsSocketEndpoint().getMatsSocketEndpointId());
+        public void forwardNonessential(String toMatsEndpointId, Object matsMessage) {
+            // Set interactive(), noAudit() and nonPersistent w/timout IF originator has that.
+            forward(toMatsEndpointId, matsMessage, customInit -> {
+                customInit.interactive();
+                customInit.noAudit();
+                // :: Set nonPersistent().
+                // ?: Do the incoming envelope have timout-field set?
                 if (_envelope.to != null) {
-                    customInit.nonPersistent(_envelope.to + 5000);
+                    // -> Yes, so then we "forward" the timout, but add some slack for time skews.
+                    customInit.nonPersistent(_envelope.to + 15_000);
                 }
                 else {
+                    // -> No, so then we only set nonPersistent(), w/o any timeout.
                     customInit.nonPersistent();
                 }
-                customInit.interactive();
             });
         }
 
         @Override
-        public void forwardInteractivePersistent(Object matsMessage) {
-            forwardCustom(matsMessage, customInit -> {
-                customInit.to(getMatsSocketEndpoint().getMatsSocketEndpointId());
-                customInit.interactive();
-            });
+        public void forwardEssential(String toMatsEndpointId, Object matsMessage) {
+            // Just set interactive() in addition to ordinary forward
+            forward(toMatsEndpointId, matsMessage, MatsInitiate::interactive);
         }
 
         @Override
-        public void forwardCustom(Object matsMessage, InitiateLambda customInit) {
+        public void forward(String toMatsEndpointId, Object matsMessage, InitiateLambda customInit) {
             if (_handled != IncomingResolution.NO_ACTION) {
                 throw new IllegalStateException("Already handled.");
             }
@@ -786,7 +791,9 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                 }
             };
             init.from("MatsSocketEndpoint." + _envelope.eid)
+                    .to(toMatsEndpointId)
                     .traceId(_envelope.tid);
+
             // Add a small extra side-load - the MatsSocketSessionId - since it seems nice.
             init.addString("matsSocketSessionId", _matsSocketSessionId);
             // -> Is this a REQUEST?
@@ -820,6 +827,27 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                 // Send the SEND message
                 init.send(matsMessage);
             }
+        }
+
+        @Override
+        @Deprecated
+        public void forwardInteractiveUnreliable(Object matsMessage) {
+            // Old logic, with "default forward", now deprecated.
+            forwardNonessential(getMatsSocketEndpointId(), matsMessage);
+        }
+
+        @Override
+        @Deprecated
+        public void forwardInteractivePersistent(Object matsMessage) {
+            // Old logic, with "default forward", now deprecated.
+            forwardEssential(getMatsSocketEndpointId(), matsMessage);
+        }
+
+        @Override
+        @Deprecated
+        public void forwardCustom(Object matsMessage, InitiateLambda customInit) {
+            // Old logic, with "default forward", now deprecated.
+            forward(getMatsSocketEndpointId(), matsMessage, customInit);
         }
 
         @Override
