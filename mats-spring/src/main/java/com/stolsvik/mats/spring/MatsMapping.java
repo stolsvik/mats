@@ -58,6 +58,8 @@ import com.stolsvik.mats.spring.MatsMapping.MatsMappings;
  * means of annotating the @MatsMapping-annotated method with the qualifier annotation) will then apply to all of the
  * mappings, while the three annotation-value based qualifications applies to the specific mapping.
  *
+ * @see MatsClassMapping
+ *
  * @author Endre Stølsvik - 2016-05-19 - http://endre.stolsvik.com
  */
 @Documented
@@ -81,6 +83,15 @@ public @interface MatsMapping {
      */
     @AliasFor("endpointId")
     String value() default "";
+
+    /**
+     * If this MatsEndpoint is subscription based. Only Terminators can be that, so this can only be set to
+     * <code>true</code> on methods that have 'void' as the return type.
+     *
+     * @return whether the Mats Endpoint should be subscription-based - and only Terminators are allowed to be that
+     *         (i.e. the method must not return anything, i.e. "void").
+     */
+    boolean subscription() default false;
 
     /**
      * Specifies the {@link MatsFactory} to use by means of a specific qualifier annotation type (which thus must be

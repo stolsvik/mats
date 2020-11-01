@@ -433,8 +433,8 @@ public class MatsSpringAnnotationRegistration implements
     }
 
     /**
-     * Processes a method annotated with {@link MatsEndpointSetup @MatsMapping} - note that one method can have multiple
-     * such annotations, and this method will be invoked for each of them.
+     * Processes a method annotated with {@link MatsMapping @MatsMapping} - note that one method can have multiple such
+     * annotations, and this method will be invoked for each of them.
      */
     private void processMatsMapping(MatsMapping matsMapping, Method method, Object bean) {
         if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Processing @MatsMapping method '"
@@ -452,7 +452,7 @@ public class MatsSpringAnnotationRegistration implements
 
         // :: Assert that the endpoint is not annotated with @Transactional
         // (Should probably also check whether it has gotten transactional AOP by XML, but who is stupid enough
-        // to use XML config in 2016?! Let alone 2018?!)
+        // to use XML config in 2016?! Let alone 2018?! Let alone late 2020?!?)
         Transactional transactionalAnnotation = AnnotationUtils.findAnnotation(method, Transactional.class);
         if (transactionalAnnotation != null) {
             throw new MatsSpringConfigException("The " + simpleAnnotationAndMethodDescription(matsMapping, method)
@@ -511,8 +511,7 @@ public class MatsSpringAnnotationRegistration implements
                 }
                 if (dtoParam == -1) {
                     throw new MatsSpringConfigException("The " + simpleAnnotationAndMethodDescription(matsMapping,
-                            method)
-                            + " consists of several parameters, one of which needs to be annotated with @Dto");
+                            method) + " consists of several parameters, one of which needs to be annotated with @Dto");
                 }
             }
         }
@@ -530,6 +529,17 @@ public class MatsSpringAnnotationRegistration implements
 
         // :: Set up the Endpoint
 
+        final Class<?> replyType = method.getReturnType();
+
+        // :: Check whether it a Subscription is wanted
+        boolean subscription = matsMapping.subscription();
+        // Currently this is only allowed for terminators, hence it shall have void return type
+        if (subscription && (!replyType.getName().equals("void"))) {
+            throw new MatsSpringConfigException("The " + simpleAnnotationAndMethodDescription(matsMapping,
+                    method) + " have specified subscription=true, but have a non-void return type. Only"
+                    + " Terminators can be subscription based, i.e. \"SubscriptionTerminator\".");
+        }
+
         Class<?> dtoType = params[dtoParam].getType();
         Class<?> stoType = (stoParam == -1 ? Void.TYPE : params[stoParam].getType());
 
@@ -538,24 +548,33 @@ public class MatsSpringAnnotationRegistration implements
         final int processContextParamF = processContextParam;
         final int stoParamF = stoParam;
 
-        final Class<?> replyType = method.getReturnType();
-
         String typeEndpoint;
 
         // Get an argument array for the method populated with default values for all types: Primitives cannot be null.
-        Object[] defaultArgsArray = defaultArgsArray(method);
+        Object[] templateArgsArray = defaultArgsArray(method);
 
         // ?: Do we have a void return value?
         if (replyType.getName().equals("void")) {
             // -> Yes, void return: Setup Terminator.
             typeEndpoint = "Terminator";
-            matsFactoryToUse.terminator(matsMapping.endpointId(), stoType, dtoType,
-                    (processContext, state, incomingDto) -> {
-                        invokeMatsLambdaMethod(matsMapping, method, bean, defaultArgsArray,
-                                processContextParamF, processContext,
-                                dtoParamF, incomingDto,
-                                stoParamF, state);
-                    });
+            if (subscription) {
+                matsFactoryToUse.subscriptionTerminator(matsMapping.endpointId(), stoType, dtoType,
+                        (processContext, state, incomingDto) -> {
+                            invokeMatsLambdaMethod(matsMapping, method, bean, templateArgsArray,
+                                    processContextParamF, processContext,
+                                    dtoParamF, incomingDto,
+                                    stoParamF, state);
+                        });
+            }
+            else {
+                matsFactoryToUse.terminator(matsMapping.endpointId(), stoType, dtoType,
+                        (processContext, state, incomingDto) -> {
+                            invokeMatsLambdaMethod(matsMapping, method, bean, templateArgsArray,
+                                    processContextParamF, processContext,
+                                    dtoParamF, incomingDto,
+                                    stoParamF, state);
+                        });
+            }
         }
         else {
             // -> A ReplyType is provided, setup Single endpoint.
@@ -566,7 +585,7 @@ public class MatsSpringAnnotationRegistration implements
                 MatsEndpoint<?, ?> ep = matsFactoryToUse.staged(matsMapping.endpointId(), replyType, stoType);
                 // NOTE: .lastStage() invokes .finishSetup()
                 ep.lastStage(dtoType, (processContext, state, incomingDto) -> {
-                    Object reply = invokeMatsLambdaMethod(matsMapping, method, bean, defaultArgsArray,
+                    Object reply = invokeMatsLambdaMethod(matsMapping, method, bean, templateArgsArray,
                             processContextParamF, processContext,
                             dtoParamF, incomingDto,
                             stoParamF, state);
@@ -578,7 +597,7 @@ public class MatsSpringAnnotationRegistration implements
                 typeEndpoint = "SingleStage";
                 matsFactoryToUse.single(matsMapping.endpointId(), replyType, dtoType,
                         (processContext, incomingDto) -> {
-                            Object reply = invokeMatsLambdaMethod(matsMapping, method, bean, defaultArgsArray,
+                            Object reply = invokeMatsLambdaMethod(matsMapping, method, bean, templateArgsArray,
                                     processContextParamF, processContext,
                                     dtoParamF, incomingDto,
                                     -1, null);

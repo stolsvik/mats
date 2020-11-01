@@ -35,6 +35,7 @@ public class MatsSpringDefined_SingleStagesTest {
     public static final String SINGLE_CONTEXT_DTO = ".Single_Context_Dto";
     public static final String SINGLE_CONTEXT_DTO_STO = ".Single_Context_Dto_Sto";
     public static final String SINGLE_CONTEXT_STO_DTO = ".Single_Context_Sto_Dto";
+    public static final String SUBSCRIPTIONTERMINATOR = ".SubscriptionTerminator";
 
     @Configuration
     @MatsSimpleTestContext
@@ -122,6 +123,16 @@ public class MatsSpringDefined_SingleStagesTest {
                     msg.string + SINGLE_CONTEXT_STO_DTO + '.' + state.cuerda);
         }
 
+        // == A SubscriptionTerminator using @MatsMapping
+
+        /**
+         * Basic SubscriptionTerminator, taking both STO and DTO
+         */
+        @MatsMapping(subscription = true, value = ENDPOINT_ID + SUBSCRIPTIONTERMINATOR)
+        public void springMatsSubscriptionTerminator(@Sto SpringTestStateTO state, @Dto SpringTestDataTO msg) {
+            _latch.resolve(state, msg);
+        }
+
         // == A Terminator for all the tests.
 
         @Inject
@@ -184,6 +195,23 @@ public class MatsSpringDefined_SingleStagesTest {
     public void requestSingle_Context_Sto_Dto() {
         doTest(SINGLE_CONTEXT_STO_DTO, new SpringTestDataTO(Math.E, "y" + SINGLE_CONTEXT_STO_DTO),
                 new SpringTestStateTO(7, "RequestState-D"));
+    }
+
+    @Test
+    public void subscriptionTerminator() {
+        SpringTestStateTO sto = new SpringTestStateTO(1337, "TopicState");
+        SpringTestDataTO dto = new SpringTestDataTO(Math.PI, "TopicMessage");
+        _matsInitiator.initiateUnchecked(
+                init -> {
+                    init.traceId("test_trace_id")
+                            .from("FromId")
+                            .to(ENDPOINT_ID + SUBSCRIPTIONTERMINATOR)
+                            .publish(dto, sto);
+                });
+
+        Result<SpringTestStateTO, SpringTestDataTO> result = _latch.waitForResult();
+        Assert.assertEquals(sto, result.getState());
+        Assert.assertEquals(dto, result.getData());
     }
 
     private void doTest(String epId, SpringTestDataTO dto, SpringTestStateTO requestSto) {
