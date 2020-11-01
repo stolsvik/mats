@@ -264,7 +264,7 @@ public class MatsSpringAnnotationRegistration implements
         BeanDefinition beanDefinition = _configurableListableBeanFactory.getBeanDefinition(beanName);
         if (!beanDefinition.isSingleton()) {
             throw new BeanCreationException("The bean [" + beanName + "] is not a singleton, which does not make sense"
-                    + " when it comes to beans that has methods annotated with @Mats..-annotations.");
+                    + " when it comes to beans that have methods annotated with @Mats..-annotations.");
         }
 
         // :: Process any @MatsMapping methods

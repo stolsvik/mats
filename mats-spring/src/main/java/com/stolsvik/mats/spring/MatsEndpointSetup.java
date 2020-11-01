@@ -11,6 +11,10 @@ import java.lang.annotation.Target;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.annotation.AliasFor;
 
+import com.stolsvik.mats.MatsEndpoint;
+import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
+import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
+import com.stolsvik.mats.MatsEndpoint.ProcessReturnLambda;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.MatsEndpointSetup.MatsEndpointSetups;
 
@@ -18,10 +22,22 @@ import com.stolsvik.mats.spring.MatsEndpointSetup.MatsEndpointSetups;
  * A method annotated with this repeatable annotation specifies a method that shall <em>set up</em> a (usually)
  * Multi-Staged Mats Endpoint. Note that as opposed to {@link MatsMapping @MatsMapping}, this method will be invoked
  * <em>once</em> to <i>set up</i> the endpoint, and will not be invoked each time when the Mats endpoint is invoked (as
- * is the case with {@literal @MatsMapping}).
- * <p>
- * Read about qualifying which MatsFactory to use on the JavaDoc of {@link MatsMapping}.
+ * is the case with {@literal @MatsMapping}). <b>You might want to check up on the {@link MatsClassMapping} instead.</b>
+ * <p />
+ * You specify the EndpointId, state STO type and the reply DTO type using annotation parameters. The method is then
+ * invoked with a {@link MatsEndpoint MatsEndpoint} instance as argument, and the method should then invoke
+ * {@link MatsEndpoint#stage(Class, ProcessLambda) endpoint.stage(..)} and
+ * {@link MatsEndpoint#lastStage(Class, ProcessReturnLambda) endpoint.lastStage(..)} to set up the MatsEndpoint. You can
+ * also have an argument of type {@link EndpointConfig} to be able to configure the endpoint. Remember again that this
+ * is a <i>setup method</i> where you should set up the endpoint, and it is invoked only <i>once</i> during startup, and
+ * then never again.
+ * <p />
+ * In a multi-MatsFactory setup, you may qualify which MatsFactory this Endpoint should be constructed on - read JavaDoc
+ * on @{@link MatsMapping} for how this works.
  *
+ * @see MatsMapping
+ * @see MatsClassMapping
+ * 
  * @author Endre Stølsvik - 2016-08-07 - http://endre.stolsvik.com
  */
 @Documented
@@ -63,9 +79,9 @@ public @interface MatsEndpointSetup {
     /**
      * Specifies the {@link MatsFactory} to use by means of a specific qualifier annotation type (which thus must be
      * meta-annotated with {@link Qualifier}). Notice that this will search for the custom qualifier annotation
-     * <i>type</i>, as opposed to if you add the annotation to the @MatsEndpointSetup-annotated method directly, in which case
-     * it "equals" the annotation <i>instance</i> (as Spring also does when performing injection with such qualifiers).
-     * The difference comes into play if the annotation has values, where e.g. a
+     * <i>type</i>, as opposed to if you add the annotation to the @MatsEndpointSetup-annotated method directly, in
+     * which case it "equals" the annotation <i>instance</i> (as Spring also does when performing injection with such
+     * qualifiers). The difference comes into play if the annotation has values, where e.g. a
      * <code>@SpecialMatsFactory(location="central")</code> is not equal to
      * <code>@SpecialMatsFactory(location="region_west")</code> - but they are equal when comparing types, as the
      * qualification here does. Thus, if using this qualifier-approach, you should probably not use values on your

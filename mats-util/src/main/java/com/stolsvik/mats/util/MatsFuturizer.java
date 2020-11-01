@@ -28,7 +28,47 @@ import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 
 /**
- * Note: Kick-ass. TODO: Make better JavaDoc
+ * An instance of this class acts as a bridge service between the synchronous world of e.g. a HTTP request, and the
+ * asynchronous world of Mats. In a given project, you typically create a single instance of this class upon startup,
+ * and employ it for all such scenarios. In short, in a HTTP service handler, you initialize a Mats flow using
+ * {@link #futurizeNonessential(String, String, String, Class, Object) singletonFuturizer.futurizeNonessential(...)} (or
+ * {@link #futurize(String, String, String, int, TimeUnit, Class, Object, InitiateLambda) futurize()} for full
+ * configurability), specifying which Mats Endpoint to invoke and the request DTO instance, and then you get a
+ * {@link CompletableFuture} in return. This future will complete once the invoked Mats Endpoint replies.
+ * <p />
+ * It is extremely important to understand that this is NOT how you compose multiple Mats Endpoints together! This is
+ * ONLY supposed to be used when you are in a synchronous context (e.g. in a Servlet, or a Spring @RequestMapping), and
+ * want to interact with the Mats fabric of services.
+ * <p />
+ * A question you should ask yourself, is how this works in a multi-node setup? For a Mats flow, it does not matter
+ * which node a given stage of a MatsEndpoint is performed, as it is by design totally stateless wrt. the executing
+ * node, as all state resides in the message. However, for a synchronous situation as in a HTTP request, it definitely
+ * matters that the final reply, the one that should complete the returned future, comes in on the same node that issued
+ * the request, as this is where the CompletableFuture instance is, and where the waiting TCP connection is connected!
+ * The trick here is that the final reply is specified to come in on a node-specific <i>Topic</i>, i.e. it literally has
+ * the node name (default being the hostname) as a part of the MatsEndpoint name, and it is a
+ * {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda) SubscriptionTerminator}.
+ * <p />
+ * Another aspect to understand, is that while Mats "guarantees" that a submitted initiation will flow through the Mats
+ * endpoints, no matter what happens with the processing nodes <i>(unless you employ <i>NonPersistent messaging</i>,
+ * which futurizeNonessential(..) does!)</i>, nothing can be guaranteed wrt. the completion of the future: This is
+ * stateful processing. The node where the MatsFuturizer initiation is performed can crash right after the message has
+ * been put on the Mats fabric, and hence the CompletableFuture vanishes along with everything else on that node. The
+ * mats flow is however already in motion, and will be executed - but when the Reply comes in on the Topic, there is no
+ * longer any corresponding CompletableFuture to complete. This is also why you should not compose Mats endpoints using
+ * this familiar feeling that a CompletableFuture probably gives you: While a multi-stage MatsEndpoint is asynchronous,
+ * resilient and highly available and each stage is transactionally performed, with retries and all the goodness that
+ * comes with a message oriented architecture, once you rely on a CompletableFuture, you are in a synchronous world
+ * where a power outage or a reboot can stop the processing midway. Thus, the MatsFuturizer should always just be
+ * employed out the very outer edge facing the actual client - any other processing should be performed using
+ * MatsEndpoints, and composition of MatsEndpoints should be done using multi-stage MatsEndpoints.
+ * <p />
+ * Note that in the case of pure "GET-style" requests where information is only retrieved and no state in the total
+ * system is changed, everything is a bit more relaxed: If a processing fails, the worst thing that happens is a
+ * slightly annoyed user. But if this was an "add order" or "move money" instruction from the user, a mid-processing
+ * failure is rather bad and could require human intervention to clean up. Thus, the
+ * <code>futurizeNonessential(..)</code> method should only be employed for such "GET-style" requests, and any other
+ * potentially state changing operations must employ the generic <code>futurize(..)</code> method.
  *
  * @author Endre Stølsvik 2019-08-25 20:35 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -196,7 +236,7 @@ public class MatsFuturizer implements AutoCloseable {
      * using storage on auditing requests and replies is not worthwhile.</li>
      * <li><b>Interactive</b>: Since the Futurizer should only be used as a "synchronous bridge" when a human is
      * actively waiting for the response, the interactive flag is set. <i>(For all other users, you should rather code
-     * "proper Mats" with initiations and terminators)</i>.</li>
+     * "proper Mats" with initiations, endpoints and terminators)</i>.</li>
      * </ul>
      * This method initiates an <b>{@link MatsInitiate#nonPersistent() non-persistent}</b> (unreliable),
      * <b>{@link MatsInitiate#interactive() interactive}</b> (prioritized), <b>{@link MatsInitiate#noAudit()
