@@ -478,8 +478,7 @@ public class MatsSpringAnnotationRegistration implements
             // (No need for @Dto-annotation)
             if (params[0].getType().equals(ProcessContext.class)) {
                 throw new MatsSpringConfigException("The " + simpleAnnotationAndMethodDescription(matsMapping, method)
-                        + " must have one parameter that is not the"
-                        + " ProcessContext: The DTO class");
+                        + " must have one parameter that is not the ProcessContext: The DTO class");
             }
             dtoParam = 0;
         }
@@ -559,21 +558,19 @@ public class MatsSpringAnnotationRegistration implements
             typeEndpoint = "Terminator";
             if (subscription) {
                 matsFactoryToUse.subscriptionTerminator(matsMapping.endpointId(), stoType, dtoType,
-                        (processContext, state, incomingDto) -> {
-                            invokeMatsLambdaMethod(matsMapping, method, bean, templateArgsArray,
-                                    processContextParamF, processContext,
-                                    dtoParamF, incomingDto,
-                                    stoParamF, state);
-                        });
+                        (processContext, state, incomingDto) -> invokeMatsLambdaMethod(
+                                matsMapping, method, bean, templateArgsArray,
+                                processContextParamF, processContext,
+                                dtoParamF, incomingDto,
+                                stoParamF, state));
             }
             else {
                 matsFactoryToUse.terminator(matsMapping.endpointId(), stoType, dtoType,
-                        (processContext, state, incomingDto) -> {
-                            invokeMatsLambdaMethod(matsMapping, method, bean, templateArgsArray,
-                                    processContextParamF, processContext,
-                                    dtoParamF, incomingDto,
-                                    stoParamF, state);
-                        });
+                        (processContext, state, incomingDto) -> invokeMatsLambdaMethod(
+                                matsMapping, method, bean, templateArgsArray,
+                                processContextParamF, processContext,
+                                dtoParamF, incomingDto,
+                                stoParamF, state));
             }
         }
         else {
@@ -609,8 +606,7 @@ public class MatsSpringAnnotationRegistration implements
             String procCtxParamDesc = processContextParam != -1 ? "param#" + processContextParam : "<not present>";
             String stoParamDesc = stoParam != -1 ? "param#" + stoParam + ":" + stoType.getSimpleName()
                     : "<not present>";
-            String dtoParamDesc = dtoParam != -1 ? "param#" + dtoParam + ":" + dtoType.getSimpleName()
-                    : "<not present>";
+            String dtoParamDesc = "param#" + dtoParam + ":" + dtoType.getSimpleName();
             log.info(LOG_PREFIX + "Processed " + typeEndpoint + " Mats Spring endpoint by "
                     + simpleAnnotationAndMethodDescription(matsMapping, method)
                     + " :: ReplyType:[" + replyType.getSimpleName()
