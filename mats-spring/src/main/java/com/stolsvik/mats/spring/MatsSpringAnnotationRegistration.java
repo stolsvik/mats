@@ -177,9 +177,23 @@ public class MatsSpringAnnotationRegistration implements
 
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
+        // :: Get the BeanDefinition, to check for type.
+        BeanDefinition beanDefinition;
+        try {
+            beanDefinition = _configurableListableBeanFactory.getBeanDefinition(beanName);
+        }
+        catch (NoSuchBeanDefinitionException e) {
+            // -> This is a non-registered bean, which evidently is used when doing unit tests with JUnit SpringRunner.
+            log.info(LOG_PREFIX + getClass().getSimpleName()
+                    + ".postProcessAfterInitialization(bean, \"" + beanName
+                    + "\"): Found no bean definition for the given bean name! Test class?! Ignoring.");
+            return bean;
+        }
+
         if (log.isTraceEnabled()) log.trace(LOG_PREFIX + getClass().getSimpleName()
-                + ".postProcessAfterInitialization(bean, \"" + beanName + "\"), bean class:[" + bean.getClass()
-                + "], bean instance:[" + bean.toString() + "]");
+                + ".postProcessAfterInitialization(bean, \"" + beanName + "\") - bean class:["
+                + beanDefinition.getBeanClassName() + "], scope:[" + beanDefinition.getScope() + "]");
+
         /*
          * We check if this is a MatsFactory, in which case we set it to ".holdEndpointsUntilFactoryStarted()", and
          * perform ".start()" on it when we get the ContextRefreshedEvent.
@@ -260,11 +274,11 @@ public class MatsSpringAnnotationRegistration implements
             return bean;
         }
 
-        // Assert that it is a singleton
-        BeanDefinition beanDefinition = _configurableListableBeanFactory.getBeanDefinition(beanName);
+        // Assert that it is a singleton. NOTICE: It may be prototype, but also other scopes like request-scoped.
         if (!beanDefinition.isSingleton()) {
-            throw new BeanCreationException("The bean [" + beanName + "] is not a singleton, which does not make sense"
-                    + " when it comes to beans that have methods annotated with @Mats..-annotations.");
+            throw new BeanCreationException("The bean [" + beanName + "] is not a singleton (scope: ["
+                    + beanDefinition.getScope() + "]), which does not make sense when it comes to beans that have"
+                    + " methods annotated with @Mats..-annotations.");
         }
 
         // :: Process any @MatsMapping methods
