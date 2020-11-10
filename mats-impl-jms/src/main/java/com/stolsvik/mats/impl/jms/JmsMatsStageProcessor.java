@@ -350,7 +350,6 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                 }
                             }
                             catch (JMSException e) {
-                                // This might be temporary, so just throw to rollback this and try again.
                                 throw new JmsMatsJmsException("Got JMSException when getting the MatsTrace"
                                         + " from the MapMessage by using mapMessage.get[Bytes|String](..)."
                                         + " Pretty crazy.", e);
