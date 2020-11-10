@@ -284,6 +284,10 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         public MatsInitiate traceId(String traceId) {
             // ?: If we're an initiation from within a stage, append the traceId to the existing traceId, else set.
             _traceId = (_existingMatsTrace != null ? _existingMatsTrace.getTraceId() + '|' + traceId : traceId);
+            // Also set this on the MDC so that we have it on log lines if it crashes within the initiation lambda
+            // NOTICE: The MDC will always be reset to the existing, or overwritten with new, after initiation lambda
+            // is finished, so this will not trash the traceId from an existing context.
+            MDC.put(MDC_TRACE_ID, traceId);
             return this;
         }
 
@@ -410,6 +414,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                             ser.serializeObject(_replySto),
                             ser.serializeObject(initialTargetSto));
 
+            copyOverAnyExistingTraceProperties(matsTrace);
+
             addDebugInfoToCurrentCall(now, matsTrace);
 
             // Produce the new REQUEST JmsMatsMessage to send
@@ -444,7 +450,6 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     _parentFactory.getFactoryConfig().getNodename(), now,
                     createMatsMessageId(matsTrace.getFlowId(), now, now, matsTrace.getCallNumber()),
                     "Callalala!");
-            copyOverAnyExistingTraceProperties(matsTrace);
         }
 
         @Override
@@ -464,7 +469,6 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
             copyOverAnyExistingTraceProperties(matsTrace);
 
-            // TODO: Add debug info!
             addDebugInfoToCurrentCall(now, matsTrace);
 
             // Produce the new SEND JmsMatsMessage to send
@@ -493,6 +497,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             MatsTrace<Z> matsTrace = createMatsTrace(ser, now)
                     .addSendCall(_from, _to, MessagingModel.TOPIC,
                             ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
+
+            copyOverAnyExistingTraceProperties(matsTrace);
 
             addDebugInfoToCurrentCall(now, matsTrace);
 
