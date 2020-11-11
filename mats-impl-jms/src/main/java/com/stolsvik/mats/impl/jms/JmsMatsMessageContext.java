@@ -48,7 +48,7 @@ public class JmsMatsMessageContext {
     /**
      * Employed by JmsMatsProcessContext.getAttribute(Connection.class) invocations.
      */
-    public Optional<Connection> getSqlConnection() {
+    Optional<Connection> getSqlConnection() {
         return _sqlConnectionSupplier == null
                 ? Optional.empty()
                 : Optional.of(_sqlConnectionSupplier.get());
@@ -64,9 +64,14 @@ public class JmsMatsMessageContext {
         _sqlConnectionEmployed = sqlConnectionEmployed;
     }
 
+    Optional<Supplier<Boolean>> getSqlConnectionEmployedSupplier() {
+        return Optional.ofNullable(_sqlConnectionEmployed);
+    }
+
     /**
      * Used by JMS Mats to point out whether the SQL Connection was actually employed (if this is not possible to
-     * determine, then return whether it was gotten).
+     * determine, then return whether it was gotten). If it is not possible to determine this, then fail-safe to
+     * <code>true</code>.
      *
      * @return true if the SQL Connection was actually employed (if this is not possible to determine, then return
      *         whether it was gotten).

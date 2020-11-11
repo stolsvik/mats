@@ -150,9 +150,12 @@ public class JmsMatsTransactionManager_Jms implements JmsMatsTransactionManager,
                  * Broker cannot record our consumption of the message, and will probably have to (wrongly) redeliver
                  * it.
                  */
+                String sqlEmployed = jmsSessionMessageContext.getSqlConnectionEmployedSupplier().isPresent()
+                        ? "(NOTICE: SQL Connection " + (jmsSessionMessageContext.getSqlConnectionEmployedSupplier()
+                                .get().get() ? "WAS" : "was NOT") + " gotten/employed!"
+                        : "(Cannot determine whether SQL Connection was gotten/employed)";
                 log.error(LOG_PREFIX
-                        + "VERY BAD! (Make note: SQL Connection was gotten/employed: " + jmsSessionMessageContext
-                                .wasSqlConnectionEmployed() + ")"
+                        + "VERY BAD! " + sqlEmployed
                         + " After a MatsStage or Initiation ProcessingLambda finished nicely, implying that"
                         + " any external, potentially state changing operations have committed OK, we could not"
                         + " commit the JMS Session! If this happened within a MATS message initiation, the state"
@@ -160,7 +163,7 @@ public class JmsMatsTransactionManager_Jms implements JmsMatsTransactionManager,
                         + " was not sent. If this is not caught by the initiation code ('manually' rolling back the"
                         + " state change), the global state is probably out of sync (i.e. the order-row is marked"
                         + " 'processing started', while the corresponding process-order message was not sent). However,"
-                        + " if this happened within a MATS Stage (inside an endpoint), this will most probably just"
+                        + " if this happened within a MATS Stage (inside an endpoint), this will most probably "
                         + " lead to a redelivery (as in 'double delivery'), which should be handled by your endpoint's"
                         + " idempotent handling of incoming messages. Do note that this might be a problem if the stage"
                         + " also sends an outgoing message in the normal flow: If you just check your database at the"
@@ -175,9 +178,7 @@ public class JmsMatsTransactionManager_Jms implements JmsMatsTransactionManager,
                  * MatsInitiator.MatsMessageSendException is created for.
                  */
                 throw new JmsMatsMessageSendException("VERY BAD! After finished transacting " + stageOrInit(
-                        _txContextKey) + ", we could not commit JMS Session!"
-                        + " (Make note: SQL Connection was gotten/employed: " + jmsSessionMessageContext
-                                .wasSqlConnectionEmployed() + ")", t);
+                        _txContextKey) + ", we could not commit JMS Session! " + sqlEmployed, t);
             }
 
             // -> The JMS Session nicely committed.
