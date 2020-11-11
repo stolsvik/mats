@@ -3,8 +3,6 @@ package com.stolsvik.mats;
 import java.io.Closeable;
 import java.util.Optional;
 
-import org.slf4j.MDC;
-
 import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
@@ -13,12 +11,16 @@ import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.MatsFactory.MatsWrapper;
 
 /**
- * Provides the means to get a {@link MatsInitiate} instance "from the outside" of MATS, i.e. from a synchronous
- * context. On this instance, you invoke {@link #initiate(InitiateLambda)}, where the lambda will provide you with the
- * necessary {@link MatsInitiate} instance.
+ * Provides the means to get hold of a {@link MatsInitiate} instance for initiating Mats message flows: You fetch an
+ * instance implementing this interface using typically {@link MatsFactory#getDefaultInitiator()}, and then invoke
+ * {@link #initiate(InitiateLambda)}, where the lambda will provide you with the necessary {@link MatsInitiate} instance
+ * on which you have methods to construct and dispatch "send" and "request" Messages.
  * <p/>
  * <b>Notice: This class is Thread Safe</b> - you are not supposed to make one instance per message initiation, but
- * rather make one (or a few) for the entire application, and use it/them for all your initiation needs.
+ * rather make one (or a few) for the entire application, and use it/them for all your initiation needs. The mentioned
+ * {@link MatsFactory#getDefaultInitiator()} is what you typically want to use, get the instance, and keep it to perform
+ * all your Mats initiations. E.g. in a Spring system, you'd typically put it in the Spring context, and inject it where
+ * ever there is a need to perform Mats initiations.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
@@ -31,7 +33,8 @@ public interface MatsInitiator extends Closeable {
     String getName();
 
     /**
-     * Initiates a new message (request or invocation) out to an endpoint.
+     * Initiates a new message ("request" or "send") out to an endpoint: You provide a lambda which is supplied the
+     * {@link MatsInitiate} instance on which you invoke methods to construct and dispatch messages.
      *
      * @param lambda
      *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
@@ -45,8 +48,8 @@ public interface MatsInitiator extends Closeable {
     void initiate(InitiateLambda lambda) throws MatsBackendException, MatsMessageSendException;
 
     /**
-     * Initiates a new message (request or invocation) out to an endpoint - where the two error conditions are raised as
-     * unchecked exceptions (But please understand the implications of {@link MatsMessageSendRuntimeException}).
+     * Variant of {@link #initiate(InitiateLambda)} where the two error conditions are raised as unchecked exceptions
+     * (But please understand the implications of {@link MatsMessageSendRuntimeException}!)
      *
      * @param lambda
      *            provides the {@link MatsInitiate} instance on which to create the message to be sent.
@@ -238,7 +241,7 @@ public interface MatsInitiator extends Closeable {
          * database, here "order", then "processing", "filling", "shipping" and finally "delivery", or whatever your
          * multiple processes flow consists of).
          * <p/>
-         * (For the default implementation "JMS Mats", the Trace Id is set on the {@link MDC} of the SLF4J logging
+         * (For the default implementation "JMS Mats", the Trace Id is set on the <code>MDC</code> of the SLF4J logging
          * system, using the key "traceId". Since this implementation logs a few lines per handled message, in addition
          * to any log lines you emit yourself, you will, by collecting the log lines in a common log system (e.g. the
          * ELK stack), be able to very easily follow the processing trace through all the services the call flow
@@ -368,7 +371,7 @@ public interface MatsInitiator extends Closeable {
          * <p/>
          * When considering auditing ("event sourcing"-style) of all messages, one quickly realizes that there are very
          * many messages that aren't that interesting to log. These are pure getters employed to show information to
-         * users, and even worse in this respect, <i>x"Are you up?"</i>-type health checks.
+         * users, and even worse in this respect, <i>"Are you up?"</i>-type health checks.
          * <p/>
          * This flag is here to mark messages as such: <i>"You will gain no historic insight in logging the following
          * message flow!"</i>. This flag should NOT be set for ANY messages that (can potentially) change state in any
@@ -532,8 +535,8 @@ public interface MatsInitiator extends Closeable {
          * Sends a message to an endpoint, without expecting any reply ("fire-and-forget"). The 'reply' parameter must
          * not be set.
          * <p/>
-         * Note that the difference between request and invoke is only that replyTo is not set for invoke, otherwise the
-         * mechanism is exactly the same.
+         * Note that the difference between <code>request(..)</code> and <code>send(..)</code> is only that replyTo is
+         * not set for send, otherwise the mechanism is exactly the same.
          *
          * @param messageDto
          *            the object which the target endpoint will get as its incoming DTO (Data Transfer Object).
