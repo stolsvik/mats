@@ -34,8 +34,8 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
  * Broker). This is called "Best Effort 1PC", and is nicely explained in <a href=
  * "http://www.javaworld.com/article/2077963/open-source-tools/distributed-transactions-in-spring--with-and-without-xa.html?page=2">
  * this article</a>. If this failure occurs, it will be caught and logged on ERROR level (by
- * {@link JmsMatsTransactionManager_Jms}) - and then the Message Broker will probably try to redeliver the message.
- * Also read the <a href="http://activemq.apache.org/should-i-use-xa.html">Should I use XA Transactions</a> from Apache
+ * {@link JmsMatsTransactionManager_Jms}) - and then the Message Broker will probably try to redeliver the message. Also
+ * read the <a href="http://activemq.apache.org/should-i-use-xa.html">Should I use XA Transactions</a> from Apache
  * Active MQ.
  * <p>
  * Wise tip when working with <i>Message Oriented Middleware</i>: Code idempotent! Handle double-deliveries!
@@ -217,11 +217,8 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 throw new MatsSqlCommitOrRollbackFailedException("Could not " + (commit ? "commit" : "rollback")
                         + " SQL Connection [" + _gottenConnection + "] - for stage [" + _txContextKey + "].", e);
             }
-            // :: Set back the AutoCommit state
-            lazyConSup.resetAutoCommit();
-
-            // :: Close
-            lazyConSup.close();
+            // :: Reset AutoCommit flag and Close
+            lazyConSup.resetAutoCommitAndClose();
         }
 
         /**
@@ -289,7 +286,8 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 return _gottenConnection;
             }
 
-            void resetAutoCommit() {
+            void resetAutoCommitAndClose() {
+                // :: Reset AutoCommit mode
                 try {
                     _gottenConnection.setAutoCommit(_autoCommitModeBeforeFalse);
                     log.debug(LOG_PREFIX + "Reset AutoCommit mode to [" + _autoCommitModeBeforeFalse + "].");
@@ -297,13 +295,11 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 catch (SQLException e) {
                     log.warn("After performing commit or rollback on SQL Connection ["
                             + _gottenConnection + "], we tried to reset AutoCommit mode to ["
-                            + _autoCommitModeBeforeFalse
-                            + "] - for stage [" + _txContextKey + "]. Will ignore this, since the operation should have"
-                            + " gone through.", e);
+                            + _autoCommitModeBeforeFalse + "] - for stage [" + _txContextKey
+                            + "]. Will ignore this, since the operation should have gone through.", e);
                 }
-            }
 
-            public void close() {
+                // :: Close SQL Connection
                 try {
                     _gottenConnection.close();
                     log.debug(LOG_PREFIX + "Closed SQL Connection [" + _gottenConnection + "].");

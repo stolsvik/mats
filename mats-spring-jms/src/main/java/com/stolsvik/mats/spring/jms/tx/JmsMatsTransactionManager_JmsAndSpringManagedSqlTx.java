@@ -285,7 +285,7 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
      */
     public static Function<JmsMatsTxContextKey, DefaultTransactionDefinition> getStandardTransactionDefinitionFunctionFor(
             Class<? extends PlatformTransactionManager> platformTransactionManager) {
-        // ?: Is it HibernateTransactionmanager?
+        // ?: Is it HibernateTransactionManager?
         if (platformTransactionManager.getSimpleName().equals("HibernateTransactionManager")) {
             // -> Yes, Hibernate, which does not allow to set Isolation Level
             return (txContextKey) -> {
@@ -540,10 +540,14 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                     return _fixedValue;
                 }
                 // E-> No, not fixed (i.e. we're still within the Mats stage lambda)
-                return isConnectionEmployed() ? Boolean.TRUE : Boolean.FALSE;
+                return isConnectionEmployed();
             }
 
-            public boolean isConnectionEmployed() {
+            public void fixSqlConnectionEmployedValue() {
+                _fixedValue = isConnectionEmployed();
+            }
+
+            private boolean isConnectionEmployed() {
                 // ?: Is this an instance of our "magic" wrapper?
                 if (_dataSource instanceof LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) {
                     // -> Yes, magic, thus ask whether the Connection was /actually/ employed.
@@ -564,10 +568,6 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                  * why could you not then instead use our "magic" proxy?
                  */
                 return true;
-            }
-
-            public void fixSqlConnectionEmployedValue() {
-                _fixedValue = isConnectionEmployed();
             }
         }
 
@@ -616,7 +616,7 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                             sqlConnectionEmployedSupplier.fixSqlConnectionEmployedValue();
                         }
                     }
-                    // Catch EVERYTHING that can come out of the try-block:
+                    // Catch EVERYTHING that legally can come out of the try-block:
                     catch (MatsRefuseMessageException | RuntimeException | Error e) {
                         // ----- The user code had some error occur, or want to reject this message.
                         // !!NOTE!!: The full Exception will be logged by outside JMS-trans class on JMS rollback
