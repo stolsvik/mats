@@ -20,7 +20,7 @@ import com.stolsvik.mats.util.MatsFuturizer.Reply;
  *
  * @author Kevin Mc Tiernan, 2020-11-10, kmctiernan@gmail.com
  */
-public class U_SpringMatsEndpointTest extends SpringContextText {
+public class U_SpringMatsEndpointTest extends AbstractSpringTest {
 
     @Rule // Rule autowired by Spring
     public Rule_MatsEndpoint<String, String> _hello =
