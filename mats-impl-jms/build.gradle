@@ -9,4 +9,7 @@ dependencies {
 
     // JMS spec 1.1-rev-1
     compile 'javax.jms:jms-api:1.1-rev-1'
+
+    // The SFL4J API. Since you should provide the SLF4J implementation yourself, we use compileOnly.
+    compileOnly "org.slf4j:slf4j-api:$slf4jVersion"
 }

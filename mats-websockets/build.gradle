@@ -25,6 +25,9 @@ dependencies {
     // users of the API should add this themselves if they want it.
     compileOnly 'org.flywaydb:flyway-core:6.1.+'
 
+    // The SFL4J API. Since you should provide the SLF4J implementation yourself, we use compileOnly.
+    compileOnly "org.slf4j:slf4j-api:$slf4jVersion"
+
     // :: TEST
 
     // Testing tools for Mats
@@ -46,8 +49,8 @@ dependencies {
     testImplementation 'org.flywaydb:flyway-core:6.1.+'
 
     // Logging
-    testImplementation "org.slf4j:log4j-over-slf4j:1.7.+"
-    testImplementation "ch.qos.logback:logback-classic:1.2.+"
+    testImplementation "org.slf4j:log4j-over-slf4j:$slf4jVersion"
+    testImplementation "ch.qos.logback:logback-classic:$logbackVersion"
 }
 
 // Task to start a MatsTestWebsocketServer for integration tests. We will monitor the log until we get the expected number

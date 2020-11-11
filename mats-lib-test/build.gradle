@@ -6,8 +6,8 @@ dependencies {
     // RandomString
     compile project(":mats-util")
     // Logging
-    compile 'org.slf4j:log4j-over-slf4j:1.7.+'
-    compile 'ch.qos.logback:logback-classic:1.2.+'
+    compile "org.slf4j:log4j-over-slf4j:$slf4jVersion"
+    compile "ch.qos.logback:logback-classic:$logbackVersion"
 
     testCompile project(":mats-lib")
     testCompile project(":mats-util")

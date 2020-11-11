@@ -13,15 +13,15 @@ dependencies {
     testCompile project(":mats-spring")
     testCompile project(":mats-serial-json")
     // Using H2 for testing of database tx.
-    testCompile "com.h2database:h2:1.4.194"
+    testCompile "com.h2database:h2:$h2Version"
     // Using @RunWith(SpringRunner.class)
     testCompile "org.springframework:spring-test:$springVersion"
     // Test with HibernateTransactionManager
     testCompile "org.springframework:spring-orm:$springVersion"
     testCompile 'org.hibernate:hibernate-core:5.+'
     // Using SLF4J and Logback
-    testCompile "org.slf4j:log4j-over-slf4j:1.7.+"
-    testCompile "ch.qos.logback:logback-classic:1.2.+"
+    testCompile "org.slf4j:log4j-over-slf4j:$slf4jVersion"
+    testCompile "ch.qos.logback:logback-classic:$logbackVersion"
     // RandomString
     testCompile project(":mats-util")
 }

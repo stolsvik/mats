@@ -11,8 +11,8 @@ dependencies {
     implementation 'junit:junit:4.+'
 
     // Logging
-    testImplementation "org.slf4j:log4j-over-slf4j:1.7.+"
-    testImplementation "ch.qos.logback:logback-classic:1.2.+"
+    testImplementation "org.slf4j:log4j-over-slf4j:$slf4jVersion"
+    testImplementation "ch.qos.logback:logback-classic:$logbackVersion"
 
     testImplementation project(':mats-util')
     testImplementation 'junit:junit:4.+'

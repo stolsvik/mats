@@ -9,8 +9,8 @@ dependencies {
     compile "org.springframework:spring-test:$springVersion"
 
     // Need logging system in tests
-    testCompile "org.slf4j:log4j-over-slf4j:1.7.+"
-    testCompile "ch.qos.logback:logback-classic:1.2.+"
+    testCompile "org.slf4j:log4j-over-slf4j:$slf4jVersion"
+    testCompile "ch.qos.logback:logback-classic:$logbackVersion"
     // Checking that it works with Remock
     testCompile 'no.saua.remock:remock:1.+'
     // RandomString
