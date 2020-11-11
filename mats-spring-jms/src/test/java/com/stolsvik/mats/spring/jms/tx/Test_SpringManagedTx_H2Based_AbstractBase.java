@@ -44,7 +44,6 @@ import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
-import com.stolsvik.mats.test.Rule_MatsWithDb.DatabaseException;
 import com.stolsvik.mats.util.RandomString;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
@@ -112,7 +111,7 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
                 stmt.execute("CREATE TABLE datatable ( data VARCHAR NOT NULL, CONSTRAINT UC_data UNIQUE (data))");
             }
             catch (SQLException e) {
-                throw new DatabaseException("Got problems creating the SQL table 'datatable'.", e);
+                throw new RuntimeException("Got problems creating the SQL table 'datatable'.", e);
             }
 
             return optionallyWrapDataSource(dataSource);

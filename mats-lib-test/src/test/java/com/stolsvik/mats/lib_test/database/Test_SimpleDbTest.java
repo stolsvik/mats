@@ -30,6 +30,12 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public class Test_SimpleDbTest extends MatsDbTest {
+
+    @Before
+    public void setupDatabase() {
+        matsRule.setupDatabase();
+    }
+
     @Before
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,

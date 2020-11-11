@@ -9,6 +9,8 @@ dependencies {
     // H2 Database, for database tests
     compile 'com.h2database:h2:1.4.+'
 
+    compileOnly "org.springframework:spring-test:$springVersion"
+
     // The JUnit library
     compile 'junit:junit:4.+'
 }

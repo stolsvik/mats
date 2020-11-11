@@ -7,12 +7,12 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.stolsvik.mats.junit.Rule_MatsWithDb.DatabaseException;
 import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.MatsDbTest;
 import com.stolsvik.mats.lib_test.StateTO;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
-import com.stolsvik.mats.test.Rule_MatsWithDb.DatabaseException;
 
 /**
  * Tests that if a Mats stage throws RTE, any SQL INSERT shall be rolled back.
@@ -28,6 +28,12 @@ import com.stolsvik.mats.test.Rule_MatsWithDb.DatabaseException;
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
 public class Test_ExceptionInServiceRollbacksDb extends MatsDbTest {
+
+    @Before
+    public void setupDatabase() {
+        matsRule.setupDatabase();
+    }
+
     @Before
     public void setupService() {
         matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,

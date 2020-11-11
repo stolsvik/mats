@@ -1,0 +1,19 @@
+// mats-test-junit
+
+dependencies {
+    compile project(':mats-test')
+
+    compile "javax.inject:javax.inject:1"
+    implementation "org.springframework:spring-test:$springVersion"
+    implementation "org.springframework:spring-beans:$springVersion"
+    implementation "org.springframework:spring-context:$springVersion"
+    // The JUnit library
+    implementation 'junit:junit:4.+'
+
+    // Logging
+    testImplementation "org.slf4j:log4j-over-slf4j:1.7.+"
+    testImplementation "ch.qos.logback:logback-classic:1.2.+"
+
+    testImplementation project(':mats-util')
+    testImplementation 'junit:junit:4.+'
+}

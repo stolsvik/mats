@@ -2,6 +2,7 @@
 
 dependencies {
     compile project(":mats-test")
+    compile project(":mats-test-junit")
     compile project(":mats-spring")
     compile project(":mats-spring-jms")
 
