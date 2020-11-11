@@ -1,0 +1,40 @@
+// mats-test-jupiter
+
+/*
+ * Spring started supporting Jupiter with the release of Spring 5.0.0.
+ * The MATS project has defined its base spring version as 4.+, thus fetching a higher version of spring
+ * for this module. 5.3.0 was the latest release when implementing this 2020-11-09.
+ * TODO :: Convert back to $springVersion once the base version of MATS has been bumped.
+ */
+def jupiterSpringVersion = '5.3.0'
+
+dependencies {
+    compile(project(':mats-test')) {
+        exclude group:'junit', module:'junit'
+    }
+
+    compile "javax.inject:javax.inject:1"
+    implementation "org.springframework:spring-test:$jupiterSpringVersion"
+    implementation "org.springframework:spring-beans:$jupiterSpringVersion"
+    implementation "org.springframework:spring-context:$jupiterSpringVersion"
+    // The Jupiter library (JUnit 5)
+    implementation "org.junit.jupiter:junit-jupiter-api:5.7.0"
+
+    // Logging
+    testImplementation "org.slf4j:log4j-over-slf4j:1.7.+"
+    testImplementation "ch.qos.logback:logback-classic:1.2.+"
+
+    testImplementation project(':mats-util')
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.7.0'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.7.0'
+    testImplementation 'org.junit.platform:junit-platform-launcher:1.7.0'
+    testImplementation ("org.springframework:spring-test:$jupiterSpringVersion") {
+        exclude group:'junit', module:'junit'
+    }
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.7.0'
+}
+
+test {
+    useJUnitPlatform()
+}

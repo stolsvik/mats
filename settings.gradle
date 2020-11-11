@@ -4,7 +4,7 @@ include 'mats-lib', 'mats-serial', 'mats-util', 'mats-test', 'mats-lib-test',
         'mats-impl-jms', 'mats-serial-json',
         'mats-spring', 'mats-spring-test', 'mats-spring-jms',
         'mats-amq', 'mats-amq-monitor', 'mats-util_activemq',
-        'mats-websockets'
+        'mats-websockets', 'mats-test-junit', 'mats-test-jupiter'
 
 println "** Java: ${System.getProperty('java.version')}, Groovy: $GroovySystem.version," +
        " Gradle: ${gradle.gradleVersion}   (printed from settings.gradle)"

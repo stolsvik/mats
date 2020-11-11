@@ -26,7 +26,8 @@ import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.test.MatsSimpleTestContext.MatsSimpleTestInfrastructureContextInitializer;
 import com.stolsvik.mats.spring.test.MatsSimpleTestContext.MatsTestInfrastructureConfiguration;
 import com.stolsvik.mats.test.MatsTestLatch;
-import com.stolsvik.mats.test.Rule_Mats;
+import com.stolsvik.mats.junit.Rule_Mats;
+import com.stolsvik.mats.test.abstractunit.AbstractMatsTest;
 
 /**
  * One-stop-shop for making <i>simple</i> Spring-based integration/unit tests of MATS endpoints (NOT utilizing SQL
@@ -88,7 +89,8 @@ public @interface MatsSimpleTestContext {
 
         @Bean(destroyMethod = "after")
         protected Rule_Mats rule_Mats() throws Throwable {
-            Rule_Mats rule_Mats = new Rule_Mats();
+            Rule_Mats rule_Mats = Rule_Mats.createRule();
+            rule_Mats.beforeClass();
             rule_Mats.before();
             return rule_Mats;
         }
