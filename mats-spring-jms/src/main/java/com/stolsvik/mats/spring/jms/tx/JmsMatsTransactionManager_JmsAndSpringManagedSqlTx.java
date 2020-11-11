@@ -67,8 +67,8 @@ import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_Jms;
  * disk on Message Broker). This is called "Best Effort 1PC", and is nicely explained in <a href=
  * "http://www.javaworld.com/article/2077963/open-source-tools/distributed-transactions-in-spring--with-and-without-xa.html?page=2">
  * this article</a>. If this failure occurs, it will be caught and logged on ERROR level (by
- * {@link JmsMatsTransactionManager_Jms}) - and then the Message Broker will probably try to redeliver the message.
- * Also read the <a href="http://activemq.apache.org/should-i-use-xa.html">Should I use XA Transactions</a> from Apache
+ * {@link JmsMatsTransactionManager_Jms}) - and then the Message Broker will probably try to redeliver the message. Also
+ * read the <a href="http://activemq.apache.org/should-i-use-xa.html">Should I use XA Transactions</a> from Apache
  * Active MQ.
  * <p />
  * Wise tip when working with <i>Message Oriented Middleware</i>: Code idempotent! Handle double-deliveries!
@@ -678,9 +678,8 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                 });
             }
             finally {
-                System.out.println(
-                        "################## About to exit the Transactional Demarcation - was SQL Connection employed: ["
-                                + sqlConnectionEmployedSupplier.get() + "].");
+                if (log.isDebugEnabled()) log.debug("About to exit the SQL Transactional Demarcation - SQL Connection "
+                        + (sqlConnectionEmployedSupplier.get() ? "WAS" : "was NOT") + " employed!");
                 // ?: Do we have "monitoring" of the getting of Connection from DataSource?
                 if (_dataSource instanceof LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) {
                     // -> Yes, we have monitoring - so we must now clear the ThreadLocal of any gotten Connection.
