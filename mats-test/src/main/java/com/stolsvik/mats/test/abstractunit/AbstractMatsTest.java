@@ -238,7 +238,7 @@ public abstract class AbstractMatsTest<Z> {
 
     /**
      * @return the DataSource if this Rule/Extension was created with one, throws {@link IllegalStateException}
-     *         otherwise.l
+     *         otherwise.
      * @throws IllegalStateException
      *             if this Rule/Extension wasn't created with a DataSource.
      */
@@ -253,12 +253,11 @@ public abstract class AbstractMatsTest<Z> {
     /**
      * Loops through all the {@link MatsFactory}'s contained within the {@link #_createdMatsFactories}, this ensures
      * that all factories are "clean".
-     * <p>
-     * Current usage, is to call this on the following JUnit/Jupiter life cycle events:
-     * <ul>
-     * <li>After - JUnit - Rule</li>
-     * <li>AfterEachCallback - Jupiter</li>
-     * </ul>
+     * <p />
+     * You may want to utilize this if you have multiple tests in a class, and set up the Endpoints using a @Before type
+     * annotation in the test, as opposed to @BeforeClass. This because otherwise you will on the second test try to
+     * create the endpoints one more time, and they will already exist, thus you'll get an Exception from the
+     * MatsFactory.
      */
     public void cleanMatsFactory() {
         // :: Since removing all endpoints will destroy the MatsFuturizer if it is made, we'll first close that
