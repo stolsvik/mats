@@ -106,10 +106,10 @@ public class Test_SimplestSendReceive extends AMatsTest {
 
 Exercises the simplest request functionality: A single-stage service is set up. A Terminator is set up. Then an initiator does a request to the service, setting replyTo(Terminator). *(This example demonstrates one stack level request/reply, and state keeping between initiator and terminator)*
 
-ASCII-artsy, it looks like this:
+ASCII-artsy, it looks like this, the line (pipe-char) representing the state that goes between Initiator and Terminator, but which is kept "on the wire" along with the message flow, i.e. along with the request out to Service, and then reply back to Terminator:
 <pre>
-[Initiator]   {request}
-  [Service]   {reply}
+[Initiator]    {request}
+ |  [Service]  {reply}
 [Terminator]
 </pre>
 
@@ -170,16 +170,16 @@ Sets up these services:
 </ul>
 A Terminator is also set up, and then the initiator sends a request to "Master", setting replyTo(Terminator).
 <p>
-ASCII-artsy, it looks like this:
+ASCII-artsy, it looks like this, the lines representing the state that goes between the Initiator and Terminator and the stages of the endpoints, but which is kept "on the wire" along with the message flow through the different requests and replies:
 <pre>
 [Initiator]              {request}
-    [Master S0 (init)]   {request}
-        [Mid S0 (init)]  {request}
-            [Leaf]       {reply}
-        [Mid S1 (last)]  {reply}
-    [Master S1]          {request}
-        [Leaf]           {reply}
-    [Master S2 (last)]   {reply}
+ |  [Master S0 (init)]   {request}
+ |   |  [Mid S0 (init)]  {request}
+ |   |   |  [Leaf]       {reply}
+ |   |  [Mid S1 (last)]  {reply}
+ |  [Master S1]          {request}
+ |   |  [Leaf]           {reply}
+ |  [Master S2 (last)]   {reply}
 [Terminator]
 </pre>
 
