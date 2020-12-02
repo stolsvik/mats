@@ -6,13 +6,13 @@ import org.junit.ClassRule;
 import org.junit.Test;
 import org.slf4j.Logger;
 
-import com.stolsvik.mats.test.junit.Rule_Mats;
 import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.StateTO;
-import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
+import com.stolsvik.mats.test.MatsTestMqInterface.MatsMessageRepresentation;
+import com.stolsvik.mats.test.junit.Rule_Mats;
 
 /**
  * Tests the initiation within a stage functionality.
@@ -243,9 +243,9 @@ public class Test_InitiateWithinStage {
 
         // The the messages sent to the service should appear in the DLQ!
 
-        MatsTrace<String> dlqMessage = MATS.getDlqMessage(SERVICE);
+        MatsMessageRepresentation dlqMessage = MATS.getMatsTestMqInterface().getDlqMessage(SERVICE);
         Assert.assertEquals(traceId, dlqMessage.getTraceId());
-        Assert.assertEquals(SERVICE, dlqMessage.getCurrentCall().getTo().getId());
+        Assert.assertEquals(SERVICE, dlqMessage.getTo());
 
         // NOTE NOTE! The SINGLE message sent with the NON-default initiator should come through!
 

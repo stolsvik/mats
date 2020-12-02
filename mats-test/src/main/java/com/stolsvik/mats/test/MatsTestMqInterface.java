@@ -108,7 +108,7 @@ public class MatsTestMqInterface {
             throw new IllegalArgumentException("The _latePopuplate method was invoked with a MatsFactory, which"
                     + " when 'unwrapFully()' did not give a JmsMatsFactory. Sorry, no can do.");
         }
-        JmsMatsFactory jmsMatsFactory = (JmsMatsFactory) unwrappedMatsFactory;
+        JmsMatsFactory<?> jmsMatsFactory = (JmsMatsFactory<?>) unwrappedMatsFactory;
         _connectionFactory = connectionFactory;
         _matsSerializer = jmsMatsFactory.getMatsSerializer();
         _matsDestinationPrefix = matsFactory.getFactoryConfig().getMatsDestinationPrefix();
@@ -169,6 +169,11 @@ public class MatsTestMqInterface {
      */
     public interface MatsMessageRepresentation {
         /**
+         * @return the TraceId this message has as being a part of a "call flow" that was initiated with a TraceId.
+         */
+        String getTraceId();
+
+        /**
          * The message DTO that was provided to the Mats Endpoint which DLQed the message.
          * 
          * @param type
@@ -228,6 +233,11 @@ public class MatsTestMqInterface {
         public MatsMessageRepresentationImpl(MatsSerializer<Z> matsSerializer, MatsTrace<Z> matsTrace) {
             _matsSerializer = matsSerializer;
             _matsTrace = matsTrace;
+        }
+
+        @Override
+        public String getTraceId() {
+            return _matsTrace.getTraceId();
         }
 
         @Override

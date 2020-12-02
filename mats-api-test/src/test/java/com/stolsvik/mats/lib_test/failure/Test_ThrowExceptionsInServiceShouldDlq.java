@@ -9,6 +9,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
+import com.stolsvik.mats.test.MatsTestMqInterface.MatsMessageRepresentation;
 import com.stolsvik.mats.test.junit.Rule_Mats;
 import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.StateTO;
@@ -103,9 +104,8 @@ public class Test_ThrowExceptionsInServiceShouldDlq {
 
         if (expectDlq) {
             // Wait for the DLQ
-            MatsTrace<?> dlqMatsTrace = MATS.getDlqMessage(SERVICE);
-            Assert.assertNotNull(dlqMatsTrace);
-            Assert.assertEquals(SERVICE, dlqMatsTrace.getCurrentCall().getTo().getId());
+            MatsMessageRepresentation dlqMessage = MATS.getMatsTestMqInterface().getDlqMessage(SERVICE);
+            Assert.assertEquals(SERVICE, dlqMessage.getTo());
 
             // Assert that we got the expected number of invocations
             Assert.assertEquals(expectedInvocationCount, _serviceInvocations.get());

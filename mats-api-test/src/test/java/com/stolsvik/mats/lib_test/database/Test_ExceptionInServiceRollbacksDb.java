@@ -10,13 +10,13 @@ import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Test;
 
-import com.stolsvik.mats.test.junit.Rule_Mats;
 import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.lib_test.StateTO;
-import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
+import com.stolsvik.mats.test.MatsTestMqInterface.MatsMessageRepresentation;
 import com.stolsvik.mats.test.TestH2DataSource;
+import com.stolsvik.mats.test.junit.Rule_Mats;
 
 /**
  * Tests that if a Mats stage throws RTE, any SQL INSERT shall be rolled back.
@@ -123,9 +123,9 @@ public class Test_ExceptionInServiceRollbacksDb {
                 });
 
         // Wait for the DLQ
-        MatsTrace dlqMatsTrace = MATS.getDlqMessage(SERVICE);
-        Assert.assertNotNull(dlqMatsTrace);
-        Assert.assertEquals(SERVICE, dlqMatsTrace.getCurrentCall().getTo().getId());
+        MatsMessageRepresentation dlqMessage = MATS.getMatsTestMqInterface().getDlqMessage(SERVICE);
+
+        Assert.assertEquals(SERVICE, dlqMessage.getTo());
 
         // Assert that the data inserted in SERVICE is NOT inserted!
         Assert.assertEquals("Should NOT have found any data in SQL Table 'datatable'!",

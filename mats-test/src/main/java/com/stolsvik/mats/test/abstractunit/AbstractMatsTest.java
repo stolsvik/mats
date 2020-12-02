@@ -54,12 +54,6 @@ public abstract class AbstractMatsTest<Z> {
     protected MatsFuturizer _matsFuturizer; // lazy init
     protected CopyOnWriteArrayList<MatsFactory> _createdMatsFactories = new CopyOnWriteArrayList<>();
 
-    /**
-     * Should one wish to utilize a non default {@link MatsSerializer}, this permits users a hook to configure this.
-     *
-     * @param matsSerializer
-     *            to be utilized by the created {@link MatsFactory}
-     */
     protected AbstractMatsTest(MatsSerializer<Z> matsSerializer) {
         _matsSerializer = matsSerializer;
     }
@@ -74,8 +68,8 @@ public abstract class AbstractMatsTest<Z> {
      * <p>
      * This method should be called as a result of the following life cycle events for either JUnit or Jupiter:
      * <ul>
-     * <li>BeforeClass - JUnit - ClassRule</li>
-     * <li>BeforeAllCallback - Jupiter</li>
+     * <li>BeforeClass - JUnit - static ClassRule</li>
+     * <li>BeforeAllCallback - Jupiter - static Extension</li>
      * </ul>
      */
     public void beforeAll() {
@@ -101,8 +95,8 @@ public abstract class AbstractMatsTest<Z> {
      * <p>
      * This method should be called as a result of the following life cycle events for either JUnit or Jupiter:
      * <ul>
-     * <li>AfterClass - JUnit - ClassRule</li>
-     * <li>AfterAllCallback - Jupiter</li>
+     * <li>AfterClass - JUnit - static ClassRule</li>
+     * <li>AfterAllCallback - Jupiter - static Extension</li>
      * </ul>
      */
     public void afterAll() {
@@ -163,7 +157,8 @@ public abstract class AbstractMatsTest<Z> {
     public synchronized MatsTestMqInterface getMatsTestMqInterface() {
         if (_matsTestMqInterface == null) {
             _matsTestMqInterface = MatsTestMqInterface
-                    .create(_matsLocalVmActiveMq.getConnectionFactory(), _matsSerializer,
+                    .create(_matsLocalVmActiveMq.getConnectionFactory(),
+                            _matsSerializer,
                             _matsFactory.getFactoryConfig().getMatsDestinationPrefix(),
                             _matsFactory.getFactoryConfig().getMatsTraceKey());
 
@@ -186,7 +181,9 @@ public abstract class AbstractMatsTest<Z> {
      * @param endpointId
      *            the endpoint which is expected to generate a DLQ message.
      * @return the {@link MatsTrace} of the DLQ'ed message.
+     * @deprecated use the {@link MatsTestMqInterface}, as provided by the {@link #getMatsTestMqInterface()} method.
      */
+    @Deprecated
     public MatsTrace<Z> getDlqMessage(String endpointId) {
         return _matsLocalVmActiveMq.getDlqMessage(_matsSerializer,
                 _matsFactory.getFactoryConfig().getMatsDestinationPrefix(),
@@ -195,6 +192,15 @@ public abstract class AbstractMatsTest<Z> {
     }
 
     /**
+     * @return the {@link MatsFactory} that this JUnit Rule sets up.
+     */
+    public MatsFactory getMatsFactory() {
+        return _matsFactory;
+    }
+
+    /**
+     * <b>You should probably NOT use this method, but instead the {@link #getMatsFactory()}!</b>.
+     * <p />
      * This method is public for a single reason: If you need a <i>new, separate</i> {@link MatsFactory} using the same
      * JMS ConnectionFactory as the one provided by {@link #getMatsFactory()}. The only currently known reason for this
      * is if you want to register two endpoints with the same endpointId, and the only reason for this again is to test
@@ -204,11 +210,10 @@ public abstract class AbstractMatsTest<Z> {
      * @return a <i>new, separate</i> {@link MatsFactory} in addition to the one provided by {@link #getMatsFactory()}.
      */
     public MatsFactory createMatsFactory() {
-        JmsMatsFactory<Z> matsFactory;
-
         JmsMatsJmsSessionHandler sessionHandler = JmsMatsJmsSessionHandler_Pooling
                 .create(_matsLocalVmActiveMq.getConnectionFactory());
 
+        JmsMatsFactory<Z> matsFactory;
         if (_dataSource == null) {
             // -> No DataSource
             matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(this.getClass().getSimpleName(),
@@ -227,13 +232,6 @@ public abstract class AbstractMatsTest<Z> {
         // Add it to the list of created MatsFactories.
         _createdMatsFactories.add(matsFactory);
         return matsFactory;
-    }
-
-    /**
-     * @return the {@link MatsFactory} that this JUnit Rule sets up.
-     */
-    public MatsFactory getMatsFactory() {
-        return _matsFactory;
     }
 
     /**
