@@ -6,7 +6,6 @@ import java.util.Map;
 import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
 
-import com.stolsvik.mats.spring.EnableMats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -25,7 +24,8 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsFactory.MatsFactoryWrapper;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
-import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
+import com.stolsvik.mats.serial.json.MatsSerializerJson;
+import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.matsfactoryqualifier.AbstractQualificationTest;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
@@ -125,7 +125,7 @@ public class AbstractFactoryBeanTestBase {
             return new MatsFactoryVerifiableStopWrapper(JmsMatsFactory.createMatsFactory_JmsOnlyTransactions("##TEST##",
                     "##VERSION##",
                     JmsMatsJmsSessionHandler_Pooling.create(_connectionFactory),
-                    new MatsSerializer_DefaultJson()),
+                    MatsSerializerJson.create()),
                     _stoppedRegistry);
         }
     }

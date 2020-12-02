@@ -7,11 +7,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
+import org.slf4j.Logger;
 
+import com.stolsvik.mats.test.junit.Rule_Mats;
 import com.stolsvik.mats.lib_test.DataTO;
-import com.stolsvik.mats.lib_test.MatsBasicTest;
+import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 
 /**
@@ -19,10 +22,17 @@ import com.stolsvik.mats.util.MatsFuturizer.Reply;
  * 
  * @author Endre Stølsvik 2019-08-31 16:54 - http://stolsvik.com/, endre@stolsvik.com
  */
-public class Test_MatsFuturizer_WhichThread extends MatsBasicTest {
-    @Before
-    public void setupService() {
-        matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
+public class Test_MatsFuturizer_WhichThread {
+    private static final Logger log = MatsTestHelp.getClassLogger();
+
+    @ClassRule
+    public static final Rule_Mats MATS = Rule_Mats.create();
+
+    private static final String SERVICE = MatsTestHelp.service();
+
+    @BeforeClass
+    public static void setupService() {
+        MATS.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
                 (context, msg) -> {
                     log.info("Inside SERVICE, context:\n" + context);
                     /*
@@ -36,126 +46,111 @@ public class Test_MatsFuturizer_WhichThread extends MatsBasicTest {
                      * completer thread-pool then, so that we do not hold on to the Mats topic receiver thread (in the
                      * SubscriptionTerminator) longer than absolutely necessary.
                      */
-                    takeNap(10);
+                    MatsTestHelp.takeNap(10);
                     return new DataTO(msg.number * 2, msg.string + ":FromService");
                 });
     }
 
     @Test
     public void whichThread_ThenAccept_WithoutGet() throws InterruptedException {
-        // =============================================================================================
-        // == NOTE: Using try-with-resources in this test - NOT TO BE USED IN NORMAL CIRCUMSTANCES!!! ==
-        // =============================================================================================
-        try (MatsFuturizer futurizer = MatsFuturizer.createMatsFuturizer(matsRule.getMatsFactory(),
-                this.getClass().getSimpleName())) {
+        MatsFuturizer futurizer = MATS.getMatsFuturizer();
 
-            // ARRANGE
+        // ARRANGE
 
-            DataTO dto = new DataTO(42, "TheAnswer");
-            CompletableFuture<Reply<DataTO>> future = futurizer.futurizeInteractiveUnreliable(
-                    "traceId", "OneSingleMessage", SERVICE, DataTO.class, dto);
+        DataTO dto = new DataTO(42, "TheAnswer");
+        CompletableFuture<Reply<DataTO>> future = futurizer.futurizeNonessential(
+                "traceId", "OneSingleMessage", SERVICE, DataTO.class, dto);
 
-            // ACT
+        // ACT
 
-            String[] completedOnThreadName = new String[1];
-            @SuppressWarnings("unchecked")
-            Reply<DataTO>[] reply = new Reply[1];
-            CountDownLatch latch = new CountDownLatch(1);
-            future.thenAccept(r -> {
-                completedOnThreadName[0] = Thread.currentThread().getName();
-                reply[0] = r;
-                latch.countDown();
-            });
+        String[] completedOnThreadName = new String[1];
+        @SuppressWarnings("unchecked")
+        Reply<DataTO>[] reply = new Reply[1];
+        CountDownLatch latch = new CountDownLatch(1);
+        future.thenAccept(r -> {
+            completedOnThreadName[0] = Thread.currentThread().getName();
+            reply[0] = r;
+            latch.countDown();
+        });
 
-            // ASSERT
-            latch.await(5, TimeUnit.SECONDS);
+        // ASSERT
+        latch.await(5, TimeUnit.SECONDS);
 
-            Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), reply[0].reply);
+        Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), reply[0].reply);
 
-            // The "thenAccept" should have been executed on the MatsFuturizer thread pool.
-            Assert.assertTrue(completedOnThreadName[0].startsWith("MatsFuturizer completer"));
+        // The "thenAccept" should have been executed on the MatsFuturizer thread pool.
+        Assert.assertTrue(completedOnThreadName[0].startsWith("MatsFuturizer completer"));
 
-            log.info("The future was completed on thread [" + completedOnThreadName + "} - the latency was " + (System
-                    .currentTimeMillis() - reply[0].initiationTimestamp) + " milliseconds");
-        }
+        log.info("The future was completed on thread [" + completedOnThreadName + "} - the latency was " + (System
+                .currentTimeMillis() - reply[0].initiationTimestamp) + " milliseconds");
     }
 
     @Test
     public void whichThread_ThenApplyWithGet() throws ExecutionException, InterruptedException, TimeoutException {
-        // =============================================================================================
-        // == NOTE: Using try-with-resources in this test - NOT TO BE USED IN NORMAL CIRCUMSTANCES!!! ==
-        // =============================================================================================
-        try (MatsFuturizer futurizer = MatsFuturizer.createMatsFuturizer(matsRule.getMatsFactory(),
-                this.getClass().getSimpleName())) {
+        MatsFuturizer futurizer = MATS.getMatsFuturizer();
 
-            // ARRANGE
+        // ARRANGE
 
-            DataTO dto = new DataTO(42, "TheAnswer");
-            CompletableFuture<Reply<DataTO>> future = futurizer.futurizeInteractiveUnreliable(
-                    "traceId", "OneSingleMessage", SERVICE, DataTO.class, dto);
+        DataTO dto = new DataTO(42, "TheAnswer");
+        CompletableFuture<Reply<DataTO>> future = futurizer.futurizeNonessential(
+                "traceId", "OneSingleMessage", SERVICE, DataTO.class, dto);
 
-            // ACT
+        // ACT
 
-            String[] completedOnThreadName = new String[1];
+        String[] completedOnThreadName = new String[1];
 
-            // Do a ".thenApply(...)", followed by a ".get()" to get the value..
-            CompletableFuture<DataTO> completeFuture = future.thenApply(r -> {
-                completedOnThreadName[0] = Thread.currentThread().getName();
-                DataTO in = r.reply;
-                return new DataTO(in.number * 3, in.string + ":FromThenApply");
-            });
-            DataTO reply = completeFuture.get(5, TimeUnit.SECONDS);
+        // Do a ".thenApply(...)", followed by a ".get()" to get the value..
+        CompletableFuture<DataTO> completeFuture = future.thenApply(r -> {
+            completedOnThreadName[0] = Thread.currentThread().getName();
+            DataTO in = r.reply;
+            return new DataTO(in.number * 3, in.string + ":FromThenApply");
+        });
+        DataTO reply = completeFuture.get(5, TimeUnit.SECONDS);
 
-            Assert.assertEquals(new DataTO(dto.number * 2 * 3, dto.string + ":FromService:FromThenApply"), reply);
+        Assert.assertEquals(new DataTO(dto.number * 2 * 3, dto.string + ":FromService:FromThenApply"), reply);
 
-            // The "thenAccept" should have been executed on the MatsFuturizer thread pool.
-            Assert.assertTrue(completedOnThreadName[0].startsWith("MatsFuturizer completer"));
+        // The "thenAccept" should have been executed on the MatsFuturizer thread pool.
+        Assert.assertTrue(completedOnThreadName[0].startsWith("MatsFuturizer completer"));
 
-            log.info("The future was completed on thread [" + completedOnThreadName[0] + "].");
-        }
+        log.info("The future was completed on thread [" + completedOnThreadName[0] + "].");
     }
 
     @Test
     public void whichThread_ThrowsInAccept() throws InterruptedException, TimeoutException {
-        // =============================================================================================
-        // == NOTE: Using try-with-resources in this test - NOT TO BE USED IN NORMAL CIRCUMSTANCES!!! ==
-        // =============================================================================================
-        try (MatsFuturizer futurizer = MatsFuturizer.createMatsFuturizer(matsRule.getMatsFactory(),
-                this.getClass().getSimpleName())) {
+        MatsFuturizer futurizer = MATS.getMatsFuturizer();
 
-            // ARRANGE
+        // ARRANGE
 
-            DataTO dto = new DataTO(42, "TheAnswer");
-            CompletableFuture<Reply<DataTO>> future = futurizer.futurizeInteractiveUnreliable(
-                    "traceId", "OneSingleMessage", SERVICE, DataTO.class, dto);
+        DataTO dto = new DataTO(42, "TheAnswer");
+        CompletableFuture<Reply<DataTO>> future = futurizer.futurizeNonessential(
+                "traceId", "OneSingleMessage", SERVICE, DataTO.class, dto);
 
-            // ACT
+        // ACT
 
-            String[] completedOnThreadName = new String[1];
-            @SuppressWarnings("unchecked")
-            Reply<DataTO>[] reply = new Reply[1];
+        String[] completedOnThreadName = new String[1];
+        @SuppressWarnings("unchecked")
+        Reply<DataTO>[] reply = new Reply[1];
 
-            // Do a ".thenApply(...)", followed by a ".get()" to get the value..
-            CompletableFuture<Void> finishedFuture = future.thenAccept(r -> {
-                completedOnThreadName[0] = Thread.currentThread().getName();
-                reply[0] = r;
-                throw new IllegalStateException("Just testing..");
-            });
+        // Do a ".thenApply(...)", followed by a ".get()" to get the value..
+        CompletableFuture<Void> finishedFuture = future.thenAccept(r -> {
+            completedOnThreadName[0] = Thread.currentThread().getName();
+            reply[0] = r;
+            throw new IllegalStateException("Just testing..");
+        });
 
-            try {
-                finishedFuture.get(5, TimeUnit.SECONDS);
-                Assert.fail("Should not come here, since we should have thrown out!");
-            }
-            catch (ExecutionException e) {
-                /* expected */
-            }
-
-            Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), reply[0].reply);
-
-            // The "thenAccept" should have been executed on the MatsFuturizer thread pool.
-            Assert.assertTrue(completedOnThreadName[0].startsWith("MatsFuturizer completer"));
-
-            log.info("The future was completed on thread [" + completedOnThreadName[0] + "].");
+        try {
+            finishedFuture.get(5, TimeUnit.SECONDS);
+            Assert.fail("Should not come here, since we should have thrown out!");
         }
+        catch (ExecutionException e) {
+            /* expected */
+        }
+
+        Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), reply[0].reply);
+
+        // The "thenAccept" should have been executed on the MatsFuturizer thread pool.
+        Assert.assertTrue(completedOnThreadName[0].startsWith("MatsFuturizer completer"));
+
+        log.info("The future was completed on thread [" + completedOnThreadName[0] + "].");
     }
 }

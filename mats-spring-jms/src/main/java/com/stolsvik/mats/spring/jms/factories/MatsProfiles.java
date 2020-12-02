@@ -4,22 +4,25 @@ import javax.jms.ConnectionFactory;
 
 import org.springframework.core.env.Environment;
 
-import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.ConnectionFactoryProvider;
+import com.stolsvik.mats.spring.jms.factories.ScenarioConnectionFactoryWrapper.ConnectionFactoryProvider;
 
 /**
  * Specifies Spring Profiles (and also which Spring Environment variables) that are relevant for Mats when used with
- * conjunction with {@link JmsSpringConnectionFactoryProducer} and the default configuration of
+ * conjunction with {@link ScenarioConnectionFactoryProducer} and the default configuration of
  * {@link ConfigurableScenarioDecider}. The latter both checks the Spring Profiles for active profiles with the names
  * (or, for {@link MatsProfiles#PROFILE_MATS_TEST}, name prefix) specified here, but also checks the Spring
  * {@link Environment} for the existence of a property of the same names but with the dash ("-") replaced by dot (".").
  * The Spring Environment by default consist of System Properties and Environment Variables.
- * 
+ * <p />
+ * <b>The main documentation for the MatsScenario concept is in the JavaDoc of
+ * {@link ScenarioConnectionFactoryProducer}</b>.
+ *
  * @author Endre Stølsvik 2019-06-11 23:58 - http://stolsvik.com/, endre@stolsvik.com
  */
 public interface MatsProfiles {
     /**
      * If this Spring Profile ("mats-regular") is active, the {@link ConnectionFactory} specified by
-     * {@link JmsSpringConnectionFactoryProducer#regularConnectionFactory(ConnectionFactoryProvider)} will be used.
+     * {@link ScenarioConnectionFactoryProducer#withRegularConnectionFactory(ConnectionFactoryProvider)} will be used.
      * Notice that {@link #PROFILE_PRODUCTION "production"} and {@link #PROFILE_STAGING "staging"} for this decision's
      * point of view are pure synonyms to this Profile.
      * <p>
@@ -34,35 +37,36 @@ public interface MatsProfiles {
     /**
      * Common Profile name ("production") that is a synonym to {@link #PROFILE_MATS_REGULAR} wrt. deciding to use the
      * {@link ConnectionFactory} specified by
-     * {@link JmsSpringConnectionFactoryProducer#regularConnectionFactory(ConnectionFactoryProvider)}.
+     * {@link ScenarioConnectionFactoryProducer#withRegularConnectionFactory(ConnectionFactoryProvider)}.
      */
     String PROFILE_PRODUCTION = "production";
 
     /**
      * Common Profile name ("staging") that is a synonym to {@link #PROFILE_MATS_REGULAR} wrt. deciding to use the
      * {@link ConnectionFactory} specified by
-     * {@link JmsSpringConnectionFactoryProducer#regularConnectionFactory(ConnectionFactoryProvider)}.
+     * {@link ScenarioConnectionFactoryProducer#withRegularConnectionFactory(ConnectionFactoryProvider)}.
      */
     String PROFILE_STAGING = "staging";
 
     /**
      * If this Spring Profile ("mats-localhost") is active, the ConnectionFactory specified by
-     * {@link JmsSpringConnectionFactoryProducer#localhostConnectionFactory(ConnectionFactoryProvider)} will be used.
+     * {@link ScenarioConnectionFactoryProducer#withLocalhostConnectionFactory(ConnectionFactoryProvider)} will be used.
      */
     String PROFILE_MATS_LOCALHOST = "mats-localhost";
 
     /**
      * If this Spring Profile ("mats-localvm") is active, the ConnectionFactory specified by
-     * {@link JmsSpringConnectionFactoryProducer#localVmConnectionFactory(ConnectionFactoryProvider)} will be used.
+     * {@link ScenarioConnectionFactoryProducer#withLocalVmConnectionFactory(ConnectionFactoryProvider)} will be used.
      */
     String PROFILE_MATS_LOCALVM = "mats-localvm";
 
     /**
      * Profile name ("mats-test") that is a synonym to {@link #PROFILE_MATS_LOCALVM} wrt. deciding to use the
      * {@link ConnectionFactory} specified by
-     * {@link JmsSpringConnectionFactoryProducer#localVmConnectionFactory(ConnectionFactoryProvider)}.
+     * {@link ScenarioConnectionFactoryProducer#withLocalVmConnectionFactory(ConnectionFactoryProvider)}.
      * <p>
-     * Notice: The <code>@MatsTestProfile</code>-annotation is meta-annotated with @ActiveProfiles("mats-test").
+     * Notice: The <code>@MatsTestProfile</code>-annotation is a more succinct way of
+     * expressing @ActiveProfiles("mats-test") - it is simply meta-annotated as such.
      */
     String PROFILE_MATS_TEST = "mats-test";
 

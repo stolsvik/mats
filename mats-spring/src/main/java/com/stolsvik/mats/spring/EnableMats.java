@@ -28,5 +28,4 @@ import com.stolsvik.mats.MatsFactory;
 @Import(MatsSpringAnnotationRegistration.class)
 @Documented
 public @interface EnableMats {
-
 }

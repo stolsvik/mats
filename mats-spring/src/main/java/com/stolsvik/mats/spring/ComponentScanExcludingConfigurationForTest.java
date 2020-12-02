@@ -19,7 +19,7 @@ import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.core.annotation.AliasFor;
 
 /**
- * A simple convenience replacement for @ComponentScan which excludes any configuration classes using the special
+ * A simple convenience replacement for @ComponentScan which excludes any configuration classes employing the special
  * {@link ConfigurationForTest @ConfigurationForTest} annotation instead of the standard <code>@Configuration</code>
  * annotation. This is meant as a solution for a rather common problem that arises when your application
  * uses @ComponentScan to find @Services, @Components etc, and have integration tests that reside in "src/test/java",

@@ -37,7 +37,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
-import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
+import com.stolsvik.mats.serial.json.MatsSerializerJson;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.MatsMapping;
@@ -80,7 +80,7 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
 
         @Bean
         MatsSerializer<String> createMatsSerializer() {
-            return new MatsSerializer_DefaultJson();
+            return MatsSerializerJson.create();
         }
 
         /**

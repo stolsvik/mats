@@ -58,65 +58,13 @@ public class J_ExtensionMatsTest {
     }
 }
 ```
-For convenience one could make a common base class which sets up the basics for any MATS unit test as such:
-```java
-public class J_AbstractTestBase {
-    // :: Register the Extension_Mats, provides the test harness.
-    @RegisterExtension
-    public static Extension_Mats __mats = Extension_Mats.createRule();
-    // :: MatsFuturizer for request/reply scenarios.
-    public MatsFuturizer _matsFuturizer;
-
-    @BeforeEach // Recreate the futurizer for each new test.
-    public void setupFuturizer() {
-        _matsFuturizer = MatsFuturizer.createMatsFuturizer(__mats.getMatsFactory(), getClass().getSimpleName());
-    }
-    @AfterEach // Shutdown the futurizer 
-    public void cleanUpAfterTest() {
-        _matsFuturizer.close();
-    }
-}
-```
-And then utilized as such:
-```java
-public class J_UsingTestBaseTest extends J_AbstractTestBase {
-    private static final String HELLO_ENDPOINT_ID = "HelloEndpoint";
-    private static final String HELLO_RESPONSE = "Hello ";
-
-    @RegisterExtension
-    public Extension_MatsEndpoint<String, String> _hello =
-            Extension_MatsEndpoint
-                    .single(HELLO_ENDPOINT_ID, String.class, String.class, (ctx, msg) -> HELLO_RESPONSE + msg)
-                    .setMatsFactory(__mats.getMatsFactory());
-
-    @Test
-    public void helloWorld() throws InterruptedException, ExecutionException, TimeoutException {
-        // Setup
-        String request = "World!";
-        String expectedResponse = HELLO_RESPONSE + request;
-
-        // Act
-        String response = _matsFuturizer.futurizeInteractiveUnreliable(getClass().getSimpleName() + "[helloWorld]",
-                getClass().getSimpleName(),
-                HELLO_ENDPOINT_ID,
-                String.class,
-                request)
-                .thenApply(Reply::getReply)
-                .get(5, TimeUnit.SECONDS);
-
-        // Verify
-        Assertions.assertNotNull(response);
-        Assertions.assertEquals(expectedResponse, response);
-    }
-}
-```
 ####Extension_MatsGeneric
 Similarly to the usage of Extension_Mats, Extension_MatsGeneric can be utilized as such:
 ```java
 public class J_ExtensionMatsGenericTest {
     @RegisterExtension // Utilizing type String and the default serializer, simply because I did not have another serializer implemented.
     public static final Extension_MatsGeneric<String> __mats =
-            new Extension_MatsGeneric<>(new MatsSerializer_DefaultJson());
+            new Extension_MatsGeneric<>(MatsSerializerJson.create());
     private MatsFuturizer _matsFuturizer; // Futurizer for simple reply/request.
 
     @BeforeEach
@@ -253,7 +201,7 @@ mats-test-jupiter provides a Spring TestExecutionListener specifically designed 
 annotate your configuration class as such:
 ```java
 @ExtendWith(SpringExtension.class)
-@TestExecutionListeners(value = ExtensionMatsAutowireTestExecutionListener.class, mergeMode = MergeMode.MERGE_WITH_DEFAULTS)
+@TestExecutionListeners(value = SpringInjectExtensionsTestExecutionListener.class, mergeMode = MergeMode.MERGE_WITH_DEFAULTS)
 ```
 For an example check out the test classes inside the test package: com.stolsvik.mats.jupiter.spring
 

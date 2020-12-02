@@ -1,13 +1,21 @@
 // mats-spring-test
 
 dependencies {
-    compile project(":mats-test")
-    compile project(":mats-test-junit")
     compile project(":mats-spring")
     compile project(":mats-spring-jms")
+    // MatsSerializerJson (default serializer)
+    compile project(":mats-serial-json")
+    // MatsTestLatch
+    compile project(":mats-test")
+    // MatsFuturizer
+    compile project(":mats-util")
+    // Rule_MatsEndpoint
+    compile project(":mats-test-junit")
 
     compile "org.springframework:spring-test:$springVersion"
 
+    // Need a MatsSerializer, getting the default MatsSerializerJson
+    testCompile project(":mats-serial-json")
     // Need logging system in tests
     testCompile "org.slf4j:log4j-over-slf4j:$slf4jVersion"
     testCompile "ch.qos.logback:logback-classic:$logbackVersion"

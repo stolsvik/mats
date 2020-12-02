@@ -1,12 +1,12 @@
 // mats-util
 
 dependencies {
-    compile project(':mats-lib')
+    compile project(':mats-api')
     
     compile "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
 
     // The SFL4J API. Since you should provide the SLF4J implementation yourself, we use compileOnly.
     compileOnly "org.slf4j:slf4j-api:$slf4jVersion"
 
-    testCompile project(':mats-lib-test')
+    testCompile project(':mats-api-test')
 }

@@ -5,26 +5,30 @@ dependencies {
         exclude group:'junit', module:'junit'
     }
 
+    // Need the MatsSerializer_DefaultJson
+    implementation project(":mats-serial-json")
+
     compile "javax.inject:javax.inject:1"
     implementation "org.springframework:spring-test:$springVersionForJupiter"
     implementation "org.springframework:spring-beans:$springVersionForJupiter"
     implementation "org.springframework:spring-context:$springVersionForJupiter"
     // The Jupiter library (JUnit 5)
-    implementation "org.junit.jupiter:junit-jupiter-api:5.7.0"
+    implementation "org.junit.jupiter:junit-jupiter-api:$jupiterVersion"
 
     // Logging
     testImplementation "org.slf4j:log4j-over-slf4j:$slf4jVersion"
     testImplementation "ch.qos.logback:logback-classic:$logbackVersion"
 
     testImplementation project(':mats-util')
+    testImplementation project(':mats-spring-test')
 
-    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.7.0'
-    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.7.0'
-    testImplementation 'org.junit.platform:junit-platform-launcher:1.7.0'
+    testImplementation "org.junit.jupiter:junit-jupiter-api:$jupiterVersion"
+    testImplementation "org.junit.jupiter:junit-jupiter-params:$jupiterVersion"
+    testImplementation "org.junit.platform:junit-platform-launcher:$jupiterPlatformVersion"
     testImplementation ("org.springframework:spring-test:$springVersionForJupiter") {
         exclude group:'junit', module:'junit'
     }
-    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.7.0'
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:$jupiterVersion"
 }
 
 test {

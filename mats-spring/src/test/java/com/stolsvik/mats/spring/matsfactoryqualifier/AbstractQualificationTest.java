@@ -14,7 +14,7 @@ import org.springframework.context.annotation.Configuration;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
-import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
+import com.stolsvik.mats.serial.json.MatsSerializerJson;
 import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
@@ -63,7 +63,7 @@ public class AbstractQualificationTest {
         JmsMatsFactory<String> mf = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions(
                 this.getClass().getSimpleName(), "#testing#",
                 JmsMatsJmsSessionHandler_Pooling.create(connectionFactory),
-                new MatsSerializer_DefaultJson());
+                MatsSerializerJson.create());
         mf.getFactoryConfig().setConcurrency(1);
         return mf;
     }

@@ -9,6 +9,6 @@
  * mention modules.
  * <p>
  * However should one want to implement a similar approach as utilized in the aforementioned modules for a different
- * testing framework, then these classes can be extends for that purpose.
+ * testing framework, then these classes can be extended for that purpose.
  */
 package com.stolsvik.mats.test.abstractunit;

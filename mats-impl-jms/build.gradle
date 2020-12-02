@@ -2,7 +2,7 @@
 
 dependencies {
     // This project is the JMS implementation of the MATS API.
-    compile project(":mats-lib")
+    compile project(":mats-api")
 
     // The JMS implementation of MATS relies on the MatsTrace and MatsSerializer "implementation utility".
     compile project(":mats-serial")

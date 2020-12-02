@@ -9,11 +9,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
+import org.slf4j.Logger;
 
+import com.stolsvik.mats.test.junit.Rule_Mats;
 import com.stolsvik.mats.lib_test.DataTO;
-import com.stolsvik.mats.lib_test.MatsBasicTest;
+import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 
 /**
@@ -30,19 +33,26 @@ import com.stolsvik.mats.util.MatsFuturizer.Reply;
  * first 100 futures, then they all instantly end up in sleep again doing the second set of 100 futures</li>
  * </ol>
  */
-public class Test_MatsFuturizer_ManyFutures extends MatsBasicTest {
-    @Before
-    public void setupService() {
-        matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
+public class Test_MatsFuturizer_ManyFutures {
+    private static final Logger log = MatsTestHelp.getClassLogger();
+
+    @ClassRule
+    public static final Rule_Mats MATS = Rule_Mats.create();
+
+    private static final String SERVICE = MatsTestHelp.service();
+
+    @BeforeClass
+    public static void setupService() {
+        MATS.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
                 (context, msg) -> new DataTO(msg.number * 2, msg.string + ":FromService"));
     }
 
     @Test
     public void manyFuturesSequentially() throws InterruptedException, ExecutionException, TimeoutException {
-        MatsFuturizer futurizer = MatsFuturizer.createMatsFuturizer(matsRule.getMatsFactory(), "TestFuturizer");
+        MatsFuturizer futurizer = MATS.getMatsFuturizer();
 
         for (int i = 0; i < 200; i++) {
-            CompletableFuture<Reply<DataTO>> future = futurizer.futurizeInteractiveUnreliable(
+            CompletableFuture<Reply<DataTO>> future = futurizer.futurizeNonessential(
                     UUID.randomUUID().toString(), "futureGet", SERVICE, DataTO.class,
                     new DataTO(Math.PI, "FutureGet:" + i));
             Reply<DataTO> reply = future.get(2, TimeUnit.SECONDS);
@@ -52,14 +62,14 @@ public class Test_MatsFuturizer_ManyFutures extends MatsBasicTest {
 
     @Test
     public void manyFuturesConcurrently() throws InterruptedException, ExecutionException, TimeoutException {
-        MatsFuturizer futurizer = MatsFuturizer.createMatsFuturizer(matsRule.getMatsFactory(), "TestFuturizer");
+        MatsFuturizer futurizer = MATS.getMatsFuturizer();
 
         int sleepTimeMillis = 300;
 
         List<CompletableFuture<String>> futures = new ArrayList<>();
 
         for (int i = 0; i < 200; i++) {
-            CompletableFuture<String> future = futurizer.futurizeInteractiveUnreliable(
+            CompletableFuture<String> future = futurizer.futurizeNonessential(
                     UUID.randomUUID().toString(), "futureThenApply", SERVICE, DataTO.class,
                     new DataTO(Math.E, "FutureThenApply:" + i))
                     .thenApply(reply -> {

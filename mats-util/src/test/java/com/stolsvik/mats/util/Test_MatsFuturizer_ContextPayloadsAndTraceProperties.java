@@ -9,23 +9,29 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
-import com.stolsvik.mats.lib_test.MatsBasicTest;
+import com.stolsvik.mats.test.junit.Rule_Mats;
+import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 
 /**
  * Tests both attaching of bytes (and then getting them from the Reply object), and also the {@link InitiateLambda}
- * interface for {@link MatsFuturizer}, where it is made available via the method {@link
- * MatsFuturizer#futurizeGeneric(String, String, String, int, TimeUnit, Class, Object, InitiateLambda)}
+ * interface for {@link MatsFuturizer}, where it is made available via the method
+ * {@link MatsFuturizer#futurizeGeneric(String, String, String, int, TimeUnit, Class, Object, InitiateLambda)}
  *
  * @author Endre Stølsvik, 2020 - http://stolsvik.com/, endre@stolsvik.com
  * @author Kevin Mc Tiernan, 2020 - kmctiernan@gmail.com
  */
-public class Test_MatsFuturizer_ContextPayloadsAndTraceProperties extends MatsBasicTest {
+public class Test_MatsFuturizer_ContextPayloadsAndTraceProperties {
+    @ClassRule
+    public static final Rule_Mats MATS = Rule_Mats.create();
+
+    private static final String SERVICE = MatsTestHelp.service();
 
     private static final byte[] BYTE_ARRAY = new byte[1024];
 
@@ -39,9 +45,9 @@ public class Test_MatsFuturizer_ContextPayloadsAndTraceProperties extends MatsBa
     private static final String KEY_TRACE_PROPERTY = "traceProperty";
     private static final String KEY_TRACE_PROPERTY_FROM_SERVICE = "tracePropertyFromService";
 
-    @Before
-    public void setupService() {
-        matsRule.getMatsFactory().single(SERVICE, String.class, String.class, (context, incomingMessage) -> {
+    @BeforeClass
+    public static void setupService() {
+        MATS.getMatsFactory().single(SERVICE, String.class, String.class, (context, incomingMessage) -> {
             // Pass the attached string and bytes back to the invoker.
             context.addString(KEY_ATTACHED_STRING, context.getString(KEY_ATTACHED_STRING) + ":xyz");
             context.addBytes(KEY_ATTACHED_BYTES, context.getBytes(KEY_ATTACHED_BYTES));
@@ -57,9 +63,9 @@ public class Test_MatsFuturizer_ContextPayloadsAndTraceProperties extends MatsBa
         String traceId = UUID.randomUUID().toString();
         String request = UUID.randomUUID().toString();
 
-        MatsFuturizer futurizer = MatsFuturizer.createMatsFuturizer(matsRule.getMatsFactory(), "TestFuturizer");
+        MatsFuturizer futurizer = MATS.getMatsFuturizer();
 
-        CompletableFuture<Reply<String>> future = futurizer.futurizeGeneric(
+        CompletableFuture<Reply<String>> future = futurizer.futurize(
                 traceId, "futureGet", SERVICE, 1000, TimeUnit.MILLISECONDS, String.class, request,
                 msg -> {
                     msg.addString(KEY_ATTACHED_STRING, "attached_String");

@@ -5,14 +5,14 @@ dependencies {
     compile 'org.apache.activemq:activemq-broker:'+activeMqVersion
     
     // Logback, for both the project and 
-    compile 'ch.qos.logback:logback-classic:1.2.+'
+    compile "ch.qos.logback:logback-classic:$logbackVersion"
     
 
     // H2 Database, to put the log lines into
-    compile 'com.h2database:h2:1.4.+'
+    compile "com.h2database:h2:$h2Version"
 
     // Dep on the actual MATS library
-    compile project(':mats-lib')
+    compile project(':mats-api')
     // Dep on the utils of MATS
     compile project(':mats-util')
 }

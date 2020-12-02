@@ -268,17 +268,7 @@ public class MatsLocalVmActiveMq {
             }
             log.info("AMQ BrokerService '" + brokerService.getBrokerName() + "'.waitUntilStopped().");
             brokerService.waitUntilStopped();
-
-            // Force yield, as evidently sometimes AMQ's async shut down procedure must have some millis to fully run.
-            // (This happens if there are connections open when stopping the broker, which implies bad shutdown order)
-            log.info("AMQ BrokerService '" + brokerService.getBrokerName()
-                    + "' exited, \"force-yield'ing\" for 25 ms to let any async processes finish.");
-            try {
-                Thread.sleep(25);
-            }
-            catch (InterruptedException e1) {
-                throw new AssertionError("Got interrupted while sleeping - unexpected, man..!");
-            }
+            log.info("AMQ BrokerService '" + brokerService.getBrokerName() + "' exited.");
         }
     }
 

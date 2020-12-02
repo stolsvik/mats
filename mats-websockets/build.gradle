@@ -1,8 +1,5 @@
 import java.nio.charset.StandardCharsets
 import java.time.LocalDateTime
-import java.util.concurrent.DelayQueue
-import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.PriorityBlockingQueue
 
 // mats-websockets
 plugins {
@@ -11,7 +8,7 @@ plugins {
 
 dependencies {
     // Uses the mats-lib project
-    api project(":mats-lib")
+    api project(":mats-api")
 
     // Jackson JSON library, which is the serialization mechanism in use for MatsSockets comms
     implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
@@ -30,8 +27,11 @@ dependencies {
 
     // :: TEST
 
+    // We need an implementation of the MatsSerializer, the MatsSerializer_DefaultJson.
+    testImplementation project(':mats-serial-json')
+
     // Testing tools for Mats
-    testImplementation project(":mats-test")
+    testImplementation project(":mats-test-junit")
 
     // Base Jetty Server
     testImplementation 'org.eclipse.jetty:jetty-server:9.+'
@@ -43,7 +43,7 @@ dependencies {
     testImplementation 'org.eclipse.jetty.websocket:javax-websocket-server-impl:9.+'
 
     // H2 Database
-    testImplementation 'com.h2database:h2:1.4.200'
+    testImplementation "com.h2database:h2:$h2Version"
 
     // Add flyway, since it is not transitive from the lib.
     testImplementation 'org.flywaydb:flyway-core:6.1.+'

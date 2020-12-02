@@ -6,10 +6,13 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
+import org.slf4j.Logger;
 
-import com.stolsvik.mats.lib_test.MatsBasicTest;
+import com.stolsvik.mats.test.junit.Rule_Mats;
+import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 
 /**
@@ -18,11 +21,17 @@ import com.stolsvik.mats.util.MatsFuturizer.Reply;
  * @author Hallvard Nygård, 2020, hallvard.nygard@gmail.com
  * @author Kevin Mc Tiernan, 2020, kmctiernan@gmail.com
  */
-public class Test_MatsFuturizer_FailedSerializationFuture extends MatsBasicTest {
+public class Test_MatsFuturizer_FailedSerializationFuture {
+    private static final Logger log = MatsTestHelp.getClassLogger();
 
-    @Before
-    public void setupServiceEndpoint() {
-        matsRule.getMatsFactory().single(SERVICE, DtoWeSend.class, String.class,
+    @ClassRule
+    public static final Rule_Mats MATS = Rule_Mats.create();
+
+    private static final String SERVICE = MatsTestHelp.service();
+
+    @BeforeClass
+    public static void setupServiceEndpoint() {
+        MATS.getMatsFactory().single(SERVICE, DtoWeSend.class, String.class,
                 (context, incomingMsg) -> new DtoWeSend(incomingMsg));
     }
 
@@ -34,10 +43,10 @@ public class Test_MatsFuturizer_FailedSerializationFuture extends MatsBasicTest 
      */
     @Test(timeout = 5000)
     public void futureGet() {
-        MatsFuturizer futurizer = MatsFuturizer.createMatsFuturizer(matsRule.getMatsFactory(), "TestFuturizer");
+        MatsFuturizer matsFuturizer = MATS.getMatsFuturizer();
         String traceId = UUID.randomUUID().toString();
 
-        CompletableFuture<Reply<DtoWeExpect>> future = futurizer.futurizeInteractiveUnreliable(traceId,
+        CompletableFuture<Reply<DtoWeExpect>> future = matsFuturizer.futurizeNonessential(traceId,
                 "futureGet",
                 SERVICE,
                 DtoWeExpect.class, "NOK");
@@ -48,7 +57,8 @@ public class Test_MatsFuturizer_FailedSerializationFuture extends MatsBasicTest 
         catch (Throwable e) {
             log.info("Got the exception. Hoping it's the right one. Logging stacktrace just in case.", e);
             Assert.assertEquals("Could not deserialize the data contained in MatsObject to class"
-                    + " [com.stolsvik.mats.util.Test_MatsFuturizer_FailedSerializationFuture$DtoWeExpect].", e.getCause().getMessage());
+                    + " [com.stolsvik.mats.util.Test_MatsFuturizer_FailedSerializationFuture$DtoWeExpect].", e
+                            .getCause().getMessage());
         }
     }
 
@@ -59,10 +69,10 @@ public class Test_MatsFuturizer_FailedSerializationFuture extends MatsBasicTest 
     @Test(timeout = 5000)
     public void futureThenApply_andExceptionally_Common()
             throws InterruptedException, ExecutionException {
-        MatsFuturizer futurizer = MatsFuturizer.createMatsFuturizer(matsRule.getMatsFactory(), "TestFuturizer");
+        MatsFuturizer matsFuturizer = MATS.getMatsFuturizer();
         String traceId = UUID.randomUUID().toString();
 
-        DtoWeExpect r = futurizer.futurizeInteractiveUnreliable(
+        DtoWeExpect r = matsFuturizer.futurizeNonessential(
                 traceId,
                 "futureGet",
                 SERVICE,
@@ -72,7 +82,7 @@ public class Test_MatsFuturizer_FailedSerializationFuture extends MatsBasicTest 
                 .exceptionally(e -> {
                     log.info("Got the exception. Hoping it's the right one. Logging stacktrace just in case.", e);
                     Assert.assertEquals("Could not deserialize the data contained in MatsObject to class "
-                                    + "[com.stolsvik.mats.util.Test_MatsFuturizer_FailedSerializationFuture$DtoWeExpect].",
+                            + "[com.stolsvik.mats.util.Test_MatsFuturizer_FailedSerializationFuture$DtoWeExpect].",
                             e.getCause().getMessage());
                     return new DtoWeExpect("ExceptionallyTest");
                 })

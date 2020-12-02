@@ -3,15 +3,25 @@
 dependencies {
     compile project(":mats-spring")
     compile project(":mats-impl-jms")
-    compile project(":mats-util_activemq")
+    compileOnly project(":mats-util_activemq")
 
     compile "org.springframework:spring-context:$springVersion"
     compile "org.springframework:spring-tx:$springVersion"
     compile "org.springframework:spring-jdbc:$springVersion"
 
+    // The SFL4J API. Since you should provide the SLF4J implementation yourself, we use compileOnly.
+    compileOnly "org.slf4j:slf4j-api:$slf4jVersion"
+
+    // The ActiveMQ Client, used as default in the JmsSpringConnectionFactoryProducer. Bring your own, so compileOnly.
+    compileOnly "org.apache.activemq:activemq-client:$activeMqVersion"
+
+    // Test:
+
     testCompile project(":mats-test")
     testCompile project(":mats-spring")
     testCompile project(":mats-serial-json")
+    // The JUnit library
+    testCompile "junit:junit:$junitVersion"
     // Using H2 for testing of database tx.
     testCompile "com.h2database:h2:$h2Version"
     // Using @RunWith(SpringRunner.class)

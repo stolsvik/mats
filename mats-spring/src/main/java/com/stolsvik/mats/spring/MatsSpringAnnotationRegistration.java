@@ -120,8 +120,7 @@ import com.stolsvik.mats.spring.MatsClassMapping.Stage;
 @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
 @Component
 public class MatsSpringAnnotationRegistration implements
-        BeanPostProcessor,
-        ApplicationContextAware {
+        BeanPostProcessor, ApplicationContextAware { // Notice that this class also registers @EventListeners
     // Use clogging, since that's what Spring does.
     private static final Log log = LogFactory.getLog(MatsSpringAnnotationRegistration.class);
     private static final String LOG_PREFIX = "#SPRINGMATS# ";

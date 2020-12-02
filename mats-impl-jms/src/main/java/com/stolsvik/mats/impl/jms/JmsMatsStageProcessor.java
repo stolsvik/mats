@@ -582,6 +582,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
         // If we exited out while processing, just clean up so that the final line does not look like it came from msg.
 
+        // NOTE: The StageProcessor /owns/ this thread, so we do not need to bother about cleanliness of MDC handling.
+        // Just clear the MDC.
         MDC.clear();
         // .. but set the "static" values again
         setStaticMdcValues();

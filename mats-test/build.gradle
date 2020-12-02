@@ -1,16 +1,20 @@
 // mats-test
 
 dependencies {
-    compile project(':mats-lib')
+    // Obvious dependency!
+    compile project(':mats-api')
+    // We need an implementation of the API
     compile project(':mats-impl-jms')
-    compile project(':mats-serial-json')
+    // We need a backing JMS-based Message Broker; This is a tool that provides easy instantiation of such.
     compile project(':mats-util_activemq')
+    // .. and pull in ActiveMQ Broker (since 'mats-util_activemq' does not transitively expose it, because "prod").
+    compile "org.apache.activemq:activemq-broker:$activeMqVersion"
+    // The MatsFuturizer is provided as a convenience in the Rule_Mats and Extension_Mats
+    compile project(':mats-util')
 
     // H2 Database, for database tests
-    compile 'com.h2database:h2:1.4.+'
+    compile "com.h2database:h2:$h2Version"
 
+    // If you use Spring, the Spring-specific TestExecutionListener is nice, and it needs Spring to compile.
     compileOnly "org.springframework:spring-test:$springVersion"
-
-    // The JUnit library
-    compile 'junit:junit:4.+'
 }

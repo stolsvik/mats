@@ -1,6 +1,6 @@
 rootProject.name = 'mats'
 
-include 'mats-lib', 'mats-serial', 'mats-util', 'mats-test', 'mats-lib-test',
+include 'mats-api', 'mats-serial', 'mats-util', 'mats-test', 'mats-api-test',
         'mats-impl-jms', 'mats-serial-json',
         'mats-spring', 'mats-spring-test', 'mats-spring-jms',
         'mats-amq', 'mats-amq-monitor', 'mats-util_activemq',

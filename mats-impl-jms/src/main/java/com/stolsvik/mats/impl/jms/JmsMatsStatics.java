@@ -304,6 +304,8 @@ public interface JmsMatsStatics {
                     }
                     // The rest..
                     MDC.remove(MDC_MATS_MESSAGE_ID_OUT);
+                    MDC.remove(MDC_JMS_MESSAGE_ID_OUT);
+
                     MDC.remove(MDC_MATS_MESSAGE_SEND_FROM);
                     MDC.remove(MDC_MATS_MESSAGE_SEND_TO);
                     MDC.remove(MDC_MATS_MESSAGE_SEND_AUDIT);

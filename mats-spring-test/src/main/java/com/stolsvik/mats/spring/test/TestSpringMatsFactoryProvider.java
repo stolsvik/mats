@@ -6,7 +6,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.jms.ConnectionFactory;
 import javax.sql.DataSource;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
@@ -17,32 +21,44 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_Jms;
 import com.stolsvik.mats.serial.MatsSerializer;
-import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
-import com.stolsvik.mats.spring.jms.factories.JmsSpringConnectionFactoryProducer;
+import com.stolsvik.mats.spring.jms.factories.SpringJmsMatsFactoryWrapper;
 import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringManagedSqlTx;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
 /**
- * A testing-oriented {@link MatsFactory}-provider corresponding to the methods in
- * {@link JmsSpringConnectionFactoryProducer} but which also create a separate LocalVM ActiveMQ broker for the produced
+ * A testing-oriented {@link MatsFactory}-provider which also create a separate LocalVM ActiveMQ broker for the produced
  * MatsFactory to connect to - this is for the scenarios where you do <i>NOT</i> have your test load the entire
- * application's Spring configuration, but instead "piece together" the relevant @Components containing test-relevant
- * Mats endpoints and other beans from your application along with test-specific mocked-out endpoints: You will then
- * probably not have the MatsFactory present in the Spring context. You can then use this class to get a "quick and
- * dirty" MatsFactory (with an in-vm MQ Broker backing it) on which your application's endpoints, and mocked-out
- * endpoints in the test, can run.
+ * application's Spring configuration, but instead "piece together" the relevant Spring
+ * <code>{@literal @Components}</code> containing test-relevant Mats endpoints and other beans from your application
+ * along with test-specific mocked-out endpoints: You will then probably not have the MatsFactory present in the Spring
+ * context. You can then use this class to get a "quick and dirty" MatsFactory (with an in-vm MQ Broker backing it) on
+ * which your application's endpoints, and mocked-out endpoints in the test, can run.
+ * <p />
+ * <i>If your requirements aren't all that exotic, you may get this indirectly invoked by using the
+ * {@literal @}{@link MatsTestContext} annotation directly on the Test-class. If your requirements are slightly more
+ * involved, check out the {@link MatsTestInfrastructureConfiguration} and {@link MatsTestInfrastructureDbConfiguration}
+ * Spring Configuration classes (loaded in a test with {@literal @}{@link ContextConfiguration}), which employs the
+ * methods in this class.</i>
  *
+ * @see MatsTestContext
+ * @see MatsTestInfrastructureConfiguration
+ * @see MatsTestInfrastructureDbConfiguration
  * @author Endre Stølsvik 2019-06-17 21:26 - http://stolsvik.com/, endre@stolsvik.com
  */
 public class TestSpringMatsFactoryProvider {
+
+    private static final Logger log = LoggerFactory.getLogger(TestSpringMatsFactoryProvider.class);
+
+    private static final String LOG_PREFIX = "#SPRINGJMATS(test)# ";
 
     private static final AtomicInteger _sequence = new AtomicInteger(0);
 
     /**
      * If you need a {@link MatsFactory} employing Spring's DataSourceTransactionManager (which you probably do in a
-     * Spring environment utilizing SQL), this is your factory method.
-     * <p>
-     * Usage: Make a @Bean-annotated method which returns the result of this method.
+     * Spring environment utilizing SQL), this is your factory method. If you need to make y
+     * <p />
+     * Usage: In the test, make a @Bean-annotated method which returns the result of this method - or employ the
+     * convenience {@link MatsTestInfrastructureDbConfiguration}.
      *
      * @param concurrency
      *            The concurrency of the created {@link MatsFactory}, set with
@@ -51,98 +67,154 @@ public class TestSpringMatsFactoryProvider {
      *            the SQL DataSource which to stash into a Spring {@link DataSourceTransactionManager}, and from which
      *            SQL {@link Connection}s are fetched from, using {@link DataSource#getConnection()}. It is assumed that
      *            if username and password is needed, you have configured that on the DataSource.
+     * @param matsSerializer
+     *            the MatsSerializer to use. If you employ the standard, use <code>MatsSerializerJson.create()</code>.
+     *
      * @return the produced {@link MatsFactory}
      */
-    public static MatsFactory createSpringDataSourceTxTestMatsFactory(int concurrency, DataSource sqlDataSource) {
-        // Naming broker as calling class, performing replacement of illegal chars according to ActiveMQ rules.
-        String appName = getCallerClassName().replaceAll("[^a-zA-Z0-9\\.\\_\\-\\:]", ".")
-                + "_" + _sequence.getAndIncrement();
-        MatsLocalVmActiveMq inVmActiveMq = MatsLocalVmActiveMq.createInVmActiveMq(appName);
-        ConnectionFactory jmsConnectionFactory = inVmActiveMq.getConnectionFactory();
-        // :: Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
-        // JmsSessionHandler (pooler)
-        JmsMatsJmsSessionHandler jmsSessionHandler = JmsMatsJmsSessionHandler_Pooling.create(jmsConnectionFactory);
+    public static MatsFactory createSpringDataSourceTxTestMatsFactory(int concurrency, DataSource sqlDataSource,
+            MatsSerializer<?> matsSerializer) {
         // JMS + Spring's DataSourceTransactionManager-based MatsTransactionManager
-        JmsMatsTransactionManager springSqlTxMgr = JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.create(sqlDataSource);
-
-        // Serializer
-        MatsSerializer<String> matsSerializer = new MatsSerializer_DefaultJson();
-
-        // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
-        JmsMatsFactory<String> matsFactory = JmsMatsFactory
-                .createMatsFactory(appName, "#testing#", jmsSessionHandler, springSqlTxMgr, matsSerializer);
-        // Set concurrency.
-        matsFactory.getFactoryConfig().setConcurrency(concurrency);
-        // Now wrap this in a wrapper that will close the LocalVM ActiveMQ broker upon matsFactory.stop().
-        return new MatsFactoryStopLocalVmBrokerWrapper(matsFactory, inVmActiveMq);
+        JmsMatsTransactionManager springSqlTxMgr = JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.create(
+                sqlDataSource);
+        return getMatsFactoryStopLocalVmBrokerWrapper(concurrency, matsSerializer, springSqlTxMgr);
     }
 
     /**
-     * Convenience variant of {@link #createSpringDataSourceTxTestMatsFactory(int, DataSource)} where concurrency is 1,
-     * which should be adequate for most testing - unless you explicitly want to test concurrency.
+     * Convenience variant of {@link #createSpringDataSourceTxTestMatsFactory(int, DataSource, MatsSerializer)} where
+     * concurrency is 1, which should be adequate for most testing - unless you explicitly want to test concurrency.
      *
      * @param sqlDataSource
      *            the SQL DataSource which to stash into a Spring {@link DataSourceTransactionManager}, and from which
      *            SQL {@link Connection}s are fetched from, using {@link DataSource#getConnection()}. It is assumed that
      *            if username and password is needed, you have configured that on the DataSource.
+     * @param matsSerializer
+     *            the MatsSerializer to use. If you employ the standard, use <code>MatsSerializerJson.create()</code>.
+     *
      * @return the produced {@link MatsFactory}
      */
-    public static MatsFactory createSpringDataSourceTxTestMatsFactory(DataSource sqlDataSource) {
-        return createSpringDataSourceTxTestMatsFactory(1, sqlDataSource);
+    public static MatsFactory createSpringDataSourceTxTestMatsFactory(DataSource sqlDataSource,
+            MatsSerializer<?> matsSerializer) {
+        return createSpringDataSourceTxTestMatsFactory(1, sqlDataSource, matsSerializer);
+    }
+
+    /**
+     * If you need a {@link MatsFactory}, but you need to make your own {@link PlatformTransactionManager}, this is your
+     * factory method - <b>please note that the contained {@link DataSource} should have been wrapped using the static
+     * method {@link JmsMatsTransactionManager_JmsAndSpringManagedSqlTx#wrapLazyConnectionDatasource(DataSource)}</b>.
+     * <p />
+     * Usage: In the test, make a @Bean-annotated method which returns the result of this method - or employ the
+     * convenience {@link MatsTestInfrastructureDbConfiguration}.
+     *
+     * @param concurrency
+     *            The concurrency of the created {@link MatsFactory}, set with
+     *            {@link FactoryConfig#setConcurrency(int)}.
+     * @param platformTransactionManager
+     *            the {@link PlatformTransactionManager} that the SpringJmsMats transaction manager should employ. From
+     *            this, the {@link DataSource} is gotten using refelction to find a method 'getDataSource()'. <b>please
+     *            note that the contained {@link DataSource} should have been wrapped using the static * method
+     *            {@link JmsMatsTransactionManager_JmsAndSpringManagedSqlTx#wrapLazyConnectionDatasource(DataSource)}</b>.
+     *            It is assumed that if username and password is needed, you have configured that on the DataSource.
+     * @param matsSerializer
+     *            the MatsSerializer to use. If you employ the standard, use <code>MatsSerializerJson.create()</code>.
+     *
+     * @return the produced {@link MatsFactory}
+     */
+    public static MatsFactory createSpringDataSourceTxTestMatsFactory(int concurrency,
+            PlatformTransactionManager platformTransactionManager, MatsSerializer<?> matsSerializer) {
+        // JMS + Spring's DataSourceTransactionManager-based MatsTransactionManager
+        JmsMatsTransactionManager springSqlTxMgr = JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.create(
+                platformTransactionManager);
+        return getMatsFactoryStopLocalVmBrokerWrapper(concurrency, matsSerializer, springSqlTxMgr);
+    }
+
+    /**
+     * Convenience variant of
+     * {@link #createSpringDataSourceTxTestMatsFactory(int, PlatformTransactionManager, MatsSerializer)} where
+     * concurrency is 1, which should be adequate for most testing - unless you explicitly want to test concurrency.
+     *
+     * @param platformTransactionManager
+     *            the {@link PlatformTransactionManager} that the SpringJmsMats transaction manager should employ. From
+     *            this, the {@link DataSource} is gotten using reflection to find a method 'getDataSource()'. <b>please
+     *            note that the contained {@link DataSource} should have been wrapped using the static method
+     *            {@link JmsMatsTransactionManager_JmsAndSpringManagedSqlTx#wrapLazyConnectionDatasource(DataSource)}</b>.
+     *            It is assumed that if username and password is needed, you have configured that on the DataSource.
+     * @param matsSerializer
+     *            the MatsSerializer to use. If you employ the standard, use <code>MatsSerializerJson.create()</code>.
+     *
+     * @return the produced {@link MatsFactory}
+     */
+    public static MatsFactory createSpringDataSourceTxTestMatsFactory(
+            PlatformTransactionManager platformTransactionManager, MatsSerializer<?> matsSerializer) {
+        return createSpringDataSourceTxTestMatsFactory(1, platformTransactionManager, matsSerializer);
     }
 
     /**
      * If you need a {@link MatsFactory} that only handles the JMS transactions, this is your factory method - but if
      * you DO make any database calls within any Mats endpoint lambda, you will now have no or poor transactional
-     * demarcation, use {@link #createSpringDataSourceTxTestMatsFactory(int, DataSource)
+     * demarcation, use {@link #createSpringDataSourceTxTestMatsFactory(int, DataSource, MatsSerializer)
      * createSpringDataSourceTxTestMatsFactory(..)} instead.
-     * <p>
-     * Usage: Make a @Bean-annotated method which returns the result of this method.
+     * <p />
+     * Usage: In the test, make a @Bean-annotated method which returns the result of this method - or employ the
+     * convenience {@link MatsTestInfrastructureConfiguration}.
      *
      * @param concurrency
      *            The concurrency of the created {@link MatsFactory}, set with
      *            {@link FactoryConfig#setConcurrency(int)}.
+     * @param matsSerializer
+     *            the MatsSerializer to use. If you employ the standard, use <code>MatsSerializerJson.create()</code>.
+     *
      * @return the produced {@link MatsFactory}
      */
-    public static MatsFactory createJmsTxOnlyTestMatsFactory(int concurrency) {
-        // Naming broker as calling class, performing replacement of illegal chars according to ActiveMQ rules.
-        String appName = getCallerClassName().replaceAll("[^a-zA-Z0-9\\.\\_\\-\\:]", ".")
-                + "_" + _sequence.getAndIncrement();
+    public static MatsFactory createJmsTxOnlyTestMatsFactory(int concurrency,
+            MatsSerializer<?> matsSerializer) {
+        // JMS only MatsTransactionManager
+        JmsMatsTransactionManager jmsOnlyTxMgr = JmsMatsTransactionManager_Jms.create();
 
+        return getMatsFactoryStopLocalVmBrokerWrapper(concurrency, matsSerializer, jmsOnlyTxMgr);
+    }
+
+    /**
+     * Convenience variant of {@link #createJmsTxOnlyTestMatsFactory(int, MatsSerializer)} where concurrency is 1, which
+     * should be adequate for most testing - unless you explicitly want to test concurrency.
+     *
+     * @param matsSerializer
+     *            the MatsSerializer to use. If you employ the standard, use <code>MatsSerializerJson.create()</code>.
+     *
+     * @return the produced {@link MatsFactory}
+     */
+    public static MatsFactory createJmsTxOnlyTestMatsFactory(MatsSerializer<?> matsSerializer) {
+        return createJmsTxOnlyTestMatsFactory(1, matsSerializer);
+    }
+
+    private static SpringJmsMatsFactoryWrapper getMatsFactoryStopLocalVmBrokerWrapper(int concurrency,
+            MatsSerializer<?> matsSerializer, JmsMatsTransactionManager springSqlTxMgr) {
+        // Naming broker as calling class, performing replacement of illegal chars according to ActiveMQ rules.
+        String appName = getCallerClassName().replaceAll("[^a-zA-Z0-9._\\-:]", ".")
+                + "_" + _sequence.getAndIncrement();
         MatsLocalVmActiveMq inVmActiveMq = MatsLocalVmActiveMq.createInVmActiveMq(appName);
         ConnectionFactory jmsConnectionFactory = inVmActiveMq.getConnectionFactory();
         // :: Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
         // JmsSessionHandler (pooler)
         JmsMatsJmsSessionHandler jmsSessionHandler = JmsMatsJmsSessionHandler_Pooling.create(jmsConnectionFactory);
-        // JMS only MatsTransactionManager
-        JmsMatsTransactionManager jmsOnlyTxMgr = JmsMatsTransactionManager_Jms.create();
-
-        // Serializer
-        MatsSerializer<String> matsSerializer = new MatsSerializer_DefaultJson();
-
         // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.
-        JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory(appName, "#testing#",
-                jmsSessionHandler, jmsOnlyTxMgr, matsSerializer);
+        JmsMatsFactory<?> matsFactory = JmsMatsFactory
+                .createMatsFactory(appName, "#testing#", jmsSessionHandler, springSqlTxMgr, matsSerializer);
         // Set concurrency.
         matsFactory.getFactoryConfig().setConcurrency(concurrency);
         // Now wrap this in a wrapper that will close the LocalVM ActiveMQ broker upon matsFactory.stop().
-        return new MatsFactoryStopLocalVmBrokerWrapper(matsFactory, inVmActiveMq);
+        MatsFactoryStopLocalVmBrokerWrapper matsFactoryStopLocalVmBrokerWrapper =
+                new MatsFactoryStopLocalVmBrokerWrapper(matsFactory, inVmActiveMq);
+        // And then finally wrap this in the Spring wrapper
+        return new SpringJmsMatsFactoryWrapper(inVmActiveMq.getConnectionFactory(), matsFactoryStopLocalVmBrokerWrapper);
     }
 
-    /**
-     * Convenience variant of {@link #createJmsTxOnlyTestMatsFactory(int)} where concurrency is 1, which should be
-     * adequate for most testing - unless you explicitly want to test concurrency.
-     *
-     * @return the produced {@link MatsFactory}
-     */
-    public static MatsFactory createJmsTxOnlyTestMatsFactory() {
-        return createJmsTxOnlyTestMatsFactory(1);
-    }
+
 
     private static class MatsFactoryStopLocalVmBrokerWrapper extends MatsFactoryWrapper {
         private final MatsLocalVmActiveMq _matsLocalVmActiveMq;
 
-        public MatsFactoryStopLocalVmBrokerWrapper(MatsFactory targetMatsFactory,
+        public MatsFactoryStopLocalVmBrokerWrapper(JmsMatsFactory<?> targetMatsFactory,
                 MatsLocalVmActiveMq matsLocalVmActiveMq) {
             super(targetMatsFactory);
             _matsLocalVmActiveMq = matsLocalVmActiveMq;
@@ -150,7 +222,9 @@ public class TestSpringMatsFactoryProvider {
 
         @Override
         public boolean stop(int gracefulShutdownMillis) {
+            log.info(LOG_PREFIX+"Stopping test JmsMatsFactory.");
             boolean stopped = super.stop(gracefulShutdownMillis);
+            log.info(LOG_PREFIX+"Stopping test ActiveMQ instance.");
             _matsLocalVmActiveMq.close();
             return stopped;
         }

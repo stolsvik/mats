@@ -9,11 +9,16 @@ import java.lang.annotation.Target;
 import org.springframework.test.context.ActiveProfiles;
 
 import com.stolsvik.mats.spring.jms.factories.MatsProfiles;
+import com.stolsvik.mats.spring.jms.factories.ScenarioConnectionFactoryProducer;
 
 /**
  * The only thing this annotation does, is to meta-annotate the test class with
- * <code>@ActiveProfiles({@link MatsProfiles#PROFILE_MATS_TEST})</code>. You may just as well do this yourself, but this is
- * a few letter shorter, and slightly more concise.
+ * <code>@ActiveProfiles({@link MatsProfiles#PROFILE_MATS_TEST})</code>. This is of relevance if you employ the
+ * {@link ScenarioConnectionFactoryProducer JmsSpringConnectionFactoryProducer}
+ * "scenario decider" system - the "mats-test" profile per default sends this into "in-vm broker mode".
+ * <p />
+ * You may just as well do the direct <code>{@literal @ActiveProfiles}</code> annotation yourself, but this is a few
+ * letter shorter, and slightly more concise.
  * 
  * @author Endre Stølsvik 2019-06-17 19:06 - http://stolsvik.com/, endre@stolsvik.com
  */

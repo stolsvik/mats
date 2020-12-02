@@ -14,12 +14,11 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
 
-import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.MatsScenario;
-import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryScenarioWrapper.ScenarioDecider;
+import com.stolsvik.mats.spring.jms.factories.ScenarioConnectionFactoryWrapper.ScenarioDecider;
 
 /**
  * Configurable {@link ScenarioDecider} which by default implements the logic described in
- * {@link JmsSpringConnectionFactoryProducer} and handles all the Spring Profiles specified in {@link MatsProfiles}.
+ * {@link ScenarioConnectionFactoryProducer} and handles all the Spring Profiles specified in {@link MatsProfiles}.
  */
 public class ConfigurableScenarioDecider implements ScenarioDecider {
     private static final Logger log = LoggerFactory.getLogger(ConfigurableScenarioDecider.class);
@@ -27,11 +26,11 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
 
     /**
      * Configures a {@link ScenarioDecider} that implements the logic described in
-     * {@link JmsSpringConnectionFactoryProducer} and handles all the Spring Profiles specified in {@link MatsProfiles}.
+     * {@link ScenarioConnectionFactoryProducer} and handles all the Spring Profiles specified in {@link MatsProfiles}.
      * 
      * @return a configured {@link ScenarioDecider}
      */
-    public static ConfigurableScenarioDecider getDefaultScenarioDecider() {
+    public static ConfigurableScenarioDecider createDefaultScenarioDecider() {
         return new ConfigurableScenarioDecider(
                 new StandardSpecificScenarioDecider(MatsProfiles.PROFILE_MATS_REGULAR, MatsProfiles.PROFILE_PRODUCTION,
                         MatsProfiles.PROFILE_STAGING),
@@ -40,7 +39,7 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
                         MatsProfiles.PROFILE_MATS_TEST),
                 () -> {
                     throw new IllegalStateException("No MatsScenario was decided - you must make a decision!"
-                            + " Please read JavaDoc at " + JmsSpringConnectionFactoryProducer.class.getSimpleName()
+                            + " Please read JavaDoc at " + ScenarioConnectionFactoryProducer.class.getSimpleName()
                             + " and " + ConfigurableScenarioDecider.class.getSimpleName() + ".");
                 });
     }
@@ -51,16 +50,16 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
     protected Supplier<MatsScenario> _defaultScenario;
 
     /**
-     * Takes a {@link SpecificScenarioDecider} for each of the {@link MatsScenario}s, and a default MatsScenario if none
-     * of the SpecificScenarioDeciders kicks in - notice that it makes sense that the default instead of providing a
-     * MatsScenario instead throws an e.g. {@link IllegalStateException} (this is what the {@link ScenarioDecider} from
-     * {@link #getDefaultScenarioDecider()} does).
+     * Takes a {@link SpecificScenarioDecider} for each of the {@link MatsScenario}s, and a default Supplier of
+     * MatsScenario if none of the SpecificScenarioDeciders kicks in - notice that it makes sense that the default
+     * instead of providing a MatsScenario instead throws an e.g. {@link IllegalStateException} (this is what the
+     * {@link ScenarioDecider} from {@link #createDefaultScenarioDecider()} does).
      */
     public ConfigurableScenarioDecider(SpecificScenarioDecider regular, SpecificScenarioDecider localhost,
             SpecificScenarioDecider localVm, Supplier<MatsScenario> defaultScenario) {
         setRegularDecider(regular);
         setLocalhostDecider(localhost);
-        setLocalVmDecier(localVm);
+        setLocalVmDecider(localVm);
         setDefaultScenario(defaultScenario);
     }
 
@@ -80,7 +79,7 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
         return this;
     }
 
-    public ConfigurableScenarioDecider setLocalVmDecier(SpecificScenarioDecider localVm) {
+    public ConfigurableScenarioDecider setLocalVmDecider(SpecificScenarioDecider localVm) {
         _localVm = localVm;
         return this;
     }

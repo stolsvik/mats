@@ -2,18 +2,21 @@
 
 dependencies {
     compile project(':mats-test')
+    // The JUnit library
+    api "junit:junit:$junitVersion"
 
-    compile "javax.inject:javax.inject:1"
+    // Need the MatsSerializer_DefaultJson
+    implementation project(":mats-serial-json")
+
+    implementation "javax.inject:javax.inject:1"
     implementation "org.springframework:spring-test:$springVersion"
     implementation "org.springframework:spring-beans:$springVersion"
     implementation "org.springframework:spring-context:$springVersion"
-    // The JUnit library
-    implementation 'junit:junit:4.+'
 
     // Logging
     testImplementation "org.slf4j:log4j-over-slf4j:$slf4jVersion"
     testImplementation "ch.qos.logback:logback-classic:$logbackVersion"
 
+    testImplementation project(':mats-spring-test')
     testImplementation project(':mats-util')
-    testImplementation 'junit:junit:4.+'
 }

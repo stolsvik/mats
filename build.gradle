@@ -10,11 +10,17 @@ wrapper {
 // Spring, ActiveMQ and Jackson JSON versions: Used in several sub projects
 ext {
     activeMqVersion = '5.15.+'
-    springVersion = '4.+'
+    springVersion = '4.+' // Still using Spring 4 as "baseline", but also fully compatible with Spring 5. 2020-11-14.
     // NOTE: Spring started supporting JUnit Jupiter with the release of Spring 5.0.0.
     springVersionForJupiter = '5.+'
     jacksonVersion = '2.11.+'
     slf4jVersion = '1.7.+'
+
+    // For the JUnit system tests, and the JUnit testing tools
+    junitVersion = '4.+'
+    // For the Jupiter testing tools
+    jupiterVersion = '5.+'
+    jupiterPlatformVersion = '1.7.+'
 
     // For testing
     logbackVersion = '1.2.+'

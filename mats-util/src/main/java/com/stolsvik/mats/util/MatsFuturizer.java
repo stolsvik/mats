@@ -80,7 +80,7 @@ public class MatsFuturizer implements AutoCloseable {
      * Creates a MatsFuturizer, <b>and you should only need one per MatsFactory</b> (which again mostly means one per
      * application or micro-service or JVM). The number of threads in the future-completer-pool is what
      * {@link FactoryConfig#getConcurrency() matsFactory.getFactoryConfig().getConcurrency()} returns at creation time x
-     * 4 for "corePoolSize", but at least 5, (i.e. "min"), and concurrency * 20, but at least 100, for "maximumPoolSize"
+     * 4 for "corePoolSize", but at least 5, (i.e. "min"); and concurrency * 20, but at least 100, for "maximumPoolSize"
      * (i.e. max). The pool is set up to let non-core threads expire after 5 minutes. The maximum number of outstanding
      * promises is set to 50k.
      *
@@ -150,6 +150,11 @@ public class MatsFuturizer implements AutoCloseable {
                 MatsObject.class,
                 this::_handleRepliesForPromises);
         _startTimeouterThread();
+        log.info(LOG_PREFIX + "MatsFuturizer created."
+                + " EndpointIdPrefix:[" + endpointIdPrefix
+                + "], corePoolSize:[" + corePoolSize
+                + "], maxPoolSize:[" + maxPoolSize
+                + "], maxOutstandingPromises:[" + maxOutstandingPromises + "]");
     }
 
     /**
@@ -232,11 +237,11 @@ public class MatsFuturizer implements AutoCloseable {
      * <li><b>Non-persistent</b>: Since it is not vitally important that this message is not lost, non-persistent
      * messaging can be used. The minuscule chance for this message to disappear is not worth the considerable overhead
      * of store-and-forward multiple times to persistent storage. Also, speed is much more interesting.</li>
-     * <li><b>No audit</b>: Since this message will not change the state of the system (i.e. the "GET-style" requests),
-     * using storage on auditing requests and replies is not worthwhile.</li>
      * <li><b>Interactive</b>: Since the Futurizer should only be used as a "synchronous bridge" when a human is
      * actively waiting for the response, the interactive flag is set. <i>(For all other users, you should rather code
      * "proper Mats" with initiations, endpoints and terminators)</i>.</li>
+     * <li><b>No audit</b>: Since this message will not change the state of the system (i.e. the "GET-style" requests),
+     * using storage on auditing requests and replies is not worthwhile.</li>
      * </ul>
      * This method initiates an <b>{@link MatsInitiate#nonPersistent() non-persistent}</b> (unreliable),
      * <b>{@link MatsInitiate#interactive() interactive}</b> (prioritized), <b>{@link MatsInitiate#noAudit()
@@ -272,7 +277,7 @@ public class MatsFuturizer implements AutoCloseable {
     public <T> CompletableFuture<Reply<T>> futurizeNonessential(String traceId, String from, String to,
             Class<T> replyClass, Object request) {
         return futurize(traceId, from, to, 2, TimeUnit.MINUTES, replyClass, request,
-                msg -> msg.interactive().nonPersistent());
+                msg -> msg.nonPersistent().interactive().noAudit());
     }
 
     /**
@@ -292,7 +297,7 @@ public class MatsFuturizer implements AutoCloseable {
      * using.
      * <p/>
      * For a bit more explanation, please read JavaDoc of
-     * {@link #futurizeInteractiveUnreliable(String, String, String, Class, Object) futurizeInteractiveUnreliable(..)}
+     * {@link #futurizeNonessential(String, String, String, Class, Object) futurizeInteractiveUnreliable(..)}
      *
      * @param traceId
      *            TraceId of the resulting Mats call flow, see {@link MatsInitiate#traceId(String)}
@@ -678,12 +683,17 @@ public class MatsFuturizer implements AutoCloseable {
      * <code>@Bean</code>, and will register it as a destroy method.
      */
     public void close() {
-        log.info("MatsFuturizer.close() invoked: Shutting down reply-handler-endpoint, future-completer-threadpool,"
-                + " timeouter-thread, and cancelling any outstanding futures.");
+        if (!_runFlag) {
+            log.info("MatsFuturizer.close() invoked, but runFlag is already false, thus it has already been closed.");
+            return;
+        }
+        log.info("MatsFuturizer.close() invoked: Shutting down & removing reply-handler-endpoint,"
+                + " shutting down future-completer-threadpool, timeouter-thread,"
+                + " and cancelling any outstanding futures.");
         _runFlag = false;
-        _replyHandlerEndpoint.stop(5000);
+        _replyHandlerEndpoint.remove(5000);
         _futureCompleterThreadPool.shutdown();
-        // :: Find all remainging Promises, and notify Timeouter-thread that we're dead.
+        // :: Find all remaining Promises, and notify Timeouter-thread that we're dead.
         List<Promise<?>> promisesToCancel = new ArrayList<>();
         synchronized (_correlationIdToPromiseMap) {
             promisesToCancel.addAll(_timeoutSortedPromises);

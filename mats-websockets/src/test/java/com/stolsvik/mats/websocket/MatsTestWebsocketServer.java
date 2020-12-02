@@ -63,7 +63,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
-import com.stolsvik.mats.serial.json.MatsSerializer_DefaultJson;
+import com.stolsvik.mats.serial.MatsSerializer;
+import com.stolsvik.mats.serial.json.MatsSerializerJson;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSession;
 import com.stolsvik.mats.websocket.MatsSocketServer.ActiveMatsSocketSessionDto;
@@ -112,7 +113,7 @@ public class MatsTestWebsocketServer {
             // ActiveMQ ConnectionFactory
             ConnectionFactory connectionFactory = MatsLocalVmActiveMq.createConnectionFactory(COMMON_AMQ_NAME);
             // MatsSerializer
-            MatsSerializer_DefaultJson matsSerializer = new MatsSerializer_DefaultJson();
+            MatsSerializer<String> matsSerializer = MatsSerializerJson.create();
             // Create the MatsFactory
             _matsFactory = JmsMatsFactory.createMatsFactory_JmsAndJdbcTransactions(
                     MatsTestWebsocketServer.class.getSimpleName(), "*testing*",
