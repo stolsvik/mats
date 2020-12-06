@@ -456,9 +456,22 @@ public class ClusterStoreAndForward_SQL implements ClusterStoreAndForward {
             });
         }
         catch (DataAccessException e) {
+            // ?: The Cause should always be a SQLException.
+            if (!(e.getCause() instanceof SQLException)) {
+                // -> Strangely not
+                throw new AssertionError("The cause of a DataAccessException in ["
+                        + this.getClass().getSimpleName() + "] should always be a SQLException");
+            }
+            // E-> The cause is a SQLException
+            SQLException sqlE = (SQLException) e.getCause();
             // ?: Was the cause here IntegrityConstraintViolation - i.e. "Client MessageId already exists"?
-            if (e.getCause() instanceof SQLIntegrityConstraintViolationException) {
-                // -> Yes, evidently - so throw specific Exception
+            // Either directly instanceof the specific exception, OR (since jTDS /evidently/ does not support this!!),
+            // that the "SQLState" is 23000 (using startsWith, as 23xyz can be considered a "class"),
+            // OR using MS SQL vendor specific error code 2627
+            if ((sqlE instanceof SQLIntegrityConstraintViolationException)
+                    || ((sqlE.getSQLState() != null) && sqlE.getSQLState().startsWith("23"))
+                    || (sqlE.getErrorCode() == 2627)) {
+                // -> Yes, evidently - so throw our specific "already exists" Exception
                 throw new MessageIdAlreadyExistsException("Could not insert the ClientMessageId ["
                         + clientMessageId + "] for MatsSocketSessionId [" + matsSocketSessionId + "].", e);
             }

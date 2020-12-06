@@ -163,8 +163,9 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                     }
                     catch (DataAccessException e) {
                         // DB-Problems: Throw out of the lambda, handled outside, letting Mats do rollback.
-                        throw new DatabaseRuntimeException("Got problems when trying to store incoming " + type
-                                + " Client Message Id [" + incomingEnvelope.cmid + "] in CSAF Inbox", e);
+                        throw new CouldNotStoreIncomingMessageInInbox("Got problems when trying to store"
+                                + " incoming " + type + " Client Message Id [" + incomingEnvelope.cmid
+                                + "] in CSAF Inbox.", e);
                     }
                     catch (MessageIdAlreadyExistsException e) {
                         // -> Already have this in the inbox, so this is a dupe
@@ -178,8 +179,9 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                         }
                         catch (DataAccessException ex) {
                             // DB-Problems: Throw out of the lambda, handled outside, letting Mats do rollback.
-                            throw new DatabaseRuntimeException("Got problems when trying to store incoming " + type
-                                    + " Client Message Id [" + incomingEnvelope.cmid + "] in CSAF Inbox", e);
+                            throw new CouldNotReadPreviousReplyFromInbox("Got problems when trying (after a"
+                                    + " double-delivery) fetch previous answer for " + type + " Client Message Id ["
+                                    + incomingEnvelope.cmid + "] from CSAF Inbox.", e);
                         }
 
                         // ?: Did we have a serialized message here?
@@ -187,15 +189,16 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                             // -> We did NOT have a previous JSON stored, which means that it was the default: ACK
                             handledEnvelope[0].t = MessageType.ACK;
                             // Note that it was a dupe in desc-field
-                            handledEnvelope[0].desc = "dupe " + incomingEnvelope.t + " ACK";
+                            handledEnvelope[0].desc = "dupe " + type + " ACK";
                             log.info("We have evidently got a double-delivery for ClientMessageId ["
-                                    + incomingEnvelope.cmid
-                                    + "] of type [" + incomingEnvelope.t
+                                    + incomingEnvelope.cmid + "] of type [" + type
                                     + "] - it was NOT stored, thus it was an ACK.");
                         }
                         else {
                             // -> Yes, we had the JSON from last processing stored!
-                            log.info("We had an envelope from last time!");
+                            log.info("We have evidently got a double-delivery for ClientMessageId ["
+                                    + incomingEnvelope.cmid + "] of type [" + type
+                                    + "] - we had it stored, so just replying the previous answer again.");
                             // :: We'll just reply whatever we replied previous time.
                             // Deserializing the Envelope
                             // NOTE: Will get any message ('msg'-field) as a String directly representing JSON.
@@ -205,7 +208,8 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                                         .getEnvelopeObjectReader().readValue(messageFromInbox.getFullEnvelope().get());
                             }
                             catch (JsonProcessingException ex) {
-                                throw new AssertionError("Could not deserialize. This should not happen.", ex);
+                                throw new AssertionError("Could not deserialize."
+                                        + " This should seriously not happen.", ex);
                             }
 
                             // Doctor the deserialized envelope: The 'msg' field is currently a proper JSON String,
@@ -214,11 +218,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                             // Now just REPLACE the existing handledEnvelope with the old one.
                             handledEnvelope[0] = previousReplyEnvelope;
                             // Note that it was a dupe in desc-field
-                            handledEnvelope[0].desc = "dupe " + incomingEnvelope.t + " stored";
-                            log.info("We have evidently got a double-delivery for ClientMessageId ["
-                                    + incomingEnvelope.cmid
-                                    + "] of type [" + incomingEnvelope.t + "] - we had it stored, so just replying the"
-                                    + " previous answer again.");
+                            handledEnvelope[0].desc = "dupe " + type + " stored";
                         }
                         // Return from Mats-initiate lambda - We're done here.
                         return;
@@ -228,44 +228,43 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                 else if ((type == RESOLVE) || (type == REJECT)) {
                     // -> Yes, Reply (RESOLVE or REJECT), so we'll get-and-delete the Correlation information.
                     // Find the CorrelationInformation - or NOT, if this is a duplicate delivery.
+                    Optional<RequestCorrelation> correlationInfoO;
                     try {
                         // REMEMBER!! THIS IS WITHIN THE MATS INITIATION TRANSACTION!!
                         // Therefore: Delete won't go through unless entire message handling goes through.
                         // Also: If we get "VERY BAD!", we try to do compensating transaction.
-                        Optional<RequestCorrelation> correlationInfoO = _matsSocketServer.getClusterStoreAndForward()
+                        correlationInfoO = _matsSocketServer.getClusterStoreAndForward()
                                 .getAndDeleteRequestCorrelation(matsSocketSessionId, incomingEnvelope.smid);
-                        // ?: Did we have CorrelationInformation?
-                        if (!correlationInfoO.isPresent()) {
-                            // -> NO, no CorrelationInformation present, so this is a dupe
-                            // Double delivery: Simply say "yes, yes, good, good" to client, as we have already
-                            // processed this one.
-                            log.info("We have evidently got a double-delivery for ClientMessageId ["
-                                    + incomingEnvelope.cmid
-                                    + "] of type [" + incomingEnvelope.t + "], fixing by ACK it again"
-                                    + " (it's already processed).");
-                            handledEnvelope[0].t = ACK;
-                            handledEnvelope[0].desc = "dupe " + incomingEnvelope.t;
-                            // return from lambda
-                            return;
-                        }
-
-                        // E-> YES, we had CorrelationInfo!
-                        RequestCorrelation correlationInfo = correlationInfoO.get();
-                        // Store it for half-assed attempt at un-fucking the situation if we get "VERY BAD!"-situation.
-                        _correlationInfo_LambdaHack[0] = correlationInfo;
-                        log.info("Incoming REPLY for Server-to-Client Request for smid[" + incomingEnvelope.smid
-                                + "], time since request: [" + (System.currentTimeMillis() - correlationInfo
-                                        .getRequestTimestamp()) + " ms].");
-                        correlationString = correlationInfo.getCorrelationString();
-                        correlationBinary = correlationInfo.getCorrelationBinary();
-                        // With a reply to a message initiated on the Server, the targetEID is in the correlation
-                        targetEndpointId = correlationInfo.getReplyTerminatorId();
                     }
                     catch (DataAccessException e) {
-                        // TODO: Do something with these exceptions - more types?
-                        throw new DatabaseRuntimeException("Got problems trying to get Correlation information for"
-                                + " REPLY for smid:[" + incomingEnvelope.smid + "].", e);
+                        throw new CouldNotReadCorrelationInfoException("Got problems trying to get Correlation"
+                                + " information for Reply [" + type + "] for smid:[" + incomingEnvelope.smid + "].", e);
                     }
+                    // ?: Did we have CorrelationInformation?
+                    if (!correlationInfoO.isPresent()) {
+                        // -> NO, no CorrelationInformation present, so this is a dupe
+                        // Double delivery: Simply say "yes, yes, good, good" to client, as we have already
+                        // processed this one.
+                        log.info("We have evidently got a double-delivery for ClientMessageId ["
+                                + incomingEnvelope.cmid + "] of type [" + type + "], fixing by ACK it again"
+                                + " (it's already processed).");
+                        handledEnvelope[0].t = ACK;
+                        handledEnvelope[0].desc = "dupe " + type;
+                        // return from lambda
+                        return;
+                    }
+
+                    // E-> YES, we had CorrelationInfo!
+                    RequestCorrelation correlationInfo = correlationInfoO.get();
+                    // Store it for half-assed attempt at un-fucking the situation if we get "VERY BAD!"-situation.
+                    _correlationInfo_LambdaHack[0] = correlationInfo;
+                    log.info("Incoming REPLY for Server-to-Client Request for smid[" + incomingEnvelope.smid
+                            + "], time since request: [" + (System.currentTimeMillis() - correlationInfo
+                                    .getRequestTimestamp()) + " ms].");
+                    correlationString = correlationInfo.getCorrelationString();
+                    correlationBinary = correlationInfo.getCorrelationBinary();
+                    // With a reply to a message initiated on the Server, the targetEID is in the correlation
+                    targetEndpointId = correlationInfo.getReplyTerminatorId();
                 }
                 else {
                     throw new AssertionError("Received an unhandled message type [" + type + "].");
@@ -361,7 +360,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                             handledEnvelope[0].desc = "An incoming REQUEST envelope was ignored by the MatsSocket"
                                     + " incoming handler.";
                             log.warn("handleIncoming(..) ignored an incoming REQUEST, i.e. neither forwarded, denied"
-                                    + " nor  insta-settled. Replying with [" + handledEnvelope[0] + "] to reject the"
+                                    + " nor insta-settled. Replying with [" + handledEnvelope[0] + "] to reject the"
                                     + " outstanding Request promise.");
                         }
                         else {
@@ -377,6 +376,7 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                                 + " [" + handledEnvelope[0] + "]");
                         break;
                     case RESOLVE:
+                        // .. fallthrough ..
                     case REJECT:
                         // -> Yes, the handleIncoming insta-settled the incoming message, so we insta-reply
                         // NOTICE: We thus elide the "RECEIVED", as the client will handle the missing RECEIVED
@@ -437,11 +437,13 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
                                 incomingEnvelope.cmid, envelopeJson, null);
                     }
                     catch (JsonProcessingException e) {
-                        // TODO: Handle
-                        throw new AssertionError("Hot damn!");
+                        throw new AssertionError("Could not deserialize."
+                                + " This should seriously not happen.", e);
                     }
                     catch (DataAccessException e) {
-                        throw new DatabaseRuntimeException(e);
+                        throw new CouldNotUpdateMessageInInboxException("Got problems when trying to update the"
+                                + " handling of incoming [" + type + "] Client Message Id [" + incomingEnvelope.cmid
+                                + "] with handled type [" + handledEnvelope[0].t + "].", e);
                     }
                 }
                 // NOTE NOTE!! EXITING MATS INITIATION TRANSACTIONAL DEMARCATION!! NOTE NOTE!!
@@ -457,20 +459,21 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
             handledEnvelope[0].t = RETRY;
             handledEnvelope[0].desc = e.getClass().getSimpleName() + ": " + e.getMessage();
         }
-        catch (DatabaseRuntimeException e) {
-            // Problems adding the ClientMessageId to outbox. Ask client to RETRY.
+        catch (CouldNotStoreIncomingMessageInInbox
+                | CouldNotReadPreviousReplyFromInbox
+                | CouldNotReadCorrelationInfoException
+                | CouldNotUpdateMessageInInboxException e) {
+            // Handling several different problems within the incoming handler
             incomingEnvelope.ir = IncomingResolution.EXCEPTION;
-            // TODO: This log line is wrong.
-            log.warn("Got problems storing incoming ClientMessageId in inbox - replying RETRY to client.",
-                    e);
+            log.warn("Database problems in incoming handler - replying RETRY to client, hoping that our database"
+                    + " problems have resolved when it comes back in.", e);
             handledEnvelope[0].t = RETRY;
             handledEnvelope[0].desc = e.getClass().getSimpleName() + ':' + e.getMessage();
         }
         catch (MatsBackendRuntimeException e) {
             // Evidently got problems talking to Mats backend, probably DB commit fail. Ask client to RETRY.
             incomingEnvelope.ir = IncomingResolution.EXCEPTION;
-            log.warn("Got problems running handleIncoming(..), probably due to DB - replying RETRY to client.",
-                    e);
+            log.warn("Got problems running handleIncoming(..), probably due to DB - replying RETRY to client.", e);
             handledEnvelope[0].t = RETRY;
             handledEnvelope[0].desc = e.getClass().getSimpleName() + ':' + e.getMessage();
         }
@@ -592,12 +595,35 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
     /**
      * Raised if problems during handling of incoming information-bearing message in Mats stages. Leads to RETRY.
      */
-    private static class DatabaseRuntimeException extends RuntimeException {
-        public DatabaseRuntimeException(Exception e) {
-            super(e);
+    private static class CouldNotStoreIncomingMessageInInbox extends RuntimeException {
+        public CouldNotStoreIncomingMessageInInbox(String message, Throwable cause) {
+            super(message, cause);
         }
+    }
 
-        public DatabaseRuntimeException(String message, Throwable cause) {
+    /**
+     * Raised if problems during handling of incoming information-bearing message in Mats stages. Leads to RETRY.
+     */
+    private static class CouldNotReadPreviousReplyFromInbox extends RuntimeException {
+        public CouldNotReadPreviousReplyFromInbox(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * Raised if problems during handling of incoming information-bearing message in Mats stages. Leads to RETRY.
+     */
+    private static class CouldNotReadCorrelationInfoException extends RuntimeException {
+        public CouldNotReadCorrelationInfoException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * Raised if problems during handling of incoming information-bearing message in Mats stages. Leads to RETRY.
+     */
+    private static class CouldNotUpdateMessageInInboxException extends RuntimeException {
+        public CouldNotUpdateMessageInInboxException(String message, Throwable cause) {
             super(message, cause);
         }
     }
@@ -858,8 +884,9 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
         @Override
         public void resolve(R matsSocketResolveMessage) {
             if (getMessageType() != REQUEST) {
-                throw new IllegalStateException("This is not a Request, thus you cannot resolve nor reject it."
-                        + " For a SEND, your options is to deny() it, forward it to Mats, or ignore it (and just return).");
+                throw new IllegalStateException("This is not a REQUEST, thus you cannot Resolve nor Reject it."
+                        + " For a SEND, your options is to deny() it, forward it to Mats, handle it directly in the"
+                        + " incoming handler, or ignore it (and just return).");
             }
             if (_handled != IncomingResolution.NO_ACTION) {
                 throw new IllegalStateException("Already handled.");
@@ -871,8 +898,9 @@ public class IncomingSrrMsgHandler implements MatsSocketStatics {
         @Override
         public void reject(R matsSocketRejectMessage) {
             if (getMessageType() != REQUEST) {
-                throw new IllegalStateException("This is not a Request, thus you cannot resolve nor reject it."
-                        + " For a SEND, your options is to deny() it, forward it to Mats, or ignore it (and just return).");
+                throw new IllegalStateException("This is not a REQUEST, thus you cannot Resolve nor Reject it."
+                        + " For a SEND, your options is to deny() it, forward it to Mats, handle it directly in the"
+                        + " incoming handler, or ignore it (and just return).");
             }
             if (_handled != IncomingResolution.NO_ACTION) {
                 throw new IllegalStateException("Already handled.");
