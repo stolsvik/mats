@@ -12,6 +12,8 @@ dependencies {
     testCompile project(":mats-test-junit")
     testCompile project(":mats-serial-json")
 
+    testCompile project(":mats-spring-test")
+
     testCompile "org.slf4j:log4j-over-slf4j:$slf4jVersion"
     testCompile "ch.qos.logback:logback-classic:$logbackVersion"
 }

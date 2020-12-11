@@ -1,8 +1,7 @@
-package com.stolsvik.mats.spring.test.matsmappings;
+package com.stolsvik.mats.spring.matsmappings;
 
 import javax.inject.Inject;
 
-import com.stolsvik.mats.spring.MatsEndpointSetup;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -13,15 +12,18 @@ import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.spring.Dto;
+import com.stolsvik.mats.spring.MatsEndpointSetup;
 import com.stolsvik.mats.spring.MatsMapping;
+import com.stolsvik.mats.spring.SpringTestDataTO;
+import com.stolsvik.mats.spring.SpringTestStateTO;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsTestContext;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
- * Basic test of the {@link MatsEndpointSetup @MatsEndpointSetup} annotation, both without and with {@link EndpointConfig} in the
- * setup method, and also testing the default-to-Void for state STO and reply-DTO.
+ * Basic test of the {@link MatsEndpointSetup @MatsEndpointSetup} annotation, both without and with
+ * {@link EndpointConfig} in the setup method, and also testing the default-to-Void for state STO and reply-DTO.
  *
  * @author Endre Stølsvik - 2016-08-07 - http://endre.stolsvik.com
  */
@@ -41,7 +43,8 @@ public class MatsSpringDefined_MatsEndpointSetup {
         /**
          * Sets up a multi-staged endpoint using the @MatsEndpointSetup facility.
          */
-        @MatsEndpointSetup(endpointId = ENDPOINT_ID + MULTI, state = SpringTestStateTO.class, reply = SpringTestDataTO.class)
+        @MatsEndpointSetup(endpointId = ENDPOINT_ID
+                + MULTI, state = SpringTestStateTO.class, reply = SpringTestDataTO.class)
         public void springMatsStagedEndpoint(MatsEndpoint<SpringTestDataTO, SpringTestStateTO> ep) {
             ep.stage(SpringTestDataTO.class, (context, sto, dto) -> {
                 Assert.assertEquals(new SpringTestStateTO(0, null), sto);

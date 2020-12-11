@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.test.matsmappings;
+package com.stolsvik.mats.spring.matsmappings;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +19,8 @@ import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsClassMapping;
 import com.stolsvik.mats.spring.MatsClassMapping.Stage;
 import com.stolsvik.mats.spring.MatsMapping;
+import com.stolsvik.mats.spring.SpringTestDataTO;
+import com.stolsvik.mats.spring.SpringTestStateTO;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsTestContext;
 import com.stolsvik.mats.test.MatsTestLatch;

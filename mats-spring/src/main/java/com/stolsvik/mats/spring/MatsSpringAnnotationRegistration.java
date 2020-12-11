@@ -801,7 +801,8 @@ public class MatsSpringAnnotationRegistration implements
         // :: Find reply type: Get return type of last Stage
 
         Method lastStageMethod = stagesByOrdinal.get(stagesByOrdinal.lastKey());
-        // .. modify replyClass if it is Void.class to void.class.. Nuances.. They matter.. (void.class == Void.TYPE)
+        // .. modify replyClass if it is Void.class to void.class.. Nuances.. They matter..
+        // NOTE: void.class == Void.TYPE, while Void.class != Void.TYPE
         Class<?> replyClass = lastStageMethod.getReturnType() == Void.class
                 ? void.class
                 : lastStageMethod.getReturnType();
@@ -867,9 +868,15 @@ public class MatsSpringAnnotationRegistration implements
                 // -> Yes, ProcessContext - we store the reference for later, so that we can set it upon processing.
                 // Get ReplyType of ProcessContext. NOTE: It shall return a ParameterizedType, as it has type parameter.
                 ParameterizedType genericType = (ParameterizedType) field.getGenericType();
-                Type replyTypeParameter = genericType.getActualTypeArguments()[0];
-                log.info(LOG_PREFIX + " - Field [" + name + "] is Mats' ProcessContext<" + replyTypeParameter.getClass()
-                        .getSimpleName() + "> - reply type parameter is [" + replyTypeParameter + "]");
+                Type processContextReplyType = genericType.getActualTypeArguments()[0];
+
+                log.info(LOG_PREFIX + " - Field [" + name + "] is Mats' ProcessContext<" + processContextReplyType
+                        .getClass().getSimpleName() + "> - reply type parameter is [" + processContextReplyType + "]");
+                // ?: Is this Void.class? In that case, change it to void.class - see similar logic for replyClass.
+                if (processContextReplyType == Void.class) {
+                    // -> Yes, Void.class, i.e. ProcessContext<Void>. Change it to 'void'.
+                    processContextReplyType = void.class;
+                }
                 if (processContextField_hack[0] != null) {
                     throw new MatsSpringConfigException("The @MatsClassMapping endpoint at class '"
                             + classNameWithoutPackage(bean) + "' evidently has more than one ProcessContext field."
@@ -877,12 +884,12 @@ public class MatsSpringAnnotationRegistration implements
                             + "\n  - This field:     [" + field + "]"
                             + "\n  - Previous field: [" + processContextField_hack[0] + "]");
                 }
-                if (replyTypeParameter != replyClass) {
+                if (processContextReplyType != replyClass) {
                     throw new MatsSpringConfigException("The @MatsClassMapping endpoint at class '"
                             + classNameWithoutPackage(bean) + "' has a ProcessContext field where the reply type"
                             + " does not match the resolved reply type from the last Stage."
                             + " ProcessContext Field: [" + field + "]"
-                            + "\n  - Type from field:   ProcessContext<" + replyTypeParameter + ">"
+                            + "\n  - Type from field:   ProcessContext<" + processContextReplyType + ">"
                             + "\n  - Reply type resolved from Stages: [" + replyClass + "]");
                 }
                 processContextField_hack[0] = field;
@@ -1057,8 +1064,8 @@ public class MatsSpringAnnotationRegistration implements
                 // .. then clear fields before going out of lambda.
                 clearFields.run();
 
-                // ?: Is this the last stage?
-                if (method == lastStageMethod) {
+                // ?: Is this the last stage, and we're not in a "Terminator", void-returning endpoint?
+                if ((method == lastStageMethod) && (replyClass != void.class)) {
                     // -> Yes, this is the last stage - so return whatever the invocation came up with.
                     originalProcessContext.reply(helperCast(o));
                 }

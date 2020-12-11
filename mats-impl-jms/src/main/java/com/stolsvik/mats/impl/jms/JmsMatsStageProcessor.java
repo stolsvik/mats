@@ -212,10 +212,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     private void runner() {
         // :: OUTER RUN-LOOP, where we'll get a fresh JMS Session, Destination and MessageConsumer.
         OUTER: while (_runFlag) {
-            // :: Cleanup of MDC (for subsequent messages, also after Exceptions..)
-            MDC.clear();
-            // Set the "static" MDC values, since we just MDC.clear()'ed
-            setStaticMdcValues();
+            // :: Clean MDC and set the "static" MDC values, since we just MDC.clear()'ed
+            clearAndSetStaticMdcValues();
             log.info(LOG_PREFIX + "Getting JMS Session, Destination and Consumer for stage ["
                     + _jmsMatsStage.getStageId() + "].");
             { // Local-scope the 'newJmsSessionHolder' variable.
@@ -264,9 +262,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                 // :: INNER RECEIVE-LOOP, where we'll use the JMS Session and MessageConsumer.receive().
                 while (_runFlag) {
                     // :: Cleanup of MDC (for subsequent messages, also after Exceptions..)
-                    MDC.clear();
-                    // Set the "static" MDC values, since we just MDC.clear()'ed
-                    setStaticMdcValues();
+                    clearAndSetStaticMdcValues();
                     // Check whether Session/Connection is ok (per contract with JmsSessionHolder)
                     _jmsSessionHolder.isSessionOk();
                     // :: GET NEW MESSAGE!! THIS IS THE MESSAGE PUMP!
@@ -488,7 +484,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                     for (JmsMatsMessage<Z> msg : messagesToSend) {
                                         allTraceIds.add(msg.getMatsTrace().getTraceId());
                                     }
-                                    // Set new concat'ed traceId (will probably still just be one..)
+                                    // Set new concat'ed traceId (will probably still just be one..!)
                                     MDC.put(MDC_TRACE_ID, String.join(";", allTraceIds));
                                 }
                             }
@@ -502,7 +498,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                         log.info(LOG_PREFIX + "Got [" + e.getClass().getName()
                                 + "] inside transactional message processing, which shall have been handled by"
                                 + " the MATS TransactionManager (rollback). Looping to fetch next message.");
-                        // No more to do, so loop. Notice that this code is not involved in initiations..
+                        // No more to do, so loop. (Remember that this code is not involved in initiations..)
                         continue;
                     }
                     finally {
@@ -524,8 +520,10 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
                     // :: Log final stats
                     double millisTotal = (System.nanoTime() - nanosStart) / 1_000_000d;
+                    MDC.put(MDC_MATS_TOTAL_PROCESS_TIME, Double.toString(ms3(millisTotal)));
                     log.info(LOG_PREFIX + "PROCESSED: Total time from received till finished processing: ["
                             + ms3(millisTotal) + " ms].");
+                    // MDC is cleared afterwards, at top of loop.
                 } // End: INNER RECEIVE-LOOP
             }
 
@@ -580,19 +578,20 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
             }
         } // END: OUTER RUN-LOOP
 
-        // If we exited out while processing, just clean up so that the final line does not look like it came from msg.
-
-        // NOTE: The StageProcessor /owns/ this thread, so we do not need to bother about cleanliness of MDC handling.
-        // Just clear the MDC.
-        MDC.clear();
-        // .. but set the "static" values again
-        setStaticMdcValues();
+        // If we exited out while processing, just clean up so that the exit line does not look like it came from msg.
+        clearAndSetStaticMdcValues();
+        // log "exit line".
         log.info(LOG_PREFIX + ident() + " asked to exit, and that we do! Closing current JmsSessionHolder.");
         closeCurrentSessionHolder();
         _jmsMatsStage.removeStageProcessorFromList(this);
     }
 
-    private void setStaticMdcValues() {
+    private void clearAndSetStaticMdcValues() {
+        // NOTE: The StageProcessor /owns/ this thread, so we do not need to bother about cleanliness of MDC handling.
+        // Just clear the MDC.
+        MDC.clear();
+
+        // Set the "static" values again
         MDC.put(MDC_MATS_STAGE_ID, _jmsMatsStage.getStageId());
         // Notice that this is the qualifier of processor id, needs to take the stageId as prefix.
         // .. but to save some space, we don't repeat that.

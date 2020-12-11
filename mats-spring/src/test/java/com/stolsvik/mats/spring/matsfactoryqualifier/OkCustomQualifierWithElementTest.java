@@ -16,6 +16,8 @@ import org.springframework.context.annotation.Bean;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
+import com.stolsvik.mats.spring.SpringTestDataTO;
+import com.stolsvik.mats.spring.SpringTestStateTO;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.test.MatsTestLatch;
 

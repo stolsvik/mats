@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.spring.MatsClassMapping;
 import com.stolsvik.mats.spring.MatsClassMapping.Stage;
-import com.stolsvik.mats.spring.test.matsmappings.SpringTestDataTO;
+import com.stolsvik.mats.spring.test.SpringTestDataTO;
 
 /**
  * @author Endre Stølsvik 2020-11-16 21:10 - http://stolsvik.com/, endre@stolsvik.com

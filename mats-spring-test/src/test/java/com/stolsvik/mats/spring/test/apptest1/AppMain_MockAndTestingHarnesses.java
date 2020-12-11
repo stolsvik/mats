@@ -18,7 +18,7 @@ import com.stolsvik.mats.spring.jms.factories.MatsScenario;
 import com.stolsvik.mats.spring.jms.factories.ConnectionFactoryWithStartStopWrapper;
 import com.stolsvik.mats.spring.jms.factories.ScenarioConnectionFactoryProducer;
 import com.stolsvik.mats.spring.jms.factories.SpringJmsMatsFactoryProducer;
-import com.stolsvik.mats.spring.test.matsmappings.SpringTestDataTO;
+import com.stolsvik.mats.spring.test.SpringTestDataTO;
 import com.stolsvik.mats.util.MatsFuturizer;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 

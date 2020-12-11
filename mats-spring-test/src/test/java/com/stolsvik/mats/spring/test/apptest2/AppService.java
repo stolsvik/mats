@@ -11,8 +11,8 @@ import org.springframework.stereotype.Service;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.spring.test.apptest2.AppMain_TwoMatsFactories.TestQualifier;
-import com.stolsvik.mats.spring.test.matsmappings.SpringTestDataTO;
-import com.stolsvik.mats.spring.test.matsmappings.SpringTestStateTO;
+import com.stolsvik.mats.spring.test.SpringTestDataTO;
+import com.stolsvik.mats.spring.test.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 

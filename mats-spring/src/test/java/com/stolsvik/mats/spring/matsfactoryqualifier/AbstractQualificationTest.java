@@ -16,6 +16,8 @@ import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
 import com.stolsvik.mats.serial.json.MatsSerializerJson;
 import com.stolsvik.mats.spring.EnableMats;
+import com.stolsvik.mats.spring.SpringTestDataTO;
+import com.stolsvik.mats.spring.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;

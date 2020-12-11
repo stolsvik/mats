@@ -15,7 +15,7 @@ import org.springframework.test.context.junit4.SpringRunner;
 
 import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.test.MatsTestInfrastructureConfiguration;
-import com.stolsvik.mats.spring.test.matsmappings.SpringTestDataTO;
+import com.stolsvik.mats.spring.test.SpringTestDataTO;
 import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.util.MatsFuturizer;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;

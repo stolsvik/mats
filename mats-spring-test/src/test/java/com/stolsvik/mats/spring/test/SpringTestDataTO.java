@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.matsfactoryqualifier;
+package com.stolsvik.mats.spring.test;
 
 /**
  * A <i>Data Transfer Object</i> meant for unit tests.

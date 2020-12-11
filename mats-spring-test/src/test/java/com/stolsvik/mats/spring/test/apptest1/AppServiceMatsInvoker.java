@@ -9,7 +9,7 @@ import javax.inject.Inject;
 
 import org.springframework.stereotype.Service;
 
-import com.stolsvik.mats.spring.test.matsmappings.SpringTestDataTO;
+import com.stolsvik.mats.spring.test.SpringTestDataTO;
 import com.stolsvik.mats.util.MatsFuturizer;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 

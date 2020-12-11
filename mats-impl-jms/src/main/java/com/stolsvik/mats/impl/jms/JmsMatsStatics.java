@@ -44,10 +44,10 @@ public interface JmsMatsStatics {
     String MDC_MATS_PROCESSOR_ID = "mats.ProcessorId"; // "Static" on Processor
     String MDC_MATS_RECEIVED_FROM = "mats.ReceivedFrom"; // Set by Processor when receiving a message
 
-    String MDC_JMS_MESSAGE_ID_IN = "mats.JMSMessageID.In"; // Set by Processor when receiving a message
     String MDC_MATS_MESSAGE_ID_IN = "mats.MatsMessageId.In"; // Set by Processor when receiving a message
-    String MDC_JMS_MESSAGE_ID_OUT = "mats.JMSMessageID.Out"; // Set when a message *has been sent* on JMS
+    String MDC_JMS_MESSAGE_ID_IN = "mats.JMSMessageID.In"; // Set by Processor when receiving a message
     String MDC_MATS_MESSAGE_ID_OUT = "mats.MatsMessageId.Out"; // Set when producing and sending a message
+    String MDC_JMS_MESSAGE_ID_OUT = "mats.JMSMessageID.Out"; // Set when a message *has been sent* on JMS
 
     String MDC_MATS_INCOMING = "mats.Incoming"; // "true"/not set: "Static" true on Processor
     String MDC_MATS_INITIATE = "mats.Initiate"; // "true"/not set: Set when initiating a message
@@ -56,6 +56,8 @@ public interface JmsMatsStatics {
     String MDC_MATS_MESSAGE_SEND_FROM = "mats.MsgSend.From"; // Set when producing and sending a message
     String MDC_MATS_MESSAGE_SEND_TO = "mats.MsgSend.To"; // Set when producing and sending a message
     String MDC_MATS_MESSAGE_SEND_AUDIT = "mats.MsgSend.Audit"; // Set when producing and sending a message
+
+    String MDC_MATS_TOTAL_PROCESS_TIME = "mats.time.TotalProcess"; // Set when finished StageProcessing a message.
 
     // JMS Properties put on the JMSMessage via setStringProperty(..) and setBooleanProperty(..).
     String JMS_MSG_PROP_FROM = "mats.From"; // String
@@ -296,11 +298,11 @@ public interface JmsMatsStatics {
                 finally {
                     // :: Restore MDC
                     // TraceId
-                    if (existingTraceId == null) {
-                        MDC.remove(MDC_TRACE_ID);
+                    if (existingTraceId != null) {
+                        MDC.put(MDC_TRACE_ID, existingTraceId);
                     }
                     else {
-                        MDC.put(MDC_TRACE_ID, existingTraceId);
+                        MDC.remove(MDC_TRACE_ID);
                     }
                     // The rest..
                     MDC.remove(MDC_MATS_MESSAGE_ID_OUT);

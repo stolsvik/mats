@@ -25,7 +25,7 @@ import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.test.TestSpringMatsFactoryProvider;
 import com.stolsvik.mats.spring.test.apptest1.Test_B_PieceTogetherNeededAppComponents_Manual.TestConfiguration;
 import com.stolsvik.mats.spring.test.apptest2.AppMain_TwoMatsFactories;
-import com.stolsvik.mats.spring.test.matsmappings.SpringTestDataTO;
+import com.stolsvik.mats.spring.test.SpringTestDataTO;
 import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.util.MatsFuturizer;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;

@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.test.matsmappings;
+package com.stolsvik.mats.spring.matsmappings;
 
 import javax.inject.Inject;
 
@@ -12,6 +12,8 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.MatsMapping;
+import com.stolsvik.mats.spring.SpringTestDataTO;
+import com.stolsvik.mats.spring.SpringTestStateTO;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsTestContext;
 import com.stolsvik.mats.test.MatsTestLatch;

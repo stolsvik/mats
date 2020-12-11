@@ -18,8 +18,8 @@ import com.stolsvik.mats.spring.MatsClassMapping.Stage;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.apptest2.AppMain_TwoMatsFactories.TestQualifier;
-import com.stolsvik.mats.spring.test.matsmappings.SpringTestDataTO;
-import com.stolsvik.mats.spring.test.matsmappings.SpringTestStateTO;
+import com.stolsvik.mats.spring.test.SpringTestDataTO;
+import com.stolsvik.mats.spring.test.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch;
 
 /**

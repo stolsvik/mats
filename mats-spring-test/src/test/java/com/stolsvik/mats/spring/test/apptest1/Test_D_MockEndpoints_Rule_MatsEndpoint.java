@@ -13,7 +13,7 @@ import org.springframework.test.context.junit4.SpringRunner;
 import com.stolsvik.mats.test.junit.Rule_MatsEndpoint;
 import com.stolsvik.mats.spring.test.MatsTestInfrastructureConfiguration;
 import com.stolsvik.mats.spring.test.SpringInjectRulesAndExtensions;
-import com.stolsvik.mats.spring.test.matsmappings.SpringTestDataTO;
+import com.stolsvik.mats.spring.test.SpringTestDataTO;
 import com.stolsvik.mats.test.MatsTestHelp;
 
 /**
