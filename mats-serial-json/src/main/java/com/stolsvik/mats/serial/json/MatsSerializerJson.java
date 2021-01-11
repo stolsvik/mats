@@ -29,15 +29,14 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  * Implementation of {@link MatsSerializer} that employs <a href="https://github.com/FasterXML/jackson">Jackson JSON
  * library</a> for serialization and deserialization, and compress and decompress using {@link Deflater} and
  * {@link Inflater}.
- * <p>
+ * <p />
  * The Jackson {@link ObjectMapper} is configured to only handle fields (think "data struct"), i.e. not use setters or
  * getters; and to only include non-null fields; and upon deserialization to ignore properties from the JSON that has no
  * field in the class to be deserialized into (both to enable the modification of DTOs on the client side by removing
  * fields that aren't used in that client scenario, and to handle <i>widening conversions<i> for incoming DTOs), and to
  * use string serialization for dates (and handle the JSR310 new dates):
- * <p>
- *
  * <pre>
+ * // Create Jackson ObjectMapper
  * ObjectMapper mapper = new ObjectMapper();
  * // Do not use setters and getters, thus only fields, and ignore visibility modifiers.
  * mapper.setVisibility(PropertyAccessor.ALL, Visibility.NONE);
@@ -56,7 +55,7 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
-public class MatsSerializerJson  implements MatsSerializer<String> {
+public class MatsSerializerJson implements MatsSerializer<String> {
 
     public static String IDENTIFICATION = "MatsTrace_JSON_v1";
 
@@ -176,7 +175,7 @@ public class MatsSerializerJson  implements MatsSerializer<String> {
                 meta = COMPRESS_PLAIN;
             }
 
-            return new MatsSerializerJson.SerializedMatsTraceImpl(compressedBytes, meta, serializedBytes.length, serializationMillis,
+            return new SerializedMatsTraceImpl(compressedBytes, meta, serializedBytes.length, serializationMillis,
                     compressionMillis);
         }
         catch (JsonProcessingException e) {
@@ -279,7 +278,7 @@ public class MatsSerializerJson  implements MatsSerializer<String> {
             }
 
             double deserializationMillis = (System.nanoTime() - nanosStartDeserialization) / 1_000_000d;
-            return new MatsSerializerJson.DeserializedMatsTraceImpl(matsTrace, decompressedBytesLength, deserializationMillis,
+            return new DeserializedMatsTraceImpl(matsTrace, decompressedBytesLength, deserializationMillis,
                     decompressionMillis);
         }
         catch (IOException e) {
@@ -357,7 +356,7 @@ public class MatsSerializerJson  implements MatsSerializer<String> {
             noArgsConstructor = clazz.getDeclaredConstructor();
         }
         catch (NoSuchMethodException e) {
-            throw new MatsSerializerJson.CannotCreateEmptyInstanceException("Missing no-args constructor on class ["
+            throw new CannotCreateEmptyInstanceException("Missing no-args constructor on class ["
                     + clazz.getName() + "].", e);
         }
         try {
@@ -365,7 +364,7 @@ public class MatsSerializerJson  implements MatsSerializer<String> {
             return noArgsConstructor.newInstance();
         }
         catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
-            throw new MatsSerializerJson.CannotCreateEmptyInstanceException("Couldn't create new empty instance of class ["
+            throw new CannotCreateEmptyInstanceException("Couldn't create new empty instance of class ["
                     + clazz.getName() + "].", e);
         }
     }
@@ -418,7 +417,7 @@ public class MatsSerializerJson  implements MatsSerializer<String> {
                     outputStream.write(buffer, 0, count);
                 }
                 catch (DataFormatException e) {
-                    throw new MatsSerializerJson.DecompressionException("DataFormatException was bad here.", e);
+                    throw new DecompressionException("DataFormatException was bad here.", e);
                 }
             }
             try {

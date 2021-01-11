@@ -13,9 +13,8 @@ import org.junit.ClassRule;
 import org.junit.Test;
 
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
-import com.stolsvik.mats.test.junit.Rule_Mats;
-import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.test.MatsTestHelp;
+import com.stolsvik.mats.test.junit.Rule_Mats;
 import com.stolsvik.mats.util.MatsFuturizer.MatsFuturizerTimeoutException;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 

@@ -51,7 +51,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private Long tidh; // For future OpenTracing support: 16-byte TraceId HIGH
     private Long tidl; // For future OpenTracing support: 16-byte TraceId LOW
     private Long sid; // For future OpenTracing support: Override SpanId for root
-    private Long pid; // For future OpenTracing support: ParentId
+    private Long pid; // For future OpenTracing support: ParentId (note: "ChildOf" in spec)
     private Byte f; // For future OpenTracing support: Flags
 
     private int d; // For future Debug options, issue #79
@@ -65,15 +65,15 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     private String auth; // For future Auth support: Initializing Authorization header, e.g. "Bearer: ....".
 
-    private String sig; // For future Signature support: Signature of central pieces of information in the trace.
-    // Note regarding signature: This is meant for the initial elements of the trace, kept in the trace.
-    // The entire message is also signed, and the signature is kept in byte-sideloads.
-
     private final KeepMatsTrace kt; // KeepMatsTrace.
     private final Boolean np; // NonPersistent.
     private final Boolean ia; // Interactive.
     private final Long tl; // Time-To-Live, null if 0, where 0 means "forever".
     private final Boolean na; // NoAudit.
+
+    private String sig; // For future Signature support: Signature of central pieces of information in the trace.
+    // Note regarding signature: This is meant for the initial elements of the trace, kept in the trace.
+    // The entire message is also signed, and the signature is kept in byte-sideloads.
 
     private int cn; // Call Number. Not final due to clone-impl.
     private int tcn; // For future "StackOverflow" detector: "Total Call Number", does not reset when initiation within.

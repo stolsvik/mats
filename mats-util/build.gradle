@@ -3,10 +3,16 @@
 dependencies {
     compile project(':mats-api')
     
-    compile "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
-
     // The SFL4J API. Since you should provide the SLF4J implementation yourself, we use compileOnly.
     compileOnly "org.slf4j:slf4j-api:$slf4jVersion"
 
-    testCompile project(':mats-api-test')
+    // :: TEST
+
+    // The JUnit library
+    testImplementation "junit:junit:$junitVersion"
+    // Mats-specific JUnit test classes
+    testImplementation project(":mats-test-junit")
+    // Logging
+    testImplementation "org.slf4j:log4j-over-slf4j:$slf4jVersion"
+    testImplementation "ch.qos.logback:logback-classic:$logbackVersion"
 }

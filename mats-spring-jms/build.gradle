@@ -3,11 +3,16 @@
 dependencies {
     compile project(":mats-spring")
     compile project(":mats-impl-jms")
-    compileOnly project(":mats-util_activemq")
 
     compile "org.springframework:spring-context:$springVersion"
     compile "org.springframework:spring-tx:$springVersion"
     compile "org.springframework:spring-jdbc:$springVersion"
+
+    // :: compileOnly
+
+    // The ScenarioConnectionFactoryProducer employs the MatsLocalVmActiveMq if in testing, but this should be
+    // imported on the testImplementation classpath of the project.
+    compileOnly project(":mats-util_activemq")
 
     // The SFL4J API. Since you should provide the SLF4J implementation yourself, we use compileOnly.
     compileOnly "org.slf4j:slf4j-api:$slf4jVersion"
@@ -15,7 +20,7 @@ dependencies {
     // The ActiveMQ Client, used as default in the JmsSpringConnectionFactoryProducer. Bring your own, so compileOnly.
     compileOnly "org.apache.activemq:activemq-client:$activeMqVersion"
 
-    // Test:
+    // :: TEST
 
     testCompile project(":mats-test")
     testCompile project(":mats-spring")

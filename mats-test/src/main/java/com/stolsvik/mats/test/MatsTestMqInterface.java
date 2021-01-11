@@ -26,7 +26,7 @@ import com.stolsvik.mats.serial.MatsTrace.Call;
  * <p />
  * Usage: If employing the Mats test tools, one of these should have been created for you. For the JUnit Rule_Mats, and
  * JUnit Jupiter Extension_Mats, there's a getter directly on the rule/extension instance. For Spring, employing the
- * <code>@MatsTestContext</code> or corresponding * <code>MatsTestInfrastructureConfiguration</code>, there is one in
+ * <code>@MatsTestContext</code> or corresponding <code>MatsTestInfrastructureConfiguration</code>, there is one in
  * the context. If you do not use those tools, you will have to create a instance of this class as a Spring bean
  * yourself - either directly by using the {@link #create(ConnectionFactory, MatsSerializer, String, String) create(..)}
  * methods taking parameters, or indirectly by using the {@link #createForLaterPopulation()} variant, and rely on the

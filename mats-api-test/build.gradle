@@ -1,14 +1,17 @@
 // mats-lib-test: Testing the Mats API itself (not testing util classes)
 
 dependencies {
-    // Need the testing tools
-    compile project(":mats-test-junit")
-    // RandomString
-    compile project(":mats-util")
-    // Logging
-    compile "org.slf4j:log4j-over-slf4j:$slf4jVersion"
-    compile "ch.qos.logback:logback-classic:$logbackVersion"
 
+    // :: TEST (this is ONLY a test project! No deps for main/java)
+
+    // Well, should pretty obviously need the API
     testCompile project(":mats-api")
+    // Need the testing tools, using JUnit
+    testCompile project(":mats-test-junit")
+    // RandomString
     testCompile project(":mats-util")
+    // Logging
+    testCompile "org.slf4j:log4j-over-slf4j:$slf4jVersion"
+    testCompile "ch.qos.logback:logback-classic:$logbackVersion"
+
 }

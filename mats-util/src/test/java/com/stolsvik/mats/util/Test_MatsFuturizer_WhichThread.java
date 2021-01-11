@@ -12,9 +12,8 @@ import org.junit.ClassRule;
 import org.junit.Test;
 import org.slf4j.Logger;
 
-import com.stolsvik.mats.test.junit.Rule_Mats;
-import com.stolsvik.mats.lib_test.DataTO;
 import com.stolsvik.mats.test.MatsTestHelp;
+import com.stolsvik.mats.test.junit.Rule_Mats;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 
 /**

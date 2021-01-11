@@ -1,34 +1,37 @@
 // mats-test-jupiter
 
 dependencies {
-    compile(project(':mats-test')) {
-        exclude group:'junit', module:'junit'
-    }
+    // This module is an "extension" of Jupiter (JUnit5) - and we employ classes from it, so API-level dependency.
+    api "org.junit.jupiter:junit-jupiter-api:$jupiterVersion"
+
+    // This module extends the generic "Unit" implementations in mats-test
+    // Also the few tools in there should be transitive, so want it exported as transitive dep. Using API.
+    api project(':mats-test')
 
     // Need the MatsSerializer_DefaultJson
     implementation project(":mats-serial-json")
 
-    compile "javax.inject:javax.inject:1"
-    implementation "org.springframework:spring-test:$springVersionForJupiter"
-    implementation "org.springframework:spring-beans:$springVersionForJupiter"
-    implementation "org.springframework:spring-context:$springVersionForJupiter"
-    // The Jupiter library (JUnit 5)
-    implementation "org.junit.jupiter:junit-jupiter-api:$jupiterVersion"
+    // The Extension_MatsEndpoint is annotated with @Inject to hook into Spring injection if relevant.
+    implementation "javax.inject:javax.inject:1"
 
+    // :: TEST
+
+    testImplementation project(':mats-spring-test')
+    testImplementation project(':mats-util')
     // Logging
     testImplementation "org.slf4j:log4j-over-slf4j:$slf4jVersion"
     testImplementation "ch.qos.logback:logback-classic:$logbackVersion"
 
-    testImplementation project(':mats-util')
-    testImplementation project(':mats-spring-test')
-
+    // The Jupiter Runtime..?
     testImplementation "org.junit.jupiter:junit-jupiter-api:$jupiterVersion"
     testImplementation "org.junit.jupiter:junit-jupiter-params:$jupiterVersion"
     testImplementation "org.junit.platform:junit-platform-launcher:$jupiterPlatformVersion"
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:$jupiterVersion"
+
     testImplementation ("org.springframework:spring-test:$springVersionForJupiter") {
         exclude group:'junit', module:'junit'
     }
-    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:$jupiterVersion"
+    testImplementation "org.springframework:spring-context:$springVersionForJupiter"
 }
 
 test {
