@@ -51,6 +51,11 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         return _stageConfig;
     }
 
+    @Override
+    public JmsMatsEndpoint<R, S, Z> getParentEndpoint() {
+        return _parentEndpoint;
+    }
+
     boolean isQueue() {
         return _queue;
     }
@@ -83,10 +88,6 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
     String getNextStageId() {
         return _nextStageId;
-    }
-
-    JmsMatsEndpoint<R, S, Z> getParentEndpoint() {
-        return _parentEndpoint;
     }
 
     String getStageId() {
@@ -195,6 +196,11 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         @Override
         public int getRunningStageProcessors() {
             return _stageProcessors.size();
+        }
+
+        @Override
+        public String getStageId() {
+            return _stageId;
         }
 
         @Override

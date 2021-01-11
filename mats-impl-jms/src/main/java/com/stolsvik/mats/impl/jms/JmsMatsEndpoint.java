@@ -40,7 +40,8 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
 
     private final JmsEndpointConfig _endpointConfig = new JmsEndpointConfig();
 
-    JmsMatsFactory<Z> getParentFactory() {
+    @Override
+    public JmsMatsFactory<Z> getParentFactory() {
         return _parentFactory;
     }
 
@@ -112,6 +113,13 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
         // Since this is the last stage, we'll finish the setup.
         finishSetup();
         return stage;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<MatsStage<R, S, ?>> getStages() {
+        // Hack to have the compiler shut up.
+        return (List<MatsStage<R, S, ?>>) (List<?>) _stages;
     }
 
     private volatile boolean _finishedSetup;
@@ -218,10 +226,10 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
         }
 
         @Override
+        @Deprecated
         @SuppressWarnings("unchecked")
         public List<MatsStage<R, S, ?>> getStages() {
-            // Hack to have the compiler shut up.
-            return (List<MatsStage<R, S, ?>>) (List<?>) _stages;
+            return JmsMatsEndpoint.this.getStages();
         }
     }
 }

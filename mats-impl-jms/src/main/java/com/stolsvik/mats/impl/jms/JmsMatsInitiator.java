@@ -17,6 +17,7 @@ import org.slf4j.MDC;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
+import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
@@ -56,6 +57,11 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
     @Override
     public String getName() {
         return _name;
+    }
+
+    @Override
+    public JmsMatsFactory<Z> getParentFactory() {
+        return _parentFactory;
     }
 
     @Override

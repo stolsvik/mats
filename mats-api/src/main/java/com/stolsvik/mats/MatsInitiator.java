@@ -33,6 +33,11 @@ public interface MatsInitiator extends Closeable {
     String getName();
 
     /**
+     * @return the parent {@link MatsFactory}.
+     */
+    MatsFactory getParentFactory();
+
+    /**
      * Initiates a new message ("request" or "send") out to an endpoint: You provide a lambda which is supplied the
      * {@link MatsInitiate} instance on which you invoke methods to construct and dispatch messages.
      *
@@ -360,6 +365,8 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate interactive();
 
         /**
+         * NOTE: Remove when everybody is >0.15.0
+         *
          * @deprecated Use {@link #nonPersistent(long)} instead. It makes little sense to have a timeToLive on a message
          *             that is also persistent (i.e. <i>not</i> nonPersistent), therefore these was combined.
          */

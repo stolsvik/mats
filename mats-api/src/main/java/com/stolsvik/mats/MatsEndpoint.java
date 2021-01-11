@@ -25,6 +25,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
     EndpointConfig<R, S> getEndpointConfig();
 
     /**
+     * @return the parent {@link MatsFactory}.
+     */
+    MatsFactory getParentFactory();
+
+    /**
      * Adds a new stage to a multi-stage endpoint. If this is the last stage of a multi-stage endpoint, you must invoke
      * {@link #finishSetup()} afterwards - or you could instead use the {@link #lastStage(Class, ProcessReturnLambda)}
      * variant which does this automatically.
@@ -64,6 +69,13 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
      */
     <I> MatsStage<R, S, I> lastStage(Class<I> incomingClass, Consumer<? super StageConfig<R, S, I>> stageConfigLambda,
             ProcessReturnLambda<R, S, I> processor);
+
+    /**
+     * @return a List of {@link MatsStage}s, representing all the stages of the endpoint. The order is the same as
+     *         the order in which the stages will be invoked. For single-staged endpoints and terminators, this list
+     *         is of size 1.
+     */
+    List<MatsStage<R, S, ?>> getStages();
 
     /**
      * The lambda that shall be provided by the developer for the process stage(s) for the endpoint - provides the
@@ -235,17 +247,16 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         Class<?> getIncomingClass();
 
         /**
-         * @return a List of {@link MatsStage}s, representing all the stages of the endpoint. The order is the same as
-         *         the order in which the stages will be invoked. For single-staged endpoints and terminators, this list
-         *         is of size 1.
+         * @deprecated will be removed, use {@link MatsEndpoint#getStages()}.
          */
+        @Deprecated
         List<MatsStage<R, S, ?>> getStages();
     }
 
     /**
      * The part of {@link ProcessContext} that exposes the "getter" side of the context, which enables it to be exposed
      * outside of the process lambda. It is effectively the "passive" parts of the context, i.e. not initiating new
-     * messages, setting properties etc. Look for usage in the "SynchronousAdapter" tool in the tools-lib.
+     * messages, setting properties etc. Look for usage in the "MatsFuturizer" tool in the tools-lib.
      */
     interface DetachedProcessContext {
         /**

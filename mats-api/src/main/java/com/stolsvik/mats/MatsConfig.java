@@ -63,7 +63,7 @@ public interface MatsConfig {
     interface StartStoppable {
         /**
          * Will start the entity - or the entities below it (the only "active" entity is a {@link MatsStage} Processor).
-         * This method is idempotent, calling it when the entity is already running has no effect.
+         * Calling this method when the entity is already running has no effect.
          * <p/>
          * Further documentation on extensions - note the special semantics for {@link MatsFactory}
          */

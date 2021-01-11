@@ -1,6 +1,7 @@
 package com.stolsvik.mats;
 
 import com.stolsvik.mats.MatsConfig.StartStoppable;
+import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
 
 /**
  * A representation of a process stage of a {@link MatsEndpoint}. Either constructed implicitly (for single-stage
@@ -16,6 +17,11 @@ public interface MatsStage<R, S, I> extends StartStoppable {
      * @return the {@link StageConfig} for this stage.
      */
     StageConfig<R, S, I> getStageConfig();
+
+    /**
+     * @return the parent {@link MatsEndpoint}.
+     */
+    MatsEndpoint<R, S> getParentEndpoint();
 
     /**
      * Starts this stage, thereby firing up the queue processing using a set of threads, the number decided by the
@@ -46,6 +52,13 @@ public interface MatsStage<R, S, I> extends StartStoppable {
      * Provides for both configuring the stage (before it is started), and introspecting the configuration.
      */
     interface StageConfig<R, S, I> extends MatsConfig {
+
+        /**
+         * @return the stageId for this Stage - for the initial stage of an endpoint, this is the same as the
+         *         {@link EndpointConfig#getEndpointId()}.
+         */
+        String getStageId();
+
         /**
          * @return the class expected for incoming messages to this process stage.
          */

@@ -53,7 +53,14 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     private final JmsMatsMessageContext _jmsMatsMessageContext;
     private final DoAfterCommitRunnableHolder _doAfterCommitRunnableHolder;
 
+    // Outgoing:
+
+    // Hack to be able to later enforce that reply is never invoked more than once.
+    private RuntimeException _replySent;
+
     private final LinkedHashMap<String, Object> _outgoingProps;
+    private final LinkedHashMap<String, byte[]> _outgoingBinaries = new LinkedHashMap<>();
+    private final LinkedHashMap<String, String> _outgoingStrings = new LinkedHashMap<>();
 
     JmsMatsProcessContext(JmsMatsFactory<Z> parentFactory,
             String endpointId,
@@ -107,9 +114,6 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
             }
         }
     }
-
-    private final LinkedHashMap<String, byte[]> _outgoingBinaries = new LinkedHashMap<>();
-    private final LinkedHashMap<String, String> _outgoingStrings = new LinkedHashMap<>();
 
     @Override
     public String getStageId() {
@@ -344,13 +348,28 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     @Override
     public MessageReference reply(Object replyDto) {
         long nanosStart = System.nanoTime();
+
+        /*
+         * Sending reply more than once is NOT LEGAL, but has never been enforced. Therefore, for now currently just log
+         * hard, and then at a later time throw IllegalStateException or some such. -2020-01-09.
+         */
+        // ?: Have reply already been invoked?
+        if (_replySent != null) {
+            // -> Yes, and this is not legal. But it has not been enforced before, so currently just log.error
+            log.error(LOG_PREFIX + "Reply has already been invoked! This is not legal, and will throw exception in a"
+                    + " later version!");
+            log.error(LOG_PREFIX + "   PREVIOUS REPLY DEBUG STACKTRACE:", _replySent);
+            log.error(LOG_PREFIX + "   THIS REPLY DEBUG STACKTRACE:", new RuntimeException("THIS REPLY STACKTRACE"));
+        }
+        _replySent = new RuntimeException("PREVIOUS REPLY STACKTRACE");
+
         // :: Short-circuit the reply (to no-op) if there is nothing on the stack to reply to.
         List<Channel> stack = _incomingMatsTrace.getCurrentCall().getStack();
         if (stack.size() == 0) {
             // This is OK, it is just like a normal java call where you do not use the return value, e.g. map.put(k, v).
             // It happens if you use "send" (aka "fire-and-forget") to an endpoint which has reply-semantics, which
             // is legal.
-            log.info("Stage [" + _stageId + "] invoked context.reply(..), but there are no elements"
+            log.info(LOG_PREFIX + "Stage [" + _stageId + "] invoked context.reply(..), but there are no elements"
                     + " on the stack, hence no one to reply to, ignoring.");
             return new MessageReferenceImpl(REPLY_TO_VOID);
         }
