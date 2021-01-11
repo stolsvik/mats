@@ -35,6 +35,7 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  * field in the class to be deserialized into (both to enable the modification of DTOs on the client side by removing
  * fields that aren't used in that client scenario, and to handle <i>widening conversions<i> for incoming DTOs), and to
  * use string serialization for dates (and handle the JSR310 new dates):
+ *
  * <pre>
  * // Create Jackson ObjectMapper
  * ObjectMapper mapper = new ObjectMapper();
@@ -151,6 +152,7 @@ public class MatsSerializerJson implements MatsSerializer<String> {
 
     private static final String COMPRESS_DEFLATE = "deflate";
     private static final String COMPRESS_PLAIN = "plain";
+    private static final String DECOMPRESSED_SIZE_ATTRIBUTE = ";decompSize=";
 
     @Override
     public SerializedMatsTrace serializeMatsTrace(MatsTrace<String> matsTrace) {
@@ -161,21 +163,22 @@ public class MatsSerializerJson implements MatsSerializer<String> {
             double serializationMillis = (nanosAfterSerialization - nanosStart) / 1_000_000d;
 
             String meta;
-            byte[] compressedBytes;
+            byte[] resultBytes;
             double compressionMillis;
 
             if (serializedBytes.length > 600) {
-                compressedBytes = compress(serializedBytes);
+                resultBytes = compress(serializedBytes);
                 compressionMillis = (System.nanoTime() - nanosAfterSerialization) / 1_000_000d;
-                meta = COMPRESS_DEFLATE;
+                // Add the uncompressed size, for precise buffer allocation for decompression.
+                meta = COMPRESS_DEFLATE + DECOMPRESSED_SIZE_ATTRIBUTE + serializedBytes.length;
             }
             else {
-                compressedBytes = serializedBytes;
+                resultBytes = serializedBytes;
                 compressionMillis = 0d;
                 meta = COMPRESS_PLAIN;
             }
 
-            return new SerializedMatsTraceImpl(compressedBytes, meta, serializedBytes.length, serializationMillis,
+            return new SerializedMatsTraceImpl(resultBytes, meta, serializedBytes.length, serializationMillis,
                     compressionMillis);
         }
         catch (JsonProcessingException e) {
@@ -244,15 +247,32 @@ public class MatsSerializerJson implements MatsSerializer<String> {
             if (meta.indexOf(':') != -1) {
                 // -> Yes, there is. This is the identification-meta, so chop off everything before it.
                 // NOTICE: It is currently not added as prefix, as another implementation of the Mats-concepts are using
-                // an older version of MatsSerializer, which does not include it.
+                // an older version of MatsSerializer, which does not handle it.
+                // Note: When "everybody" is at-or-above 0.15.0, it can be added.
                 meta = meta.substring(meta.indexOf(':') + 1);
             }
 
             MatsTrace<String> matsTrace;
             if (meta.startsWith(COMPRESS_DEFLATE)) {
                 // -> Compressed, so decompress the incoming bytes
+                // Do an initial guess on the decompressed size
+                int bestGuessDecompressedSize = length * 4;
+                // Find actual decompressed size from meta, if present
+                int decompressedBytesAttributeIndex = meta.indexOf(DECOMPRESSED_SIZE_ATTRIBUTE);
+                // ?: Was the size attribute present?
+                if (decompressedBytesAttributeIndex != -1) {
+                    // -> Yes, present.
+                    // Find the start of the number
+                    int start = decompressedBytesAttributeIndex + DECOMPRESSED_SIZE_ATTRIBUTE.length();
+                    // Find the end of the number - either to next ';', or till end.
+                    int end = meta.indexOf(';', start);
+                    end = (end != -1) ? end : meta.length();
+                    String sizeString = meta.substring(start, end);
+                    bestGuessDecompressedSize = Integer.parseInt(sizeString);
+                }
+
                 // Decompress
-                byte[] decompressedBytes = decompress(matsTraceBytes, offset, length, matsTraceBytes.length * 4);
+                byte[] decompressedBytes = decompress(matsTraceBytes, offset, length, bestGuessDecompressedSize);
                 // Begin deserialization time
                 nanosStartDeserialization = System.nanoTime();
                 // Store how long it took to decompress
@@ -403,13 +423,13 @@ public class MatsSerializerJson implements MatsSerializer<String> {
         }
     }
 
-    protected byte[] decompress(byte[] data, int offset, int length, int bestGuessTargetSize) {
+    protected byte[] decompress(byte[] data, int offset, int length, int bestGuessDecompressedSize) {
         // TODO / OPTIMIZE: Use Object Pool for decompressor-instances with Inflater and byte array.
         // This pool could possibly be a simple lock-free stack, if stack is empty, make a new instance.
         Inflater inflater = new Inflater();
         try {
             inflater.setInput(data, offset, length);
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream(bestGuessTargetSize);
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream(bestGuessDecompressedSize);
             byte[] buffer = new byte[4096];
             while (!inflater.finished()) {
                 try {
