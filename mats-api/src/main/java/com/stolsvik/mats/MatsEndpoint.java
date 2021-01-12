@@ -71,9 +71,9 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
             ProcessReturnLambda<R, S, I> processor);
 
     /**
-     * @return a List of {@link MatsStage}s, representing all the stages of the endpoint. The order is the same as
-     *         the order in which the stages will be invoked. For single-staged endpoints and terminators, this list
-     *         is of size 1.
+     * @return a List of {@link MatsStage}s, representing all the stages of the endpoint. The order is the same as the
+     *         order in which the stages will be invoked. For single-staged endpoints and terminators, this list is of
+     *         size 1.
      */
     List<MatsStage<R, S, ?>> getStages();
 
@@ -230,6 +230,12 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * @return the endpointId if this {@link MatsEndpoint}.
          */
         String getEndpointId();
+
+        /**
+         * @return whether this Endpoint is "subscription based", as when created with
+         *         {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)}.
+         */
+        boolean isSubscription();
 
         /**
          * @return the class that will be sent as reply for this endpoint.

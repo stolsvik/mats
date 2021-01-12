@@ -216,6 +216,11 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
         }
 
         @Override
+        public boolean isSubscription() {
+            return !_queue;
+        }
+
+        @Override
         public Class<R> getReplyClass() {
             return _replyClass;
         }
