@@ -241,7 +241,7 @@ void main() {
         // Then set it to none (0 or undefined), which should result in NO debug object from server-initiated messages
         matsSocket.debug = debugOptions;
 
-        var second = matsSocket.send('Test.server.send.thread', traceId, {'number': math.e});
+        await matsSocket.send('Test.server.send.thread', traceId, {'number': math.e});
 
         var msg = await terminator.first;
 
