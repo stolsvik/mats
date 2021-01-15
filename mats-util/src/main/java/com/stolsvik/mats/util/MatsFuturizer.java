@@ -141,7 +141,7 @@ public class MatsFuturizer implements AutoCloseable {
     protected MatsFuturizer(MatsFactory matsFactory, String endpointIdPrefix, int corePoolSize, int maxPoolSize,
             int maxOutstandingPromises) {
         _matsFactory = matsFactory;
-        _matsInitiator = matsFactory.getDefaultInitiator();
+        _matsInitiator = matsFactory.getOrCreateInitiator("Futurizer." + endpointIdPrefix);
         _terminatorEndpointId = endpointIdPrefix + ".private.Futurizer."
                 + _matsFactory.getFactoryConfig().getNodename();
         _futureCompleterThreadPool = _newThreadPool(corePoolSize, maxPoolSize);
