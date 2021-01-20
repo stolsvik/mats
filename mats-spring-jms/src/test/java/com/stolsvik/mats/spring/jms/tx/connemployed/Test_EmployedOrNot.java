@@ -104,158 +104,183 @@ public class Test_EmployedOrNot {
             // :: ProcessContext and MatsInitiate
 
             // Assert that we DO have ProcessContext in ContextLocal
-            @SuppressWarnings("rawtypes")
-            Optional<ProcessContext> processContextOptional = ContextLocal.getAttribute(ProcessContext.class);
-            Assert.assertTrue("ProcessContext SHALL be be present in ContextLocal", processContextOptional.isPresent());
-
-            // Assert that we do NOT have MatsInitiate in ContextLocal
-            Optional<MatsInitiate> matsInitiateOptional = ContextLocal.getAttribute(MatsInitiate.class);
-            Assert.assertFalse("MatsInitiate shall NOT be present in ContextLocal", matsInitiateOptional.isPresent());
+            // Point is: We're within a ProcessContext - not an Initiation
+            assert_ContextLocal_has_ProcessContext_butNot_MatsInitiate();
 
             // :: SQL Connections
+            Connection connectionFromDataSourceUtils_outside = checkSqlConnection(context, _dataSource);
 
+            Thread thread_outside = Thread.currentThread();
+
+            // ::: Initiates
+
+            // :: "SUB HOISTING INITIATE": Using DefaultInitiator, do an initiate
+            // NOTE! NOTHING should have changed when doing this, as it is LITERALLY just the same as doing
+            // processContext.initiate(init ->...)
+            _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
+
+                // :: Should be same Thread
+                Assert.assertSame(thread_outside, Thread.currentThread());
+
+                // :: Should have ProcessContext, but not MatsInitiate
+                // Point is: We're within a Stage, and "riding" on the ProcessContext's MatsInitiate.
+                assert_ContextLocal_has_ProcessContext_butNot_MatsInitiate();
+
+                // :: SQL Connections
+                Connection connectionFromDataSourceUtils_defaultInit = checkSqlConnection(context, _dataSource);
+
+                // BIG POINT:
+                // Assert that this Connection IS THE SAME as the one on the outside
+                Assert.assertSame(connectionFromDataSourceUtils_outside, connectionFromDataSourceUtils_defaultInit);
+
+                // :: "SUB-SUB HOISTING INITIATE": Sub-sub initiation, using default initiator
+                _matsFactory.getDefaultInitiator().initiateUnchecked(init2 -> {
+
+                    // :: Should be same Thread
+                    Assert.assertSame(thread_outside, Thread.currentThread());
+
+                    // :: Should have ProcessContext, but not MatsInitiate
+                    // Point is: We're within a Stage, and "riding" on the ProcessContext's MatsInitiate.
+                    assert_ContextLocal_has_ProcessContext_butNot_MatsInitiate();
+
+                    // :: SQL Connections
+                    Connection connectionFromDataSourceUtils_subDefaultInit = checkSqlConnection(context, _dataSource);
+
+                    // BIG POINT:
+                    // Assert that this Connection IS THE SAME as the one on the outside
+                    Assert.assertSame(connectionFromDataSourceUtils_outside,
+                            connectionFromDataSourceUtils_subDefaultInit);
+                });
+            });
+
+            // :: "SUB INITIATE": Using a non-default initiator, do an initiate
+            // Also Hoisting and Sub-Sub-Initiate
+            // NOTE! Pretty much everything should have changed when doing this, as it is very much the same as
+            // standing completely on the outside, doing an initiation (the current implementation is actually forking
+            // the entire initiation off to a new Thread!)
+            String nonDefaultInitiatorName = "sub" + Math.random();
+            _matsFactory.getOrCreateInitiator(nonDefaultInitiatorName).initiateUnchecked(init -> {
+
+                Thread thread_nonDefaultInitiator = Thread.currentThread();
+
+                // :: Should NOT be same Thread
+                Assert.assertNotSame(thread_outside, thread_nonDefaultInitiator);
+
+                // :: Should have MatsInitiate but not ProcessContext
+                // Point is: We're within a MatsInitiate now - forked out of the Stage's ProcessContext.
+                assert_ContextLocal_has_MatsInitiate_butNot_ProcessContext();
+
+                // :: SQL Connections
+                Connection connectionFromDataSourceUtils_nonDefault = checkSqlConnection(context, _dataSource);
+
+                // BIG POINT:
+                // Assert that this Connection is *NOT* THE SAME as the one on the outside
+                Assert.assertNotSame(connectionFromDataSourceUtils_outside, connectionFromDataSourceUtils_nonDefault);
+
+                // :: "SUB-SUB HOISTING": Sub-sub initiation, using default initiator
+                _matsFactory.getDefaultInitiator().initiateUnchecked(init2 -> {
+
+                    // :: Should be same Thread as "parent"
+                    Assert.assertSame(thread_nonDefaultInitiator, Thread.currentThread());
+
+                    // :: Should have MatsInitiate but not ProcessContext
+                    // Point is: We're within a MatsInitiate now - forked out of the Stage's ProcessContext.
+                    assert_ContextLocal_has_MatsInitiate_butNot_ProcessContext();
+
+                    // :: SQL Connections
+                    Connection connectionFromDataSourceUtils_subNonDefault = checkSqlConnection(context, _dataSource);
+
+                    // BIG POINT:
+                    // Assert that this Connection IS THE SAME as the "parent"
+                    Assert.assertSame(connectionFromDataSourceUtils_nonDefault,
+                            connectionFromDataSourceUtils_subNonDefault);
+                });
+
+
+                // :: "SUB-SUB INITIATE", using the same-named /non-default/ MatsInitiator
+                _matsFactory.getOrCreateInitiator(nonDefaultInitiatorName).initiateUnchecked(init2 -> {
+
+                    // :: Should NOT be same Thread
+                    Assert.assertNotSame(thread_outside, Thread.currentThread());
+                    // .. and not the same thread as the "parent" either
+                    Assert.assertNotSame(thread_nonDefaultInitiator, Thread.currentThread());
+
+                    // :: Should have MatsInitiate but not ProcessContext
+                    // Point is: We're within a MatsInitiate now - forked out (twice) of the Stage's ProcessContext.
+                    assert_ContextLocal_has_MatsInitiate_butNot_ProcessContext();
+
+                    // :: SQL Connections
+                    Connection connectionFromDataSourceUtils_subNonDefault = checkSqlConnection(context, _dataSource);
+
+                    // BIG POINT:
+                    // Assert that this Connection is *NOT* THE SAME as the one on the outside
+                    Assert.assertNotSame(connectionFromDataSourceUtils_outside,
+                            connectionFromDataSourceUtils_subNonDefault);
+                    // .. and not the same as the one in "parent" either
+                    Assert.assertNotSame(connectionFromDataSourceUtils_nonDefault,
+                            connectionFromDataSourceUtils_subNonDefault);
+                });
+            });
+
+            _latch.resolve(null, msg);
+        }
+
+        private static void assert_ContextLocal_has_ProcessContext_butNot_MatsInitiate() {
+            // Assert that we DO have ProcessContext in ContextLocal
+            @SuppressWarnings("rawtypes")
+            Optional<ProcessContext> processContextOptional_defaultInit = ContextLocal.getAttribute(
+                    ProcessContext.class);
+            Assert.assertTrue("ProcessContext SHALL be be present in ContextLocal",
+                    processContextOptional_defaultInit.isPresent());
+
+            // Assert that we do NOT have MatsInitiate in ContextLocal (deficiency per now, 2020-01-19)
+            Optional<MatsInitiate> matsInitiateOptional_defaultInit = ContextLocal.getAttribute(MatsInitiate.class);
+            Assert.assertFalse("MatsInitiate shall NOT be present in ContextLocal", matsInitiateOptional_defaultInit
+                    .isPresent());
+        }
+
+        private static void assert_ContextLocal_has_MatsInitiate_butNot_ProcessContext() {
+            // Assert that we do NOT have ProcessContext in ContextLocal
+            @SuppressWarnings("rawtypes")
+            Optional<ProcessContext> processContextOptional_separateInit = ContextLocal.getAttribute(
+                    ProcessContext.class);
+            Assert.assertFalse("ProcessContext shall NOT be be present in ContextLocal",
+                    processContextOptional_separateInit.isPresent());
+
+            // Assert that we DO have MatsInitiate in ContextLocal
+            Optional<MatsInitiate> matsInitiateOptional_separateInit = ContextLocal.getAttribute(
+                    MatsInitiate.class);
+            Assert.assertTrue("MatsInitiate SHALL be present in ContextLocal", matsInitiateOptional_separateInit
+                    .isPresent());
+        }
+
+        private static Connection checkSqlConnection(ProcessContext<Void> context, DataSource dataSource) {
             // We have not employed the SQL Connection yet
-            Supplier<Boolean> connectionEmployed_outside = getConnectionEmployedStateSupplierFromContextLocal();
-            Assert.assertFalse(connectionEmployed_outside.get());
+            Supplier<Boolean> connectionEmployed = getConnectionEmployedStateSupplierFromContextLocal();
+            Assert.assertFalse(connectionEmployed.get());
 
             // Get the SQL Connection via ProcessContext
             Optional<Connection> optional = context.getAttribute(Connection.class);
             if (!optional.isPresent()) {
                 throw new AssertionError("Missing context.getAttribute(Connection.class).");
             }
-            Connection connectionFromContextAttribute_outside = optional.get();
+            Connection connectionFromContextAttribute = optional.get();
             // .. it should be a proxy
-            Assert.assertTrue(connectionIsLazyProxy(connectionFromContextAttribute_outside));
+            Assert.assertTrue(connectionIsLazyProxy(connectionFromContextAttribute));
             log.info(TERMINATOR_NO_DS_ACCESS + ": context.getAttribute(Connection.class): "
-                    + connectionFromContextAttribute_outside);
+                    + connectionFromContextAttribute);
             // .. but still not /employed/
-            Assert.assertFalse(connectionEmployed_outside.get());
+            Assert.assertFalse(connectionEmployed.get());
 
             // Get the SQL Connection through DataSourceUtils
-            Connection connectionFromDataSourceUtils_outside = DataSourceUtils.getConnection(_dataSource);
+            Connection connectionFromDataSourceUtils = DataSourceUtils.getConnection(dataSource);
             // .. it should be a proxy
-            Assert.assertTrue(connectionIsLazyProxy(connectionFromDataSourceUtils_outside));
+            Assert.assertTrue(connectionIsLazyProxy(connectionFromDataSourceUtils));
             // .. AND it should be the same Connection (instance/object) as from ProcessContext
-            Assert.assertSame(connectionFromContextAttribute_outside, connectionFromDataSourceUtils_outside);
+            Assert.assertSame(connectionFromContextAttribute, connectionFromDataSourceUtils);
             // .. and still not /employed/
-            Assert.assertFalse(connectionEmployed_outside.get());
-
-            // ::: Initiates
-
-            // :: Using DefaultInitiator, do an initiate
-            // NOTE! NOTHING should have changed when doing this, as it is LITERALLY just the same as doing
-            // processContext.initiate(init ->...)
-            _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
-
-                // :: ProcessContext and MatsInitiate
-
-                // Assert that we DO have ProcessContext in ContextLocal
-                @SuppressWarnings("rawtypes")
-                Optional<ProcessContext> processContextOptional_defaultInit = ContextLocal.getAttribute(
-                        ProcessContext.class);
-                Assert.assertTrue("ProcessContext SHALL be be present in ContextLocal",
-                        processContextOptional_defaultInit.isPresent());
-
-                // Assert that we do NOT have MatsInitiate in ContextLocal (deficiency per now, 2020-01-19)
-                // Point is: We're within a Stage, and "riding" on the ProcessContext's MatsInitiate.
-                Optional<MatsInitiate> matsInitiateOptional_defaultInit = ContextLocal.getAttribute(MatsInitiate.class);
-                Assert.assertFalse("MatsInitiate shall NOT be present in ContextLocal", matsInitiateOptional_defaultInit
-                        .isPresent());
-
-                // :: SQL Connections
-
-                // We have not employed the SQL Connection yet
-                Supplier<Boolean> connectionEmployed_defaultInit = getConnectionEmployedStateSupplierFromContextLocal();
-                Assert.assertFalse(connectionEmployed_defaultInit.get());
-
-                // :: Get the SQL Connection via ProcessContext
-                Optional<Connection> optionalX = context.getAttribute(Connection.class);
-                if (!optionalX.isPresent()) {
-                    throw new AssertionError("Missing context.getAttribute(Connection.class).");
-                }
-                Connection connectionFromContextAttribute_defaultInit = optionalX.get();
-                // .. it should be a proxy
-                Assert.assertTrue(connectionIsLazyProxy(connectionFromContextAttribute_defaultInit));
-                log.info(TERMINATOR_NO_DS_ACCESS + ": context.getAttribute(Connection.class): "
-                        + connectionFromContextAttribute_defaultInit);
-                // .. but still not /employed/
-                Assert.assertFalse(connectionEmployed_defaultInit.get());
-
-                // :: Get the SQL Connection through DataSourceUtils
-                Connection connectionFromDataSourceUtils_defaultInit = DataSourceUtils.getConnection(_dataSource);
-                // .. it should be a proxy
-                Assert.assertTrue(connectionIsLazyProxy(connectionFromDataSourceUtils_defaultInit));
-                // .. AND it should be the same Connection (instance/object) as from ProcessContext
-                Assert.assertSame(connectionFromContextAttribute_defaultInit,
-                        connectionFromDataSourceUtils_defaultInit);
-                // .. and still not /employed/
-                Assert.assertFalse(connectionEmployed_defaultInit.get());
-
-                // BIG POINT:
-                // Assert that this Connection IS THE SAME as the one on the outside
-                Assert.assertSame(connectionFromDataSourceUtils_outside, connectionFromDataSourceUtils_defaultInit);
-            });
-
-            // :: Using a non-default initiator, do an initiate
-            // NOTE! Pretty much everything should have changed when doing this, as it is very much the same as
-            // standing completely on the outside, doing an initiation (the current implementation is actually that
-            // it runs in a separate Thread!)
-            _matsFactory.getOrCreateInitiator("sub" + Math.random()).initiateUnchecked(init -> {
-
-                // :: ProcessContext and MatsInitiate
-
-                log.info("This should be run on a different thread!");
-
-                // Assert that we DO have ProcessContext in ContextLocal
-                // Point is: We're NOT within a Stage now!
-                @SuppressWarnings("rawtypes")
-                Optional<ProcessContext> processContextOptional_separateInit = ContextLocal.getAttribute(
-                        ProcessContext.class);
-                Assert.assertFalse("ProcessContext shall NOT be be present in ContextLocal",
-                        processContextOptional_separateInit.isPresent());
-
-                // Assert that we DO have MatsInitiate in ContextLocal
-                // Point is: We're within a MatsInitiate
-                Optional<MatsInitiate> matsInitiateOptional_separateInit = ContextLocal.getAttribute(
-                        MatsInitiate.class);
-                Assert.assertTrue("MatsInitiate SHALL be present in ContextLocal", matsInitiateOptional_separateInit
-                        .isPresent());
-
-                // :: SQL Connections
-
-                // We have not employed the SQL Connection yet
-                Supplier<Boolean> connectionEmployed_separateInit = getConnectionEmployedStateSupplierFromContextLocal();
-                Assert.assertFalse(connectionEmployed_separateInit.get());
-
-                // Get the SQL Connection via ProcessContext
-                Optional<Connection> optionalX = context.getAttribute(Connection.class);
-                if (!optionalX.isPresent()) {
-                    throw new AssertionError("Missing context.getAttribute(Connection.class).");
-                }
-                Connection connectionFromContextAttribute_separateInit = optionalX.get();
-                // .. it should be a proxy
-                Assert.assertTrue(connectionIsLazyProxy(connectionFromContextAttribute_separateInit));
-                log.info(TERMINATOR_NO_DS_ACCESS + ": context.getAttribute(Connection.class): "
-                        + connectionFromContextAttribute_separateInit);
-                // .. but still not /employed/
-                Assert.assertFalse(connectionEmployed_separateInit.get());
-
-                // Get the SQL Connection through DataSourceUtils
-                Connection connectionFromDataSourceUtils_separateInit = DataSourceUtils.getConnection(_dataSource);
-                // .. it should be a proxy
-                Assert.assertTrue(connectionIsLazyProxy(connectionFromDataSourceUtils_separateInit));
-                // .. AND it should be the same Connection (instance/object) as from ProcessContext
-                Assert.assertSame(connectionFromContextAttribute_separateInit,
-                        connectionFromDataSourceUtils_separateInit);
-                // .. and still not /employed/
-                Assert.assertFalse(connectionEmployed_separateInit.get());
-
-                // BIG POINT:
-                // Assert that this Connection is *NOT* THE SAME as the one on the outside
-                Assert.assertNotSame(connectionFromDataSourceUtils_outside, connectionFromDataSourceUtils_separateInit);
-            });
-
-            _latch.resolve(null, msg);
+            Assert.assertFalse(connectionEmployed.get());
+            return connectionFromDataSourceUtils;
         }
 
     }
@@ -298,15 +323,17 @@ public class Test_EmployedOrNot {
     private MatsFactory _matsFactory;
 
     @Test
-    public void noDataSourceUse() {
+    public void testBasicPropertiesOfStageAndInitiationsAndHoistingAndSubInitiations() {
         _matsFactory.getDefaultInitiator().initiateUnchecked(init -> init.traceId(MatsTestHelp.traceId())
-                .from(MatsTestHelp.from("noDataSourceUse"))
+                .from(MatsTestHelp.from("testBasicPropertiesOfStageAndInitiationsAndHoistingAndSubInitiations"))
                 .to(TERMINATOR_NO_DS_ACCESS)
                 .send(new SpringTestDataTO()));
         _latch.waitForResult();
     }
 
+    // ===============================================================================================
     // ===== Testing basic Spring transactional infrastructure in conjunction with the proxying. =====
+    // ===============================================================================================
 
     @Configuration
     @Service

@@ -446,7 +446,7 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
                 _messagesToSend, _jmsMatsMessageContext, _doAfterCommitRunnableHolder,
                 matsTrace, outgoingProps);
 
-        __nestedStandardMatsInitiate.set(initiateSupplier);
+        _parentFactory.setCurrentThreadLocalMatsDemarcation(initiateSupplier);
 
         // :: Invoke the process lambda (the actual user code).
         try {
@@ -474,7 +474,7 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
                     + " stash()'ing it.", e);
         }
         finally {
-            __nestedStandardMatsInitiate.remove();
+            _parentFactory.clearCurrentThreadLocalMatsDemarcation();
             JmsMatsContextLocalCallback.unbindResource(ProcessContext.class);
         }
 

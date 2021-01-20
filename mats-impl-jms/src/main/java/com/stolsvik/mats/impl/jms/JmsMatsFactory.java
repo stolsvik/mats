@@ -5,22 +5,15 @@ import java.lang.reflect.Field;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
@@ -28,9 +21,10 @@ import com.stolsvik.mats.MatsEndpoint.ProcessSingleLambda;
 import com.stolsvik.mats.MatsEndpoint.ProcessTerminatorLambda;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
-import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsStage.StageConfig;
+import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MatsInitiator_TxRequired;
+import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MatsInitiator_TxRequiresNew;
 import com.stolsvik.mats.serial.MatsSerializer;
 
 public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsStartStoppable {
@@ -232,278 +226,52 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
         return endpoint;
     }
 
-    private volatile MatsInitiator _defaultMatsInitiator;
+    ThreadLocal<Supplier<MatsInitiate>> __nestedMatsInitiate_elg = new ThreadLocal<>();
+
+    void setCurrentThreadLocalMatsDemarcation(Supplier<MatsInitiate> matsInitiateSupplier) {
+        __nestedMatsInitiate_elg.set(matsInitiateSupplier);
+    }
+
+    Optional<Supplier<MatsInitiate>> getCurrentThreadLocalMatsDemarcation() {
+        return Optional.ofNullable(__nestedMatsInitiate_elg.get());
+    }
+
+    void clearCurrentThreadLocalMatsDemarcation() {
+        __nestedMatsInitiate_elg.remove();
+    }
+
+    private volatile JmsMatsInitiator<Z> _defaultMatsInitiator;
 
     @Override
     public MatsInitiator getDefaultInitiator() {
         if (_defaultMatsInitiator == null) {
-            synchronized (this) {
+            synchronized (_createdInitiators) {
                 if (_defaultMatsInitiator == null) {
-                    _defaultMatsInitiator = getOrCreateInitiator("default");
+                    _defaultMatsInitiator = getOrCreateInitiator_internal("default");
                 }
             }
         }
-
-        return new MatsInitiator() {
-            @Override
-            public String getName() {
-                return "default";
-            }
-
-            @Override
-            public MatsFactory getParentFactory() {
-                return JmsMatsFactory.this;
-            }
-
-            @Override
-            public void initiate(InitiateLambda lambda) throws MatsMessageSendException, MatsBackendException {
-                Supplier<MatsInitiate> initiateSupplier = __nestedStandardMatsInitiate.get();
-                // ?: Are we within a Mats demarcation?
-                if (initiateSupplier != null) {
-                    // -> Evidently within a Mats demarcation, so use the ThreadLocal MatsInitiate.
-                    lambda.initiate(initiateSupplier.get());
-                }
-                else {
-                    // -> No, not within a Mats demarcation, so use the proper MatsInitiate.
-                    // We need to wrap the lambda, so that the __stageDemarcatedMatsInitiate is set
-                    // before invoking the lambda.
-                    _defaultMatsInitiator.initiate(wrapWithStageDemarcation(lambda));
-                }
-            }
-
-            @Override
-            public void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
-                    MatsMessageSendRuntimeException {
-                Supplier<MatsInitiate> initiateSupplier = __nestedStandardMatsInitiate.get();
-                // ?: Are we within a Mats demarcation?
-                if (initiateSupplier != null) {
-                    // -> Evidently within a Mats demarcation, so use the ThreadLocal MatsInitiate.
-                    lambda.initiate(initiateSupplier.get());
-                }
-                else {
-                    // -> No, not within a Mats demarcation, so use the proper MatsInitiate.
-                    // We need to wrap the lambda, so that the __stageDemarcatedMatsInitiate is set
-                    // before invoking the lambda.
-                    _defaultMatsInitiator.initiateUnchecked(wrapWithStageDemarcation(lambda));
-                }
-            }
-
-            @Override
-            public void close() {
-                Supplier<MatsInitiate> initiateSupplier = __nestedStandardMatsInitiate.get();
-                // ?: Are we within a Mats demarcation?
-                if (initiateSupplier != null) {
-                    // -> Evidently within a Mats demarcation, so point this out pretty harshly.
-                    throw new IllegalStateException("This is the MatsFactory.getDefaultInitiator(), but it was gotten"
-                            + " within a nested Mats demarcation, and is thus when within a Stage, a wrapper"
-                            + " around the MatsInitiate from ProcessContext.initiate(..), or when within an initiation, "
-                            + " a wrapper around the same MatsInitiate that you already have. It as such makes"
-                            + " absolutely NO SENSE that you would want to close it: You've gotten the default "
-                            + " MatsInitiator, *you are within a Mats processing context*, and then you invoke "
-                            + " '.close()' on it?!");
-                }
-                else {
-                    // -> No, not within a Mats demarcation, so forward close call.
-                    _defaultMatsInitiator.close();
-                }
-            }
-
-            @Override
-            public String toString() {
-                Supplier<MatsInitiate> initiateSupplier = __nestedStandardMatsInitiate.get();
-                return initiateSupplier != null
-                        ? "[nested-process wrapper of MatsFactory.getDefaultInitiator()]@" + Integer
-                                .toHexString(System.identityHashCode(this))
-                        : _defaultMatsInitiator.toString();
-            }
-        };
-    }
-
-    /**
-     * Wrap a InitiateLambda so that it sets the stage demarcated for nested calls.
-     *
-     * When an initial call is made to {@link #initiate(InitiateLambda)} or {@link #initiateUnchecked(InitiateLambda)},
-     * we want all nested calls within that Lambda to use the same initiate, rather than create a new MatsInitiate. The
-     * reason for this is that we can run into a situation where an outer {@link InitiateLambda} will commit things to
-     * the database that messages from the inner initiate sends requests based on.
-     * <p/>
-     * One scenario that has been encountered, was that a MatsInitiate committed messages to a database, then in an
-     * inner MatsInitiate sent a message to consume these. Since the inner messages would be committed and submitted to
-     * JMS before the outer initiate was done, the messages where not yet visible in the database that consumed those
-     * messages. By enforcing that there will only be one initiate, and no nesting, we ensure that all
-     * {@link MatsInitiate} calls are resolved together.
-     *
-     * @param lambda
-     *            to wrap, so that the __stageDemarcatedMatsInitiate is set and cleared.
-     * @return the {@link InitiateLambda} to process.
-     */
-    private static InitiateLambda wrapWithStageDemarcation(InitiateLambda lambda) {
-        return initiate -> {
-            __nestedStandardMatsInitiate.set(() -> initiate);
-            try {
-                lambda.initiate(initiate);
-            }
-            finally {
-                __nestedStandardMatsInitiate.remove();
-            }
-        };
+        return new MatsInitiator_TxRequired<Z>(this, _defaultMatsInitiator);
     }
 
     @Override
     public MatsInitiator getOrCreateInitiator(String name) {
-        JmsMatsInitiator<Z> initiator;
+        return new MatsInitiator_TxRequiresNew<Z>(this, getOrCreateInitiator_internal(name));
+    }
+
+    public JmsMatsInitiator<Z> getOrCreateInitiator_internal(String name) {
         synchronized (_createdInitiators) {
             for (JmsMatsInitiator<Z> init : _createdInitiators) {
                 if (init.getName().equals(name)) {
-                    initiator = init;
+                    return init;
                 }
             }
-            initiator = new JmsMatsInitiator<>(name, this,
+            // E-> Not found, make new
+            JmsMatsInitiator<Z> initiator = new JmsMatsInitiator<>(name, this,
                     _jmsMatsJmsSessionHandler, _jmsMatsTransactionManager);
             addCreatedInitiator(initiator);
+            return initiator;
         }
-
-        final JmsMatsInitiator<Z> finalInitiator = initiator;
-
-        return new MatsInitiator() {
-            @Override
-            public String getName() {
-                return finalInitiator.getName();
-            }
-
-            @Override
-            public MatsFactory getParentFactory() {
-                return JmsMatsFactory.this;
-            }
-
-            @Override
-            public void initiate(InitiateLambda lambda) throws MatsMessageSendException, MatsBackendException {
-                Supplier<MatsInitiate> initiateSupplier = __nestedStandardMatsInitiate.get();
-                // ?: Are we within a Mats demarcation?
-                if (initiateSupplier != null) {
-                    // -> Evidently within a Mats demarcation, so fire up a new thread to do the initiation.
-                    Throwable[] throwableResult = new Throwable[1];
-                    String threadName = Thread.currentThread().getName() + ":subInitiation_" + Integer.toString(
-                            ThreadLocalRandom.current().nextInt(), 36);
-                    Map<String, String> copyOfContextMap = MDC.getCopyOfContextMap();
-                    Thread thread = new Thread(() -> {
-                        MDC.setContextMap(copyOfContextMap);
-                        try {
-                            finalInitiator.initiate(lambda);
-                        }
-                        catch (Throwable t) {
-                            throwableResult[0] = t;
-                        }
-                    }, threadName);
-                    thread.start();
-                    try {
-                        thread.join();
-                    }
-                    catch (InterruptedException e) {
-                        // Pass on the interruption.
-                        thread.interrupt();
-                        // Throw out.
-                        throw new RuntimeException("Got interrupted.", e);
-                    }
-                    if (throwableResult[0] != null) {
-                        Throwable t = throwableResult[0];
-                        if (t instanceof RuntimeException) {
-                            throw (RuntimeException) t;
-                        }
-                        if (t instanceof MatsBackendException) {
-                            throw (MatsBackendException) t;
-                        }
-                        if (t instanceof MatsMessageSendException) {
-                            throw (MatsMessageSendException) t;
-                        }
-                        if (t instanceof Error) {
-                            throw (Error) t;
-                        }
-                        throw new RuntimeException("Got undeclared checked Exception [" + t.getClass().getSimpleName()
-                                + "]!", t);
-                    }
-                }
-                else {
-                    // -> No, not within a Mats demarcation, so use the proper MatsInitiate.
-                    // We need to wrap the lambda, so that the __stageDemarcatedMatsInitiate is set
-                    // before invoking the lambda.
-                    finalInitiator.initiate(wrapWithStageDemarcation(lambda));
-                }
-            }
-
-            @Override
-            public void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
-                    MatsMessageSendRuntimeException {
-                Supplier<MatsInitiate> initiateSupplier = __nestedStandardMatsInitiate.get();
-                // ?: Are we within a Mats demarcation?
-                if (initiateSupplier != null) {
-                    // -> Evidently within a Mats demarcation, so fire up a new thread to do the initiation.
-                    Throwable[] throwableResult = new Throwable[1];
-                    String threadName = Thread.currentThread().getName() + ":subInitiation_" + Integer.toString(
-                            ThreadLocalRandom.current().nextInt(), 36);
-                    Map<String, String> copyOfContextMap = MDC.getCopyOfContextMap();
-                    Thread thread = new Thread(() -> {
-                        MDC.setContextMap(copyOfContextMap);
-                        try {
-                            finalInitiator.initiateUnchecked(lambda);
-                        }
-                        catch (Throwable t) {
-                            throwableResult[0] = t;
-                        }
-                    }, threadName);
-                    thread.start();
-                    try {
-                        thread.join();
-                    }
-                    catch (InterruptedException e) {
-                        // Pass on the interruption.
-                        thread.interrupt();
-                        // Throw out.
-                        throw new RuntimeException("Got interrupted.", e);
-                    }
-                    if (throwableResult[0] != null) {
-                        Throwable t = throwableResult[0];
-                        if (t instanceof RuntimeException) {
-                            throw (RuntimeException) t;
-                        }
-                        if (t instanceof Error) {
-                            throw (Error) t;
-                        }
-                        throw new RuntimeException("Got undeclared checked Exception [" + t.getClass().getSimpleName()
-                                + "]!", t);
-                    }
-                }
-                else {
-                    // -> No, not within a Mats demarcation, so use the proper MatsInitiate.
-                    // We need to wrap the lambda, so that the __stageDemarcatedMatsInitiate is set
-                    // before invoking the lambda.
-                    finalInitiator.initiateUnchecked(wrapWithStageDemarcation(lambda));
-                }
-            }
-
-            @Override
-            public void close() {
-                Supplier<MatsInitiate> initiateSupplier = __nestedStandardMatsInitiate.get();
-                // ?: Are we within a Mats demarcation?
-                if (initiateSupplier != null) {
-                    // -> Evidently within a Mats demarcation, so point this out pretty harshly.
-                    throw new IllegalStateException("XXX");
-                }
-                else {
-                    // -> No, not within a Mats demarcation, so forward close call.
-                    finalInitiator.close();
-                }
-            }
-
-            @Override
-            public String toString() {
-                Supplier<MatsInitiate> initiateSupplier = __nestedStandardMatsInitiate.get();
-                return initiateSupplier != null
-                        ? "[nested-process wrapper of MatsFactory.getDefaultInitiator()]@" + Integer
-                                .toHexString(System.identityHashCode(this))
-                        : finalInitiator.toString();
-            }
-        };
     }
 
     @Override
@@ -801,4 +569,5 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
             }
         }
     }
+
 }

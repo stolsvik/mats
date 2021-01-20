@@ -427,7 +427,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                     messagesToSend, jmsMatsMessageContext, doAfterCommitRunnableHolder,
                                     matsTrace, outgoingProps);
 
-                            __nestedStandardMatsInitiate.set(initiateSupplier);
+                            _jmsMatsStage.getParentFactory().setCurrentThreadLocalMatsDemarcation(initiateSupplier);
 
                             // :: Invoke the process lambda (the actual user code).
 
@@ -500,7 +500,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                         continue;
                     }
                     finally {
-                        __nestedStandardMatsInitiate.remove();
+                        _jmsMatsStage.getParentFactory().clearCurrentThreadLocalMatsDemarcation();
 
                         JmsMatsContextLocalCallback.unbindResource(ProcessContext.class);
                     }

@@ -2,15 +2,18 @@ package com.stolsvik.mats.impl.jms;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
@@ -70,12 +73,10 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         Instant startedInstant = Instant.now();
         long nanosStart = System.nanoTime();
 
-
         String existingTraceId = MDC.get(MDC_TRACE_ID);
 
         try { // :: try-finally: Remove MDC_MATS_INITIATE and MDC_TRACE_ID
             MDC.put(MDC_MATS_INITIATE, "true");
-
 
             JmsSessionHolder jmsSessionHolder;
             try {
@@ -96,6 +97,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     JmsMatsInitiate<Z> init = new JmsMatsInitiate<>(_parentFactory, messagesToSend,
                             jmsMatsMessageContext, doAfterCommitRunnableHolder);
                     JmsMatsContextLocalCallback.bindResource(MatsInitiate.class, init);
+                    _parentFactory.setCurrentThreadLocalMatsDemarcation(() -> init);
 
                     InitiateLambda lambdaToInvoke = lambda;
 
@@ -143,6 +145,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             }
             finally {
                 JmsMatsContextLocalCallback.unbindResource(MatsInitiate.class);
+                _parentFactory.clearCurrentThreadLocalMatsDemarcation();
             }
         }
         finally {
@@ -181,6 +184,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
          */
     }
 
+    /**
+     * Implementation of {@link JmsMatsTxContextKey}.
+     */
     @Override
     public JmsMatsStage<?, ?, ?, ?> getStage() {
         // There is no stage, and contract is to return null.
@@ -207,6 +213,247 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public String getMatsMessageId() {
             return _matsMessageId;
+        }
+    }
+
+    /**
+     * This wrapping MatsInitiator effectively works like <code>propagation=REQUIRED</code>, in that if there is an
+     * ongoing stage or initiation, any initiation done with it is "hoisted" up to the ongoing process. Otherwise, it
+     * acts as normal - which is to create a transaction.
+     */
+    static class MatsInitiator_TxRequired<Z> implements MatsInitiator {
+        private final JmsMatsFactory<Z> _matsFactory;
+        private final JmsMatsInitiator<Z> _matsInitiator;
+
+        public MatsInitiator_TxRequired(JmsMatsFactory<Z> matsFactory, JmsMatsInitiator<Z> matsInitiator) {
+            _matsFactory = matsFactory;
+            _matsInitiator = matsInitiator;
+        }
+
+        @Override
+        public String getName() {
+            return _matsInitiator.getName();
+        }
+
+        @Override
+        public MatsFactory getParentFactory() {
+            return _matsFactory;
+        }
+
+        @Override
+        public void initiate(InitiateLambda lambda) throws MatsMessageSendException, MatsBackendException {
+            Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
+                    .getCurrentThreadLocalMatsDemarcation();
+            // ?: Are we within a Mats demarcation?
+            if (matsInitiateForNesting.isPresent()) {
+                // -> Evidently within a Mats demarcation, so use the ThreadLocal MatsInitiate.
+                lambda.initiate(matsInitiateForNesting.get().get());
+            }
+            else {
+                // -> No, not within a Mats demarcation, so just forward the call directly to the MatsInitiator
+                _matsInitiator.initiate(lambda);
+            }
+        }
+
+        @Override
+        public void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
+                MatsMessageSendRuntimeException {
+            Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
+                    .getCurrentThreadLocalMatsDemarcation();
+            // ?: Are we within a Mats demarcation?
+            if (matsInitiateForNesting.isPresent()) {
+                // -> Evidently within a Mats demarcation, so use the ThreadLocal MatsInitiate.
+                lambda.initiate(matsInitiateForNesting.get().get());
+            }
+            else {
+                // -> No, not within a Mats demarcation, so just forward the call directly to the MatsInitiator
+                _matsInitiator.initiateUnchecked(lambda);
+            }
+        }
+
+        @Override
+        public void close() {
+            Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
+                    .getCurrentThreadLocalMatsDemarcation();
+            // ?: Are we within a Mats demarcation?
+            if (matsInitiateForNesting.isPresent()) {
+                // -> Evidently within a Mats demarcation, so point this out pretty harshly.
+                throw new IllegalStateException("This is the MatsFactory.getDefaultInitiator(), but it was gotten"
+                        + " within a nested Mats demarcation, and is thus when within a Stage, a wrapper"
+                        + " around the MatsInitiate from ProcessContext.initiate(..), or when within an initiation, "
+                        + " a wrapper around the same MatsInitiate that you already have. It as such makes"
+                        + " absolutely NO SENSE that you would want to close it: You've gotten the default "
+                        + " MatsInitiator, *you are within a Mats processing context*, and then you invoke "
+                        + " '.close()' on it?!");
+            }
+            else {
+                // -> No, not within a Mats demarcation, so forward close call.
+                _matsInitiator.close();
+            }
+        }
+
+        @Override
+        public String toString() {
+            Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
+                    .getCurrentThreadLocalMatsDemarcation();
+            return matsInitiateForNesting.isPresent()
+                    ? "[nested-process wrapper of MatsFactory.getDefaultInitiator()]@" + Integer
+                            .toHexString(System.identityHashCode(this))
+                    : _matsInitiator.toString();
+        }
+    }
+
+    /**
+     * This wrapping MatsInitiator effectively works like <code>propagation=REQUIRES_NEW</code>, in that if there is an
+     * ongoing stage or initiation, any initiation done with it is given a new transactional context (currently by brute
+     * force: create a new Thread and run it there!). Otherwise, it acts as normal - which is to create a transaction.
+     */
+    static class MatsInitiator_TxRequiresNew<Z> implements MatsInitiator {
+        private final JmsMatsFactory<Z> _matsFactory;
+        private final JmsMatsInitiator<Z> _matsInitiator;
+
+        public MatsInitiator_TxRequiresNew(JmsMatsFactory<Z> matsFactory, JmsMatsInitiator<Z> matsInitiator) {
+            _matsFactory = matsFactory;
+            _matsInitiator = matsInitiator;
+        }
+
+        @Override
+        public String getName() {
+            return _matsInitiator.getName();
+        }
+
+        @Override
+        public MatsFactory getParentFactory() {
+            return _matsFactory;
+        }
+
+        @Override
+        public void initiate(InitiateLambda lambda) throws MatsMessageSendException, MatsBackendException {
+            Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
+                    .getCurrentThreadLocalMatsDemarcation();
+            // ?: Are we within a Mats demarcation?
+            if (matsInitiateForNesting.isPresent()) {
+                // -> Evidently within a Mats demarcation, so fire up a new thread to do the initiation.
+                Throwable[] throwableResult = new Throwable[1];
+                String threadName = Thread.currentThread().getName() + ":subInitiation_" + Integer.toString(
+                        ThreadLocalRandom.current().nextInt(), 36);
+                Map<String, String> copyOfContextMap = MDC.getCopyOfContextMap();
+                Thread thread = new Thread(() -> {
+                    MDC.setContextMap(copyOfContextMap);
+                    try {
+                        _matsInitiator.initiate(lambda);
+                    }
+                    catch (Throwable t) {
+                        throwableResult[0] = t;
+                    }
+                }, threadName);
+                thread.start();
+                try {
+                    thread.join();
+                }
+                catch (InterruptedException e) {
+                    // Pass on the interruption.
+                    thread.interrupt();
+                    // Throw out.
+                    throw new RuntimeException("Got interrupted.", e);
+                }
+                if (throwableResult[0] != null) {
+                    Throwable t = throwableResult[0];
+                    if (t instanceof RuntimeException) {
+                        throw (RuntimeException) t;
+                    }
+                    if (t instanceof MatsBackendException) {
+                        throw (MatsBackendException) t;
+                    }
+                    if (t instanceof MatsMessageSendException) {
+                        throw (MatsMessageSendException) t;
+                    }
+                    if (t instanceof Error) {
+                        throw (Error) t;
+                    }
+                    throw new RuntimeException("Got undeclared checked Exception [" + t.getClass().getSimpleName()
+                            + "]!", t);
+                }
+            }
+            else {
+                // -> No, not within a Mats demarcation, so just forward the call directly to the MatsInitiator
+                _matsInitiator.initiate(lambda);
+            }
+        }
+
+        @Override
+        public void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
+                MatsMessageSendRuntimeException {
+            Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
+                    .getCurrentThreadLocalMatsDemarcation();
+            // ?: Are we within a Mats demarcation?
+            if (matsInitiateForNesting.isPresent()) {
+                // -> Evidently within a Mats demarcation, so fire up a new thread to do the initiation.
+                Throwable[] throwableResult = new Throwable[1];
+                String threadName = Thread.currentThread().getName() + ":subInitiation_" + Integer.toString(
+                        ThreadLocalRandom.current().nextInt(), 36);
+                Map<String, String> copyOfContextMap = MDC.getCopyOfContextMap();
+                Thread thread = new Thread(() -> {
+                    MDC.setContextMap(copyOfContextMap);
+                    try {
+                        _matsInitiator.initiateUnchecked(lambda);
+                    }
+                    catch (Throwable t) {
+                        throwableResult[0] = t;
+                    }
+                }, threadName);
+                thread.start();
+                try {
+                    thread.join();
+                }
+                catch (InterruptedException e) {
+                    // Pass on the interruption.
+                    thread.interrupt();
+                    // Throw out.
+                    throw new RuntimeException("Got interrupted.", e);
+                }
+                if (throwableResult[0] != null) {
+                    Throwable t = throwableResult[0];
+                    if (t instanceof RuntimeException) {
+                        throw (RuntimeException) t;
+                    }
+                    if (t instanceof Error) {
+                        throw (Error) t;
+                    }
+                    throw new RuntimeException("Got undeclared checked Exception [" + t.getClass().getSimpleName()
+                            + "]!", t);
+                }
+            }
+            else {
+                // -> No, not within a Mats demarcation, so just forward the call directly to the MatsInitiator
+                _matsInitiator.initiateUnchecked(lambda);
+            }
+        }
+
+        @Override
+        public void close() {
+            Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
+                    .getCurrentThreadLocalMatsDemarcation();
+            // ?: Are we within a Mats demarcation?
+            if (matsInitiateForNesting.isPresent()) {
+                // -> Evidently within a Mats demarcation, so point this out pretty harshly.
+                throw new IllegalStateException("You are evidently within a Mats processing (stage or init),"
+                        + " so it makes absolutely no sense to close the MatsInitiator now.");
+            }
+            else {
+                // -> No, not within a Mats demarcation, so forward close call.
+                _matsInitiator.close();
+            }
+        }
+
+        @Override
+        public String toString() {
+            Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
+                    .getCurrentThreadLocalMatsDemarcation();
+            return matsInitiateForNesting.isPresent()
+                    ? "[nested-process wrapper of MatsFactory.getDefaultInitiator()]@" + Integer
+                            .toHexString(System.identityHashCode(this))
+                    : _matsInitiator.toString();
         }
     }
 }

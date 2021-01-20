@@ -475,6 +475,4 @@ public interface JmsMatsStatics {
         // E-> Evidently no stackframes!?
         return "<could not determine invocation point>";
     }
-
-    ThreadLocal<Supplier<MatsInitiate>> __nestedStandardMatsInitiate = new ThreadLocal<>();
 }
