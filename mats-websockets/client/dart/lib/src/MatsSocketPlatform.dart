@@ -29,7 +29,7 @@ abstract class MatsSocketPlatform {
 
   WebSocket connect(Uri webSocketUri, String protocol, String authorization);
 
-  String get userAgent;
+  String get version;
 
   ConnectResult sendAuthorizationHeader(Uri websocketUri, String authorization);
 

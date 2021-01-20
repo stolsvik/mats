@@ -36,19 +36,16 @@ class MatsSocketPlatformNative extends MatsSocketPlatform {
   }
 
   @override
-  String get userAgent {
+  String get version {
     final osName = io.Platform.operatingSystem;
-    final osVersion = io.Platform.operatingSystemVersion;
+    final osVersion = io.Platform.operatingSystemVersion
+    // We want to skip anything before the first digit, under the assumption that the first digit is the start of
+    // the version number. On OS X the os version starts with "Darwin 20.2.0", so this would strip out the Darwin part.
+    // In addition, we don't want to include ; or any characters following that. We use ; as our own seperator between
+    // various version parts.
+        .replaceAllMapped(RegExp(r'^[^\d]+([^;]+).*'), (match) => match.group(1));
     final dartVersion = io.Platform.version;
-    String platform;
-    if (io.Platform.isIOS) {
-      platform = 'IOS';
-    } else if (io.Platform.isIOS) {
-      platform = 'Android';
-    } else {
-      platform = 'DartVM';
-    }
-    return '${platform} (dart: ${dartVersion}, name: ${osName}, version: ${osVersion})';
+    return '${osName},v${osVersion}; dart:v${dartVersion}';
   }
 
   @override

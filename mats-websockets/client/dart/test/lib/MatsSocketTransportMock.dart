@@ -77,7 +77,7 @@ class MatsSocketTransportMock extends MatsSocketPlatform {
   }
 
   @override
-  String get userAgent => 'UnitTest userAgent';
+  String get version => 'UnitTest version';
 
 }
 
