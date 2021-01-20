@@ -83,7 +83,6 @@ public class MatsTestInfrastructureConfiguration  {
 
         // E-> No, neither PlatformTransactionManager nor DataSource in context, so make a non-DataSource tx MatsFactory
         return TestSpringMatsFactoryProvider.createJmsTxOnlyTestMatsFactory(matsSerializer);
-
     }
 
     @Bean

@@ -66,14 +66,11 @@ public class Extension_Mats extends AbstractMatsTest<String>
     }
 
     public static Extension_Mats createWithDb() {
-        TestH2DataSource testH2DataSource = TestH2DataSource.createStandard();
-        testH2DataSource.cleanDatabase();
-        return new Extension_Mats(MatsSerializerJson.create(), testH2DataSource);
+        return createWithDb(MatsSerializerJson.create());
     }
 
     public static Extension_Mats createWithDb(MatsSerializer<String> matsSerializer) {
         TestH2DataSource testH2DataSource = TestH2DataSource.createStandard();
-        testH2DataSource.cleanDatabase();
         return new Extension_Mats(matsSerializer, testH2DataSource);
     }
 

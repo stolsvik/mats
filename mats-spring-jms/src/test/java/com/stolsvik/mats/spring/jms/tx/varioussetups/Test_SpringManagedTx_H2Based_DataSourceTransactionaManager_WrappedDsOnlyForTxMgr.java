@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.jms.tx;
+package com.stolsvik.mats.spring.jms.tx.varioussetups;
 
 import javax.sql.DataSource;
 
@@ -10,7 +10,8 @@ import org.springframework.test.context.junit4.SpringRunner;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.stolsvik.mats.spring.EnableMats;
-import com.stolsvik.mats.spring.jms.tx.Test_SpringManagedTx_H2Based_DataSourceTransactionaManager.SpringConfiguration_DataSourceTxMgr;
+import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringManagedSqlTx;
+import com.stolsvik.mats.spring.jms.tx.varioussetups.Test_SpringManagedTx_H2Based_DataSourceTransactionaManager.SpringConfiguration_DataSourceTxMgr;
 
 /**
  * Testing Spring DB Transaction management, using DataSourceTransactionManager where the DataSource is wrapped only for
@@ -19,12 +20,14 @@ import com.stolsvik.mats.spring.jms.tx.Test_SpringManagedTx_H2Based_DataSourceTr
  * @author Endre Stølsvik 2020-06-05 00:10 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class Test_SpringManagedTx_H2Based_DataSourceTransactionaManager_Wrapped_OnlyTxMgr
-        extends Test_SpringManagedTx_H2Based_AbstractResourceTransactionaManager {
+public class Test_SpringManagedTx_H2Based_DataSourceTransactionaManager_WrappedDsOnlyForTxMgr
+        extends Test_SpringManagedTx_H2Based_Abstract_PlatformTransactionManager {
     @Configuration
     @EnableMats
-    static class SpringConfiguration_Test extends
-            SpringConfiguration_DataSourceTxMgr {
+    static class SpringConfiguration_DsTxMgr_WrappedDsForAll extends SpringConfiguration_DataSourceTxMgr {
+        /**
+         * This ensures that ONLY the TransactionManager gets the wrapped DataSource.
+         */
         @Bean
         PlatformTransactionManager createDataSourceTransactionaManager(DataSource dataSource) {
             return new DataSourceTransactionManager(JmsMatsTransactionManager_JmsAndSpringManagedSqlTx

@@ -166,7 +166,7 @@ public class MatsSerializerJson implements MatsSerializer<String> {
             byte[] resultBytes;
             double compressionMillis;
 
-            if (serializedBytes.length > 600) {
+            if (serializedBytes.length > 900) {
                 resultBytes = compress(serializedBytes);
                 compressionMillis = (System.nanoTime() - nanosAfterSerialization) / 1_000_000d;
                 // Add the uncompressed size, for precise buffer allocation for decompression.

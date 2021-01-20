@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.jms.tx;
+package com.stolsvik.mats.spring.jms.tx.varioussetups;
 
 import javax.sql.DataSource;
 
@@ -9,6 +9,7 @@ import org.springframework.orm.hibernate5.LocalSessionFactoryBean;
 import org.springframework.test.context.junit4.SpringRunner;
 
 import com.stolsvik.mats.spring.EnableMats;
+import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringManagedSqlTx;
 
 /**
  * Testing Spring DB Transaction management, using HibernateTransactionManager where the DataSource is wrapped only for
@@ -17,11 +18,14 @@ import com.stolsvik.mats.spring.EnableMats;
  * @author Endre Stølsvik 2020-06-05 00:10 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class Test_SpringManagedTx_H2Based_HibernateTransactionManager_Wrapped_OnlyTxMgr
+public class Test_SpringManagedTx_H2Based_HibernateTransactionManager_WrappedDsOnlyForTxMgr
         extends Test_SpringManagedTx_H2Based_HibernateTransactionManager {
     @Configuration
     @EnableMats
-    static class SpringConfiguration_Hibernate_Wrapped extends SpringConfiguration_HibernateTxMgr {
+    static class SpringConfiguration_Hibernate_WrappedDsOnlyForTxMgr extends SpringConfiguration_HibernateTxMgr {
+        /**
+         * This ensures that ONLY the TransactionManager gets the wrapped DataSource.
+         */
         @Bean
         LocalSessionFactoryBean createHibernateSessionFactory(DataSource dataSource) {
             // This is a FactoryBean that creates a Hibernate SessionFactory working with Spring's HibernateTxMgr

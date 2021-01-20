@@ -34,17 +34,17 @@ public class Common {
         }
 
         // Cast it
-        JmsMatsTransactionManager_JmsAndSpringManagedSqlTx springTx = (JmsMatsTransactionManager_JmsAndSpringManagedSqlTx) jmsMatsTransactionManager;
+        JmsMatsTransactionManager_JmsAndSpringManagedSqlTx matsSpringTx = (JmsMatsTransactionManager_JmsAndSpringManagedSqlTx) jmsMatsTransactionManager;
 
         // Get the DataSource it is using
-        DataSource dataSourceFromTxMgr = springTx.getDataSource();
+        DataSource dataSourceFromTxMgr = matsSpringTx.getDataSource();
 
         // This should be wrapped by JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.wrapLazyConnectionDatasource()
         // .. therefore, it should NOT be same instance as the on in the Spring context
         Assert.assertNotSame(dataSource, dataSourceFromTxMgr);
 
         // However, if we get the /unwrapped/ DataSource, it SHALL be same instance as the one the Spring context
-        DataSource unwrappedDataSource = springTx.getDataSourceUnwrapped();
+        DataSource unwrappedDataSource = matsSpringTx.getDataSourceUnwrapped();
         Assert.assertSame(dataSource, unwrappedDataSource);
     }
 

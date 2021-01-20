@@ -22,6 +22,7 @@ import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call;
 import com.stolsvik.mats.serial.MatsTrace.Call.Channel;
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
+import com.stolsvik.mats.serial.MatsTrace.KeepMatsTrace;
 
 /**
  * The JMS MATS implementation of {@link ProcessContext}. Instantiated for each incoming JMS message that is processed,
@@ -337,11 +338,13 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         String matsMessageId = createMatsMessageId(outgoingMatsTrace.getFlowId(),
                 outgoingMatsTrace.getInitializedTimestamp(), now, outgoingMatsTrace.getCallNumber());
 
-        // TODO: Add debug info!
+        String debugInfo = outgoingMatsTrace.getKeepTrace() != KeepMatsTrace.MINIMAL
+                ? getInvocationPoint()
+                : null;
         currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                 _parentFactory.getFactoryConfig().getAppVersion(),
                 _parentFactory.getFactoryConfig().getNodename(), now, matsMessageId,
-                "Callalala!");
+                debugInfo);
         return matsMessageId;
     }
 

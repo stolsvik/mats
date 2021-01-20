@@ -39,6 +39,8 @@ public interface MatsSerializer<Z> {
     }
 
     /**
+     * NOTE: DELETE after users are at > 0.15.0.
+     *
      * Used when initiating a new MATS processing. Since the {@link MatsTrace} implementation is dependent on the
      * serialization mechanism in use, we need a way provided by the serializer to instantiate new instances of the
      * implementation of MatsTrace.

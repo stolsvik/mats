@@ -1,10 +1,8 @@
-package com.stolsvik.mats.spring.jms.tx;
+package com.stolsvik.mats.spring.jms.tx.varioussetups;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -13,13 +11,12 @@ import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import javax.annotation.PreDestroy;
 import javax.inject.Inject;
 import javax.jms.ConnectionFactory;
 import javax.sql.DataSource;
 
-import org.h2.jdbcx.JdbcDataSource;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
@@ -29,8 +26,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
 import org.springframework.jdbc.datasource.DataSourceUtils;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.annotation.DirtiesContext.MethodMode;
 import org.springframework.test.context.junit4.SpringRunner;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
@@ -42,8 +37,11 @@ import com.stolsvik.mats.spring.Dto;
 import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.MatsMapping;
 import com.stolsvik.mats.spring.Sto;
+import com.stolsvik.mats.spring.jms.tx.SpringTestDataTO;
+import com.stolsvik.mats.spring.jms.tx.SpringTestStateTO;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
+import com.stolsvik.mats.test.TestH2DataSource;
 import com.stolsvik.mats.util.RandomString;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
@@ -60,8 +58,6 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
 
     public static final String SERVICE = "mats.spring.SpringManagedTx_H2Based";
     public static final String TERMINATOR = SERVICE + ".TERMINATOR";
-
-    public static final String H2_DATABASE_URL = "jdbc:h2:mem:test;DB_CLOSE_DELAY=-1";
 
     private static final int MULTIPLE_COUNT = 75;
 
@@ -83,55 +79,18 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
             return MatsSerializerJson.create();
         }
 
-        /**
-         * @return a H2 test database.
-         */
         @Bean
-        public DataSource createDataSource() {
-            log.info("Creating H2 DataSource (url:'" + H2_DATABASE_URL
-                    + "'), run 'DROP ALL OBJECTS DELETE FILES' on it,"
-                    + " then 'CREATE TABLE datatable (data VARCHAR {UNIQUE})'.");
-
-            JdbcDataSource dataSource = new JdbcDataSource();
-            dataSource.setURL(H2_DATABASE_URL);
-
-            // DROP EVERYTHING
-            String dropSql = "DROP ALL OBJECTS DELETE FILES";
-            try (Connection con = dataSource.getConnection();
-                    Statement stmt = con.createStatement()) {
-                stmt.execute(dropSql);
-            }
-            catch (SQLException e) {
-                throw new RuntimeException("Got problems running '" + dropSql + "'.", e);
-            }
-
-            // CREATE TABLE
-            try (Connection dbCon = dataSource.getConnection();
-                    Statement stmt = dbCon.createStatement();) {
-                stmt.execute("CREATE TABLE datatable ( data VARCHAR NOT NULL, CONSTRAINT UC_data UNIQUE (data))");
-            }
-            catch (SQLException e) {
-                throw new RuntimeException("Got problems creating the SQL table 'datatable'.", e);
-            }
-
-            return optionallyWrapDataSource(dataSource);
+        public DataSource testH2DataSource() {
+            TestH2DataSource standard = TestH2DataSource.createStandard();
+            standard.createDataTable();
+            return optionallyWrapDataSource(standard);
         }
 
+        /**
+         * Some test classes override this method to wrap it in the "magic proxy".
+         */
         protected DataSource optionallyWrapDataSource(DataSource dataSource) {
             return dataSource;
-        }
-
-        @Inject
-        private DataSource _dataSource;
-
-        @PreDestroy
-        protected void closeDownDatabase() throws SQLException {
-            // Shutting down of the database turned out to be pretty important, otherwise it started complaining about
-            // missing table DATATABLE in the middle of a MULTIPLE-run with 500 messages.
-            Connection con = _dataSource.getConnection();
-            Statement stmt = con.createStatement();
-            stmt.execute("SHUTDOWN");
-            con.close();
         }
 
         /**
@@ -155,6 +114,9 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
         public MatsTestLatch createTestLatch() {
             return new MatsTestLatch();
         }
+
+        @Inject
+        private DataSource _dataSource;
 
         @Inject
         protected JdbcTemplate _jdbcTemplate;
@@ -263,8 +225,16 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
     protected static final String THROW = "Throw";
     protected static final String MULTIPLE = "Multiple";
 
+    @Before
+    public void cleanDatabase() throws SQLException {
+        _dataSource.unwrap(TestH2DataSource.class).cleanDatabase(true);
+    }
+
+    protected List<String> getDataFromDataTable() throws SQLException {
+        return _dataSource.unwrap(TestH2DataSource.class).getDataFromDataTable();
+    }
+
     @Test
-    @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)
     public void test_Good() throws SQLException {
         SpringTestDataTO dto = new SpringTestDataTO(27, GOOD);
         String traceId = "testGood_TraceId:" + RandomString.randomCorrelationId();
@@ -281,11 +251,10 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
         expected.add(SERVICE + '[' + GOOD + "]-PlainJdbc");
         expected.add(SERVICE + '[' + GOOD + "]-SpringJdbc");
 
-        Assert.assertEquals(expected, getDataFromDatabase());
+        Assert.assertEquals(expected, getDataFromDataTable());
     }
 
     @Test
-    @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)
     public void test_MultipleGood() throws SQLException {
         for (int i = 0; i < MULTIPLE_COUNT; i++) {
             sendMessage(SERVICE, new SpringTestDataTO(i, MULTIPLE + i), RandomString.randomCorrelationId());
@@ -302,11 +271,10 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
             expected.add(SERVICE + '[' + MULTIPLE + i + "]-PlainJdbc");
             expected.add(SERVICE + '[' + MULTIPLE + i + "]-SpringJdbc");
         }
-        Assert.assertEquals(new ArrayList<>(expected), getDataFromDatabase());
+        Assert.assertEquals(new ArrayList<>(expected), getDataFromDataTable());
     }
 
     @Test
-    @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)
     public void test_ThrowsShouldRollback() throws SQLException {
         SpringTestDataTO dto = new SpringTestDataTO(13, THROW);
         String traceId = "testBad_TraceId:" + RandomString.randomCorrelationId();
@@ -327,7 +295,7 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
 
         // There should be zero rows in the database, since the RuntimeException should have rolled back processing
         // of SERVICE, and thus TERMINATOR should not have gotten a message either (and thus not inserted row).
-        List<String> dataFromDatabase = getDataFromDatabase();
+        List<String> dataFromDatabase = getDataFromDataTable();
         Assert.assertEquals(0, dataFromDatabase.size());
     }
 
@@ -340,17 +308,5 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
                     .replyTo(TERMINATOR, null)
                     .request(dto);
         });
-    }
-
-    protected List<String> getDataFromDatabase() throws SQLException {
-        Connection connection = _dataSource.getConnection();
-        PreparedStatement pstmt = connection.prepareStatement("SELECT * FROM datatable ORDER BY data");
-        ResultSet rs = pstmt.executeQuery();
-        List<String> actual = new ArrayList<>(2);
-        while (rs.next()) {
-            String string = rs.getString(1);
-            actual.add(string);
-        }
-        return actual;
     }
 }

@@ -80,14 +80,11 @@ public class Rule_Mats extends AbstractMatsTest<String> implements TestRule {
     }
 
     public static Rule_Mats createWithDb() {
-        TestH2DataSource testH2DataSource = TestH2DataSource.createStandard();
-        testH2DataSource.cleanDatabase();
-        return new Rule_Mats(MatsSerializerJson.create(), testH2DataSource);
+        return createWithDb(MatsSerializerJson.create());
     }
 
     public static Rule_Mats createWithDb(MatsSerializer<String> matsSerializer) {
         TestH2DataSource testH2DataSource = TestH2DataSource.createStandard();
-        testH2DataSource.cleanDatabase();
         return new Rule_Mats(matsSerializer, testH2DataSource);
     }
 

@@ -14,12 +14,12 @@ import javax.jms.MapMessage;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 
-import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import org.slf4j.Logger;
 import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.MatsObject;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
+import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.serial.MatsSerializer;
@@ -220,7 +220,7 @@ public interface JmsMatsStatics {
                 // :: Keep MDC's TraceId to restore
                 String existingTraceId = MDC.get(MDC_TRACE_ID);
                 try { // :: try-finally: Restore MDC
-                    // Set MDC for this outgoing message
+                      // Set MDC for this outgoing message
                     MDC.put(MDC_TRACE_ID, outgoingMatsTrace.getTraceId());
                     MDC.put(MDC_MATS_MESSAGE_ID_OUT, outgoingMatsTrace.getCurrentCall().getMatsMessageId());
                     MDC.put(MDC_MATS_MESSAGE_SEND_FROM, outgoingMatsTrace.getCurrentCall().getFrom());
@@ -448,5 +448,33 @@ public interface JmsMatsStatics {
         return Math.round(ms * 1000d) / 1000d;
     }
 
-    ThreadLocal<Supplier<MatsInitiate>> __stageDemarcatedMatsInitiate = new ThreadLocal<>();
+    /**
+     * Inspired from <a href="https://stackoverflow.com/a/11306854">Stackoverflow - Denys Séguret</a>.
+     *
+     * @return a String showing where the Mats-code was invoked from, i.e. "com.stolsvik.Test.methodName(Test.java:123)"
+     */
+    default String getInvocationPoint() {
+        StackTraceElement[] stElements = Thread.currentThread().getStackTrace();
+        for (int i = 1; i < stElements.length; i++) {
+            StackTraceElement ste = stElements[i];
+            if ((ste.getClassName().startsWith("com.stolsvik.mats.")
+                    /* Handle special usage where wrapped STOW */
+                    || ste.getClassName().startsWith("com.skagenfondene.spstow."))
+                    && (!ste.getClassName().toLowerCase().contains("test"))) {
+                continue;
+            }
+            // ?: Handle special case which occurs with a "lastStage" style REPLY, since that happens within Mats.
+            if (ste.getClassName().equals("java.lang.Thread")) {
+                // -> Yes, only found "java.lang.Thread", which means there was no non-Mats stack frames.
+                return "<no non-mats stack frames - probably lastStage.return>";
+            }
+            // E-> return a nice representation of the stackframe, looking like a stacktrace frame.
+            return ste.getClassName() + '.' + ste.getMethodName() + "(" + ste.getFileName() + ":" + ste
+                    .getLineNumber() + ")";
+        }
+        // E-> Evidently no stackframes!?
+        return "<could not determine invocation point>";
+    }
+
+    ThreadLocal<Supplier<MatsInitiate>> __nestedStandardMatsInitiate = new ThreadLocal<>();
 }

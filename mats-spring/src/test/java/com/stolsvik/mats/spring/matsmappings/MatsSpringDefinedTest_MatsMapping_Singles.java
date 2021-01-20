@@ -26,7 +26,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  * @author Endre Stølsvik - 2016-06-23 - http://endre.stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class MatsSpringDefined_MatsMapping_Singles {
+public class MatsSpringDefinedTest_MatsMapping_Singles {
     public static final String ENDPOINT_ID = "MatsMappingSingleStagesTest";
     public static final String TERMINATOR = ".TERMINATOR";
     public static final String SINGLE = ".Single";

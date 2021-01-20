@@ -26,7 +26,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  */
 @RunWith(SpringRunner.class)
 @MatsTestContext
-public class MatsSpringDefined_MatsMapping_Terminators {
+public class MatsSpringDefinedTest_MatsMapping_Terminators {
     public static final String ENDPOINT_ID = "MatsMappingTerminatorsTest";
     public static final String TERMINATOR = ".Terminator";
     public static final String TERMINATOR_DTO = ".Terminator_Dto";

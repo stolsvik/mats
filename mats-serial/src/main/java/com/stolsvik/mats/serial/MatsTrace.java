@@ -319,8 +319,11 @@ public interface MatsTrace<Z> {
      */
     interface Call<Z> {
         /**
+         * Remove once all are above 0.15.0
+         *
          * DEPRECATED! Use {@link #setDebugInfo(String, String, String, long, String, String)} (the right below).
          */
+        @Deprecated
         Call<Z> setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
                 long calledTimestamp, String debugInfo);
 

@@ -1,9 +1,8 @@
 package com.stolsvik.mats;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 import com.stolsvik.mats.MatsConfig.StartStoppable;
@@ -386,15 +385,7 @@ public interface MatsFactory extends StartStoppable {
      * demarcated SQL Connection if the Mats implementation provides such.
      */
     class ContextLocal {
-        private static final ThreadLocal<Map<Object, Object>> THREAD_LOCAL_MAP = ThreadLocal.withInitial(HashMap::new);
-
-        public static void bindResource(Object key, Object value) {
-            THREAD_LOCAL_MAP.get().put(key, value);
-        }
-
-        public static void unbindResource(Object key) {
-            THREAD_LOCAL_MAP.get().remove(key);
-        }
+        private static volatile BiFunction<Class<?>, String[], Optional<?>> callback;
 
         /**
          * Provides a ThreadLocal-accessible variant of the {@link ProcessContext#getAttribute(Class, String...)} and
@@ -419,35 +410,9 @@ public interface MatsFactory extends StartStoppable {
          * @see MatsInitiate#getAttribute(Class, String...)
          * @see #getDefaultInitiator()
          */
-        public static <T> Optional<T> getAttribute(Class<T> type, String... name) {
-            ProcessContext<?> ctx = (ProcessContext<?>) THREAD_LOCAL_MAP.get().get(ProcessContext.class);
-            // ?: Did we find the ProcessContext?
-            if (ctx != null) {
-                // -> Yes, so invoke it.
-                return ctx.getAttribute(type, name);
-            }
-            // E-> No, check MatsInitiate
-            MatsInitiate init = (MatsInitiate) THREAD_LOCAL_MAP.get().get(MatsInitiate.class);
-            // ?: Did we find the MatsInitiate?
-            if (init != null) {
-                // -> Yes, so invoke it.
-                return init.getAttribute(type, name);
-            }
-            // E-> No, check direct lookup of type
-            Object direct = THREAD_LOCAL_MAP.get().get(type);
-            if (direct != null) {
-                if (!(type.isInstance(direct))) {
-                    throw new ClassCastException("The Object stored on key ["+type+"] is not of that type!");
-                }
-                return Optional.of(cast(direct));
-            }
-            // E-> No luck.
-            return Optional.empty();
-        }
-
         @SuppressWarnings("unchecked")
-        private static <T> T cast(Object object) {
-            return (T) object;
+        public static <T> Optional<T> getAttribute(Class<T> type, String... name) {
+            return (Optional<T>) callback.apply(type, name);
         }
     }
 

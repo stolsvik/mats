@@ -46,7 +46,7 @@ public abstract class AbstractMatsTest<Z> {
     protected DataSource _dataSource;
 
     protected MatsLocalVmActiveMq _matsLocalVmActiveMq;
-    protected MatsFactory _matsFactory;
+    protected JmsMatsFactory<Z> _matsFactory;
     protected MatsInitiator _matsInitiator;
     protected MatsTestLatch _matsTestLatch;
     protected MatsTestMqInterface _matsTestMqInterface;
@@ -198,6 +198,10 @@ public abstract class AbstractMatsTest<Z> {
         return _matsFactory;
     }
 
+    public JmsMatsFactory<Z> getJmsMatsFactory() {
+        return _matsFactory;
+    }
+
     /**
      * <b>You should probably NOT use this method, but instead the {@link #getMatsFactory()}!</b>.
      * <p />
@@ -209,7 +213,7 @@ public abstract class AbstractMatsTest<Z> {
      *
      * @return a <i>new, separate</i> {@link MatsFactory} in addition to the one provided by {@link #getMatsFactory()}.
      */
-    public MatsFactory createMatsFactory() {
+    public JmsMatsFactory<Z> createMatsFactory() {
         JmsMatsJmsSessionHandler sessionHandler = JmsMatsJmsSessionHandler_Pooling
                 .create(_matsLocalVmActiveMq.getConnectionFactory());
 

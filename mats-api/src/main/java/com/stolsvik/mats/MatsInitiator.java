@@ -260,11 +260,16 @@ public interface MatsInitiator extends Closeable {
         MatsInitiate traceId(String traceId);
 
         /**
-         * <b>Debugging feature:</b> Hint to the underlying implementation to which level of call and state history the
-         * underlying protocol should retain.
+         * Hint to the underlying implementation to which level of call and state history the underlying protocol should
+         * retain. The default (unless configured otherwise), {@link KeepTrace#FULL}, is rather verbose, keeping all
+         * history, i.e. all requests and replies and state transitions throughout the entire call flow. Once a certain
+         * call flow stabilizes, without much errors or DLQs, you should consider initializing it with
+         * {@link KeepTrace#COMPACT} or even {@link KeepTrace#MINIMAL}.
          * <p/>
-         * <b>This is solely meant for debugging.</b> The resulting kept trace would typically be visible in a
-         * "toString()" of the {@link ProcessContext} - or in an external (e.g. Brokerside) debugging/tracing system.
+         * <b>This functionality is solely for debugging, the Mats endpoints works identically with any setting</b>,
+         * thus it is a tradeoff between performance and debuggability. The resulting kept trace would typically be
+         * visible in a "toString()" of the {@link ProcessContext} - or in an external (e.g. Brokerside)
+         * debugging/tracing system.
          *
          * @return the {@link MatsInitiate} for chaining.
          */
@@ -406,16 +411,17 @@ public interface MatsInitiator extends Closeable {
          * 'from' property is already set to the stageId of the currently processing Stage, but it can be
          * <b>overridden</b> if desired.
          * <p/>
-         * A typical value that would be of use when debugging a call trace is something following a structure like
-         * <code>"OrderService.REST.placeOrderFromUser"</code>, this example trying to convey that it is from the
-         * OrderSystem, over its REST endpoints, placing an order from the user.
+         * A good value that would be of use when debugging a call trace is something following a structure like
+         * <code>"OrderService.REST.place_order_from_user"</code>, this example trying to convey that it is from the
+         * OrderSystem, coming in over its REST endpoint "place_order_from_user".
          * <p/>
-         * <b>NOTE:</b> This is only used for tracing/debugging, but should be set to something that will give insights
-         * when you try to make sense of call flows. Think of a introspection system showing a histogram of where
-         * messages are initiated, so that you can see that 45% of the messages are coming from the OrderSystem's REST
-         * endpoints, and 15% of all initiations are its "placeOrderFromUser". This also implies that it shall not be a
-         * "dynamic" value, i.e. do not put something that will vary between each "placeOrderFromUser" call, that is, do
-         * NOT add the user's Id or something like that. That is what the {@link #traceId(String)} is for.
+         * <b>NOTE:</b> This is only used for tracing/debugging (in particular, it is not related to the
+         * {@link #replyTo(String, Object) replyTo} functionality), but should be set to something that will give
+         * insights when you try to make sense of call flows. Think of a introspection system showing a histogram of
+         * where messages are initiated, so that you can see that 45% of the messages are coming from the OrderSystem's
+         * REST endpoints, and 15% of all initiations are its "place_order_from_user". This also implies that it shall
+         * not be a dynamic value, i.e. do not put something that will vary between each call, that is, do NOT add the
+         * user's Id or something like that. Such dynamic elements is what the {@link #traceId(String)} is for.
          *
          * @param initiatorId
          *            the originating/initiating "synthetic endpoint Id" - only used for tracing/debugging.
@@ -687,7 +693,7 @@ public interface MatsInitiator extends Closeable {
      */
     enum KeepTrace {
         /**
-         * Keep all history for request and reply DTOs, and all history for state STOs.
+         * <b>Default</b>: Keep all history for request and reply DTOs, and all history for state STOs.
          * <p/>
          * All calls with data and state should be kept, which e.g means that at the Terminator, all request and reply
          * DTOs, and all STOs (with their changing values between each stage of a multi-stage endpoint) will be present
@@ -696,8 +702,8 @@ public interface MatsInitiator extends Closeable {
         FULL,
 
         /**
-         * <b>Default</b>: Nulls out Data for other than current call while still keeping the meta-info for the call
-         * history, and condenses State to a pure stack.
+         * Nulls out Data for other than current call while still keeping the meta-info for the call history, and
+         * condenses State to a pure stack.
          * <p/>
          * This is a compromise between FULL and MINIMAL, where the DTOs and STOs except for the ones needed in the
          * stack, are "nulled out", while the call trace itself (with metadata) is still present, which e.g. means that

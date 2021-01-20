@@ -187,9 +187,9 @@ public class JmsMatsMessageBrokerSpecifics {
     }
 
     /**
-     * If the Session is an ActiveMqSession, then it should set it into "0 redeliveries" mode, and then run the provided
-     * lambda to rollback the current message, and then re-set the deliveries. If not in ActiveMqSession, just run the
-     * provided lambda directly to rollback the current message.
+     * If the MessageConsumer is an ActiveMQMessageConsumer, then it should set it into "0 redeliveries" mode, and then
+     * run the provided lambda to rollback the current message, and then re-set the deliveries. If not an
+     * ActiveMQMessageConsumer, just run the provided lambda directly to rollback the current message.
      * 
      * @param jmsMessageConsumer
      *            consumer to set to "0 redeliveries" (will be reset before return)

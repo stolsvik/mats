@@ -62,8 +62,7 @@ public class Test_ExceptionInServiceRollbacksDb {
 
     @Before
     public void cleanDatabaseAndCreateTable() {
-        MATS.getDataSource().cleanDatabase();
-        MATS.getDataSource().createDataTable();
+        MATS.getDataSource().cleanDatabase(true);
     }
 
     /**

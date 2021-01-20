@@ -63,7 +63,6 @@ public class Rule_MatsGeneric<Z> extends AbstractMatsTest<Z> implements TestRule
 
     public static <Z> Rule_MatsGeneric<Z> createWithDb(MatsSerializer<Z> matsSerializer) {
         TestH2DataSource testH2DataSource = TestH2DataSource.createStandard();
-        testH2DataSource.cleanDatabase();
         return new Rule_MatsGeneric<>(matsSerializer, testH2DataSource);
     }
 

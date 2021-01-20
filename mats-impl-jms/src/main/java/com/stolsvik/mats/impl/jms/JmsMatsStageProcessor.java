@@ -21,11 +21,9 @@ import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
-import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsStage.StageConfig;
-import com.stolsvik.mats.impl.jms.JmsMatsInitiator.JmsMatsInitiate;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
@@ -126,7 +124,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
             }
             chillWait(1);
             // ?: Is the thread dead?
-            if (! _processorThread.isAlive()) {
+            if (!_processorThread.isAlive()) {
                 // -> Yes, thread is dead, so it has already exited.
                 log.info(LOG_PREFIX + ident() + " has now exited, it should have closed JMS Session.");
                 return;
@@ -429,7 +427,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                     messagesToSend, jmsMatsMessageContext, doAfterCommitRunnableHolder,
                                     matsTrace, outgoingProps);
 
-                            __stageDemarcatedMatsInitiate.set(initiateSupplier);
+                            __nestedStandardMatsInitiate.set(initiateSupplier);
 
                             // :: Invoke the process lambda (the actual user code).
 
@@ -450,7 +448,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                     doAfterCommitRunnableHolder);
 
                             // .. stick the ProcessContext into the ThreadLocal scope
-                            ContextLocal.bindResource(ProcessContext.class, processContext);
+                            JmsMatsContextLocalCallback.bindResource(ProcessContext.class, processContext);
 
                             // .. actually process the user code
                             _jmsMatsStage.getProcessLambda().process(processContext, currentSto, incomingDto);
@@ -502,9 +500,9 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                         continue;
                     }
                     finally {
-                        __stageDemarcatedMatsInitiate.remove();
+                        __nestedStandardMatsInitiate.remove();
 
-                        ContextLocal.unbindResource(ProcessContext.class);
+                        JmsMatsContextLocalCallback.unbindResource(ProcessContext.class);
                     }
 
                     // :: Handle the DoAfterCommit lambda.

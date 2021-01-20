@@ -190,7 +190,7 @@ public class TestSpringMatsFactoryProvider {
     private static SpringJmsMatsFactoryWrapper getMatsFactoryStopLocalVmBrokerWrapper(int concurrency,
             MatsSerializer<?> matsSerializer, JmsMatsTransactionManager springSqlTxMgr) {
         // Naming broker as calling class, performing replacement of illegal chars according to ActiveMQ rules.
-        String appName = getCallerClassName().replaceAll("[^a-zA-Z0-9._\\-:]", ".")
+        String appName = getAppNamePrefix().replaceAll("[^a-zA-Z0-9._\\-:]", ".")
                 + "_" + _sequence.getAndIncrement();
         MatsLocalVmActiveMq inVmActiveMq = MatsLocalVmActiveMq.createInVmActiveMq(appName);
         ConnectionFactory jmsConnectionFactory = inVmActiveMq.getConnectionFactory();
@@ -203,13 +203,12 @@ public class TestSpringMatsFactoryProvider {
         // Set concurrency.
         matsFactory.getFactoryConfig().setConcurrency(concurrency);
         // Now wrap this in a wrapper that will close the LocalVM ActiveMQ broker upon matsFactory.stop().
-        MatsFactoryStopLocalVmBrokerWrapper matsFactoryStopLocalVmBrokerWrapper =
-                new MatsFactoryStopLocalVmBrokerWrapper(matsFactory, inVmActiveMq);
+        MatsFactoryStopLocalVmBrokerWrapper matsFactoryStopLocalVmBrokerWrapper = new MatsFactoryStopLocalVmBrokerWrapper(
+                matsFactory, inVmActiveMq);
         // And then finally wrap this in the Spring wrapper
-        return new SpringJmsMatsFactoryWrapper(inVmActiveMq.getConnectionFactory(), matsFactoryStopLocalVmBrokerWrapper);
+        return new SpringJmsMatsFactoryWrapper(inVmActiveMq.getConnectionFactory(),
+                matsFactoryStopLocalVmBrokerWrapper);
     }
-
-
 
     private static class MatsFactoryStopLocalVmBrokerWrapper extends MatsFactoryWrapper {
         private final MatsLocalVmActiveMq _matsLocalVmActiveMq;
@@ -222,9 +221,9 @@ public class TestSpringMatsFactoryProvider {
 
         @Override
         public boolean stop(int gracefulShutdownMillis) {
-            log.info(LOG_PREFIX+"Stopping test JmsMatsFactory.");
+            log.info(LOG_PREFIX + "Stopping test JmsMatsFactory.");
             boolean stopped = super.stop(gracefulShutdownMillis);
-            log.info(LOG_PREFIX+"Stopping test ActiveMQ instance.");
+            log.info(LOG_PREFIX + "Stopping test ActiveMQ instance.");
             _matsLocalVmActiveMq.close();
             return stopped;
         }
@@ -233,15 +232,22 @@ public class TestSpringMatsFactoryProvider {
     /**
      * from <a href="https://stackoverflow.com/a/11306854">Stackoverflow - Denys Séguret</a>.
      */
-    private static String getCallerClassName() {
+    private static String getAppNamePrefix() {
         StackTraceElement[] stElements = Thread.currentThread().getStackTrace();
         for (int i = 1; i < stElements.length; i++) {
             StackTraceElement ste = stElements[i];
-            if (!ste.getClassName().equals(TestSpringMatsFactoryProvider.class.getName())) {
+            if (!ste.getClassName().equals(TestSpringMatsFactoryProvider.class.getName())
+                    && !ste.getClassName().startsWith(MatsTestInfrastructureConfiguration.class.getName())
+                    && !ste.getClassName().startsWith(MatsTestInfrastructureDbConfiguration.class.getName())
+                    && !ste.getClassName().startsWith("org.springframework.")
+                    && !ste.getClassName().startsWith("sun.")
+                    && !ste.getClassName().startsWith("java.")
+                    && !ste.getClassName().startsWith("org.junit.")
+                    && !ste.getClassName().startsWith("com.intellij.")) {
                 return ste.getClassName();
             }
         }
-        throw new AssertionError("Could not determine calling class.");
+        // E-> Could not determine a reasonable suggestion for "app name" based on stack frames.
+        return "Testing_" + TestSpringMatsFactoryProvider.class.getSimpleName();
     }
-
 }

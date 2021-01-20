@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.jms.tx;
+package com.stolsvik.mats.spring.jms.tx.varioussetups;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -26,15 +26,15 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.orm.hibernate5.HibernateTransactionManager;
 import org.springframework.orm.hibernate5.LocalSessionFactoryBean;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.annotation.DirtiesContext.MethodMode;
 import org.springframework.test.context.junit4.SpringRunner;
 
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.spring.EnableMats;
 import com.stolsvik.mats.spring.MatsMapping;
-import com.stolsvik.mats.spring.jms.tx.Test_SpringManagedTx_H2Based_AbstractResourceTransactionaManager.SpringConfiguration_AbstractPlatformTransactionManager;
+import com.stolsvik.mats.spring.jms.tx.SpringTestDataTO;
+import com.stolsvik.mats.spring.jms.tx.SpringTestStateTO;
+import com.stolsvik.mats.spring.jms.tx.varioussetups.Test_SpringManagedTx_H2Based_Abstract_PlatformTransactionManager.SpringConfiguration_AbstractPlatformTransactionManager;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.util.RandomString;
 
@@ -135,6 +135,9 @@ public class Test_SpringManagedTx_H2Based_HibernateTransactionManager
         }
     }
 
+    /**
+     * The Hibernate DBO class. <i>Shudder..</i>
+     */
     @Entity
     @Table(name = "datatable")
     public static class DataTableDbo {
@@ -164,7 +167,6 @@ public class Test_SpringManagedTx_H2Based_HibernateTransactionManager
     }
 
     @Test
-    @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)
     public void test_Hibernate_Good() throws SQLException {
         SpringTestDataTO dto = new SpringTestDataTO(27, GOOD);
         String traceId = "testGood_TraceId:" + RandomString.randomCorrelationId();
@@ -182,11 +184,10 @@ public class Test_SpringManagedTx_H2Based_HibernateTransactionManager
         expected.add(SERVICE_HIBERNATE + '[' + GOOD + "]-PlainJdbc");
         expected.add(SERVICE_HIBERNATE + '[' + GOOD + "]-SpringJdbc");
 
-        Assert.assertEquals(expected, getDataFromDatabase());
+        Assert.assertEquals(expected, getDataFromDataTable());
     }
 
     @Test
-    @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)
     public void test_Hibernate_ThrowsShouldRollback() throws SQLException {
         SpringTestDataTO dto = new SpringTestDataTO(13, THROW);
         String traceId = "testBad_TraceId:" + RandomString.randomCorrelationId();
@@ -207,7 +208,7 @@ public class Test_SpringManagedTx_H2Based_HibernateTransactionManager
 
         // There should be zero rows in the database, since the RuntimeException should have rolled back processing
         // of SERVICE, and thus TERMINATOR should not have gotten a message either (and thus not inserted row).
-        List<String> dataFromDatabase = getDataFromDatabase();
+        List<String> dataFromDatabase = getDataFromDataTable();
         Assert.assertEquals(0, dataFromDatabase.size());
     }
 }

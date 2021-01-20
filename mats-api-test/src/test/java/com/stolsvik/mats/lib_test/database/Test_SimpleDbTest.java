@@ -77,7 +77,6 @@ public class Test_SimpleDbTest {
 
     @Test
     public void checkThatDataSourceWorks() {
-        MATS.getDataSource().cleanDatabase();
         MATS.getDataSource().createDataTable();
 
         DataTO dto = new DataTO(42, "TheAnswer");

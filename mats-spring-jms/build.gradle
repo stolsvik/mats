@@ -25,6 +25,9 @@ dependencies {
     testCompile project(":mats-test")
     testCompile project(":mats-spring")
     testCompile project(":mats-serial-json")
+    testCompile project(":mats-spring-test")
+    // RandomString
+    testCompile project(":mats-util")
     // The JUnit library
     testCompile "junit:junit:$junitVersion"
     // Using H2 for testing of database tx.
@@ -37,6 +40,4 @@ dependencies {
     // Using SLF4J and Logback
     testCompile "org.slf4j:log4j-over-slf4j:$slf4jVersion"
     testCompile "ch.qos.logback:logback-classic:$logbackVersion"
-    // RandomString
-    testCompile project(":mats-util")
 }

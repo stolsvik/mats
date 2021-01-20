@@ -865,5 +865,10 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         public <T> Optional<T> getAttribute(Class<T> type, String... name) {
             return unwrap().getAttribute(type, name);
         }
+
+        @Override
+        public String toString() {
+            return "ProcessContextWrapper[" + this.getClass().getSimpleName() + "]:" + unwrap().toString();
+        }
     }
 }

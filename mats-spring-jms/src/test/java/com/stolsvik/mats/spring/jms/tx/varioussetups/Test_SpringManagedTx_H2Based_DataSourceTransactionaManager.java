@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.jms.tx;
+package com.stolsvik.mats.spring.jms.tx.varioussetups;
 
 import javax.sql.DataSource;
 
@@ -18,7 +18,7 @@ import com.stolsvik.mats.spring.EnableMats;
  */
 @RunWith(SpringRunner.class)
 public class Test_SpringManagedTx_H2Based_DataSourceTransactionaManager
-        extends Test_SpringManagedTx_H2Based_AbstractResourceTransactionaManager {
+        extends Test_SpringManagedTx_H2Based_Abstract_PlatformTransactionManager {
     @Configuration
     @EnableMats
     static class SpringConfiguration_DataSourceTxMgr extends SpringConfiguration_AbstractPlatformTransactionManager {

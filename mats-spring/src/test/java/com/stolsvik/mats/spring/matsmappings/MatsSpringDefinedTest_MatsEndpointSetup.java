@@ -29,7 +29,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  */
 @RunWith(SpringRunner.class)
 @MatsTestContext
-public class MatsSpringDefined_MatsEndpointSetup {
+public class MatsSpringDefinedTest_MatsEndpointSetup {
     public static final String ENDPOINT_ID = "MatsEndpointSetupTest";
     public static final String TERMINATOR = ".TERMINATOR";
     public static final String MULTI = ".Multi";
@@ -143,7 +143,7 @@ public class MatsSpringDefined_MatsEndpointSetup {
         SpringTestStateTO sto = new SpringTestStateTO(5, "two");
         _matsInitiator.initiateUnchecked(init -> {
             init.traceId("test_trace_id:" + Math.random())
-                    .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
+                    .from(MatsSpringDefinedTest_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + MULTI)
                     .replyTo(ENDPOINT_ID + TERMINATOR, sto)
                     .request(dto);
@@ -161,7 +161,7 @@ public class MatsSpringDefined_MatsEndpointSetup {
         SpringTestStateTO sto = new SpringTestStateTO(9, "nine");
         _matsInitiator.initiateUnchecked(init -> {
             init.traceId("test_trace_id:" + Math.random())
-                    .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
+                    .from(MatsSpringDefinedTest_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + MULTI_WITH_CONFIG)
                     .replyTo(ENDPOINT_ID + TERMINATOR, sto)
                     .request(dto);
@@ -178,7 +178,7 @@ public class MatsSpringDefined_MatsEndpointSetup {
         SpringTestDataTO dto = new SpringTestDataTO(42, "SingleVoidVoid");
         _matsInitiator.initiateUnchecked(init -> {
             init.traceId("test_trace_id:" + Math.random())
-                    .from(MatsSpringDefined_MultipleMappingsTest.class.getSimpleName())
+                    .from(MatsSpringDefinedTest_MultipleMappingsTest.class.getSimpleName())
                     .to(ENDPOINT_ID + SINGLE_VOID_VOID)
                     .send(dto);
         });

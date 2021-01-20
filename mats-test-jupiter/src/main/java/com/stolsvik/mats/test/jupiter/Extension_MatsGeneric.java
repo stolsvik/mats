@@ -57,7 +57,6 @@ public class Extension_MatsGeneric<Z> extends AbstractMatsTest<Z>
 
     public static <Z> Extension_MatsGeneric<Z> createWithDb(MatsSerializer<Z> matsSerializer) {
         TestH2DataSource testH2DataSource = TestH2DataSource.createStandard();
-        testH2DataSource.cleanDatabase();
         return new Extension_MatsGeneric<>(matsSerializer, testH2DataSource);
     }
 

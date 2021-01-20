@@ -9,6 +9,7 @@ import javax.inject.Inject;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.slf4j.Logger;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.test.context.junit4.SpringRunner;
@@ -23,6 +24,7 @@ import com.stolsvik.mats.spring.SpringTestDataTO;
 import com.stolsvik.mats.spring.SpringTestStateTO;
 import com.stolsvik.mats.spring.Sto;
 import com.stolsvik.mats.spring.test.MatsTestContext;
+import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
@@ -31,7 +33,9 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  */
 @RunWith(SpringRunner.class)
 @MatsTestContext
-public class MatsSpringDefined_MatsClassMapping {
+public class MatsSpringDefinedTest_MatsClassMapping {
+    private static final Logger log = MatsTestHelp.getClassLogger();
+
     private static final String ENDPOINT_ID = "MatsClassMapping.";
     private static final String SERVICE_MAIN = "AppMain";
     private static final String SERVICE_LEAF = "Leaf";
@@ -61,7 +65,12 @@ public class MatsSpringDefined_MatsClassMapping {
         private MatsTestLatch _latch;
 
         @MatsMapping(ENDPOINT_ID + TERMINATOR)
-        public void springMatsTerminatorEndpoint(@Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
+        public void springMatsTerminatorEndpoint(ProcessContext<Void> context,
+                @Dto SpringTestDataTO msg, @Sto SpringTestStateTO state) {
+            // Dump the MatsTrace
+            log.info("MatsTrace XXXXXXXXXXXXXXXXXXX:\n" + context);
+
+
             _latch.resolve(state, msg);
         }
 
@@ -260,8 +269,8 @@ public class MatsSpringDefined_MatsClassMapping {
         SpringTestDataTO dto = new SpringTestDataTO(12, "tolv");
         _matsInitiator.initiateUnchecked(
                 init -> {
-                    init.traceId("test_trace_id")
-                            .from("FromId")
+                    init.traceId(MatsTestHelp.traceId())
+                            .from(MatsTestHelp.from("test"))
                             .to(ENDPOINT_ID + SERVICE_MAIN)
                             .replyTo(ENDPOINT_ID + TERMINATOR, sto);
                     init.request(dto);

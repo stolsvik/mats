@@ -2,6 +2,7 @@ package com.stolsvik.mats.serial.impl;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -183,7 +184,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     @Override
     public String getInitializingAppVersion() {
-        return null;
+        return av;
     }
 
     @Override
@@ -603,6 +604,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         /**
          * Deprecated. Sets MatsMessageId to a random String.
          */
+        @Deprecated
         public CallImpl setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
                 long calledTimestamp, String debugInfo) {
             an = callingAppName;
@@ -755,6 +757,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         private String fromStackData(boolean printNullData) {
             return "#from:" + (an != null ? an : "") + (av != null ? "[" + av + "]" : "")
                     + (h != null ? "@" + h : "") + (id != null ? ':' + id : "")
+                    + (x != null ? ", debug:" + x : "")
                     + (((d != null) || printNullData) ? ", #data:" + d : "");
         }
 
@@ -923,30 +926,48 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         callType = callType + spaces(8 - callType.length());
 
         // === HEADER ===
-        buf.append("MatsTrace : ")
-                .append(callType)
-                .append(" #from:  ").append(currentCall.getFrom())
-                .append("  KeepMatsTrace:").append(getKeepTrace())
-                .append("  NonPersistent:").append(isNonPersistent())
-                .append("  Interactive:").append(isInteractive())
-                .append("  TTL:").append(((tl == null) || (tl == 0)) ? "forever" : tl.toString())
-                .append("  NoAudit:").append(isNoAudit())
+        buf.append("MatsTrace").append('\n')
+                .append("  Call Flow / Initiation:").append('\n')
+                .append("    Timestamp _________ : ").append(Instant.ofEpochMilli(
+                        getInitializedTimestamp()).atZone(ZoneId.systemDefault()).toString()).append('\n')
+                .append("    TraceId ___________ : ").append(getTraceId()).append('\n')
+                .append("    FlowId ____________ : ").append(getFlowId()).append('\n')
+                .append("    Initializing App __ : ").append(getInitializingAppName()).append(",v.").append(
+                        getInitializingAppVersion()).append('\n')
+                .append("    Initiator (from)___ : ").append(getInitiatorId()).append('\n')
+                .append("    Init debug info ___ : ").append(getDebugInfo() != null
+                        ? getDebugInfo()
+                        : "-not present-").append('\n')
+                .append("    Properties:").append('\n')
+                .append("      KeepMatsTrace ___ : ").append(getKeepTrace()).append('\n')
+                .append("      NonPersistent ___ : ").append(isNonPersistent()).append('\n')
+                .append("      Interactive _____ : ").append(isInteractive()).append('\n')
+                .append("      TimeToLive ______ : ").append(((tl == null) || (tl == 0)) ? "forever" : tl.toString())
+                .append('\n')
+                .append("      NoAudit _________ : ").append(isNoAudit()).append('\n')
                 .append('\n');
-
-        buf.append("                     #to: ").append(currentCall.getTo())
-                .append("  CallNumber:").append(getCallNumber())
-                .append("  CurrentSpanId:").append(Long.toString(getCurrentSpanId(), 36))
-                .append(currentCall.getCallType() == CallType.REPLY
-                        ? "  ReplyFromSpanId:" + Long.toString(currentCall.getReplyFromSpanId(), 36)
-                        : "")
-                .append("  TraceId:'").append(getTraceId())
-                .append("'\n");
 
         // === CURRENT CALL ===
 
-        buf.append(" current call:\n")
-                .append("    state:    ").append(getCurrentState()).append('\n')
-                .append("    incoming: ").append(currentCall.getData()).append('\n');
+        buf.append(" Current Call: ").append(currentCall.getCallType().toString()).append('\n')
+                .append("    Timestamp _________ : ").append(Instant.ofEpochMilli(
+                        getCurrentCall().getCalledTimestamp()).atZone(ZoneId.systemDefault()).toString()).append('\n')
+                .append("    MatsMessageId _____ : ").append(getCurrentCall().getMatsMessageId()).append('\n')
+                .append("    To (this) _________ : ").append(getCurrentCall().getTo()).append('\n')
+                .append("    From ______________ : ").append(getCurrentCall().getFrom()).append('\n')
+                .append("    From App __________ : ").append(getCurrentCall().getCallingAppName()).append(",v.").append(
+                        getCurrentCall().getCallingAppVersion()).append('\n')
+                .append("    Call debug info ___ : ").append(currentCall.getDebugInfo() != null
+                        ? currentCall.getDebugInfo()
+                        : "-not present-").append('\n')
+                .append("    Flow call# ________ : ").append(getCallNumber()).append('\n')
+                .append("    Incoming State ____ : ").append(getCurrentState() != null ? getCurrentState() : "-null-")
+                .append('\n')
+                .append("    Incoming Msg ______ : ").append(currentCall.getData()).append('\n')
+                .append("    Current SpanId ____ : ").append(Long.toString(getCurrentSpanId(), 36)).append('\n')
+                .append("    ReplyFrom SpanId __ : ").append(currentCall.getCallType() == CallType.REPLY
+                        ? Long.toString(currentCall.getReplyFromSpanId(), 36)
+                        : "n/a (not REPLY)").append('\n');
         buf.append('\n');
 
         // === CALLS ===

@@ -28,7 +28,7 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
  */
 @RunWith(SpringRunner.class)
 @MatsTestContext
-public class MatsSpringDefined_MatsClassMapping_VoidReturn {
+public class MatsSpringDefinedTest_MatsClassMapping_VoidReturn {
     private static final String ENDPOINT_ID = "MatsClassMapping.";
     private static final String MULTI_STAGE_TERMINATOR = "AppMain";
     private static final String SERVICE_LEAF = "Leaf";
