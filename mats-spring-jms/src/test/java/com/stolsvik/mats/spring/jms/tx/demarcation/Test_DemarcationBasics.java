@@ -1,10 +1,11 @@
-package com.stolsvik.mats.spring.jms.tx.connemployed;
+package com.stolsvik.mats.spring.jms.tx.demarcation;
 
 import java.sql.Connection;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import javax.inject.Inject;
@@ -39,18 +40,22 @@ import com.stolsvik.mats.spring.test.MatsTestContext;
 import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.TestH2DataSource;
+import com.stolsvik.mats.util.MatsFuturizer;
 
 /**
- * Checks whether the "employed" flag works in simple case.
+ * Mats Demarcation Basics: Checks properties of initiations within a stage, and within an initiation, both "REQUIRED"
+ * and "REQUIRES_NEW" type invocations. Checks whether the Connection "employed" flag works.
  *
  * @author Endre Stølsvik 2021-01-18 21:35 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
 @MatsTestContext
-public class Test_EmployedOrNot {
+public class Test_DemarcationBasics {
     private static final Logger log = MatsTestHelp.getClassLogger();
 
-    public static final String TERMINATOR_NO_DS_ACCESS = "test.Terminator.noDsAccess";
+    public static final String SIMPLE_SINGLE_STAGE_SERVICE = "test.DummyLeafService";
+
+    public static final String TERMINATOR_DEMARCATION_BASICS = "test.Terminator.DemarcationBasics";
 
     @Configuration
     @EnableTransactionManagement
@@ -98,8 +103,19 @@ public class Test_EmployedOrNot {
         @Inject
         private MatsTestLatch _latch;
 
-        @MatsMapping(TERMINATOR_NO_DS_ACCESS)
+        @Inject
+        private MatsFuturizer _matsFuturizer;
+
+        @MatsMapping(SIMPLE_SINGLE_STAGE_SERVICE)
+        String simpleService(String incoming) {
+            return incoming + ":DummyLeafService";
+        }
+
+        @MatsMapping(TERMINATOR_DEMARCATION_BASICS)
         void matsTerminator(ProcessContext<Void> context, @Dto SpringTestDataTO msg) {
+
+            // :: Perform a futurizer call and wait for result (Don't ever do this "in production"!)
+            doFuturizerCall();
 
             // :: ProcessContext and MatsInitiate
 
@@ -118,6 +134,8 @@ public class Test_EmployedOrNot {
             // NOTE! NOTHING should have changed when doing this, as it is LITERALLY just the same as doing
             // processContext.initiate(init ->...)
             _matsFactory.getDefaultInitiator().initiateUnchecked(init -> {
+                // :: Perform a futurizer call and wait for result (Don't ever do this "in production"!)
+                doFuturizerCall();
 
                 // :: Should be same Thread
                 Assert.assertSame(thread_outside, Thread.currentThread());
@@ -135,6 +153,8 @@ public class Test_EmployedOrNot {
 
                 // :: "SUB-SUB HOISTING INITIATE": Sub-sub initiation, using default initiator
                 _matsFactory.getDefaultInitiator().initiateUnchecked(init2 -> {
+                    // :: Perform a futurizer call and wait for result (Don't ever do this "in production"!)
+                    doFuturizerCall();
 
                     // :: Should be same Thread
                     Assert.assertSame(thread_outside, Thread.currentThread());
@@ -160,6 +180,8 @@ public class Test_EmployedOrNot {
             // the entire initiation off to a new Thread!)
             String nonDefaultInitiatorName = "sub" + Math.random();
             _matsFactory.getOrCreateInitiator(nonDefaultInitiatorName).initiateUnchecked(init -> {
+                // :: Perform a futurizer call and wait for result (Don't ever do this "in production"!)
+                doFuturizerCall();
 
                 Thread thread_nonDefaultInitiator = Thread.currentThread();
 
@@ -179,6 +201,8 @@ public class Test_EmployedOrNot {
 
                 // :: "SUB-SUB HOISTING": Sub-sub initiation, using default initiator
                 _matsFactory.getDefaultInitiator().initiateUnchecked(init2 -> {
+                    // :: Perform a futurizer call and wait for result (Don't ever do this "in production"!)
+                    doFuturizerCall();
 
                     // :: Should be same Thread as "parent"
                     Assert.assertSame(thread_nonDefaultInitiator, Thread.currentThread());
@@ -196,9 +220,10 @@ public class Test_EmployedOrNot {
                             connectionFromDataSourceUtils_subNonDefault);
                 });
 
-
                 // :: "SUB-SUB INITIATE", using the same-named /non-default/ MatsInitiator
                 _matsFactory.getOrCreateInitiator(nonDefaultInitiatorName).initiateUnchecked(init2 -> {
+                    // :: Perform a futurizer call and wait for result (Don't ever do this "in production"!)
+                    doFuturizerCall();
 
                     // :: Should NOT be same Thread
                     Assert.assertNotSame(thread_outside, Thread.currentThread());
@@ -223,6 +248,24 @@ public class Test_EmployedOrNot {
             });
 
             _latch.resolve(null, msg);
+        }
+
+        /**
+         * This works since the MatsFuturizer uses its own non-default MatsInitiator, and thus the initiate call that
+         * the futurizer performs always ends up on a "REQUIRES_NEW"-style Mats demarcation (i.e. running in an
+         * independent Thread).
+         */
+        private void doFuturizerCall() {
+            _matsFuturizer.futurize(
+                    MatsTestHelp.traceId(),
+                    MatsTestHelp.from("TheFuture"),
+                    SIMPLE_SINGLE_STAGE_SERVICE,
+                    5, TimeUnit.SECONDS,
+                    Void.class,
+                    "TheRequest",
+                    MatsInitiate::interactive)
+                    /* wait for it */
+                    .join();
         }
 
         private static void assert_ContextLocal_has_ProcessContext_butNot_MatsInitiate() {
@@ -267,7 +310,7 @@ public class Test_EmployedOrNot {
             Connection connectionFromContextAttribute = optional.get();
             // .. it should be a proxy
             Assert.assertTrue(connectionIsLazyProxy(connectionFromContextAttribute));
-            log.info(TERMINATOR_NO_DS_ACCESS + ": context.getAttribute(Connection.class): "
+            log.info(TERMINATOR_DEMARCATION_BASICS + ": context.getAttribute(Connection.class): "
                     + connectionFromContextAttribute);
             // .. but still not /employed/
             Assert.assertFalse(connectionEmployed.get());
@@ -326,7 +369,7 @@ public class Test_EmployedOrNot {
     public void testBasicPropertiesOfStageAndInitiationsAndHoistingAndSubInitiations() {
         _matsFactory.getDefaultInitiator().initiateUnchecked(init -> init.traceId(MatsTestHelp.traceId())
                 .from(MatsTestHelp.from("testBasicPropertiesOfStageAndInitiationsAndHoistingAndSubInitiations"))
-                .to(TERMINATOR_NO_DS_ACCESS)
+                .to(TERMINATOR_DEMARCATION_BASICS)
                 .send(new SpringTestDataTO()));
         _latch.waitForResult();
     }

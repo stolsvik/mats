@@ -467,12 +467,14 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
      * will forward directly to the wrapped actual Connection.
      */
     public static DataSource wrapLazyConnectionDatasource(DataSource targetDataSource) {
-        log.info(LOG_PREFIX + "Wrapping DataSource [" + targetDataSource + "] in a 'magic lazy proxy' which allows both"
+        log.info(LOG_PREFIX + "Wrapping provided DataSource in a 'magic lazy proxy' which allows both"
                 + " elision of JDBC transaction management if the Connection was never employed, AND allows Mats to"
-                + " know whether an initiation or stage employed the Connection or not.");
+                + " know whether an initiation or stage employed the Connection or not. [" + targetDataSource + "]");
         if (targetDataSource instanceof LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) {
-            throw new IllegalStateException("You have already wrapped this DataSource, so something is not right in"
-                    + " the code paths here. [" + targetDataSource + "].");
+            log.warn(LOG_PREFIX + "  \\-> The DataSource you provided was already wrapped with the 'magic lazy proxy',"
+                    + " so why are you trying to wrap it again? Ignoring by simply returning the already-wrapped"
+                    + " DataSource you provided (thus not double-wrapping it). [" + targetDataSource + "]");
+            return targetDataSource;
         }
         if (targetDataSource instanceof TransactionAwareDataSourceProxy) {
             throw new IllegalStateException("The provided DataSource should not be of type"
