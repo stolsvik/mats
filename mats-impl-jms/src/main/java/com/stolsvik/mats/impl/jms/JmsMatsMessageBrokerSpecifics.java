@@ -84,7 +84,7 @@ public class JmsMatsMessageBrokerSpecifics {
             // Create a 0-redeliveries RedeliveryPolicy
             Object l_zeroRedeliveries;
             try {
-                l_zeroRedeliveries = l_redeliveryPolicyClass.newInstance();
+                l_zeroRedeliveries = l_redeliveryPolicyClass.getDeclaredConstructor().newInstance();
                 try {
                     setMaximumRedeliveries.invoke(l_zeroRedeliveries, 0);
                     // ----- We've now created the 0-redeliveries RedeliveryPolicy, so set it on the outside
@@ -96,7 +96,7 @@ public class JmsMatsMessageBrokerSpecifics {
                             + "is not expected: Report a bug!", e);
                 }
             }
-            catch (InstantiationException | IllegalAccessException e) {
+            catch (IllegalAccessException | InvocationTargetException | InstantiationException  e) {
                 log.warn("Could not create a 'org.apache.activemq.RedeliveryPolicy' instance. This is not expected,"
                         + " report a bug!", e);
             }

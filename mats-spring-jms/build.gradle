@@ -7,6 +7,7 @@ dependencies {
     compile "org.springframework:spring-context:$springVersion"
     compile "org.springframework:spring-tx:$springVersion"
     compile "org.springframework:spring-jdbc:$springVersion"
+    compile "javax.annotation:javax.annotation-api:1.+"
 
     // :: compileOnly
 
