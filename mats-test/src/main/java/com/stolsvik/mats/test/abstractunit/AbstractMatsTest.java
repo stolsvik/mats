@@ -19,6 +19,7 @@ import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.MatsTestMqInterface;
+import com.stolsvik.mats.test.TestH2DataSource;
 import com.stolsvik.mats.util.MatsFuturizer;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
@@ -47,12 +48,13 @@ public abstract class AbstractMatsTest<Z> {
 
     protected MatsLocalVmActiveMq _matsLocalVmActiveMq;
     protected JmsMatsFactory<Z> _matsFactory;
+    protected CopyOnWriteArrayList<MatsFactory> _createdMatsFactories = new CopyOnWriteArrayList<>();
+
+    // :: Lazy init:
     protected MatsInitiator _matsInitiator;
     protected MatsTestLatch _matsTestLatch;
+    protected MatsFuturizer _matsFuturizer;
     protected MatsTestMqInterface _matsTestMqInterface;
-
-    protected MatsFuturizer _matsFuturizer; // lazy init
-    protected CopyOnWriteArrayList<MatsFactory> _createdMatsFactories = new CopyOnWriteArrayList<>();
 
     protected AbstractMatsTest(MatsSerializer<Z> matsSerializer) {
         _matsSerializer = matsSerializer;
@@ -115,8 +117,21 @@ public abstract class AbstractMatsTest<Z> {
         // :: Close the AMQ Broker
         _matsLocalVmActiveMq.close();
 
-        // :: Clear the MatsInitiator as it was killed during the Factory stop call above.
+        // :: If the DataSource is a TestH2DataSource, then close that
+        if (_dataSource instanceof TestH2DataSource) {
+            ((TestH2DataSource) _dataSource).close();
+        }
+
+        // :: Clean up all possibly created "sub pieces" of this. The reason is that if this is put as a @ClassRule
+        // on a super class of multiple tests, then this instance will be re-used upon the next test class's run
+        // (the next class that extends the "base test class" that contains the static @ClassRule).
+        // NOTE: NOT doing that for H2 DataSource, as we cannot recreate that here, and instead rely on it re-starting.
+        _matsLocalVmActiveMq = null;
+        _matsFactory = null;
         _matsInitiator = null;
+        _matsTestLatch = null;
+        _matsFuturizer = null;
+        _matsTestMqInterface = null;
 
         log.info("--- JUnit/Jupiter --- AFTER_CLASS done on ClassRule/Extension '" + id(getClass()) + "' DONE.");
     }

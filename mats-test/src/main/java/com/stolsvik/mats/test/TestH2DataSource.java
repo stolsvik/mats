@@ -7,6 +7,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
@@ -39,7 +40,7 @@ public class TestH2DataSource extends JdbcDataSource {
     public static final String SYSPROP_VALUE_FILE_BASED = "file";
 
     public static final String FILE_BASED_TEST_H2_DATABASE_URL = "jdbc:h2:./matsTestH2DB;AUTO_SERVER=TRUE";
-    public static final String IN_MEMORY_TEST_H2_DATABASE_URL = "jdbc:h2:mem:matsTestH2DB;DB_CLOSE_DELAY=-1";
+    public static final String IN_MEMORY_TEST_H2_DATABASE_URL = "jdbc:h2:mem:matsTestH2DB_uniqueRnd_$random$;DB_CLOSE_DELAY=-1";
 
     /**
      * Creates an in-memory {@link TestH2DataSource} as specified by the URL {@link #IN_MEMORY_TEST_H2_DATABASE_URL},
@@ -58,7 +59,7 @@ public class TestH2DataSource extends JdbcDataSource {
         // ?: Was it set?
         if (sysprop_matsTestH2 == null) {
             // -> No, not set - so return normal in-memory database
-            return createInMemory();
+            return createInMemoryRandom();
         }
         // E-> The System Property was set
 
@@ -83,13 +84,14 @@ public class TestH2DataSource extends JdbcDataSource {
     }
 
     /**
-     * Creates a {@link TestH2DataSource} using the URL {@link #IN_MEMORY_TEST_H2_DATABASE_URL}, which is
-     * <code>"jdbc:h2:mem:matsTestH2DB"</code>.
+     * Creates a unique (random) {@link TestH2DataSource} using the URL {@link #IN_MEMORY_TEST_H2_DATABASE_URL}, which
+     * is <code>"jdbc:h2:mem:matsTestH2DB_[randomness];DB_CLOSE_DELAY=-1"</code>.
      *
      * @return the created {@link TestH2DataSource}.
      */
-    public static TestH2DataSource createInMemory() {
-        return create(IN_MEMORY_TEST_H2_DATABASE_URL);
+    public static TestH2DataSource createInMemoryRandom() {
+        return create(IN_MEMORY_TEST_H2_DATABASE_URL
+                .replace("$random$", Long.toString(Math.abs(ThreadLocalRandom.current().nextLong()), 36)));
     }
 
     /**
@@ -134,12 +136,27 @@ public class TestH2DataSource extends JdbcDataSource {
     }
 
     /**
-     * Creates a test "datatable", runs SQL <code>"CREATE TABLE datatable ( data VARCHAR )"</code>.
+     * Creates a test "datatable", runs SQL <code>"CREATE TABLE datatable ( data VARCHAR )"</code>, using a SQL
+     * Connection from <code>this</code> DataSource.
      */
     public void createDataTable() {
         try {
-            try (Connection dbCon = this.getConnection();
-                    Statement stmt = dbCon.createStatement();) {
+            try (Connection dbCon = this.getConnection()) {
+                createDataTable(dbCon);
+            }
+        }
+        catch (SQLException e) {
+            throw new TestH2DataSourceException("Got problems creating the SQL 'datatable'.", e);
+        }
+    }
+
+    /**
+     * Creates a test "datatable", runs SQL <code>"CREATE TABLE datatable ( data VARCHAR )"</code>, using the provided
+     * SQL Connection.
+     */
+    public static void createDataTable(Connection connection) {
+        try {
+            try (Statement stmt = connection.createStatement();) {
                 stmt.execute("CREATE TABLE datatable (data VARCHAR NOT NULL, CONSTRAINT UC_data UNIQUE (data))");
             }
         }
@@ -231,64 +248,29 @@ public class TestH2DataSource extends JdbcDataSource {
     }
 
     /**
-     * Closes the database, <b>note:</b> will be picked up by Spring if available as a Bean.
+     * Closes the database IF it is an random in-memory URL (as created by {@link #createInMemoryRandom()}, <b>note:</b>
+     * this method will be picked up by Spring as a destroy-method if the instance is made available as a Bean.
      */
     public void close() {
-        // log.info("Shutting down TestH2DataSource - NOTE: Temporarily not operational (i.e. no change from )!");
-        
-        // NOTE 2020-01-20, endre: This resulted in some of these exceptions when Spring tried to destroy this bean.
-        // I am not sure why. It might seem like the shutdown was done asynchronously, with a different thread.
-        // It might be an idea to use different named in-mem H2 instances. In that case, make sure it is NOT shut
-        // down if using the file-based.
-        /**
-         * <pre>
-         * java.lang.AssertionError: Problems shutting down H2
-         *         at com.stolsvik.mats.test.TestH2DataSource.close(TestH2DataSource.java:246)
-         *         at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-         *         at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-         *         at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-         *         at java.lang.reflect.Method.invoke(Method.java:498)
-         *         at org.springframework.beans.factory.support.DisposableBeanAdapter.invokeCustomDestroyMethod(DisposableBeanAdapter.java:364)
-         *         at org.springframework.beans.factory.support.DisposableBeanAdapter.destroy(DisposableBeanAdapter.java:287)
-         *         at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.destroyBean(DefaultSingletonBeanRegistry.java:583)
-         *         at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.destroySingleton(DefaultSingletonBeanRegistry.java:555)
-         *         at org.springframework.beans.factory.support.DefaultListableBeanFactory.destroySingleton(DefaultListableBeanFactory.java:957)
-         *         at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.destroySingletons(DefaultSingletonBeanRegistry.java:516)
-         *         at org.springframework.beans.factory.support.DefaultListableBeanFactory.destroySingletons(DefaultListableBeanFactory.java:964)
-         *         at org.springframework.context.support.AbstractApplicationContext.destroyBeans(AbstractApplicationContext.java:1034)
-         *         at org.springframework.context.support.AbstractApplicationContext.doClose(AbstractApplicationContext.java:1009)
-         *         at org.springframework.context.support.AbstractApplicationContext$2.run(AbstractApplicationContext.java:929)
-         * Caused by: org.h2.jdbc.JdbcSQLNonTransientConnectionException: The database is open in exclusive mode; can not open additional connections [90135-200]
-         *         at org.h2.message.DbException.getJdbcSQLException(DbException.java:622)
-         *         at org.h2.message.DbException.getJdbcSQLException(DbException.java:429)
-         *         at org.h2.message.DbException.get(DbException.java:205)
-         *         at org.h2.message.DbException.get(DbException.java:181)
-         *         at org.h2.message.DbException.get(DbException.java:170)
-         *         at org.h2.engine.Database.createSession(Database.java:1278)
-         *         at org.h2.engine.Engine.openSession(Engine.java:140)
-         *         at org.h2.engine.Engine.openSession(Engine.java:192)
-         *         at org.h2.engine.Engine.createSessionAndValidate(Engine.java:171)
-         *         at org.h2.engine.Engine.createSession(Engine.java:166)
-         *         at org.h2.engine.Engine.createSession(Engine.java:29)
-         *         at org.h2.engine.SessionRemote.connectEmbeddedOrServer(SessionRemote.java:340)
-         *         at org.h2.jdbc.JdbcConnection.<init>(JdbcConnection.java:173)
-         *         at org.h2.jdbc.JdbcConnection.<init>(JdbcConnection.java:152)
-         *         at org.h2.Driver.connect(Driver.java:69)
-         *         at org.h2.jdbcx.JdbcDataSource.getJdbcConnection(JdbcDataSource.java:189)
-         *         at org.h2.jdbcx.JdbcDataSource.getConnection(JdbcDataSource.java:160)
-         *         at com.stolsvik.mats.test.TestH2DataSource.close(TestH2DataSource.java:239)
-         * </pre>
-         */
-
-        // try {
-        // Connection con = getConnection();
-        // Statement stmt = con.createStatement();
-        // stmt.execute("SHUTDOWN");
-        // stmt.close();
-        // con.close();
-        // }
-        // catch (SQLException e) {
-        // throw new AssertionError("Problems shutting down H2", e);
-        // }
+        final String thisUrl = getUrl();
+        if (thisUrl.contains(":mem:matsTestH2DB")) {
+            // :: Due to the fact that there is evidently some Thread.sleep(200) involved somewhere, we do this async
+            // in a separate Thread. This is OK since we use separate DataSources with random URLs for each DS instance.
+            log.info("Shutting down in-mem random TestH2DataSource with url [" + thisUrl
+                    + "] (performed in separate Thread to not hold back next tests).");
+            new Thread(() -> {
+                try {
+                    Connection con = getConnection();
+                    Statement stmt = con.createStatement();
+                    stmt.execute("SHUTDOWN");
+                    stmt.close();
+                    con.close();
+                }
+                catch (SQLException e) {
+                    throw new AssertionError("Problems shutting down H2", e);
+                }
+                log.info("Shutdown of TestH2DataSource [" + thisUrl + "] finished (from previous tests).");
+            }, "ShutdownThread of TestH2DataSource [" + thisUrl + "]").start();
+        }
     }
 }
