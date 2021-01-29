@@ -7,7 +7,10 @@ import javax.sql.DataSource;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationContext;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
@@ -21,10 +24,19 @@ import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringMan
 /**
  * Provides an easy way to get hold of the most probable {@link JmsMatsFactory} transaction manager configuration in the
  * Spring world (using {@link JmsMatsTransactionManager_JmsAndSpringManagedSqlTx}, or only the
- * {@link JmsMatsTransactionManager_Jms} if no DataSource is needed) - as a convenience, if the supplied
- * {@link ConnectionFactory} is of type {@link ScenarioConnectionFactoryWrapper}, a check is done whether it was created
- * with {@link MatsScenario#LOCALVM}, in which case it is assumed that it is in testing mode, and the factory's
- * concurrency is then set to 1.
+ * {@link JmsMatsTransactionManager_Jms} if no DataSource is needed). You may either supply a {@link DataSource}, or a
+ * Spring {@link PlatformTransactionManager} (typically <code>DataSourceTransactionManager</code> or
+ * <code>HibernateTransactionManager</code>). The code here is very simple, really just creating the {@link MatsFactory}
+ * normally and then wrapping it up in a {@link SpringJmsMatsFactoryWrapper} which provides hook-in to the Spring
+ * context. Read more about the features on its {@link SpringJmsMatsFactoryWrapper JavaDoc}.
+ * <p />
+ * <b>NOTE: It returns an instance of {@link SpringJmsMatsFactoryWrapper}, which it is assumed that you put in the
+ * Spring context as a bean, so that Spring property injection and <code>@PostConstruct</code> is run on it.</b> If you
+ * instead employ a FactoryBean <i>(e.g. because you have made a cool Mats * single-annotation-configuration solution
+ * for your multiple codebases)</i>, then you need to invoke
+ * {@link SpringJmsMatsFactoryWrapper#postConstructForFactoryBean(Environment, ApplicationContext)} - read up!
+ *
+ * @see SpringJmsMatsFactoryWrapper
  *
  * @author Endre Stølsvik 2019-06-10 02:45 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -35,8 +47,10 @@ public class SpringJmsMatsFactoryProducer {
     /**
      * If you need a {@link MatsFactory} employing Spring's DataSourceTransactionManager (which you probably do in a
      * Spring environment utilizing SQL), this is your factory method.
-     * <p>
-     * Usage: Make a @Bean-annotated method which returns the result of this method.
+     * <p />
+     * Usage: Make a @Bean-annotated method which returns the result of this method, or employ a Spring
+     * <code>FactoryBean</code> where you then need to invoke
+     * {@link SpringJmsMatsFactoryWrapper#postConstructForFactoryBean(Environment, ApplicationContext)}.
      *
      * @param appName
      *            the containing application's name (for debugging purposes, you'll find it in the trace).
@@ -70,13 +84,54 @@ public class SpringJmsMatsFactoryProducer {
     }
 
     /**
+     * If you need a {@link MatsFactory} employing a {@link PlatformTransactionManager} of your choosing, which you
+     * quite possibly want in a Spring environment using e.g. Spring JDBC or Hibernate, this is your factory method.
+     * <p />
+     * Usage: Make a @Bean-annotated method which returns the result of this method, or employ a Spring
+     * <code>FactoryBean</code> where you then need to invoke
+     * {@link SpringJmsMatsFactoryWrapper#postConstructForFactoryBean(Environment, ApplicationContext)}.
+     *
+     * @param appName
+     *            the containing application's name (for debugging purposes, you'll find it in the trace).
+     * @param appVersion
+     *            the containing application's version (for debugging purposes, you'll find it in the trace).
+     * @param matsSerializer
+     *            the {@link JmsMatsFactory} utilizes the {@link MatsSerializer}, so you need to provide one. (It is
+     *            probably the one from the 'mats-serial-json' package).
+     * @param jmsConnectionFactory
+     *            the JMS {@link ConnectionFactory} to fetch JMS Connections from, using
+     *            {@link ConnectionFactory#createConnection()}. It is assumed that if username and password is needed,
+     *            you have configured that on the ConnectionFactory. Otherwise, you'll have to make the JmsMatsFactory
+     *            yourself - check the code of this method, and you'll see where the JMS Connections are created.
+     * @param platformTransactionManager
+     *            the {@link PlatformTransactionManager} (typically <code>DataSourceTransactionManager</code> or
+     *            <code>HibernateTransactionManager)</code> that the MatsFactory should employ.
+     * @return the produced {@link MatsFactory}
+     */
+    public static SpringJmsMatsFactoryWrapper createSpringDataSourceTxMatsFactory(String appName, String appVersion,
+            MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory,
+            PlatformTransactionManager platformTransactionManager) {
+        // :: Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
+        log.info(LOG_PREFIX + "createSpringDataSourceTxMatsFactory(" + appName + ", " + appVersion + ", "
+                + matsSerializer + ", " + jmsConnectionFactory + ", " + platformTransactionManager + ")");
+        // JMS + Spring's DataSourceTransactionManager-based MatsTransactionManager
+        JmsMatsTransactionManager springSqlTxMgr = JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.create(
+                platformTransactionManager);
+
+        return createJmsMatsFactory(appName, appVersion, matsSerializer, jmsConnectionFactory,
+                springSqlTxMgr);
+    }
+
+    /**
      * If you need a {@link MatsFactory} that only handles the JMS transactions, this is your factory method - but if
      * you DO make any database calls within any Mats endpoint lambda, you will now have no or poor transactional
      * demarcation, use
      * {@link #createSpringDataSourceTxMatsFactory(String, String, MatsSerializer, ConnectionFactory, DataSource)
      * createSpringDataSourceTxMatsFactory(..)} instead.
-     * <p>
-     * Usage: Make a @Bean-annotated method which returns the result of this method.
+     * <p />
+     * Usage: Make a @Bean-annotated method which returns the result of this method, or employ a Spring
+     * <code>FactoryBean</code> where you then need to invoke
+     * {@link SpringJmsMatsFactoryWrapper#postConstructForFactoryBean(Environment, ApplicationContext)}.
      *
      * @param appName
      *            the containing application's name (for debugging purposes, you'll find it in the trace).

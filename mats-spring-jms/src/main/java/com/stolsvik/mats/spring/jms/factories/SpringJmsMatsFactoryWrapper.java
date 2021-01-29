@@ -8,6 +8,7 @@ import javax.jms.ConnectionFactory;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
@@ -19,9 +20,24 @@ import com.stolsvik.mats.MatsFactory.MatsFactoryWrapper;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 
 /**
- * Wrapper that should be used for a JmsMatsFactory in a Spring context. Takes JMS {@link ConnectionFactory} as that
- * will be used to make a "MatsTestMqInterface" in case the MatsFactory produced can be used in a test scenario (which
- * it might can in a setup employing the {@link ScenarioConnectionFactoryProducer}).
+ * Wrapper that should be used for a JmsMatsFactory in a Spring context. In addition to the wrapped {@link MatsFactory},
+ * it also needs the JMS {@link ConnectionFactory} which the the MatsFactory employs as that will be used to handle the
+ * properties of "MatsTestMqInterface" for when the MatsFactory produced will be used in a test scenario (which it will
+ * in a setup employing the {@link ScenarioConnectionFactoryProducer}).
+ * <p />
+ * Current features:
+ * <ul>
+ * <li>If the Spring context contains an (empty) instance of 'MatsTestMqInterface', it populates it with the required
+ * properties.</li>
+ * <li>When in a test or development scenario <i>(as defined by either Spring profile "mats-test" being active, or the
+ * ConnectionFactory provided is of type {@link ScenarioConnectionFactoryWrapper} and the scenario is
+ * {@link MatsScenario#LOCALVM})</i>, it sets the MatsFactory's default concurrency to 2, to avoid tons of unnecessary
+ * threads and polluted log output.</li>
+ * </ul>
+ * <p />
+ * <b>Notice! It by default relies on Spring property injection and @PostConstruct being run to do its thing - if you
+ * are in a FactoryBean scenario, then read up on the
+ * {@link #postConstructForFactoryBean(Environment, ApplicationContext)} method!</b>
  * 
  * @author Endre Stølsvik 2020-11-28 01:28 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -36,18 +52,25 @@ public class SpringJmsMatsFactoryWrapper extends MatsFactoryWrapper {
     private final ConnectionFactory _connectionFactory;
     private final MatsFactory _matsFactory;
 
-    private Class<?> _dlqFetcherClass;
+    private Class<?> _matsTestMqInterfaceClass;
 
-    @Autowired
     private Environment _environment;
+    private ApplicationContext _applicationContext;
 
     @Autowired
-    private ApplicationContext _applicationContext;
+    public void setEnvironment(Environment environment) {
+        _environment = environment;
+    }
+
+    @Autowired
+    public void setApplicationContext(ApplicationContext applicationContext) {
+        _applicationContext = applicationContext;
+    }
 
     {
         // :: Using reflection here to see if we have the MatsTestMqInterface (from mats-test) on classpath.
         try {
-            _dlqFetcherClass = Class.forName(MATS_TEST_MQ_INTERFACE_CLASSNAME);
+            _matsTestMqInterfaceClass = Class.forName(MATS_TEST_MQ_INTERFACE_CLASSNAME);
         }
         catch (ClassNotFoundException e) {
             // Handled in the @PostConstruct codepath.
@@ -55,7 +78,7 @@ public class SpringJmsMatsFactoryWrapper extends MatsFactoryWrapper {
     }
 
     /**
-     * <b></b>Note: The MatsFactory provided may be a {@link MatsFactoryWrapper}, but it must resolve to a
+     * <b>Note: The MatsFactory provided may be a {@link MatsFactoryWrapper}, but it must resolve to a
      * {@link JmsMatsFactory} via the {@link MatsFactory#unwrapFully()}.</b>
      */
     public SpringJmsMatsFactoryWrapper(ConnectionFactory connectionFactory, MatsFactory matsFactory) {
@@ -64,23 +87,57 @@ public class SpringJmsMatsFactoryWrapper extends MatsFactoryWrapper {
         _matsFactory = matsFactory;
     }
 
+    /**
+     * If created as a @Bean, thus sitting directly in the Spring context, this class relies on Spring property
+     * injection and <code>@PostConstruct</code> being run. If you need to create this bean using a FactoryMethod
+     * <i>(e.g. because you have made a cool Mats single-annotation-configuration solution for your multiple
+     * codebases)</i>, you must handle the lifecycle yourself - employ
+     * {@link #postConstructForFactoryBean(Environment, ApplicationContext)}.
+     *
+     * @see #postConstructForFactoryBean(Environment, ApplicationContext)
+     */
     @PostConstruct
-    void postConstruct() {
+    public void postConstruct() {
         boolean matsTestProfileActive = _environment.acceptsProfiles(MatsProfiles.PROFILE_MATS_TEST);
         handleMatsTestMqInterfacePopulation(matsTestProfileActive);
         handleMatsFactoryConcurrencyForTestAndDevelopment(matsTestProfileActive);
     }
 
-    void handleMatsTestMqInterfacePopulation(boolean matsTestProfileActive) {
+    /**
+     * If you construct this bean using a Spring {@link FactoryBean} <i>(e.g. because you have made a cool Mats
+     * single-annotation-configuration solution for your multiple codebases)</i>, then you are responsible for its
+     * lifecycle, and hence cannot rely on property setting and <code>@PostConstruct</code> being run. Invoke this
+     * method in your <code>getObject()</code> (raw FactoryBean implementation) or <code>createInstance()</code>
+     * (AbstractFactoryBean implementation). To get hold of the Spring {@link Environment} and Spring
+     * {@link ApplicationContext} in the FactoryBean, simply use Spring injection on the FactoryBean, e.g. field-inject.
+     *
+     * @param environment
+     *            the Spring {@link Environment}
+     * @param applicationContext
+     *            the Spring {@link ApplicationContext}.
+     *
+     * @see #postConstruct()
+     */
+    public void postConstructForFactoryBean(Environment environment, ApplicationContext applicationContext) {
+        _environment = environment;
+        _applicationContext = applicationContext;
+        boolean matsTestProfileActive = environment.acceptsProfiles(MatsProfiles.PROFILE_MATS_TEST);
+        handleMatsTestMqInterfacePopulation(matsTestProfileActive);
+        handleMatsFactoryConcurrencyForTestAndDevelopment(matsTestProfileActive);
+    }
+
+    public void handleMatsTestMqInterfacePopulation(boolean matsTestProfileActive) {
         AutowireCapableBeanFactory autowireCapableBeanFactory = _applicationContext.getAutowireCapableBeanFactory();
         log.info(LOG_PREFIX + SpringJmsMatsFactoryWrapper.class.getSimpleName() + " got @PostConstructed.");
 
-        if (_dlqFetcherClass == null) {
+        if (_matsTestMqInterfaceClass == null) {
             if (matsTestProfileActive) {
-                log.warn(LOG_PREFIX + " \\- Class '" + MATS_TEST_MQ_INTERFACE_CLASSNAME
-                        + "' not found on classpath. If you need this tool, you would want to have it on classpath,"
-                        + " and have your testing Spring context to contain an \"empty\" such bean so that I could"
-                        + " populate it for you with the JMS ConnectionFactory and necessary properties.");
+                log.warn(LOG_PREFIX + " \\- Class '" + MATS_TEST_MQ_INTERFACE_CLASSNAME + "' not found on classpath."
+                        + " If you need this tool, you would want to have it on classpath, and have your testing Spring"
+                        + " context to contain an \"empty\" such bean (MatsTestMqInterface.createForLaterPopulation())"
+                        + " so that I could populate it for you with the JMS ConnectionFactory and necessary"
+                        + " properties. (The @MatsTestContext and MatsTestInfrastructureConfiguration"
+                        + " will do this for you).");
             }
             else {
                 log.info(LOG_PREFIX + " \\- Class '" + MATS_TEST_MQ_INTERFACE_CLASSNAME
@@ -91,14 +148,14 @@ public class SpringJmsMatsFactoryWrapper extends MatsFactoryWrapper {
 
         Object dlqFetcherFromSpringContext;
         try {
-            dlqFetcherFromSpringContext = autowireCapableBeanFactory.getBean(_dlqFetcherClass);
+            dlqFetcherFromSpringContext = autowireCapableBeanFactory.getBean(_matsTestMqInterfaceClass);
         }
         catch (NoSuchBeanDefinitionException e) {
-            String msg = " \\- Testing tool '" + MATS_TEST_MQ_INTERFACE_CLASSNAME
-                    + "' found on classpath, but not in Spring context. If you need this tool,"
-                    + " you would want your testing Spring context to contain an \"empty\" such"
-                    + " bean so that I could populate it for you with the JMS ConnectionFactory and"
-                    + " necessary properties. The @MatsTestContext already does this.";
+            String msg = " \\- Testing tool '" + MATS_TEST_MQ_INTERFACE_CLASSNAME + "' found on classpath, but not in"
+                    + " Spring context. If you need this tool, you would want your testing Spring context to contain"
+                    + " an \"empty\" such bean (MatsTestMqInterface.createForLaterPopulation()) so that I could"
+                    + " populate it for you with the JMS ConnectionFactory and necessary properties."
+                    + " (The @MatsTestContext and MatsTestInfrastructureConfiguration will do this for you).";
             if (matsTestProfileActive) {
                 log.warn(LOG_PREFIX + msg);
             }
@@ -107,15 +164,16 @@ public class SpringJmsMatsFactoryWrapper extends MatsFactoryWrapper {
             }
             return;
         }
-        log.info(LOG_PREFIX + "Found '" + MATS_TEST_MQ_INTERFACE_CLASSNAME + "' in Spring Context: "
+        log.info(LOG_PREFIX + " |- Found '" + MATS_TEST_MQ_INTERFACE_CLASSNAME + "' in Spring Context: "
                 + dlqFetcherFromSpringContext);
 
-        // :: Now create the MatsTestMqInterface and put in ContextLocal
+        // :: Now populate the tool we found in the Spring context.
         try {
-            Method factoryMethod = _dlqFetcherClass.getMethod(LATE_POPULATE_METHOD_NAME, ConnectionFactory.class,
+            Method factoryMethod = _matsTestMqInterfaceClass.getMethod(LATE_POPULATE_METHOD_NAME,
+                    ConnectionFactory.class,
                     MatsFactory.class);
             factoryMethod.invoke(dlqFetcherFromSpringContext, _connectionFactory, _matsFactory);
-            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Invoked the " + LATE_POPULATE_METHOD_NAME + " on '"
+            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + " \\- Invoked the " + LATE_POPULATE_METHOD_NAME + " on '"
                     + MATS_TEST_MQ_INTERFACE_CLASSNAME + " to make the tool ready.");
         }
         catch (NoSuchMethodException e) {
@@ -128,7 +186,7 @@ public class SpringJmsMatsFactoryWrapper extends MatsFactoryWrapper {
         }
     }
 
-    private void handleMatsFactoryConcurrencyForTestAndDevelopment(boolean matsTestPofileActive) {
+    public void handleMatsFactoryConcurrencyForTestAndDevelopment(boolean matsTestPofileActive) {
 
         // ?: Is the Concurrency already set to something specific?
 
@@ -137,17 +195,17 @@ public class SpringJmsMatsFactoryWrapper extends MatsFactoryWrapper {
             // -> Yes, mats-test profile active, so set concurrency low.
             // ?: Are we in default concurrency?
             if (_matsFactory.getFactoryConfig().isConcurrencyDefault()) {
-                // -> Yes, default concurrency - so set it to 1 since testing.
+                // -> Yes, default concurrency - so set it to 2 since testing.
                 log.info(LOG_PREFIX + "We're in Spring Profile '" + MatsProfiles.PROFILE_MATS_TEST
-                        + "', so set concurrency to 1.");
-                _matsFactory.getFactoryConfig().setConcurrency(1);
+                        + "', so set concurrency to 2.");
+                _matsFactory.getFactoryConfig().setConcurrency(2);
             }
             else {
                 // -> No, concurrency evidently already set to something non-default, so will not override this.
                 log.info(LOG_PREFIX + "We're in Spring Profile '" + MatsProfiles.PROFILE_MATS_TEST
                         + "', but the concurrency of MatsFactory is already set to something non-default ("
                         + _matsFactory.getFactoryConfig().getConcurrency() + "), so will not mess with that"
-                        + " (would have set to 1).");
+                        + " (would have set to 2).");
             }
         }
         else {
