@@ -144,7 +144,7 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
 
         @Override
         public void isSessionOk() throws JmsMatsJmsException {
-            if (_shutDown.get()) {
+            if (_closedOrReleasedOrCrashed.get()) {
                 throw new JmsMatsJmsException("SessionHolder is shut down.");
             }
             JmsMatsMessageBrokerSpecifics.isConnectionLive(_jmsConnection);
@@ -162,14 +162,14 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
             return _messageProducer;
         }
 
-        protected AtomicBoolean _shutDown = new AtomicBoolean();
+        protected AtomicBoolean _closedOrReleasedOrCrashed = new AtomicBoolean();
 
         @Override
         public void close() {
-            boolean alreadyShutdown = _shutDown.getAndSet(true);
+            boolean alreadyShutdown = _closedOrReleasedOrCrashed.getAndSet(true);
             if (alreadyShutdown) {
-                if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "When trying to close [" + this
-                        + "], it was already shut down.");
+                log.info(LOG_PREFIX + "When trying to close [" + this + "], it was already closed,"
+                        + " released or crashed.");
                 return;
             }
             if (log_holder.isDebugEnabled()) log_holder.debug(LOG_PREFIX + "close() on SessionHolder [" + this
@@ -185,10 +185,10 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
 
         @Override
         public void release() {
-            boolean alreadyShutdown = _shutDown.getAndSet(true);
+            boolean alreadyShutdown = _closedOrReleasedOrCrashed.getAndSet(true);
             if (alreadyShutdown) {
-                if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "When trying to release [" + this
-                        + "], it was already shut down.");
+                log.info(LOG_PREFIX + "When trying to release [" + this + "], it was already closed,"
+                        + " released or crashed.");
                 return;
             }
             if (log_holder.isDebugEnabled()) log_holder.debug(LOG_PREFIX + "release() on SessionHolder [" + this
@@ -204,10 +204,10 @@ public class JmsMatsJmsSessionHandler_Simple implements JmsMatsJmsSessionHandler
 
         @Override
         public void crashed(Throwable t) {
-            boolean alreadyShutdown = _shutDown.getAndSet(true);
+            boolean alreadyShutdown = _closedOrReleasedOrCrashed.getAndSet(true);
             if (alreadyShutdown) {
-                if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "When trying to crash [" + this
-                        + "], it was already shut down.");
+                log.info(LOG_PREFIX + "When trying to crash [" + this + "], it was already closed,"
+                        + " released or crashed.");
                 return;
             }
             if (log_holder.isDebugEnabled()) log_holder.debug(LOG_PREFIX + "crashed() on SessionHolder [" + this

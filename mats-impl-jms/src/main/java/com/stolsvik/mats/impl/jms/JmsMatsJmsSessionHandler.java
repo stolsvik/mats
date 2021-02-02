@@ -1,7 +1,5 @@
 package com.stolsvik.mats.impl.jms;
 
-import javax.jms.Connection;
-import javax.jms.JMSException;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 
@@ -108,7 +106,11 @@ public interface JmsMatsJmsSessionHandler {
         void close();
 
         /**
-         * For Initiators: This returns the Session to the pool-Connection.
+         * For Initiators: This returns the JmsSessionHolder to the Session Pool for the underlying Connection.
+         * <p />
+         * <b>Note: It is allowed to call this in a finally block after use, so it must guard against already having
+         * been {@link #close() closed} or {@link #crashed(Throwable) crashed} when inside the
+         * {@link JmsMatsTransactionManager}</b>, in which case it should probably effectively act as a no-op.
          */
         void release();
 

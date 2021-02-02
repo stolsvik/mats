@@ -624,7 +624,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             boolean alreadyClosedOrCrashed = _closedOrCrashed.getAndSet(true);
             if (alreadyClosedOrCrashed) {
                 log.info(LOG_PREFIX + "When about to close [" + this + " from " + _connectionWithSessionPool
-                        + "], it was already closed or crashed.");
+                        + "], it was already closed or crashed. Ignoring.");
                 return;
             }
             _connectionWithSessionPool.close(this);
@@ -632,8 +632,20 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         @Override
         public void release() {
-            // NOTE! NOT doing anything with "closed or crashed" logic here, since the JmsSessionHolder is a shared
-            // object, and not a "single use proxy" as e.g. a pooled SQL Connection typically is.
+            /*
+             * NOTE! The JmsSessionHolder is a shared object, which is the one that resides in the pool.
+             */
+            // :: Check whether it was already closed or crashed, in which case we must ignore the release call.
+            // ?: Already closed or crashed?
+            boolean alreadyClosedOrCrashed = _closedOrCrashed.get();
+            if (alreadyClosedOrCrashed) {
+                // -> Yes, already closed or crashed, so ignore the release.
+                log.info(LOG_PREFIX + "When about to release [" + this + " from " + _connectionWithSessionPool
+                        + "], it was already closed or crashed. Ignoring.");
+                return;
+            }
+            // NOTE! NOT setting the "closed or crashed" boolean here, since the JmsSessionHolder is a shared object,
+            // and not a "single use proxy" as e.g. a pooled SQL Connection typically is.
             _connectionWithSessionPool.release(this);
         }
 
@@ -642,7 +654,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
             boolean alreadyClosedOrCrashed = _closedOrCrashed.getAndSet(true);
             if (alreadyClosedOrCrashed) {
                 log.info(LOG_PREFIX + "When about to crash [" + this + " from " + _connectionWithSessionPool
-                        + "], it was already closed or crashed.");
+                        + "], it was already closed or crashed. Ignoring.");
                 return;
             }
             _connectionWithSessionPool.crashed(this, t);

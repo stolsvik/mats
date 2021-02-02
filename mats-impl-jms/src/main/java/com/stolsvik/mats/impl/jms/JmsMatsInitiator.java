@@ -113,7 +113,6 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
                     sendMatsMessages(log, nanosStart, jmsSessionHolder, _parentFactory, messagesToSend);
                 });
-                jmsSessionHolder.release();
                 // :: Handle the context.doAfterCommit(Runnable) lambda.
                 try {
                     doAfterCommitRunnableHolder.runDoAfterCommitIfAny();
@@ -144,6 +143,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                         + " Broker.", e);
             }
             finally {
+                jmsSessionHolder.release();
                 JmsMatsContextLocalCallback.unbindResource(MatsInitiate.class);
                 _parentFactory.clearCurrentThreadLocalMatsDemarcation();
             }
