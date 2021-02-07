@@ -1,4 +1,4 @@
-package com.stolsvik.mats.util;
+package com.stolsvik.mats.util.futurizer;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 
 import com.stolsvik.mats.test.junit.Rule_Mats;
 import com.stolsvik.mats.test.MatsTestHelp;
+import com.stolsvik.mats.util.MatsFuturizer;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 
 /**
@@ -57,7 +58,7 @@ public class Test_MatsFuturizer_FailedSerializationFuture {
         catch (Throwable e) {
             log.info("Got the exception. Hoping it's the right one. Logging stacktrace just in case.", e);
             Assert.assertEquals("Could not deserialize the data contained in MatsObject to class"
-                    + " [com.stolsvik.mats.util.Test_MatsFuturizer_FailedSerializationFuture$DtoWeExpect].", e
+                    + " [com.stolsvik.mats.util.futurizer.Test_MatsFuturizer_FailedSerializationFuture$DtoWeExpect].", e
                             .getCause().getMessage());
         }
     }
@@ -82,7 +83,7 @@ public class Test_MatsFuturizer_FailedSerializationFuture {
                 .exceptionally(e -> {
                     log.info("Got the exception. Hoping it's the right one. Logging stacktrace just in case.", e);
                     Assert.assertEquals("Could not deserialize the data contained in MatsObject to class "
-                            + "[com.stolsvik.mats.util.Test_MatsFuturizer_FailedSerializationFuture$DtoWeExpect].",
+                            + "[com.stolsvik.mats.util.futurizer.Test_MatsFuturizer_FailedSerializationFuture$DtoWeExpect].",
                             e.getCause().getMessage());
                     return new DtoWeExpect("ExceptionallyTest");
                 })

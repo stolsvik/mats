@@ -35,6 +35,7 @@ public class Test_TraceProperties {
     public static final Rule_Mats MATS = Rule_Mats.create();
 
     private static final String SERVICE = MatsTestHelp.service();
+    private static final String SECOND_SERVICE = MatsTestHelp.endpointId("second_service");
     private static final String TERMINATOR = MatsTestHelp.terminator();
 
     private static String _stringProp_service;
@@ -63,6 +64,7 @@ public class Test_TraceProperties {
                     _objectProp_service = context.getTraceProperty("objectProp", DataTO.class);
 
                     // Add a new Object prop
+                    // NOTE: This will NOT be a part of the following initiation!
                     context.setTraceProperty("objectPropFromService", new DataTO(Math.PI, "xyz"));
 
                     context.initiate(msg -> {
@@ -93,7 +95,6 @@ public class Test_TraceProperties {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
                     MATS.getMatsTestLatch().resolve(sto, dto);
                 });
-
     }
 
     @BeforeClass
@@ -105,7 +106,7 @@ public class Test_TraceProperties {
                     // Get the Object prop
                     _objectProp_terminator_initiatedWithinService = context.getTraceProperty("objectProp", DataTO.class);
 
-                    // Get the Object prop set in the Service
+                    // Get the Object prop set in the Service (SHALL BE NULL)
                     _objectPropFromService_terminator_initiatedWithinService = context.getTraceProperty("objectPropFromService", DataTO.class);
 
                     // Get the Object prop set in initiation within the Service
@@ -156,7 +157,7 @@ public class Test_TraceProperties {
         Assert.assertEquals(new DataTO(Math.E, "abc"), _objectProp_terminator_initiatedWithinService);
         // .. also the one set in the initiation
         Assert.assertEquals(new DataTO(Math.exp(5), "123"), _objectPropFromService_terminator_initiatedWithinService_setInInitiation);
-        // .. also the one set inside the Service. before the initiation started.
-        Assert.assertEquals(new DataTO(Math.PI, "xyz"), _objectPropFromService_terminator_initiatedWithinService);
+        // The one set inside the Service, before the initiation started, should NOT be a part of the new initiation
+        Assert.assertNull(_objectPropFromService_terminator_initiatedWithinService);
     }
 }

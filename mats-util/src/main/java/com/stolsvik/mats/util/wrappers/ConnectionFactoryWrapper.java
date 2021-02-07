@@ -1,4 +1,4 @@
-package com.stolsvik.mats.spring.jms.factories;
+package com.stolsvik.mats.util.wrappers;
 
 import javax.jms.Connection;
 import javax.jms.ConnectionFactory;
@@ -11,8 +11,6 @@ import com.stolsvik.mats.MatsFactory.MatsWrapperDefault;
  * ConnectionFactory instance and forwards all calls to that. Meant to be extended to add extra functionality, e.g.
  * Spring integration.
  *
- * @see ConnectionFactoryWithStartStopWrapper
- * @see ScenarioConnectionFactoryWrapper
  * @author Endre Stølsvik 2019-06-10 11:43 - http://stolsvik.com/, endre@stolsvik.com
  */
 public class ConnectionFactoryWrapper implements MatsWrapperDefault<ConnectionFactory>, ConnectionFactory {

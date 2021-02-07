@@ -9,6 +9,8 @@ import org.springframework.context.EnvironmentAware;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.core.env.Environment;
 
+import com.stolsvik.mats.util.wrappers.ConnectionFactoryWrapper;
+
 /**
  * A <code>ConnectionFactoryWrapper</code> which lazily decides which of the three {@link MatsScenario}s are active, and
  * produces the wrapper-target {@link ConnectionFactory} based on that - you most probably want to use
@@ -40,7 +42,10 @@ public class ScenarioConnectionFactoryWrapper
     }
 
     /**
-     * We need a way to decide between the three different {@link MatsScenario}s.
+     * We need a way to decide between the three different {@link MatsScenario}s. Check out the
+     * {@link ConfigurableScenarioDecider}.
+     *
+     * @see ConfigurableScenarioDecider
      */
     @FunctionalInterface
     public interface ScenarioDecider {

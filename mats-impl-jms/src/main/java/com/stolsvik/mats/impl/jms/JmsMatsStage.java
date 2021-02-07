@@ -43,7 +43,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
         _parentFactory = _parentEndpoint.getParentFactory();
 
-        log.info(LOG_PREFIX + "Created Stage [" + id(_stageId, this) + "].");
+        log.info(LOG_PREFIX + "   |- Created Stage [" + id(_stageId, this) + "].");
     }
 
     @Override
@@ -107,9 +107,10 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
     @Override
     public synchronized void start() {
-        log.info(LOG_PREFIX + "     \\-  Starting Stage [" + id(_stageId, this) + "].");
+        log.info(LOG_PREFIX + "     |-  Starting Stage [" + id(_stageId, this) + "].");
         if (_stageProcessors.size() > 1) {
-            log.info(LOG_PREFIX + "     \\-  ALREADY STARTED! [" + id(_stageId, this) + "].");
+            log.warn(LOG_PREFIX + "     \\- When asked to start Stage, it was ALREADY STARTED! [" + id(_stageId, this)
+                    + "].");
             return;
         }
 
@@ -118,9 +119,9 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         // ?: Is this a topic?
         if (!_queue) {
             /*
-             * -> Yes, and in that case, there shall only be one StageProcessor for the endpoint. If the user chooses to
-             * make more endpoints picking from the same topic, then so be it, but it generally makes no sense, as the
-             * whole point of a MQ Topic is that all listeners to the topic will get the same messages.
+             * -> Yes, is it a Topic, and in that case, there shall only be one StageProcessor for the endpoint. The
+             * whole point of a MQ Topic is that all listeners to the topic will get the same messages, and thus running
+             * multiple identical Stages (i.e. listeners) on a MatsFactory for a Topic makes zero sense.
              *
              * (Optimizations along the line of using a thread pool for the actual work of the processor must be done in
              * user code, as the MATS framework must acknowledge (commit/rollback) each message, and cannot decide what

@@ -3,6 +3,7 @@ package com.stolsvik.mats.impl.jms;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 
 /**

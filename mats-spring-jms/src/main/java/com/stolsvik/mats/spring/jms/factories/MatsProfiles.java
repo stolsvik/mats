@@ -79,9 +79,9 @@ public interface MatsProfiles {
      * <code>@Profile("mats-mocks-orderservice")</code>), so that when running with Profile "production", these mocks do
      * not start consuming messages destined for the production OrderService from the production MQ Broker.
      * <p>
-     * A benefit of using this Profile name (or a name that starts with this), is that if by some accident both this
-     * profile and Profile {@link #PROFILE_MATS_REGULAR "mats-regular"} or any of its synonyms is enabled at the same
-     * time, the service will refuse to start, read javaDoc at {@link #PROFILE_MATS_REGULAR}.
+     * A benefit of using this Profile name (or a name that starts with this) for the mocks-scenario, is that if by some
+     * accident both this profile and Profile {@link #PROFILE_MATS_REGULAR "mats-regular"} or any of its synonyms is
+     * enabled at the same time, the service will refuse to start, read javaDoc at {@link #PROFILE_MATS_REGULAR}.
      */
     String PROFILE_MATS_MOCKS = "mats-mocks";
 }

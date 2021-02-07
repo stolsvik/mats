@@ -40,8 +40,8 @@ public interface MatsTrace<Z> {
     String getTraceId();
 
     /**
-     * @return the "FlowId", which is a system-specified, guaranteed-unique TraceId - and shall be the prefix of each
-     *         {@link Call#getMatsMessageId()}, separated by a "_".
+     * @return the "FlowId", which is a system-specified, guaranteed-globally-unique TraceId - and shall be the prefix
+     *         of each {@link Call#getMatsMessageId()}, separated by a "_".
      */
     String getFlowId();
 
@@ -345,6 +345,10 @@ public interface MatsTrace<Z> {
 
         long getCalledTimestamp();
 
+        /**
+         * @return the Mats Message Id, a guaranteed-globally-unique id for this particular message - it SHALL be
+         *         constructed as follows: {@link MatsTrace#getFlowId()} + "_" + flow-unique messageId.
+         */
         String getMatsMessageId();
 
         String getDebugInfo();

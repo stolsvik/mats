@@ -1,4 +1,4 @@
-package com.stolsvik.mats.util;
+package com.stolsvik.mats.util.futurizer;
 
 import java.util.Objects;
 import java.util.Random;
@@ -17,6 +17,7 @@ import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.test.junit.Rule_Mats;
 import com.stolsvik.mats.test.MatsTestHelp;
+import com.stolsvik.mats.util.MatsFuturizer;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 
 /**

@@ -18,8 +18,6 @@ import org.springframework.context.annotation.Bean;
 @SpringBootApplication
 public class MatsAmqMonitorApplication {
 
-    private static final Logger log = LoggerFactory.getLogger(MatsAmqMonitorApplication.class);
-
     public static void main(String[] args) {
         SpringApplication.run(MatsAmqMonitorApplication.class, args);
     }

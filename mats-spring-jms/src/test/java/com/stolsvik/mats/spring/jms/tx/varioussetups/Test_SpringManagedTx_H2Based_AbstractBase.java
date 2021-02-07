@@ -83,6 +83,7 @@ public abstract class Test_SpringManagedTx_H2Based_AbstractBase {
         public DataSource testH2DataSource() {
             TestH2DataSource standard = TestH2DataSource.createStandard();
             standard.createDataTable();
+            // Optionally wrap the DataSource in extensions
             return optionallyWrapDataSource(standard);
         }
 

@@ -11,6 +11,7 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 
 /**

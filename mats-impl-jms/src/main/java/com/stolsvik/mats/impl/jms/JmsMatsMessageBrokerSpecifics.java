@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
 
 /**
  * Some small specifics for the underlying JMS Implementation. Currently handled: ActiveMQ.

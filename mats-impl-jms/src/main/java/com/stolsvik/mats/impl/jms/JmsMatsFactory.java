@@ -5,10 +5,14 @@ import java.lang.reflect.Field;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
@@ -23,11 +27,18 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsStage.StageConfig;
+import com.stolsvik.mats.api.intercept.MatsInterceptableMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MatsInitiator_TxRequired;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MatsInitiator_TxRequiresNew;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptorProvider;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptorProvider;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageContext;
 import com.stolsvik.mats.serial.MatsSerializer;
 
-public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsStartStoppable {
+public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsStatics, JmsMatsStartStoppable {
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsFactory.class);
 
@@ -126,6 +137,96 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
 
     public MatsSerializer<Z> getMatsSerializer() {
         return _matsSerializer;
+    }
+
+    private final CopyOnWriteArrayList<MatsInitiateInterceptorProvider> _initiationInterceptorProviders = new CopyOnWriteArrayList<>();
+    private final IdentityHashMap<MatsInitiateInterceptor, MatsInitiateInterceptorProvider> _initiateInterceptors = new IdentityHashMap<>();
+
+    private final CopyOnWriteArrayList<MatsStageInterceptorProvider> _stageInterceptorProviders = new CopyOnWriteArrayList<>();
+    private final IdentityHashMap<MatsStageInterceptor, MatsStageInterceptorProvider> _stageInterceptors = new IdentityHashMap<>();
+
+    // :: Interceptors
+
+    @Override
+    public void addInitiationInterceptorProvider(MatsInitiateInterceptorProvider initiationInterceptorProvider) {
+        _initiationInterceptorProviders.add(initiationInterceptorProvider);
+    }
+
+    @Override
+    public void removeInitiationInterceptorProvider(MatsInitiateInterceptorProvider initiationInterceptorProvider) {
+        _initiationInterceptorProviders.remove(initiationInterceptorProvider);
+    }
+
+    @Override
+    public void addInitiationInterceptorSingleton(MatsInitiateInterceptor initiateInterceptor) {
+        MatsInitiateInterceptorProvider provider = na -> initiateInterceptor;
+        synchronized (_initiateInterceptors) {
+            if (_initiateInterceptors.containsKey(initiateInterceptor)) {
+                throw new IllegalStateException("Already added: " + initiateInterceptor + ".");
+            }
+            _initiateInterceptors.put(initiateInterceptor, provider);
+        }
+        addInitiationInterceptorProvider(provider);
+    }
+
+    @Override
+    public void removeInitiationInterceptorSingleton(MatsInitiateInterceptor initiateInterceptor) {
+        MatsInitiateInterceptorProvider provider;
+        synchronized (_initiateInterceptors) {
+            provider = _initiateInterceptors.remove(initiateInterceptor);
+            if (provider == null) {
+                throw new IllegalStateException("Cannot remove because not added: [" + initiateInterceptor + "]");
+            }
+        }
+        removeInitiationInterceptorProvider(provider);
+    }
+
+    @Override
+    public void addStageInterceptorProvider(MatsStageInterceptorProvider stageInterceptorProvider) {
+        _stageInterceptorProviders.add(stageInterceptorProvider);
+    }
+
+    @Override
+    public void removeStageInterceptorProvider(MatsStageInterceptorProvider stageInterceptorProvider) {
+        _stageInterceptorProviders.remove(stageInterceptorProvider);
+    }
+
+    @Override
+    public void addStageInterceptorSingleton(MatsStageInterceptor stageInterceptor) {
+        MatsStageInterceptorProvider provider = na -> stageInterceptor;
+        synchronized (_stageInterceptors) {
+            if (_stageInterceptors.containsKey(stageInterceptor)) {
+                throw new IllegalStateException("Already added: " + stageInterceptor + ".");
+            }
+            _stageInterceptors.put(stageInterceptor, provider);
+        }
+        addStageInterceptorProvider(provider);
+    }
+
+    @Override
+    public void removeStageInterceptorSingleton(MatsStageInterceptor stageInterceptor) {
+        MatsStageInterceptorProvider provider;
+        synchronized (_stageInterceptors) {
+            provider = _stageInterceptors.remove(stageInterceptor);
+            if (provider == null) {
+                throw new IllegalStateException("Cannot remove because not added: [" + stageInterceptor + "]");
+            }
+        }
+        removeStageInterceptorProvider(provider);
+    }
+
+    List<MatsInitiateInterceptor> getInterceptorsForInitiation(InitiateContext context) {
+        return _initiationInterceptorProviders.stream()
+                .map(provider -> provider.provide(context))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    List<MatsStageInterceptor> getInterceptorsForStage(StageContext context) {
+        return _stageInterceptorProviders.stream()
+                .map(provider -> provider.provide(context))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -228,15 +329,21 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
 
     ThreadLocal<Supplier<MatsInitiate>> __nestedMatsInitiate_elg = new ThreadLocal<>();
 
-    void setCurrentThreadLocalMatsDemarcation(Supplier<MatsInitiate> matsInitiateSupplier) {
+    /**
+     * Note: This ThreadLocal is on the MatsFactory, thus the {@link MatsInitiate} is scoped to the MatsFactory. This
+     * should make some sense: If you in a Stage do a new Initiation, even with the
+     * {@link MatsFactory#getDefaultInitiator()}, if this is <i>on a different MatsFactory</i>, then the transaction
+     * should not be hoisted.
+     */
+    void setCurrentMatsFactoryThreadLocalMatsDemarcation(Supplier<MatsInitiate> matsInitiateSupplier) {
         __nestedMatsInitiate_elg.set(matsInitiateSupplier);
     }
 
-    Optional<Supplier<MatsInitiate>> getCurrentThreadLocalMatsDemarcation() {
+    Optional<Supplier<MatsInitiate>> getCurrentMatsFactoryThreadLocalMatsDemarcation() {
         return Optional.ofNullable(__nestedMatsInitiate_elg.get());
     }
 
-    void clearCurrentThreadLocalMatsDemarcation() {
+    void clearCurrentMatsFactoryThreadLocalMatsDemarcation() {
         __nestedMatsInitiate_elg.remove();
     }
 
@@ -507,7 +614,8 @@ public class JmsMatsFactory<Z> implements MatsFactory, JmsMatsStatics, JmsMatsSt
 
         @Override
         public FactoryConfig setConcurrency(int concurrency) {
-            log.info("MatsFactory's Concurrency is set to [" + concurrency + "] (was: [" + _concurrency + "]).");
+            log.info(LOG_PREFIX + "MatsFactory's Concurrency is set to [" + concurrency
+                    + "] (was: [" + _concurrency + "]).");
             _concurrency = concurrency;
             return this;
         }

@@ -12,14 +12,21 @@ public class JmsMatsContextLocalCallback implements BiFunction<Class<?>, String[
     private static final ThreadLocal<Map<Object, Object>> THREAD_LOCAL_MAP = ThreadLocal.withInitial(HashMap::new);
 
     /**
-     * <b>Note: These bind/unbind methods are not for Mats API users, but Mats API implementors.</b>
+     * Binds a ThreadLocal resource.
      */
     public static void bindResource(Object key, Object value) {
         THREAD_LOCAL_MAP.get().put(key, value);
     }
 
     /**
-     * <b>Note: These bind/unbind methods are not for Mats API users, but Mats API implementors.</b>
+     * Retrieves a ThreadLocal-bound resource, bound with {@link #bindResource(Object, Object)}.
+     */
+    public static Object getResource(Object key) {
+        return THREAD_LOCAL_MAP.get().get(key);
+    }
+
+    /**
+     * Removes a ThreadLocal-bound resource, bound with {@link #bindResource(Object, Object)}.
      */
     public static void unbindResource(Object key) {
         THREAD_LOCAL_MAP.get().remove(key);
@@ -29,7 +36,6 @@ public class JmsMatsContextLocalCallback implements BiFunction<Class<?>, String[
     public Object apply(Class<?> type, String[] name) {
         // :: First check whether we're inside a stage or initiate context, and can find it in
         // ProcessContext or MatsInitiate
-        // FIRST check MatsInitiate (initiate context), as it is POSSIBLE to do an initiate from within Stage
         MatsInitiate init = (MatsInitiate) THREAD_LOCAL_MAP.get().get(MatsInitiate.class);
         // ?: Did we find the MatsInitiate?
         if (init != null) {
@@ -40,7 +46,7 @@ public class JmsMatsContextLocalCallback implements BiFunction<Class<?>, String[
             }
         }
 
-        // E-> THEN check ProcessContext (stage context)
+        // E-> No, no MatsInitiate, check ProcessContext (stage context)
         ProcessContext<?> ctx = (ProcessContext<?>) THREAD_LOCAL_MAP.get().get(ProcessContext.class);
         // ?: Did we find the ProcessContext?
         if (ctx != null) {

@@ -5,11 +5,10 @@ dependencies {
     // :: TEST (this is ONLY a test project! No deps for main/java)
 
     // Need the testing tools, using JUnit - this pulls in quite a bit, including the Mats API and the JMS Impl.
-    testCompile project(":mats-test-junit")
+    testImplementation project(":mats-test-junit")
     // Need the MatsSerializerJson, which is not transitively given by ':mats-test-junit'
     testImplementation project(":mats-serial-json")
     // Logging
-    testCompile "org.slf4j:log4j-over-slf4j:$slf4jVersion"
-    testCompile "ch.qos.logback:logback-classic:$logbackVersion"
-
+    testImplementation "org.slf4j:log4j-over-slf4j:$slf4jVersion"
+    testImplementation "ch.qos.logback:logback-classic:$logbackVersion"
 }

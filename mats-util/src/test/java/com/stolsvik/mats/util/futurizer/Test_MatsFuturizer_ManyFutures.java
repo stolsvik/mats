@@ -1,4 +1,4 @@
-package com.stolsvik.mats.util;
+package com.stolsvik.mats.util.futurizer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 
 import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.junit.Rule_Mats;
+import com.stolsvik.mats.util.MatsFuturizer;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 
 /**

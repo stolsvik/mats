@@ -1,6 +1,7 @@
 package com.stolsvik.mats.spring.jms.tx.demarcation;
 
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -41,6 +42,8 @@ import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.MatsTestLatch;
 import com.stolsvik.mats.test.TestH2DataSource;
 import com.stolsvik.mats.util.MatsFuturizer;
+import com.stolsvik.mats.util.wrappers.DeferredConnectionProxyDataSourceWrapper;
+import com.stolsvik.mats.util.wrappers.DeferredConnectionProxyDataSourceWrapper.DeferredConnectionProxy;
 
 /**
  * Mats Demarcation Basics: Checks properties of initiations within a stage, and within an initiation, both "REQUIRED"
@@ -303,13 +306,13 @@ public class Test_DemarcationBasics {
             Assert.assertFalse(connectionEmployed.get());
 
             // Get the SQL Connection via ProcessContext
-            Optional<Connection> optional = context.getAttribute(Connection.class);
-            if (!optional.isPresent()) {
+            Optional<Connection> optionalConnectionAttribute = context.getAttribute(Connection.class);
+            if (!optionalConnectionAttribute.isPresent()) {
                 throw new AssertionError("Missing context.getAttribute(Connection.class).");
             }
-            Connection connectionFromContextAttribute = optional.get();
+            Connection connectionFromContextAttribute = optionalConnectionAttribute.get();
             // .. it should be a proxy
-            Assert.assertTrue(connectionIsLazyProxy(connectionFromContextAttribute));
+            Assert.assertFalse("Should still be thin proxy w/o actual connection", isActualConnection(connectionFromContextAttribute));
             log.info(TERMINATOR_DEMARCATION_BASICS + ": context.getAttribute(Connection.class): "
                     + connectionFromContextAttribute);
             // .. but still not /employed/
@@ -318,7 +321,7 @@ public class Test_DemarcationBasics {
             // Get the SQL Connection through DataSourceUtils
             Connection connectionFromDataSourceUtils = DataSourceUtils.getConnection(dataSource);
             // .. it should be a proxy
-            Assert.assertTrue(connectionIsLazyProxy(connectionFromDataSourceUtils));
+            Assert.assertFalse("Should still be thin proxy w/o actual connection", isActualConnection(connectionFromDataSourceUtils));
             // .. AND it should be the same Connection (instance/object) as from ProcessContext
             Assert.assertSame(connectionFromContextAttribute, connectionFromDataSourceUtils);
             // .. and still not /employed/
@@ -338,19 +341,33 @@ public class Test_DemarcationBasics {
         return attribute.get();
     }
 
-    private static boolean connectionIsLazyProxy(DataSource dataSource) {
+    private static boolean isActualConnection(DataSource dataSource) {
         Connection connection = DataSourceUtils.getConnection(dataSource);
-        boolean isProxy = connectionIsLazyProxy(connection);
+        boolean isProxy = isActualConnection(connection);
         DataSourceUtils.releaseConnection(connection, dataSource);
         return isProxy;
     }
 
-    private static boolean connectionIsLazyProxy(Connection connection) {
+    private static boolean isActualConnection(Connection connection) {
+        // :: First run a blood-hack using toString, which Spring's LazyConnectionDataSource and
+        // DeferredFetchConnectionProxyDataSourceWrapper sets to known values:
         String connectionToString = connection.toString();
-        boolean isProxy = connectionToString.startsWith("Lazy Connection proxy");
-        log.info("CONNECTION-CHECK: Connection is " + (isProxy ? "PROXY" : "NOT proxy") + "! conn:"
-                + connectionToString);
-        return isProxy;
+        boolean isActualConnectionFromToString = !(connectionToString.startsWith("Lazy Connection proxy")
+                || connectionToString.contains("WITHOUT actual"));
+        log.info("CONNECTION-CHECK from toString : Connection is " + (isActualConnectionFromToString ? "ACTUAL"
+                : "still only thin PROXY") + "! conn:" + connectionToString);
+
+        // ?: Does the Connection implement ConnectionWrapper (the DeferredFetchConnectionProxyDataSourceWrapper does)
+        if (connection instanceof DeferredConnectionProxy) {
+            // -> Yes, so cast it and check directly.
+            boolean isActualConnectionFromInterface = ((DeferredConnectionProxy) connection).isActualConnectionRetrieved();
+            log.info("CONNECTION-CHECK from interface: Connection is " + (isActualConnectionFromInterface ? "ACTUAL"
+                    : "still only thin PROXY") + "! conn:" + connectionToString);
+
+            Assert.assertEquals(isActualConnectionFromInterface, isActualConnectionFromToString);
+        }
+
+        return isActualConnectionFromToString;
     }
 
     @Inject
@@ -393,8 +410,9 @@ public class Test_DemarcationBasics {
          * proxy".
          */
         public void insertRowNonTransactional() {
+            log.info("SERVICE-METHOD: insertRowNonTransactional()");
             // This is no magic lazy proxy.
-            Assert.assertFalse(connectionIsLazyProxy(_dataSource));
+            Assert.assertTrue(isActualConnection(_dataSource));
             _simpleJdbcInsert.execute(Collections.singletonMap("data", "insertRowNonTransactional"));
         }
 
@@ -404,10 +422,25 @@ public class Test_DemarcationBasics {
          * proxy".
          */
         public void insertRowNonTransactionalThrow() {
+            log.info("SERVICE-METHOD: insertRowNonTransactionalThrow()");
             // This is no magic lazy proxy.
-            Assert.assertFalse(connectionIsLazyProxy(_dataSource));
+            Assert.assertTrue(isActualConnection(_dataSource));
             _simpleJdbcInsert.execute(Collections.singletonMap("data", "insertRowNonTransactionalThrow"));
             throw new RuntimeException();
+        }
+
+        /**
+         * Forces init of {@link DeferredConnectionProxyDataSourceWrapper}, which
+         * needs an initial connection to retrieve the values of a "clean Connection" from the DB pool.
+         */
+        @Transactional
+        public void forceInitializationOfDeferredFetchConnectionProxyDataSourceWrapper() throws SQLException {
+            log.info("SERVICE-METHOD: Force init of DeferredFetchConnectionProxyDataSourceWrapper");
+            // Fetches the Connection through DataSourceUtils, to ensure that we get it from the lazy-DS-wrapper
+            Connection con = DataSourceUtils.getConnection(_dataSource);
+            // Run a method that forces initialization, prepareStatement(..) is one of those.
+            con.prepareStatement("SELECT 1").close();
+            DataSourceUtils.releaseConnection(con, _dataSource);
         }
 
         /**
@@ -420,13 +453,14 @@ public class Test_DemarcationBasics {
          */
         @Transactional
         public void insertRowTransactional() {
+            log.info("SERVICE-METHOD: insertRowTransactional()");
             // ::This actually ends up being a "magic lazy proxy", even though we supply the DataSource directly from
             // the Spring context, which is not proxied.
             // - At this point the lazy proxy has not gotten the connection yet.
-            Assert.assertTrue(connectionIsLazyProxy(_dataSource));
+            Assert.assertFalse(isActualConnection(_dataSource));
             _simpleJdbcInsert.execute(Collections.singletonMap("data", "insertRowTransactional"));
             // - While at this point the lazy proxy HAS gotten the connection!
-            Assert.assertFalse(connectionIsLazyProxy(_dataSource));
+            Assert.assertTrue(isActualConnection(_dataSource));
         }
 
         /**
@@ -436,19 +470,20 @@ public class Test_DemarcationBasics {
          */
         @Transactional
         public void insertRowTransactionalThrow() {
+            log.info("SERVICE-METHOD: insertRowTransactionalThrow()");
             // ::This actually ends up being a "magic lazy proxy", even though we supply the DataSource directly from
             // the Spring context, which is not proxied.
             // - At this point the lazy proxy has not gotten the connection yet.
-            Assert.assertTrue(connectionIsLazyProxy(_dataSource));
+            Assert.assertFalse(isActualConnection(_dataSource));
             _simpleJdbcInsert.execute(Collections.singletonMap("data", "insertRowTransactionalThrow"));
             // - While at this point the lazy proxy HAS gotten the connection!
-            Assert.assertFalse(connectionIsLazyProxy(_dataSource));
+            Assert.assertTrue(isActualConnection(_dataSource));
             throw new RuntimeException();
         }
     }
 
     @Test
-    public void testBasicSpringTransactionalLogic() {
+    public void testBasicSpringTransactionalLogic() throws SQLException {
         // :: Non-transactional
         // Standard insert
         _testService.insertRowNonTransactional();
@@ -459,6 +494,9 @@ public class Test_DemarcationBasics {
         catch (RuntimeException e) {
             /* no-op */
         }
+
+        // Force init of DeferredFetchConnectionProxyDataSourceWrapper
+        _testService.forceInitializationOfDeferredFetchConnectionProxyDataSourceWrapper();
 
         // :: Transactional
         // Standard insert

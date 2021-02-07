@@ -2,8 +2,10 @@ package com.stolsvik.mats.spring.jms.factories;
 
 import javax.jms.ConnectionFactory;
 
+import com.stolsvik.mats.util.wrappers.ConnectionFactoryWrapper;
+
 /**
- * A abstract {@link ConnectionFactoryWrapper} recognized by {@link ScenarioConnectionFactoryProducer} which has a
+ * A abstract {@link ConnectionFactoryWrapper} recognized by {@link ScenarioConnectionFactoryProducer}, which has a
  * start() and stop() method, which can be used if you need to fire up a local MQ Broker: This class is meant to be
  * extended to provide such functionality.
  *

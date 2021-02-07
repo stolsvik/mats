@@ -3,12 +3,8 @@ package com.stolsvik.mats.spring.jms.tx;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.Connection;
-import java.sql.SQLException;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
@@ -18,7 +14,6 @@ import org.springframework.core.InfrastructureProxy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DataSourceUtils;
-import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -32,10 +27,13 @@ import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.impl.jms.JmsMatsContextLocalCallback;
-import com.stolsvik.mats.impl.jms.JmsMatsJmsException;
-import com.stolsvik.mats.impl.jms.JmsMatsMessageContext;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
+import com.stolsvik.mats.impl.jms.JmsMatsInternalExecutionContext;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_Jms;
+import com.stolsvik.mats.util.wrappers.DeferredConnectionProxyDataSourceWrapper;
+import com.stolsvik.mats.util.wrappers.DeferredConnectionProxyDataSourceWrapper.DeferredConnectionProxy;
 
 /**
  * Implementation of {@link JmsMatsTransactionManager} that in addition to the JMS transaction keeps a Spring
@@ -114,9 +112,9 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
         _platformTransactionManager = platformTransactionManager;
         // Store the DataSource
         _dataSource = dataSource;
-        if (!(dataSource instanceof LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy)) {
+        if (!(dataSource instanceof DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy)) {
             log.warn(LOG_PREFIX + "The DataSource provided with the PlatformTransactionManager is not wrapped with our"
-                    + " special '" + LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy.class.getSimpleName()
+                    + " special '" + DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy.class.getSimpleName()
                     + "', which will hinder the SpringJmsMats implementation from knowing whether the SQL Connection"
                     + " was actually employed by the MatsFactory's Endpoints' Stages. You can do this wrapping"
                     + " (before creating the PlatformTransactionManager) by invoking the static method"
@@ -132,9 +130,9 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
             Function<JmsMatsTxContextKey, DefaultTransactionDefinition> transactionDefinitionFunction) {
 
         // ?: Is the DataSource already wrapped with our proxy?
-        if (dataSource instanceof LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) {
+        if (dataSource instanceof DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy) {
             log.info(LOG_PREFIX + "The DataSource provided is already wrapped with "
-                    + LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy.class.getSimpleName() + ", which"
+                    + DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy.class.getSimpleName() + ", which"
                     + " is okay (we otherwise wrap it ourselves). [" + dataSource + "]");
             _dataSource = dataSource;
         }
@@ -430,27 +428,14 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
      * should also be employed if you externally create another type of {@link PlatformTransactionManager}, e.g. the
      * HibernateTransactionManager, and provide that to the factories of this class taking a PlatformTransactionManager.
      * <p />
-     * It creates a stack of proxies as such:
-     * <ul>
-     * <li>LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy (returned by this method, and is an extension
-     * of Spring's {@link LazyConnectionDataSourceProxy}): Hinders a connection from actually being fetched from the
-     * underlying DataSource until it is explicitly employed by the application (i.e. starting a transaction will by
-     * itself <i>not</i> fetch a Connection). And it has a reference to the proxy underneath (the next one), so that we
-     * can check whether the Connection <i>actually</i> was employed (because the call to its 'getConnection' will not
-     * be run until the user actually do something with the Connection returned from this layer, which is just a "shell
-     * proxy" until e.g. executeQuery(..) is invoked).</li>
-     * <li>MonitorConnectionGettingDataSourceWrapper_InfrastructureProxy: Keeps a tab of whether a Connection was gotten
-     * from the underlying DataSource. Which, since the layer above is the lazy wrapper, will <i>not</i> happen merely
-     * by starting a transaction.</li>
-     * <li>The actual DataSource: This is the actual connection to the SQL DataBase, the one you provide as argument to
-     * this method.</li>
-     * </ul>
+     * It returns an instance of {@link DeferredConnectionProxyDataSourceWrapper}, but as an extension that also
+     * implements Spring's {@link InfrastructureProxy}.
      * <p />
      * We want this Lazy-and-Monitored DataSource which is returned here to "compare equals" with that of the DataSource
      * which is supplied to us - and which might be employed by other components "on the outside" of Mats - wrt. how
-     * Spring's {@link DataSourceUtils} compare them in its ThreadLocal cache-hackery. Therefore, all those proxies in
-     * the list above implement {@link InfrastructureProxy} (read its JavaDoc!), which means that Spring can trawl its
-     * way down to the actual DataSource when it needs to compare. Note: You will find this proxy-handling in the
+     * Spring's {@link DataSourceUtils} compare them in its ThreadLocal cache-hackery. Therefore, the proxy implement
+     * {@link InfrastructureProxy} (read its JavaDoc!), which means that Spring can trawl its way down to the actual
+     * DataSource when it needs to compare. Note: You will find this proxy-handling in the
      * {@link TransactionSynchronizationManager#getResource(Object)}, which invokes
      * <code>TransactionSynchronizationUtils.unwrapResourceIfNecessary(..)</code>, where the instanceof-check for
      * InfraStructureProxy resides.
@@ -461,16 +446,16 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
      * {@link LazyConnectionDataSourceProxy}, but it is completely unnecessary.
      * <p />
      * Tip: If you would want to check/understand how the LazyConnection stuff work, you may within a Mats stage do a
-     * DataSourceUtil.getConnection(dataSource) - if the returned Connection's toString() starts with
-     * <code>"Lazy Connection proxy for target DataSource [..{wrapped datasource } ..]"</code> then the actual
-     * Connection is still not gotten. When it is gotten (e.g. after having done a SQL CRUD operation), the toString()
-     * will forward directly to the wrapped actual Connection.
+     * DataSourceUtil.getConnection(dataSource) - if the returned Connection's toString() looks like
+     * <code>"DeferredConnectionProxy@3ec11999 WITHOUT actual Connection from DataSource@3406472c..."</code> then the
+     * actual Connection is still not gotten. When it is gotten (e.g. after having done a SQL CRUD operation), the
+     * toString() will look like <code>"DeferredConnectionProxy@3ec11999 WITH actual Connection@b5cc23a"</code>>
      */
     public static DataSource wrapLazyConnectionDatasource(DataSource targetDataSource) {
         log.info(LOG_PREFIX + "Wrapping provided DataSource in a 'magic lazy proxy' which allows both"
                 + " elision of JDBC transaction management if the Connection was never employed, AND allows Mats to"
                 + " know whether an initiation or stage employed the Connection or not. [" + targetDataSource + "]");
-        if (targetDataSource instanceof LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) {
+        if (targetDataSource instanceof DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy) {
             log.warn(LOG_PREFIX + "  \\-> The DataSource you provided was already wrapped with the 'magic lazy proxy',"
                     + " so why are you trying to wrap it again? Ignoring by simply returning the already-wrapped"
                     + " DataSource you provided (thus not double-wrapping it). [" + targetDataSource + "]");
@@ -482,36 +467,14 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                     + " a pooled DataSource. [" + targetDataSource + "]");
         }
         if (targetDataSource instanceof LazyConnectionDataSourceProxy) {
-            log.info(LOG_PREFIX + "NOTICE: The provided DataSource is a LazyConnectionDataSourceProxy, which is"
+            log.info(LOG_PREFIX + "  \\-> NOTICE: The provided DataSource is a LazyConnectionDataSourceProxy, which is"
                     + " unnecessary, but not really a problem.");
         }
-        // Wrap the DataSource in a MonitorConnectionGettingDataSourceWrapper_InfrastructureProxy, to know whether the
-        // stage or init _actually_ got a SQL Connection
-        MonitorConnectionGettingDataSourceProxy_InfrastructureProxy monitorConnectionGettingDataSourceProxy = new MonitorConnectionGettingDataSourceProxy_InfrastructureProxy(
+        DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy deferredDataSource = new DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy(
                 targetDataSource);
-        log.info(LOG_PREFIX + "Wrapped the DataSource in a MonitorConnectionGettingDataSourceProxy, so that we know"
-                + " whether the stage or initialization actually used a SQL Connection : ["
-                + monitorConnectionGettingDataSourceProxy + "].");
+        log.info(LOG_PREFIX + "Wrapped the provided DataSource as [" + deferredDataSource + "].");
 
-        // Wrap this again in a LazyConnectionDataSourceProxy, so that we do not _actually_ get a SQL Connection unless
-        // the stage or init actually does any data access.
-        // NOTICE: If the DataSource we are provided with already is a LazyConnectionDataSourceProxy, this is not a
-        // problem: We will have two levels of lazy-ness, which is an absolutely minuscule cost.
-        // NOTICE: We use the variant of NOT providing the DataSource at construction, because if we do provide it, it
-        // leads to a Connection being gotten from the DataSource to determine default constants, which is not needed in
-        // our case. (We set those in the TransactionDefinition before commencing stage/init processing anyway)
-        LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy lazyAndMonitoredConnectionDataSourceProxy = new LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy(
-                monitorConnectionGettingDataSourceProxy);
-        lazyAndMonitoredConnectionDataSourceProxy.setDefaultAutoCommit(false);
-        lazyAndMonitoredConnectionDataSourceProxy.setDefaultTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
-        // ... now setting the DataSource, and this will NOT trigger fetching of a Connection.
-        lazyAndMonitoredConnectionDataSourceProxy.setTargetDataSource(monitorConnectionGettingDataSourceProxy);
-        log.info(LOG_PREFIX + ".. then wrapped the DataSource again in a LazyAndMonitoredConnectionDataSourceProxy,"
-                + " so that we will not actually get a physical SQL Connection from the underlying DataSource unless"
-                + " the stage or initialization performs data access with it : ["
-                + lazyAndMonitoredConnectionDataSourceProxy + "].");
-
-        return lazyAndMonitoredConnectionDataSourceProxy;
+        return deferredDataSource;
     }
 
     /**
@@ -524,13 +487,13 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
     }
 
     /**
-     * @return the employed {@link DataSource}, which either was provided when creating this instance, or was reflected
-     *         out of the provided {@link PlatformTransactionManager}. It is hopefully wrapped using the
-     *         {@link #wrapLazyConnectionDatasource(DataSource)}, which is done automatically if this instance was
-     *         created using one of the DataSource-taking factory methods. However, if this instance was created using
-     *         one of the PlatformTransactionManager-taking factory methods, it is up to the user to have wrapped it.
-     *         Note that it works unwrapped too, but SpringJmsMats cannot then know whether the stages actually employ
-     *         the SQL Connection, and must do full transaction demarcation around every stage.
+     * @return the employed {@link DataSource}, which either was provided when creating this instance (and thus
+     *         wrapped), or was reflected out of the provided {@link PlatformTransactionManager}. It is hopefully
+     *         wrapped using the {@link #wrapLazyConnectionDatasource(DataSource)}, which is done automatically if this
+     *         instance was created using one of the DataSource-taking factory methods. However, if this instance was
+     *         created using one of the PlatformTransactionManager-taking factory methods, it is up to the user to have
+     *         wrapped it. Note that it works unwrapped too, but SpringJmsMats cannot then know whether the stages
+     *         actually employ the SQL Connection, and must do full transaction demarcation around every stage.
      */
     public DataSource getDataSource() {
         return _dataSource;
@@ -551,134 +514,19 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
     }
 
     /**
-     * Extension of {@link LazyConnectionDataSourceProxy} which implements {@link InfrastructureProxy}, and which
-     * exposes the underlying functionality of {@link MonitorConnectionGettingDataSourceProxy_InfrastructureProxy}.
+     * Extension of {@link DeferredConnectionProxyDataSourceWrapper} which implements {@link InfrastructureProxy}.
      * <p />
      * Read JavaDoc for {@link #wrapLazyConnectionDatasource(DataSource)}.
      */
-    private static class LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy
-            extends LazyConnectionDataSourceProxy implements InfrastructureProxy {
-        private final MonitorConnectionGettingDataSourceProxy_InfrastructureProxy _monitorDataSource;
-
-        public LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy(
-                MonitorConnectionGettingDataSourceProxy_InfrastructureProxy monitorDataSource) {
-            _monitorDataSource = monitorDataSource;
-        }
-
-        void pushHookBack(ConnectionGottenHookBack hookBack) {
-            _monitorDataSource.pushHookBack(hookBack);
-        }
-
-        void popHookBack(ConnectionGottenHookBack hookBack) {
-            _monitorDataSource.popHookBack(hookBack);
-        }
-
-        @Override
-        public Object getWrappedObject() {
-            DataSource targetDataSource = getTargetDataSource();
-            if (targetDataSource instanceof InfrastructureProxy) {
-                return ((InfrastructureProxy) targetDataSource).getWrappedObject();
-            }
-            return targetDataSource;
-        }
-
-        @Override
-        public String toString() {
-            return this.getClass().getSimpleName() + " for target DataSource [" + getTargetDataSource() + "]";
-        }
-    }
-
-    /**
-     * Wrapper of DataSource that keeps ThreadLocal state of whether a SQL Connection has actually been gotten from the
-     * underlying DataSource.
-     * <p />
-     * Read JavaDoc for {@link #wrapLazyConnectionDatasource(DataSource)}.
-     */
-    private static class MonitorConnectionGettingDataSourceProxy_InfrastructureProxy
-            extends DelegatingDataSource implements InfrastructureProxy {
-        public MonitorConnectionGettingDataSourceProxy_InfrastructureProxy(DataSource targetDataSource) {
+    protected static class DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy
+            extends DeferredConnectionProxyDataSourceWrapper implements InfrastructureProxy {
+        protected DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy(DataSource targetDataSource) {
             super(targetDataSource);
         }
 
-        private final ThreadLocal<Deque<ConnectionGottenHookBack>> _hookBacks = new ThreadLocal<>();
-
-        void pushHookBack(ConnectionGottenHookBack hookBack) {
-            Deque<ConnectionGottenHookBack> connectionGottenHookBacks = _hookBacks.get();
-            if (connectionGottenHookBacks == null) {
-                connectionGottenHookBacks = new ArrayDeque<>(1);
-                _hookBacks.set(connectionGottenHookBacks);
-            }
-            connectionGottenHookBacks.push(hookBack);
-        }
-
-        void popHookBack(ConnectionGottenHookBack hookBack) {
-            Deque<ConnectionGottenHookBack> connectionGottenHookBacks = _hookBacks.get();
-            if (connectionGottenHookBacks == null) {
-                throw new IllegalStateException("HookBack stack has not been set for this code"
-                        + " path (ThreadLocal), so why is this method invoked?");
-            }
-            ConnectionGottenHookBack headOfStack = connectionGottenHookBacks.poll();
-            if (headOfStack == null) {
-                throw new AssertionError("There is a HookBack stack, but it is empty - shall not happen.");
-            }
-            if (headOfStack != hookBack) {
-                throw new IllegalStateException("The HookBack at the head of the stack is NOT the one asked to"
-                        + " remove, which means that this is an unexpected and unhandled code path.");
-            }
-            // ?: Remove from ThreadLocal if empty.
-            if (connectionGottenHookBacks.isEmpty()) {
-                _hookBacks.remove();
-            }
-        }
-
-        private void notifyOfConnectionGotten() {
-            Deque<ConnectionGottenHookBack> connectionGottenHookBacks = _hookBacks.get();
-            // ?: Are there a HookBack stack?
-            if (connectionGottenHookBacks == null) {
-                // -> No, so we're not within Mats-with-Spring code - ignore.
-                return;
-            }
-            // E-> Yes, there's a HookBack stack, so notify the HookBack at the top.
-            // Peek at the head of the stack:
-            ConnectionGottenHookBack headOfStack = connectionGottenHookBacks.peek();
-            if (headOfStack == null) {
-                throw new AssertionError("There is a HookBack stack, but it is empty - shall not happen.");
-            }
-            // Notify
-            headOfStack.connectionNowEmployed();
-        }
-
-        @Override
-        public Connection getConnection() throws SQLException {
-            if (log.isDebugEnabled()) log.debug(LOG_PREFIX
-                    + "NOTICE: DataSource.getConnection(): SQL Connection actually being gotten.");
-            notifyOfConnectionGotten();
-            return super.getConnection();
-        }
-
-        @Override
-        public Connection getConnection(String username, String password) throws SQLException {
-            if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "NOTICE: DataSource.getConnection(\"" + username
-                    + "\", {password}): SQL Connection actually being gotten.");
-            notifyOfConnectionGotten();
-            return super.getConnection(username, password);
-        }
-
-        @Override
-        public String toString() {
-            String employedStack = "";
-            if (_hookBacks.get() != null) {
-                employedStack = _hookBacks.get().stream()
-                        .map(hb -> Boolean.toString(hb.isConnectionEmployed()))
-                        .collect(Collectors.joining(", "));
-            }
-            return this.getClass().getSimpleName() + " for target DataSource ["
-                    + getTargetDataSource() + "], employedStack:[" + employedStack + "]";
-        }
-
         @Override
         public Object getWrappedObject() {
-            DataSource targetDataSource = getTargetDataSource();
+            DataSource targetDataSource = unwrap();
             if (targetDataSource instanceof InfrastructureProxy) {
                 return ((InfrastructureProxy) targetDataSource).getWrappedObject();
             }
@@ -692,12 +540,6 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
         DefaultTransactionDefinition defaultTransactionDefinition = _transactionDefinitionFunction.apply(txContextKey);
         return new TransactionalContext_JmsAndSpringDstm(txContextKey, _platformTransactionManager,
                 defaultTransactionDefinition, _dataSource);
-    }
-
-    private interface ConnectionGottenHookBack {
-        void connectionNowEmployed();
-
-        boolean isConnectionEmployed();
     }
 
     /**
@@ -721,101 +563,71 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
             _dataSource = dataSource;
         }
 
-        private static class ConnectionEmployedState implements Supplier<Boolean>,
-                ConnectionGottenHookBack {
-            private final boolean _alwaysTrue;
-
-            private boolean _connectionEmployed = false;
-
-            static ConnectionEmployedState createDynamic() {
-                return new ConnectionEmployedState(false);
-            }
-
-            /**
-             * IF we do not know whether the connection is gotten, because we were NOT given a magic-wrapped DataSource,
-             * then we cannot give a proper answer here. However, since the logic in the doTransaction(..) below always
-             * goes into SQL Transactional demarcation, we will always retrieve a Connection, and thus 'return true' is
-             * the most correct answer we can give in such situation. (Only time it would not have been correct, was if
-             * there actually was a Lazy proxy in the picture, but we can't know what, so we must assume yes.)
-             *
-             * NOTE: We COULD have checked if the TransactionSynchronizationManager.getResource(_dataSource) had a
-             * ConnectionHolder, which had a ConnectionHandle (which by logic above always is true), and then checked if
-             * the DataSourceUtil.getConnection(dataSource) by any chance was a LazyConnectionDataSourceProxy, and then
-             * introspect that for whether the Connection was gotten. But why could you not then instead use Mats' magic
-             * proxy which specifically handles this?!?
-             */
-            static ConnectionEmployedState createAlwaysTrue() {
-                return new ConnectionEmployedState(true);
-            }
-
-            private ConnectionEmployedState(boolean alwaysTrue) {
-                _alwaysTrue = alwaysTrue;
-            }
-
-            @Override
-            public void connectionNowEmployed() {
-                _connectionEmployed = true;
-            }
-
-            @Override
-            public Boolean get() {
-                return isConnectionEmployed();
-            }
-
-            @Override
-            public boolean isConnectionEmployed() {
-                return _alwaysTrue || _connectionEmployed;
-            }
-        }
-
         @Override
-        public void doTransaction(JmsMatsMessageContext jmsMatsMessageContext, ProcessingLambda lambda)
-                throws JmsMatsJmsException {
-            ConnectionEmployedState connectionEmployedState;
-            // :? If we have a "magic" DataSource, then enable the ThreadLocal logic
-            if (_dataSource instanceof LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) {
-                // -> Yes, magic, thus hook in to know whether the Connection was /actually/ employed.
-                connectionEmployedState = ConnectionEmployedState.createDynamic();
-                // Add the HookBack to DataSource's ThreadLocal stack.
-                ((LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) _dataSource)
-                        .pushHookBack(connectionEmployedState);
-            }
-            else {
-                // -> No, not magic, and in this case we must assume that it was always gotten. More at method JavaDoc.
-                connectionEmployedState = ConnectionEmployedState.createAlwaysTrue();
-            }
-            // Bind the ConnectionEmployedState to ContextLocal (as Supplier<Boolean>), for testing.
-            JmsMatsContextLocalCallback.bindResource(CONTEXT_LOCAL_KEY_CONNECTION_EMPLOYED_STATE_SUPPLIER,
-                    connectionEmployedState);
+        public void doTransaction(JmsMatsInternalExecutionContext internalExecutionContext,
+                ProcessingLambda lambda)
+                throws JmsMatsJmsException, MatsRefuseMessageException {
 
             try { // try-finally: Remove the HookBack from DataSource
-                  // :: Make the potential SQL Connection available
-                  // Notice how we here use the DataSourceUtils class, so that we get the tx ThreadLocal Connection.
-                  // Read more at both DataSourceUtils and DataSourceTransactionManager.
-                jmsMatsMessageContext.setSqlConnectionSupplier(() -> DataSourceUtils.getConnection(_dataSource));
-                jmsMatsMessageContext.setSqlConnectionEmployedSupplier(connectionEmployedState);
 
                 // :: We invoke the "outer" transaction, which is the JMS transaction.
-                super.doTransaction(jmsMatsMessageContext, () -> {
-                    // ----- We're *within* the JMS Transaction demarcation.
+                super.doTransaction(internalExecutionContext, () -> {
+                    // ----- We're now *within* the JMS Transaction demarcation.
 
                     // :: Now go into the SQL Transaction demarcation
                     TransactionStatus transactionStatus = _platformTransactionManager.getTransaction(
                             _transactionDefinitionForThisContext);
+
+                    // ----- We're now *within* the SQL Transaction demarcation.
+
+                    /*
+                     * IF we do NOT know whether the connection is gotten, because we were NOT given a magic-wrapped
+                     * DataSource, then we cannot give a proper answer here. However, since the logic in the
+                     * doTransaction(..) above always goes into SQL Transactional demarcation, we will always retrieve a
+                     * Connection, and thus 'return true' is the most correct answer we can give in such situation.
+                     * (Only time it would not have been correct, was if there actually was a Lazy proxy in the picture,
+                     * but we can't know what, so we must assume yes.)
+                     *
+                     * NOTE: We COULD have checked if the TransactionSynchronizationManager.getResource(_dataSource) had
+                     * a ConnectionHolder, which had a ConnectionHandle (which by logic above always is true), and then
+                     * checked if the DataSourceUtil.getConnection(dataSource) by any chance was a
+                     * LazyConnectionDataSourceProxy, and then introspect that for whether the Connection was gotten.
+                     * But why could you not then instead use Mats' magic proxy which specifically handles this?!?
+                     */
+                    Supplier<Boolean> connectionEmployedState = () -> true;
+
+                    // :? If we have a "magic" DataSource, enable the logic where we know whether Stage employed SQL
+                    if (_dataSource instanceof DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy) {
+                        // -> Yes, special DataSourceWrapper, so magic can ensue
+                        // Fetch the transactional SQL Connection, which we can query whether have retrieved actual con
+                        DeferredConnectionProxy sqlConnection = (DeferredConnectionProxy) DataSourceUtils.getConnection(
+                                _dataSource);
+                        log.debug(LOG_PREFIX + "SQL Connection gotten: [" + sqlConnection + "]");
+                        connectionEmployedState = sqlConnection::isActualConnectionRetrieved;
+                    }
+
+                    // :: Make the potential SQL Connection available
+                    // Notice how we here use the DataSourceUtils class, so that we get the tx ThreadLocal Connection.
+                    // Read more at both DataSourceUtils and DataSourceTransactionManager.
+                    internalExecutionContext.setSqlTxConnectionSuppliers(
+                            () -> DataSourceUtils.getConnection(_dataSource), connectionEmployedState);
+                    // :: Also make it available for testing.
+                    JmsMatsContextLocalCallback.bindResource(CONTEXT_LOCAL_KEY_CONNECTION_EMPLOYED_STATE_SUPPLIER,
+                            connectionEmployedState);
 
                     try {
                         if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "About to run ProcessingLambda for "
                                 + stageOrInit(_txContextKey) + ", within Spring SQL Transactional demarcation.");
                         /*
                          * Invoking the provided ProcessingLambda, which typically will be the actual user code (albeit
-                         * wrapped with some minor code from the JmsMatsStage to parse the MapMessage, deserialize the
-                         * MatsTrace, and fetch the state etc.), which will now be inside both the inner (implicit) SQL
-                         * Transaction demarcation, and the outer JMS Transaction demarcation.
+                         * wrapped with some code from the JmsMatsStage to parse the MapMessage, deserialize the
+                         * MatsTrace, and fetch the state etc.), which will now be inside both the inner (explicit) SQL
+                         * Transaction demarcation, and the outer (implicit) JMS Transaction demarcation.
                          */
                         lambda.performWithinTransaction();
                     }
                     // Catch EVERYTHING that legally can come out of the try-block:
-                    catch (MatsRefuseMessageException | RuntimeException | Error e) {
+                    catch (JmsMatsJmsException | MatsRefuseMessageException | RuntimeException | Error e) {
                         // ----- The user code had some error occur, or want to reject this message.
                         // !!NOTE!!: The full Exception will be logged by outside JMS-trans class on JMS rollback
                         // handling.
@@ -825,7 +637,7 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                         /*
                          * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                          */
-                        commitOrRollbackSqlTransaction(connectionEmployedState, false, transactionStatus);
+                        commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, false, transactionStatus);
 
                         // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
@@ -843,14 +655,14 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                         /*
                          * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                          */
-                        commitOrRollbackSqlTransaction(connectionEmployedState, false, transactionStatus);
+                        commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, false, transactionStatus);
 
                         // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
-                        // We will now re-throw the Throwable, which will rollback the JMS Transaction.
-                        throw new JmsMatsUndeclaredCheckedExceptionRaisedException("Got a undeclared checked exception "
-                                + t.getClass().getSimpleName() + " while processing " + stageOrInit(_txContextKey)
-                                + ".", t);
+                        // Rethrow the Throwable as special RTE, which will rollback the JMS Transaction.
+                        throw new JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException("Got a undeclared checked"
+                                + " exception " + t.getClass().getSimpleName()
+                                + " while processing " + stageOrInit(_txContextKey) + ".", t);
                     }
 
                     // ----- The ProcessingLambda went OK, no Exception was raised.
@@ -859,30 +671,30 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                             + " committing SQL Connection.");
 
                     // Check whether Session/Connection is ok before committing DB (per contract with JmsSessionHolder).
-                    jmsMatsMessageContext.getJmsSessionHolder().isSessionOk();
+                    internalExecutionContext.getJmsSessionHolder().isSessionOk();
 
                     // TODO: Also somehow check runFlag of StageProcessor before committing.
 
                     /*
                      * IFF the SQL Connection was fetched, we will now commit (and close) it.
                      */
-                    commitOrRollbackSqlTransaction(connectionEmployedState, true, transactionStatus);
+                    commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, true, transactionStatus);
 
                     // ----- We're now *outside* the SQL Transaction demarcation (committed).
 
                     // Return nicely, as the SQL Connection.commit() went OK.
 
-                    // When exiting this lambda, the JMS transaction will be committed by the "outer" Jms tx impl.
+                    // When exiting this lambda, the JMS transaction will be committed by the "outer" JMS tx impl.
                 });
             }
             finally {
-                if (log.isDebugEnabled()) log.debug("About to exit the SQL Transactional Demarcation - SQL Connection "
-                        + (connectionEmployedState.get() ? "WAS" : "was NOT") + " employed!");
-                // ?: Do we have "monitoring" of the getting of Connection from DataSource?
-                if (_dataSource instanceof LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) {
-                    // -> Yes, we have monitoring - so we must now pop the HookBack stack.
-                    ((LazyAndMonitoredConnectionDataSourceProxy_InfrastructureProxy) _dataSource)
-                            .popHookBack(connectionEmployedState);
+                @SuppressWarnings("unchecked")
+                Supplier<Boolean> connectionEmployedState = (Supplier<Boolean>) JmsMatsContextLocalCallback.getResource(
+                        CONTEXT_LOCAL_KEY_CONNECTION_EMPLOYED_STATE_SUPPLIER);
+                if (connectionEmployedState != null) {
+                    if (log.isDebugEnabled())
+                        log.debug("About to exit the SQL Transactional Demarcation - SQL Connection "
+                                + (connectionEmployedState.get() ? "WAS" : "was NOT") + " employed!");
                 }
                 // Unbind the ConnectionAcquiredStateSupplier from ContextLocal
                 JmsMatsContextLocalCallback.unbindResource(CONTEXT_LOCAL_KEY_CONNECTION_EMPLOYED_STATE_SUPPLIER);
@@ -896,18 +708,20 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
          * {@link DataSourceUtils#releaseConnection(Connection, DataSource)}, which invokes doCloseConnection(), which
          * eventually calls connection.close().
          */
-        private void commitOrRollbackSqlTransaction(ConnectionEmployedState sqlConnectionEmployedSupplier,
-                boolean commit, TransactionStatus transactionStatus) {
+        private void commitOrRollbackSqlTransaction(JmsMatsInternalExecutionContext internalExecutionContext,
+                Supplier<Boolean> sqlConnectionEmployedSupplier, boolean commit, TransactionStatus transactionStatus) {
             // NOTICE: THE FOLLOWING if-STATEMENT IS JUST FOR LOGGING!
             // ?: Was connection gotten by code in ProcessingLambda (user code)
             // NOTICE: We must commit or rollback the Spring TransactionManager nevertheless, to clean up
-            if (!sqlConnectionEmployedSupplier.isConnectionEmployed()) {
+            if (!sqlConnectionEmployedSupplier.get()) {
                 // -> No, Connection was not gotten
                 if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "NOTICE: SQL Connection was NOT requested by stage"
                         + " or initiation (user code), so the following commit/rollback is no-op.");
                 // NOTICE: We must commit or rollback the Spring TransactionManager nevertheless, to clean up.
                 // NOTICE: NOT returning! The log line is just for informational purposes.
             }
+
+            long nanosAsStart_DbCommit = System.nanoTime();
 
             // :: Commit or Rollback
             try {
@@ -946,6 +760,9 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                 throw new MatsSqlCommitOrRollbackFailedException("Could not " + (commit ? "commit" : "rollback")
                         + " SQL Transaction [" + transactionStatus + "] - for [" + _txContextKey + "].", e);
             }
+            finally {
+                internalExecutionContext.setDbCommitNanos(System.nanoTime() - nanosAsStart_DbCommit);
+            }
         }
 
         /**
@@ -963,10 +780,6 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
         static final class MatsSqlCommitOrRollbackFailedException extends RuntimeException {
             MatsSqlCommitOrRollbackFailedException(String message, Throwable cause) {
                 super(message, cause);
-            }
-
-            MatsSqlCommitOrRollbackFailedException(String message) {
-                super(message);
             }
         }
     }

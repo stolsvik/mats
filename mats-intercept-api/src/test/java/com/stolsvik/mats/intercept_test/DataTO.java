@@ -1,4 +1,4 @@
-package com.stolsvik.mats.util;
+package com.stolsvik.mats.intercept_test;
 
 import java.util.Objects;
 

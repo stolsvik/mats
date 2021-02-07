@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
@@ -157,29 +158,30 @@ public class MatsSerializerJson implements MatsSerializer<String> {
     @Override
     public SerializedMatsTrace serializeMatsTrace(MatsTrace<String> matsTrace) {
         try {
-            long nanosStart = System.nanoTime();
+            long nanosAtStart_Serialization = System.nanoTime();
             byte[] serializedBytes = _matsTraceJson_Writer.writeValueAsBytes(matsTrace);
-            long nanosAfterSerialization = System.nanoTime();
-            double serializationMillis = (nanosAfterSerialization - nanosStart) / 1_000_000d;
+            long now = System.nanoTime();
+            long nanosTaken_Serialization = now - nanosAtStart_Serialization;
+            long nanosAtStart_Compression = now;
 
             String meta;
             byte[] resultBytes;
-            double compressionMillis;
+            long nanosTaken_Compression;
 
             if (serializedBytes.length > 900) {
                 resultBytes = compress(serializedBytes);
-                compressionMillis = (System.nanoTime() - nanosAfterSerialization) / 1_000_000d;
+                nanosTaken_Compression = System.nanoTime() - nanosAtStart_Compression;
                 // Add the uncompressed size, for precise buffer allocation for decompression.
                 meta = COMPRESS_DEFLATE + DECOMPRESSED_SIZE_ATTRIBUTE + serializedBytes.length;
             }
             else {
                 resultBytes = serializedBytes;
-                compressionMillis = 0d;
+                nanosTaken_Compression = 0;
                 meta = COMPRESS_PLAIN;
             }
 
-            return new SerializedMatsTraceImpl(resultBytes, meta, serializedBytes.length, serializationMillis,
-                    compressionMillis);
+            return new SerializedMatsTraceImpl(resultBytes, meta, serializedBytes.length, nanosTaken_Serialization,
+                    nanosTaken_Compression);
         }
         catch (JsonProcessingException e) {
             throw new SerializationException("Couldn't serialize MatsTrace, which is crazy!\n" + matsTrace, e);
@@ -190,16 +192,16 @@ public class MatsSerializerJson implements MatsSerializer<String> {
         private final byte[] _matsTraceBytes;
         private final String _meta;
         private final int _sizeUncompressed;
-        private final double _millisSerialization;
-        private final double _millisCompression;
+        private final long _nanosSerialization;
+        private final long _nanosCompression;
 
         public SerializedMatsTraceImpl(byte[] matsTraceBytes, String meta, int sizeUncompressed,
-                double millisSerialization, double millisCompression) {
+                long nanosSerialization, long nanosCompression) {
             _matsTraceBytes = matsTraceBytes;
             _meta = meta;
             _sizeUncompressed = sizeUncompressed;
-            _millisSerialization = millisSerialization;
-            _millisCompression = millisCompression;
+            _nanosSerialization = nanosSerialization;
+            _nanosCompression = nanosCompression;
         }
 
         @Override
@@ -218,13 +220,13 @@ public class MatsSerializerJson implements MatsSerializer<String> {
         }
 
         @Override
-        public double getMillisSerialization() {
-            return _millisSerialization;
+        public long getNanosSerialization() {
+            return _nanosSerialization;
         }
 
         @Override
-        public double getMillisCompression() {
-            return _millisCompression;
+        public long getNanosCompression() {
+            return _nanosCompression;
         }
     }
 
@@ -238,7 +240,7 @@ public class MatsSerializerJson implements MatsSerializer<String> {
             String meta) {
         try {
             long nanosStart = System.nanoTime();
-            double decompressionMillis;
+            long decompressionNanos;
             long nanosStartDeserialization;
 
             int decompressedBytesLength;
@@ -275,8 +277,8 @@ public class MatsSerializerJson implements MatsSerializer<String> {
                 byte[] decompressedBytes = decompress(matsTraceBytes, offset, length, bestGuessDecompressedSize);
                 // Begin deserialization time
                 nanosStartDeserialization = System.nanoTime();
-                // Store how long it took to decompress
-                decompressionMillis = (nanosStartDeserialization - nanosStart) / 1_000_000d;
+                // Store how long it took to decompress (shall not be zero, since we did decompress).
+                decompressionNanos = Math.max(1L, nanosStartDeserialization - nanosStart);
                 // Store the size of the decompressed array
                 decompressedBytesLength = decompressedBytes.length;
                 // Deserialize using the entire decompressed byte array
@@ -286,8 +288,8 @@ public class MatsSerializerJson implements MatsSerializer<String> {
                 // -> Plain, no compression - use the incoming bytes directly
                 // There is no decompression, so we "start deserialization timer" at the beginning.
                 nanosStartDeserialization = nanosStart;
-                // It per definition takes 0 nanos to NOT decompress.
-                decompressionMillis = 0d;
+                // It per definition (and API contract) takes 0 nanos to NOT decompress.
+                decompressionNanos = 0L;
                 // The decompressed bytes length is the same as the incoming length, since we do not decompress.
                 decompressedBytesLength = length;
                 // Deserialize directly from the incoming bytes, using offset and length.
@@ -297,9 +299,9 @@ public class MatsSerializerJson implements MatsSerializer<String> {
                 throw new AssertionError("Can only deserialize 'plain' and 'deflate'.");
             }
 
-            double deserializationMillis = (System.nanoTime() - nanosStartDeserialization) / 1_000_000d;
-            return new DeserializedMatsTraceImpl(matsTrace, decompressedBytesLength, deserializationMillis,
-                    decompressionMillis);
+            long deserializationNanos = System.nanoTime() - nanosStartDeserialization;
+            return new DeserializedMatsTraceImpl(matsTrace, decompressedBytesLength, deserializationNanos,
+                    decompressionNanos);
         }
         catch (IOException e) {
             throw new SerializationException("Couldn't deserialize MatsTrace from given JSON, which is crazy!\n"
@@ -310,15 +312,15 @@ public class MatsSerializerJson implements MatsSerializer<String> {
     private static final class DeserializedMatsTraceImpl implements DeserializedMatsTrace<String> {
         private final MatsTrace<String> _matsTrace;
         private final int _sizeUncompressed;
-        private final double _millisDeserialization;
-        private final double _millisDecompression;
+        private final long _nanosDeserialization;
+        private final long _nanosDecompression;
 
         public DeserializedMatsTraceImpl(MatsTrace<String> matsTrace, int sizeUncompressed,
-                double millisDeserialization, double millisDecompression) {
+                long nanosDeserialization, long nanosDecompression) {
             _matsTrace = matsTrace;
             _sizeUncompressed = sizeUncompressed;
-            _millisDeserialization = millisDeserialization;
-            _millisDecompression = millisDecompression;
+            _nanosDeserialization = nanosDeserialization;
+            _nanosDecompression = nanosDecompression;
         }
 
         @Override
@@ -332,13 +334,13 @@ public class MatsSerializerJson implements MatsSerializer<String> {
         }
 
         @Override
-        public double getMillisDeserialization() {
-            return _millisDeserialization;
+        public long getNanosDeserialization() {
+            return _nanosDeserialization;
         }
 
         @Override
-        public double getMillisDecompression() {
-            return _millisDecompression;
+        public long getNanosDecompression() {
+            return _nanosDecompression;
         }
     }
 
@@ -395,10 +397,19 @@ public class MatsSerializerJson implements MatsSerializer<String> {
         }
     }
 
+    private static final NonblockingStack<Deflater> _deflaterPool = new NonblockingStack<>();
+
     protected byte[] compress(byte[] data) {
-        // TODO / OPTIMIZE: Use Object Pool for compressor-instances with Deflater and byte array.
-        // This pool could possibly be a simple lock-free stack, if stack is empty, make a new instance.
-        Deflater deflater = new Deflater(_compressionLevel);
+        // Get a Inflater from the pool
+        Deflater deflater = _deflaterPool.pop();
+        // ?: Did we get an Inflater from the pool?
+        if (deflater == null) {
+            // -> No, so make a new one.
+            deflater = new Deflater();
+        }
+
+        // Whether we should enpool the deflater at end
+        boolean reuseDeflater = true;
         try {
             deflater.setInput(data);
             // Hoping for at least 50% reduction, so set "best guess" to half incoming
@@ -413,20 +424,40 @@ public class MatsSerializerJson implements MatsSerializer<String> {
                 outputStream.close();
             }
             catch (IOException e) {
-                throw new AssertionError("Shall not throw IOException here.", e);
+                // Just in case this leaves the Inflater in some strange stage, ditch it instead of reuse.
+                reuseDeflater = false;
+                throw new DecompressionException("Shall not throw IOException here.", e);
             }
             return outputStream.toByteArray();
         }
         finally {
-            // Invoke the "end()" method to timely release off-heap resource, thus not depending on finalization.
-            deflater.end();
+            // ?: Still reuse this Inflater?
+            if (reuseDeflater) {
+                // -> Yes reuse, so reset() it, and enpool.
+                deflater.reset();
+                _deflaterPool.push(deflater);
+            }
+            else {
+                // -> No, not reuse, so ditch it: end(), and do not enpool.
+                // Invoke the "end()" method to timely release off-heap resource, thus not depending on finalization.
+                deflater.end();
+            }
         }
     }
 
+    private static final NonblockingStack<Inflater> _inflaterPool = new NonblockingStack<>();
+
     protected byte[] decompress(byte[] data, int offset, int length, int bestGuessDecompressedSize) {
-        // TODO / OPTIMIZE: Use Object Pool for decompressor-instances with Inflater and byte array.
-        // This pool could possibly be a simple lock-free stack, if stack is empty, make a new instance.
-        Inflater inflater = new Inflater();
+        // Get a Inflater from the pool
+        Inflater inflater = _inflaterPool.pop();
+        // ?: Did we get an Inflater from the pool?
+        if (inflater == null) {
+            // -> No, so make a new one.
+            inflater = new Inflater();
+        }
+
+        // Whether we should enpool the inflater at end
+        boolean reuseInflater = true;
         try {
             inflater.setInput(data, offset, length);
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream(bestGuessDecompressedSize);
@@ -437,6 +468,8 @@ public class MatsSerializerJson implements MatsSerializer<String> {
                     outputStream.write(buffer, 0, count);
                 }
                 catch (DataFormatException e) {
+                    // Just in case this leaves the Inflater in some strange stage, ditch it instead of reuse.
+                    reuseInflater = false;
                     throw new DecompressionException("DataFormatException was bad here.", e);
                 }
             }
@@ -444,13 +477,60 @@ public class MatsSerializerJson implements MatsSerializer<String> {
                 outputStream.close();
             }
             catch (IOException e) {
-                throw new AssertionError("Shall not throw IOException here.", e);
+                throw new DecompressionException("Shall not throw IOException here.", e);
             }
             return outputStream.toByteArray();
         }
         finally {
-            // Invoke the "end()" method to timely release off-heap resource, thus not depending on finalization.
-            inflater.end();
+            // ?: Still reuse this Inflater?
+            if (reuseInflater) {
+                // -> Yes reuse, so reset() it, and enpool.
+                inflater.reset();
+                _inflaterPool.push(inflater);
+            }
+            else {
+                // -> No, not reuse, so ditch it: end(), and do not enpool.
+                // Invoke the "end()" method to timely release off-heap resource, thus not depending on finalization.
+                inflater.end();
+            }
+        }
+    }
+
+    /**
+     * By Brian Goetz; Nonblocking stack using Treiber's algorithm.
+     */
+    private static class NonblockingStack<E> {
+        AtomicReference<Node<E>> head = new AtomicReference<>();
+
+        public void push(E item) {
+            Node<E> newHead = new Node<E>(item);
+            Node<E> oldHead;
+            do {
+                oldHead = head.get();
+                newHead.next = oldHead;
+            } while (!head.compareAndSet(oldHead, newHead));
+        }
+
+        public E pop() {
+            Node<E> oldHead;
+            Node<E> newHead;
+            do {
+                oldHead = head.get();
+                if (oldHead == null) {
+                    return null;
+                }
+                newHead = oldHead.next;
+            } while (!head.compareAndSet(oldHead, newHead));
+            return oldHead.item;
+        }
+
+        static class Node<E> {
+            final E item;
+            Node<E> next;
+
+            public Node(E item) {
+                this.item = item;
+            }
         }
     }
 

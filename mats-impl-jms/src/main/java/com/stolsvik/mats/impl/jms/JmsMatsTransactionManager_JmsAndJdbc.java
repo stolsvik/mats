@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException;
 
 /**
  * Implementation of {@link JmsMatsTransactionManager} that in addition to the JMS transaction also handles a JDBC SQL
@@ -88,15 +90,14 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
         }
 
         @Override
-        public void doTransaction(JmsMatsMessageContext jmsMatsMessageContext, ProcessingLambda lambda)
-                throws JmsMatsJmsException {
+        public void doTransaction(JmsMatsInternalExecutionContext internalExecutionContext, ProcessingLambda lambda)
+                throws JmsMatsJmsException, MatsRefuseMessageException {
             // :: First make the potential Connection available
             LazyJdbcConnectionSupplier lazyConSup = new LazyJdbcConnectionSupplier();
-            jmsMatsMessageContext.setSqlConnectionSupplier(lazyConSup);
-            jmsMatsMessageContext.setSqlConnectionEmployedSupplier(lazyConSup::wasConnectionEmployed);
+            internalExecutionContext.setSqlTxConnectionSuppliers(lazyConSup, lazyConSup::wasConnectionEmployed);
 
             // :: We invoke the "outer" transaction, which is the JMS transaction.
-            super.doTransaction(jmsMatsMessageContext, () -> {
+            super.doTransaction(internalExecutionContext, () -> {
                 // ----- We're *within* the JMS Transaction demarcation.
 
                 /*
@@ -119,15 +120,14 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                     lambda.performWithinTransaction();
                 }
                 // Catch EVERYTHING that "legally" can come out of the try-block:
-                catch (MatsRefuseMessageException | RuntimeException | Error e) {
+                catch (JmsMatsJmsException | MatsRefuseMessageException | RuntimeException | Error e) {
                     // ----- The user code had some error occur, or want to reject this message.
                     log.error(LOG_PREFIX + "ROLLBACK SQL: " + e.getClass().getSimpleName() + " while processing "
-                            + stageOrInit(_txContextKey) + " (most probably from user code)."
-                            + " Rolling back the SQL Connection.", e);
+                            + stageOrInit(_txContextKey) + " Rolling back the SQL Connection.", e);
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                      */
-                    commitOrRollbackThenCloseConnection(lazyConSup, false);
+                    finishTxThenCloseConnection(internalExecutionContext, lazyConSup, SqlTxAction.ROLLBACK);
 
                     // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
@@ -143,20 +143,21 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                      */
-                    commitOrRollbackThenCloseConnection(lazyConSup, false);
+                    finishTxThenCloseConnection(internalExecutionContext, lazyConSup, SqlTxAction.ROLLBACK);
 
                     // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
-                    // We will now re-throw the Throwable, which will rollback the JMS Transaction.
-                    throw new JmsMatsUndeclaredCheckedExceptionRaisedException("Got a undeclared checked exception " + t
-                            .getClass().getSimpleName() + " while processing " + stageOrInit(_txContextKey) + ".", t);
+                    // Rethrow the Throwable as special RTE, which will rollback the JMS Transaction.
+                    throw new JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException("Got a undeclared checked"
+                            + " exception " + t.getClass().getSimpleName()
+                            + " while processing " + stageOrInit(_txContextKey) + ".", t);
                 }
 
                 // ----- The ProcessingLambda went OK, no Exception was raised.
 
                 // Check whether Session/Connection is ok before committing DB (per contract with JmsSessionHolder).
                 try {
-                    jmsMatsMessageContext.getJmsSessionHolder().isSessionOk();
+                    internalExecutionContext.getJmsSessionHolder().isSessionOk();
                 }
                 catch (JmsMatsJmsException e) {
                     // ----- Evidently the JMS Session is broken - so rollback SQL
@@ -165,7 +166,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                     /*
                      * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                      */
-                    commitOrRollbackThenCloseConnection(lazyConSup, false);
+                    finishTxThenCloseConnection(internalExecutionContext, lazyConSup, SqlTxAction.ROLLBACK);
 
                     // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
@@ -181,7 +182,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 /*
                  * IFF the SQL Connection was fetched, we will now commit (and close) it.
                  */
-                commitOrRollbackThenCloseConnection(lazyConSup, true);
+                finishTxThenCloseConnection(internalExecutionContext, lazyConSup, SqlTxAction.COMMIT);
 
                 // ----- We're now *outside* the SQL Transaction demarcation (committed).
 
@@ -191,20 +192,29 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
             });
         }
 
-        private void commitOrRollbackThenCloseConnection(LazyJdbcConnectionSupplier lazyConSup, boolean commit) {
+        private enum SqlTxAction {
+            COMMIT, ROLLBACK
+        }
+
+        private void finishTxThenCloseConnection(JmsMatsInternalExecutionContext internalExecutionContext,
+                LazyJdbcConnectionSupplier lazyConSup, SqlTxAction sqlTxAction) {
             // ?: Was connection gotten by code in ProcessingLambda (user code)
             if (!lazyConSup.wasConnectionEmployed()) {
                 // -> No, Connection was not gotten
                 log.debug(LOG_PREFIX + "SQL Connection was not requested by stage processing lambda (user code),"
-                        + " nothing to perform " + (commit ? "commit" : "rollback") + " on!");
+                        + " nothing to perform " + (sqlTxAction == SqlTxAction.COMMIT ? "commit" : "rollback")
+                        + " on!");
                 return;
             }
             // E-> Yes, Connection was gotten by ProcessingLambda (user code)
 
             Connection _gottenConnection = lazyConSup.getGottenConnection();
+
+            long nanosAsStart_DbCommit = System.nanoTime();
+
             // :: Commit or Rollback
             try {
-                if (commit) {
+                if (sqlTxAction == SqlTxAction.COMMIT) {
                     _gottenConnection.commit();
                     log.debug(LOG_PREFIX + "Committed SQL Connection [" + _gottenConnection + "].");
                 }
@@ -214,11 +224,16 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
                 }
             }
             catch (SQLException e) {
-                throw new MatsSqlCommitOrRollbackFailedException("Could not " + (commit ? "commit" : "rollback")
+                throw new MatsSqlCommitOrRollbackFailedException("Could not "
+                        + (sqlTxAction == SqlTxAction.COMMIT ? "commit" : "rollback")
                         + " SQL Connection [" + _gottenConnection + "] - for stage [" + _txContextKey + "].", e);
             }
-            // :: Reset AutoCommit flag and Close
-            lazyConSup.resetAutoCommitAndClose();
+            finally {
+                // :: Reset AutoCommit flag and Close
+                lazyConSup.resetAutoCommitAndClose();
+                // Commit timing.
+                internalExecutionContext.setDbCommitNanos(System.nanoTime() - nanosAsStart_DbCommit);
+            }
         }
 
         /**
@@ -232,7 +247,7 @@ public class JmsMatsTransactionManager_JmsAndJdbc extends JmsMatsTransactionMana
 
         /**
          * Performs Lazy-getting (and setting AutoCommit false) of SQL Connection for the StageProcessor thread, by
-         * means of being set on the {@link JmsMatsMessageContext}, which makes it available via
+         * means of being set on the {@link JmsMatsInternalExecutionContext}, which makes it available via
          * {@link JmsMatsProcessContext#getAttribute(Class, String...)}.
          */
         private class LazyJdbcConnectionSupplier implements Supplier<Connection> {

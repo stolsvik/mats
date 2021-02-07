@@ -5,6 +5,7 @@ import javax.jms.Session;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 
 /**
@@ -78,8 +79,8 @@ public interface JmsMatsTransactionManager {
          *            the stuff that shall be done within transaction, i.e. the {@link MatsStage} or the
          *            {@link MatsInitiator}.
          */
-        void doTransaction(JmsMatsMessageContext jmsSessionMessageContext, ProcessingLambda lambda)
-                throws JmsMatsJmsException;
+        void doTransaction(JmsMatsInternalExecutionContext jmsSessionMessageContext, ProcessingLambda lambda)
+                throws JmsMatsJmsException, MatsRefuseMessageException;
     }
 
     /**

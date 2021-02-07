@@ -17,6 +17,7 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsInitiator.MessageReference;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MessageReferenceImpl;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.DispatchType;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call;
@@ -51,15 +52,16 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     private final S _incomingAndOutgoingState;
     private final Supplier<MatsInitiate> _initiateSupplier;
     private final List<JmsMatsMessage<Z>> _messagesToSend;
-    private final JmsMatsMessageContext _jmsMatsMessageContext;
+    private final JmsMatsInternalExecutionContext _jmsMatsInternalExecutionContext;
     private final DoAfterCommitRunnableHolder _doAfterCommitRunnableHolder;
 
     // Outgoing:
 
-    // Hack to be able to later enforce that reply is never invoked more than once.
+    // Hack to be able to later enforce the legal call flows
+    private RuntimeException _requestOrNextSent;
     private RuntimeException _replySent;
 
-    private final LinkedHashMap<String, Object> _outgoingProps;
+    private final LinkedHashMap<String, Object> _outgoingProps = new LinkedHashMap<>();
     private final LinkedHashMap<String, byte[]> _outgoingBinaries = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> _outgoingStrings = new LinkedHashMap<>();
 
@@ -74,8 +76,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
             Supplier<MatsInitiate> initiateSupplier,
             LinkedHashMap<String, byte[]> incomingBinaries, LinkedHashMap<String, String> incomingStrings,
             List<JmsMatsMessage<Z>> out_messagesToSend,
-            JmsMatsMessageContext jmsMatsMessageContext,
-            LinkedHashMap<String, Object> outgoingProps,
+            JmsMatsInternalExecutionContext jmsMatsInternalExecutionContext,
             DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
         _parentFactory = parentFactory;
 
@@ -94,8 +95,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         _incomingAndOutgoingState = incomingAndOutgoingState;
         _initiateSupplier = initiateSupplier;
         _messagesToSend = out_messagesToSend;
-        _jmsMatsMessageContext = jmsMatsMessageContext;
-        _outgoingProps = outgoingProps;
+        _jmsMatsInternalExecutionContext = jmsMatsInternalExecutionContext;
         _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
     }
 
@@ -122,8 +122,28 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     }
 
     @Override
+    public String getFromAppName() {
+        return _incomingMatsTrace.getCurrentCall().getCallingAppName();
+    }
+
+    @Override
+    public String getFromAppVersion() {
+        return _incomingMatsTrace.getCurrentCall().getCallingAppVersion();
+    }
+
+    @Override
     public String getFromStageId() {
         return _incomingMatsTrace.getCurrentCall().getFrom();
+    }
+
+    @Override
+    public String getInitiatingAppName() {
+        return _incomingMatsTrace.getInitializingAppName();
+    }
+
+    @Override
+    public String getInitiatingAppVersion() {
+        return _incomingMatsTrace.getInitializingAppVersion();
     }
 
     @Override
@@ -304,49 +324,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     private static final String REPLY_TO_VOID = "REPLY_TO_VOID_NO_MESSAGE_SENT";
 
-    @Override
-    public MessageReference request(String endpointId, Object requestDto) {
-        long nanosStart = System.nanoTime();
-        // :: Assert that we have a next-stage
-        if (_nextStageId == null) {
-            throw new IllegalStateException("Stage [" + _stageId
-                    + "] invoked context.request(..), but there is no next stage to reply to."
-                    + " Use context.send(..) if you want to 'invoke' the endpoint w/o req/rep semantics.");
-        }
-        // :: Create next MatsTrace
-        MatsSerializer<Z> matsSerializer = _parentFactory.getMatsSerializer();
-        MatsTrace<Z> requestMatsTrace = _incomingMatsTrace.addRequestCall(_stageId,
-                endpointId, MessagingModel.QUEUE,
-                _nextStageId, MessagingModel.QUEUE,
-                matsSerializer.serializeObject(requestDto),
-                matsSerializer.serializeObject(_incomingAndOutgoingState), null);
-
-        String matsMessageId = addDebugInfoToCurrentCall(requestMatsTrace);
-
-        // Produce the REQUEST JmsMatsMessage to send
-        JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
-                requestMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "REQUEST",
-                _parentFactory.getFactoryConfig().getName());
-        _messagesToSend.add(request);
-
-        return new MessageReferenceImpl(matsMessageId);
-    }
-
-    private String addDebugInfoToCurrentCall(MatsTrace<Z> outgoingMatsTrace) {
-        long now = System.currentTimeMillis();
-        Call<Z> currentCall = outgoingMatsTrace.getCurrentCall();
-        String matsMessageId = createMatsMessageId(outgoingMatsTrace.getFlowId(),
-                outgoingMatsTrace.getInitializedTimestamp(), now, outgoingMatsTrace.getCallNumber());
-
-        String debugInfo = outgoingMatsTrace.getKeepTrace() != KeepMatsTrace.MINIMAL
-                ? getInvocationPoint()
-                : null;
-        currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                _parentFactory.getFactoryConfig().getAppVersion(),
-                _parentFactory.getFactoryConfig().getNodename(), now, matsMessageId,
-                debugInfo);
-        return matsMessageId;
-    }
+    private static final String ILLEGAL_CALL_FLOWS = "ILLEGAL CALL FLOWS! ";
 
     @Override
     public MessageReference reply(Object replyDto) {
@@ -356,14 +334,24 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
          * Sending reply more than once is NOT LEGAL, but has never been enforced. Therefore, for now currently just log
          * hard, and then at a later time throw IllegalStateException or some such. -2020-01-09.
          */
+        // TODO: Reimplement to throw once all are > v0.16.0
         // ?: Have reply already been invoked?
         if (_replySent != null) {
             // -> Yes, and this is not legal. But it has not been enforced before, so currently just log.error
-            log.error(LOG_PREFIX + "Reply has already been invoked! This is not legal, and will throw exception in a"
-                    + " later version!");
+            log.error(LOG_PREFIX + ILLEGAL_CALL_FLOWS + "Reply has already been invoked! This is not legal,"
+                    + " and will throw exception in a later version!");
             log.error(LOG_PREFIX + "   PREVIOUS REPLY DEBUG STACKTRACE:", _replySent);
             log.error(LOG_PREFIX + "   THIS REPLY DEBUG STACKTRACE:", new RuntimeException("THIS REPLY STACKTRACE"));
         }
+
+        if (_requestOrNextSent != null) {
+            // -> Yes, and this is not legal. But it has not been enforced before, so currently just log.error
+            log.error(LOG_PREFIX + ILLEGAL_CALL_FLOWS + "Request or Next has already been invoked! It is not legal to"
+                    + " mix Reply with Request or Next, and will throw exception in a later version!");
+            log.error(LOG_PREFIX + "   PREVIOUS REQUEST/NEXT DEBUG STACKTRACE:", _requestOrNextSent);
+            log.error(LOG_PREFIX + "   THIS REPLY DEBUG STACKTRACE:", new RuntimeException("THIS REPLY STACKTRACE"));
+        }
+
         _replySent = new RuntimeException("PREVIOUS REPLY STACKTRACE");
 
         // :: Short-circuit the reply (to no-op) if there is nothing on the stack to reply to.
@@ -379,16 +367,51 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
         // :: Create next MatsTrace
         MatsSerializer<Z> matsSerializer = _parentFactory.getMatsSerializer();
-        MatsTrace<Z> replyMatsTrace = _incomingMatsTrace.addReplyCall(_stageId,
-                matsSerializer.serializeObject(replyDto));
+        // Note that serialization must be performed at invocation time, to preserve contract with API.
+        Z replyZ = matsSerializer.serializeObject(replyDto);
+        MatsTrace<Z> replyMatsTrace = _incomingMatsTrace.addReplyCall(_stageId, replyZ);
 
-        String matsMessageId = addDebugInfoToCurrentCall(replyMatsTrace);
+        String matsMessageId = produceMessage(replyDto, nanosStart, replyMatsTrace);
 
-        // Produce the REPLY JmsMatsMessage to send
-        JmsMatsMessage<Z> reply = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
-                replyMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "REPLY",
-                _parentFactory.getFactoryConfig().getName());
-        _messagesToSend.add(reply);
+        return new MessageReferenceImpl(matsMessageId);
+    }
+
+    @Override
+    public MessageReference request(String endpointId, Object requestDto) {
+        long nanosStart = System.nanoTime();
+        // :: Assert that we have a next-stage
+        if (_nextStageId == null) {
+            throw new IllegalStateException("Stage [" + _stageId
+                    + "] invoked context.request(..), but there is no next stage to reply to."
+                    + " Use context.send(..) if you want to 'invoke' the endpoint w/o req/rep semantics.");
+        }
+
+        /*
+         * Sending request/next in addition to reply is NOT LEGAL, but has never been enforced. Therefore, for now
+         * currently just log hard, and then at a later time throw IllegalStateException or some such. -2020-01-24.
+         */
+        // TODO: Reimplement to throw once all are > v0.16.0
+        // ?: Have reply already been invoked?
+        if (_replySent != null) {
+            // -> Yes, and this is not legal. But it has not been enforced before, so currently just log.error
+            log.error(LOG_PREFIX + ILLEGAL_CALL_FLOWS + "Reply has been invoked! It is not legal to mix Reply with"
+                    + " Request or Next, and will throw exception in a later version!");
+            log.error(LOG_PREFIX + "   PREVIOUS REPLY DEBUG STACKTRACE:", _replySent);
+            log.error(LOG_PREFIX + "   THIS REQUEST DEBUG STACKTRACE:",
+                    new RuntimeException("THIS REQUEST STACKTRACE"));
+        }
+        // NOTE! IT IS LEGAL TO SEND MULTIPLE REQUEST/NEXT MESSAGES!
+        _requestOrNextSent = new RuntimeException("PREVIOUS REQUEST STACKTRACE");
+
+        // :: Create next MatsTrace
+        MatsSerializer<Z> matsSerializer = _parentFactory.getMatsSerializer();
+        // Note that serialization must be performed at invocation time, to preserve contract with API.
+        Z requestZ = matsSerializer.serializeObject(requestDto);
+        Z stateZ = matsSerializer.serializeObject(_incomingAndOutgoingState);
+        MatsTrace<Z> requestMatsTrace = _incomingMatsTrace.addRequestCall(_stageId,
+                endpointId, MessagingModel.QUEUE, _nextStageId, MessagingModel.QUEUE, requestZ, stateZ, null);
+
+        String matsMessageId = produceMessage(requestDto, nanosStart, requestMatsTrace);
 
         return new MessageReferenceImpl(matsMessageId);
     }
@@ -402,25 +425,68 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
                     + "] invoked context.next(..), but there is no next stage.");
         }
 
+        /*
+         * Sending request/next in addition to reply is NOT LEGAL, but has never been enforced. Therefore, for now
+         * currently just log hard, and then at a later time throw IllegalStateException or some such. -2020-01-24.
+         */
+        // TODO: Reimplement to throw once all are > v0.16.0
+        // ?: Have reply already been invoked?
+        if (_replySent != null) {
+            // -> Yes, and this is not legal. But it has not been enforced before, so currently just log.error
+            log.error(LOG_PREFIX + ILLEGAL_CALL_FLOWS + "Reply has been invoked! It is not legal to mix Reply with"
+                    + " Request or Next, and will throw exception in a later version!");
+            log.error(LOG_PREFIX + "   PREVIOUS REPLY DEBUG STACKTRACE:", _replySent);
+            log.error(LOG_PREFIX + "   THIS NEXT DEBUG STACKTRACE:",
+                    new RuntimeException("THIS NEXT STACKTRACE"));
+        }
+        // NOTE! IT IS LEGAL TO SEND MULTIPLE REQUEST/NEXT MESSAGES!
+        _requestOrNextSent = new RuntimeException("PREVIOUS NEXT STACKTRACE");
+
         // :: Create next (heh!) MatsTrace
         MatsSerializer<Z> matsSerializer = _parentFactory.getMatsSerializer();
-        MatsTrace<Z> nextMatsTrace = _incomingMatsTrace.addNextCall(_stageId, _nextStageId,
-                matsSerializer.serializeObject(incomingDto), matsSerializer.serializeObject(_incomingAndOutgoingState));
+        // Note that serialization must be performed at invocation time, to preserve contract with API.
+        Z nextZ = matsSerializer.serializeObject(incomingDto);
+        Z stateZ = matsSerializer.serializeObject(_incomingAndOutgoingState);
+        MatsTrace<Z> nextMatsTrace = _incomingMatsTrace.addNextCall(_stageId, _nextStageId, nextZ, stateZ);
 
-        String matsMessageId = addDebugInfoToCurrentCall(nextMatsTrace);
-
-        // Produce the NEXT JmsMatsMessage to send
-        JmsMatsMessage<Z> next = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
-                nextMatsTrace, _outgoingProps, _outgoingBinaries, _outgoingStrings, "NEXT",
-                _parentFactory.getFactoryConfig().getName());
-        _messagesToSend.add(next);
+        String matsMessageId = produceMessage(incomingDto, nanosStart, nextMatsTrace);
 
         return new MessageReferenceImpl(matsMessageId);
     }
 
+    private String produceMessage(Object incomingDto, long nanosStart, MatsTrace<Z> outgoingMatsTrace) {
+        long now = System.currentTimeMillis();
+        Call<Z> currentCall = outgoingMatsTrace.getCurrentCall();
+        String matsMessageId = createMatsMessageId(outgoingMatsTrace.getFlowId(),
+                outgoingMatsTrace.getInitializedTimestamp(), now, outgoingMatsTrace.getCallNumber());
+
+        String debugInfo = outgoingMatsTrace.getKeepTrace() != KeepMatsTrace.MINIMAL
+                ? getInvocationPoint()
+                : null;
+        currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                _parentFactory.getFactoryConfig().getAppVersion(),
+                _parentFactory.getFactoryConfig().getNodename(), now, matsMessageId,
+                debugInfo);
+
+        // Produce the JmsMatsMessage to send
+        JmsMatsMessage<Z> next = JmsMatsMessage.produceMessage(DispatchType.STAGE, nanosStart,
+                _parentFactory.getMatsSerializer(), outgoingMatsTrace,
+                incomingDto, null, null,
+                _outgoingProps, _outgoingBinaries, _outgoingStrings);
+        _messagesToSend.add(next);
+
+        // Clear all outgoingProps, outgoingBinaries and outgoingStrings, for any new request(..) or send(..)
+        // (Clearing, but copied off by the produceMessage(..) call)
+        _outgoingProps.clear();
+        _outgoingBinaries.clear();
+        _outgoingStrings.clear();
+        return matsMessageId;
+    }
+
+
     @Override
     public void initiate(InitiateLambda lambda) {
-        // Store the existing TraceId, since it can be set in the initiate.
+        // Store the existing TraceId, since it should hopefully be set (extended) in the initiate.
         String existingTraceId = MDC.get(MDC_TRACE_ID);
         // Do the actual initiation
         lambda.initiate(_initiateSupplier.get());
@@ -440,7 +506,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         // ?: Is this a query for SQL Connection, without any names?
         if ((type == Connection.class) && (name.length == 0)) {
             // -> Yes, then it is the default transactional SQL Connection.
-            return (Optional<T>) _jmsMatsMessageContext.getSqlConnection();
+            return (Optional<T>) _jmsMatsInternalExecutionContext.getSqlConnection();
         }
         return Optional.empty();
     }

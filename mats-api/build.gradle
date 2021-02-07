@@ -1,5 +1,5 @@
-// mats-lib
+// mats-api
 
 dependencies {
-    // None so far (except SLF4J from root project): It is the implementations that take the hit.
+    // None
 }

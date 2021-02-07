@@ -18,9 +18,9 @@ import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
  * either an in-vm MQ Broker or against a MQ Broker running on localhost, and also integrates with the
  * "mats-spring-test" integration test library where when run with the <code>MatsTestProfile</code> you will most
  * probably want an in-vm setup (typically mocking up the project-external Mats endpoints that the tested endpoints
- * collaborate with). In both the in-vm broker situations, the JMS ConnectionFactory instantiation lambda you provide
- * for what will be used in the production setup will <b>not</b> be invoked, but instead an in-vm ActiveMQ Broker will
- * be started, and an ActiveMQ ConnectionFactory will be produced.
+ * collaborate with). In the in-vm broker situations, the JMS ConnectionFactory instantiation lambda you provide for
+ * what will be used in the production setup will <b>not</b> be invoked, but instead an in-vm ActiveMQ Broker will be
+ * started, and an ActiveMQ ConnectionFactory will be produced.
  * <p>
  * Note: The actual decision logic and "Spring interfacing" is done in {@link ScenarioConnectionFactoryWrapper}, which
  * is the actual class of instances that will end up as Spring beans - this class is a producer of such instances,
@@ -82,6 +82,8 @@ import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 public class ScenarioConnectionFactoryProducer implements MatsProfiles {
 
     /**
+     * TODO: Deprectated. Remove once >= 0.16
+     * 
      * @deprecated Use the factory method {@link #withRegularConnectionFactory(ConnectionFactoryProvider)} instead.
      */
     @Deprecated
@@ -121,6 +123,8 @@ public class ScenarioConnectionFactoryProducer implements MatsProfiles {
     }
 
     /**
+     * TODO: Deprecated, remove once >= 0.16.0
+     * 
      * @deprecated use {@link #withRegularConnectionFactory(ConnectionFactoryProvider)} instead.
      */
     @Deprecated
@@ -148,6 +152,8 @@ public class ScenarioConnectionFactoryProducer implements MatsProfiles {
     }
 
     /**
+     * TODO: Deprecated, remove once >= 0.16.0
+     * 
      * @deprecated use {@link #withLocalhostConnectionFactory(ConnectionFactoryProvider)} instead.
      */
     @Deprecated
@@ -189,6 +195,8 @@ public class ScenarioConnectionFactoryProducer implements MatsProfiles {
     }
 
     /**
+     * TODO: Deprecated, remove once >= 0.16.0
+     * 
      * @deprecated use {@link #withLocalhostConnectionFactory(ConnectionFactoryProvider)} instead.
      */
     @Deprecated
@@ -226,8 +234,8 @@ public class ScenarioConnectionFactoryProducer implements MatsProfiles {
      * Can optionally be overridden should you decide to use a different decision-scheme than the
      * {@link ConfigurableScenarioDecider#createDefaultScenarioDecider() default}. We need a decision for which
      * MatsScenario is in effect for this JVM, and you can override the standard here. <i>(Do note that if you want to
-     * run integration tests against a specific Active MQ Broker, there is already a feature for that in
-     * {@link MatsLocalVmActiveMq}, as mentioned in the JavaDoc of
+     * run integration tests against a specific Active MQ Broker, e.g. on your localhost, there is already a feature for
+     * that in {@link MatsLocalVmActiveMq}, as mentioned in the JavaDoc of
      * {@link #withLocalVmConnectionFactory(ConnectionFactoryProvider) localVmConnectionFactory(..)}).</i>
      * <p />
      * How you otherwise decide between {@link MatsScenario#REGULAR REGULAR}, {@link MatsScenario#LOCALHOST LOCALHOST}
@@ -248,6 +256,8 @@ public class ScenarioConnectionFactoryProducer implements MatsProfiles {
     }
 
     /**
+     * TODO: Deprecated, remove once >= 0.16.0
+     * 
      * @deprecated use {@link #withScenarioDecider(ScenarioDecider)} instead.
      */
     @Deprecated
@@ -272,6 +282,8 @@ public class ScenarioConnectionFactoryProducer implements MatsProfiles {
     }
 
     /**
+     * TODO: Deprecated, remove once >= 0.16.0
+     * 
      * @deprecated use {@link #build()} instead.
      */
     @Deprecated

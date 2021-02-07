@@ -15,7 +15,8 @@ import com.stolsvik.mats.spring.jms.tx.varioussetups.Test_SpringManagedTx_H2Base
 
 /**
  * Testing Spring DB Transaction management, using DataSourceTransactionManager where the DataSource is wrapped only for
- * the TransactionManager - for the other users (JdbcTemplate etc), it is not wrapped.
+ * the TransactionManager - for the other users taking DataSource from Spring Context (JdbcTemplate etc), it is not
+ * wrapped.
  *
  * @author Endre Stølsvik 2020-06-05 00:10 - http://stolsvik.com/, endre@stolsvik.com
  */

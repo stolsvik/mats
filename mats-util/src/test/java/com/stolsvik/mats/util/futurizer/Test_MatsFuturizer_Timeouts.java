@@ -1,4 +1,4 @@
-package com.stolsvik.mats.util;
+package com.stolsvik.mats.util.futurizer;
 
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
@@ -15,6 +15,7 @@ import org.junit.Test;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.junit.Rule_Mats;
+import com.stolsvik.mats.util.MatsFuturizer;
 import com.stolsvik.mats.util.MatsFuturizer.MatsFuturizerTimeoutException;
 import com.stolsvik.mats.util.MatsFuturizer.Reply;
 

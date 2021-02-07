@@ -1,4 +1,4 @@
-package com.stolsvik.mats.util;
+package com.stolsvik.mats.intercept_test;
 
 /**
  * A <i>State Transfer Object</i> meant for unit tests.

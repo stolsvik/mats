@@ -16,11 +16,11 @@ import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringMan
  * @author Endre Stølsvik 2020-06-05 00:10 - http://stolsvik.com/, endre@stolsvik.com
  */
 @RunWith(SpringRunner.class)
-public class Test_SpringManagedTx_H2Based_DataSourceTransactionaManager_WrappedDsForAll
+public class Test_SpringManagedTx_H2Based_DataSourceTransactionaManager_WrappedDsInSpringContext
         extends Test_SpringManagedTx_H2Based_DataSourceTransactionaManager {
     @Configuration
     @EnableMats
-    static class SpringConfiguration_DsTxMgr_WrappedDsForAll extends SpringConfiguration_DataSourceTxMgr {
+    static class SpringConfiguration_DsTxMgr_WrappedDsInSpringContext extends SpringConfiguration_DataSourceTxMgr {
         /**
          * This ensures that both the JdbcTemplate etc, AND the TransactionManager, gets the wrapped DataSource.
          */

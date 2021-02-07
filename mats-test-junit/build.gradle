@@ -8,7 +8,7 @@ dependencies {
     // Also the few tools in there should be transitive, so want it exported as transitive dep. Using API.
     api project(':mats-test')
 
-    // Need the MatsSerializer_DefaultJson
+    // Need the MatsSerializerJson
     implementation project(":mats-serial-json")
 
     // The Rule_MatsEndpoint is annotated with @Inject to hook into Spring injection if relevant.

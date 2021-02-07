@@ -17,7 +17,7 @@ import org.springframework.core.env.PropertySource;
 import com.stolsvik.mats.spring.jms.factories.ScenarioConnectionFactoryWrapper.ScenarioDecider;
 
 /**
- * Configurable {@link ScenarioDecider} which by default implements the logic described in
+ * Configurable {@link ScenarioDecider}, whose defaults implements the logic described in
  * {@link ScenarioConnectionFactoryProducer} and handles all the Spring Profiles specified in {@link MatsProfiles}.
  */
 public class ConfigurableScenarioDecider implements ScenarioDecider {
@@ -127,7 +127,7 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
         }
         // ?: Was no scenario decided?
         if (scenario == null) {
-            // -> No scenario was decided, so go for LOCALVM, because this is the least dangerous.
+            // -> No scenario was decided, so use the default scenario (which default (!) throws IllegalState..)
             log.info(LOG_PREFIX
                     + "  \\- NO Scenario explicitly specified - invoking the default MatsScenario Supplier.");
             scenario = _defaultScenario.get();
@@ -142,7 +142,7 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
         if (scenario == MatsScenario.REGULAR) {
             // -> Yes, it is REGULAR, so check for any "mats-mocks" profile active
             Optional<String> mockProfile = Arrays.stream(env.getActiveProfiles())
-                    .filter(profile -> profile.startsWith(MatsProfiles.PROFILE_MATS_MOCKS)).findAny();
+                    .filter(profile -> profile.toLowerCase().startsWith(MatsProfiles.PROFILE_MATS_MOCKS)).findAny();
             if (mockProfile.isPresent()) {
                 throw new IllegalStateException("Found that Mats Scenario [" + scenario
                         + "] was active, but at the same time, we found that '" + mockProfile.get()
@@ -159,8 +159,8 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
      * An implementation of this interface can decide whether a specific Mats Scenario is active. The Spring
      * {@link Environment} is provided from which Spring Profiles and properties/variables can be gotten. Notice that in
      * the default Spring configuration, the Environment is populated by System Properties (Java command line
-     * "-Dproperty=vale"-properties) and System Environment. However, a SpecificScenarioDecider might use whatever it
-     * find relevant to do a decision.
+     * "-Dproperty=vale"-properties) and System Environment. However, an implementation of this interface might use
+     * whatever it find relevant to do a decision.
      * 
      * @see StandardSpecificScenarioDecider
      */
@@ -175,8 +175,8 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
          *            (Java command line "-Dproperty=value"-properties) and System Environment.
          * @return an {@link Optional}, which if present means that the specific Mats Scenario is active - and the
          *         returned String is used in logging to show why this Scenario was chosen (a string like e.g.
-         *         <code>"Found Spring Profile 'mats-test'"</code> would make sense). If {@link Optional#empty()}, this
-         *         specific Mats Scenario was not active.
+         *         <code>"Found active Spring Profile 'mats-test'"</code> would make sense). If
+         *         {@link Optional#empty()}, this specific Mats Scenario was not active.
          */
         Optional<String> scenarioActive(Environment env);
     }
@@ -184,7 +184,7 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
     /**
      * Standard implementation of {@link SpecificScenarioDecider} used in the default configuration of
      * {@link ConfigurableScenarioDecider}, which takes a set of profile-or-properties names and checks whether they are
-     * present as a Spring Profile or (with the "-" replaced by ".") whether it exists as a property in the Spring
+     * present as a Spring Profile, or (with the "-" replaced by ".") whether it exists as a property in the Spring
      * Environment.
      */
     public static class StandardSpecificScenarioDecider implements SpecificScenarioDecider {
@@ -208,7 +208,7 @@ public class ConfigurableScenarioDecider implements ScenarioDecider {
                     return Optional.of("Found Spring Environment Property '" + profileName.replace('-', '.') + "'");
                 }
                 if (env.acceptsProfiles(profileName)) {
-                    return Optional.of("Found Spring Profile '" + profileName + "'");
+                    return Optional.of("Found active Spring Profile '" + profileName + "'");
                 }
             }
             return Optional.empty();

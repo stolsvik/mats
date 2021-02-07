@@ -32,11 +32,12 @@ import com.stolsvik.mats.spring.jms.tx.JmsMatsTransactionManager_JmsAndSpringMan
  * <p />
  * <b>NOTE: It returns an instance of {@link SpringJmsMatsFactoryWrapper}, which it is assumed that you put in the
  * Spring context as a bean, so that Spring property injection and <code>@PostConstruct</code> is run on it.</b> If you
- * instead employ a FactoryBean <i>(e.g. because you have made a cool Mats * single-annotation-configuration solution
+ * instead employ a FactoryBean <i>(e.g. because you have made a cool Mats single-annotation-configuration solution
  * for your multiple codebases)</i>, then you need to invoke
  * {@link SpringJmsMatsFactoryWrapper#postConstructForFactoryBean(Environment, ApplicationContext)} - read up!
  *
  * @see SpringJmsMatsFactoryWrapper
+ * @see SpringJmsMatsFactoryWrapper#postConstructForFactoryBean(Environment, ApplicationContext)
  *
  * @author Endre Stølsvik 2019-06-10 02:45 - http://stolsvik.com/, endre@stolsvik.com
  */
@@ -62,13 +63,12 @@ public class SpringJmsMatsFactoryProducer {
      * @param jmsConnectionFactory
      *            the JMS {@link ConnectionFactory} to fetch JMS Connections from, using
      *            {@link ConnectionFactory#createConnection()}. It is assumed that if username and password is needed,
-     *            you have configured that on the ConnectionFactory. Otherwise, you'll have to make the JmsMatsFactory
-     *            yourself - check the code of this method, and you'll see where the JMS Connections are created.
+     *            you have configured that on the ConnectionFactory.
      * @param sqlDataSource
      *            the SQL DataSource which to stash into a Spring {@link DataSourceTransactionManager}, and from which
      *            SQL {@link Connection}s are fetched from, using {@link DataSource#getConnection()}. It is assumed that
      *            if username and password is needed, you have configured that on the DataSource.
-     * @return the produced {@link MatsFactory}
+     * @return the produced {@link SpringJmsMatsFactoryWrapper}
      */
     public static SpringJmsMatsFactoryWrapper createSpringDataSourceTxMatsFactory(String appName, String appVersion,
             MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory, DataSource sqlDataSource) {
@@ -101,25 +101,38 @@ public class SpringJmsMatsFactoryProducer {
      * @param jmsConnectionFactory
      *            the JMS {@link ConnectionFactory} to fetch JMS Connections from, using
      *            {@link ConnectionFactory#createConnection()}. It is assumed that if username and password is needed,
-     *            you have configured that on the ConnectionFactory. Otherwise, you'll have to make the JmsMatsFactory
-     *            yourself - check the code of this method, and you'll see where the JMS Connections are created.
+     *            you have configured that on the ConnectionFactory.
      * @param platformTransactionManager
      *            the {@link PlatformTransactionManager} (typically <code>DataSourceTransactionManager</code> or
      *            <code>HibernateTransactionManager)</code> that the MatsFactory should employ.
-     * @return the produced {@link MatsFactory}
+     * @return the produced {@link SpringJmsMatsFactoryWrapper}
      */
-    public static SpringJmsMatsFactoryWrapper createSpringDataSourceTxMatsFactory(String appName, String appVersion,
-            MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory,
+    public static SpringJmsMatsFactoryWrapper createSpringPlatformTransactionManagerTxMatsFactory(
+            String appName, String appVersion, MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory,
             PlatformTransactionManager platformTransactionManager) {
-        // :: Create the JMS and Spring DataSourceTransactionManager-backed JMS MatsFactory.
-        log.info(LOG_PREFIX + "createSpringDataSourceTxMatsFactory(" + appName + ", " + appVersion + ", "
-                + matsSerializer + ", " + jmsConnectionFactory + ", " + platformTransactionManager + ")");
-        // JMS + Spring's DataSourceTransactionManager-based MatsTransactionManager
+        // :: Create the JMS and Spring PlatformTransactionManager-backed JMS MatsFactory.
+        log.info(LOG_PREFIX + "createSpringPlatformTransactionManagerTxMatsFactory(" + appName + ", " + appVersion
+                + ", " + matsSerializer + ", " + jmsConnectionFactory + ", " + platformTransactionManager + ")");
+        // JMS + Spring's PlatformTransactionManager-based MatsTransactionManager
         JmsMatsTransactionManager springSqlTxMgr = JmsMatsTransactionManager_JmsAndSpringManagedSqlTx.create(
                 platformTransactionManager);
 
         return createJmsMatsFactory(appName, appVersion, matsSerializer, jmsConnectionFactory,
                 springSqlTxMgr);
+    }
+
+    /**
+     * TODO: Deprecated: Wrongly named method. Remove when > v0.16.0.
+     * 
+     * @deprecated use
+     *             {@link #createSpringPlatformTransactionManagerTxMatsFactory(String, String, MatsSerializer, ConnectionFactory, PlatformTransactionManager)}
+     */
+    @Deprecated
+    public static SpringJmsMatsFactoryWrapper createSpringDataSourceTxMatsFactory(String appName, String appVersion,
+            MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory,
+            PlatformTransactionManager platformTransactionManager) {
+        return createSpringPlatformTransactionManagerTxMatsFactory(appName, appVersion, matsSerializer,
+                jmsConnectionFactory, platformTransactionManager);
     }
 
     /**
@@ -143,9 +156,8 @@ public class SpringJmsMatsFactoryProducer {
      * @param jmsConnectionFactory
      *            the JMS {@link ConnectionFactory} to fetch JMS Connections from, using
      *            {@link ConnectionFactory#createConnection()}. It is assumed that if username and password is needed,
-     *            you have configured that on the ConnectionFactory. Otherwise, you'll have to make the JmsMatsFactory
-     *            yourself - check the code of this method, and you'll see where the JMS Connections are created.
-     * @return the produced {@link MatsFactory}
+     *            you have configured that on the ConnectionFactory.
+     * @return the produced {@link SpringJmsMatsFactoryWrapper}
      */
     public static SpringJmsMatsFactoryWrapper createJmsTxOnlyMatsFactory(String appName, String appVersion,
             MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory) {
@@ -160,8 +172,7 @@ public class SpringJmsMatsFactoryProducer {
     }
 
     private static SpringJmsMatsFactoryWrapper createJmsMatsFactory(String appName, String appVersion,
-            MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory,
-            JmsMatsTransactionManager txMgr) {
+            MatsSerializer<?> matsSerializer, ConnectionFactory jmsConnectionFactory, JmsMatsTransactionManager txMgr) {
         // JmsSessionHandler (pooler)
         JmsMatsJmsSessionHandler jmsSessionHandler = JmsMatsJmsSessionHandler_Pooling.create(jmsConnectionFactory);
         // The MatsFactory itself, supplying the JmsSessionHandler and MatsTransactionManager.

@@ -197,14 +197,16 @@ public interface MatsFactory extends StartStoppable {
 
     /**
      * Special kind of terminator that, in JMS-style terms, subscribes to a topic instead of listening to a queue (i.e.
-     * "pub-sub"-style messaging). You may only communicate with this type of endpoints by using the
-     * {@link MatsInitiate#publish(Object)} or {@link MatsInitiate#replyToSubscription(String, Object)} methods.
+     * it uses "pub-sub"-style messaging, instead of queue-based). You may only communicate with this type of endpoints
+     * by using the {@link MatsInitiate#publish(Object)} or {@link MatsInitiate#replyToSubscription(String, Object)}
+     * methods.
      * <p/>
      * <b>Notice that the concurrency of a SubscriptionTerminator is always 1, as it makes no sense to have multiple
      * processors for a subscription - all of the processors would just get an identical copy of each message.</b> If
      * you do need to handle massive amounts of messages, or your work handling is slow, you should instead of handling
      * the work in the processor itself, rather accept the message as fast as possible and send the work out to be
-     * processed by some kind of thread pool.
+     * processed by some kind of thread pool. (The tool <code>MatsFuturizer</code> does this for its Future-completion
+     * handling).
      *
      * @param endpointId
      *            the identification of this {@link MatsEndpoint}, which are the strings that should be provided to the
@@ -481,12 +483,13 @@ public interface MatsFactory extends StartStoppable {
         String getMatsTraceKey();
 
         /**
-         * @return the name of the application that employs MATS, set at MatsFactory construction time.
+         * @return the name of the application/service that employs MATS, set at MatsFactory construction time.
          */
         String getAppName();
 
         /**
-         * @return the version string of the application that employs MATS, set at MatsFactory construction time.
+         * @return the version string of the application/service that employs MATS, set at MatsFactory construction
+         *         time.
          */
         String getAppVersion();
 

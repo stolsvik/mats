@@ -1,0 +1,266 @@
+package com.stolsvik.mats.api.intercept;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+import com.stolsvik.mats.MatsEndpoint.DetachedProcessContext;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
+import com.stolsvik.mats.MatsEndpoint.ProcessContext;
+import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
+import com.stolsvik.mats.MatsStage;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.DispatchType;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingMessage;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContext.ProcessResult;
+
+/**
+ * <b>EXPERIMENTAL!!</b> (Will probably change. Implementation started 2020-01-08)
+ * <p />
+ * Meant for intercepting stage processors with ability to modify the stage processing, and implement extra logging and
+ * metrics gathering.
+ *
+ * @author Endre Stølsvik - 2021-01-08 - http://endre.stolsvik.com
+ */
+public interface MatsStageInterceptor {
+    @FunctionalInterface
+    interface MatsStageInterceptorProvider {
+        /**
+         * @param stageContext
+         *            the context of this stage
+         * @return a {@link MatsStageInterceptor} if you want to intercept this, or <code>null</code> if you do not.
+         */
+        MatsStageInterceptor provide(StageContext stageContext);
+    }
+
+    /**
+     * Invoked if the receiving and/or deconstruction of the incoming message from the message system fails, and hence
+     * no Stage processing will be performed - i.e., no further methods of the interceptor will be invoked. Conversely,
+     * this method will not be invoked in normal situations: If the normal user lambda throws, or database or messaging
+     * system fails, this will result in the {@link StageCompletedContext} of the
+     * {@link #stageCompleted(StageCompletedContext) stageCompleted(..)} call describe the problem and contain the
+     * cause, see {@link ProcessResult#USER_EXCEPTION} and {@link ProcessResult#SYSTEM_EXCEPTION}.
+     * <p />
+     * <b>Note: This should really never be triggered. It would be prudent to "notify the humans" if it ever did.</b>
+     */
+    default void receiveDeconstructError(StageReceiveDeconstructErrorContext stageReceiveDeconstructErrorContext) {
+        /* no-op */
+    }
+
+    default void stageReceived(StageReceivedContext stageReceivedContext) {
+        /* no-op */
+    }
+
+    /**
+     * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
+     */
+    interface MatsStageInterceptInterceptor {
+        default void interceptStageUserLambda(StageInterceptUserLambdaContext processingIntercept,
+                ProcessLambda<Object, Object, Object> processLambda,
+                ProcessContext<Object> ctx, Object state, Object msg)
+                throws MatsRefuseMessageException {
+            // Default: Call directly through
+            processLambda.process(ctx, state, msg);
+        }
+    }
+
+    /**
+     * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
+     * <p />
+     * Note on implementation: Whether this is invoked when e.g. the processContext.reply(..) is invoked, or right
+     * after, or after the entire stage lambda is processed (meaning that any messages from the lambda are collected,
+     * then fed to these interceptors one by one), is up to the implementation. The contract is that it is before the
+     * message is sent out and committed, and that as such it is both editable as defined in the
+     * {@link MatsEditableOutgoingMessage}, and cancellable, as defined by
+     * {@link StageInterceptOutgoingMessageContext#cancelOutgoingMessage()}.
+     */
+    interface MatsStageMessageInterceptor extends MatsStageInterceptor {
+        default void interceptStageOutgoingMessages(
+                StageInterceptOutgoingMessageContext stageInterceptOutgoingMessageContext) {
+            /* no-op */
+        }
+    }
+
+    default void stageCompleted(StageCompletedContext stageCompletedContext) {
+        /* no-op */
+    }
+
+    interface StageContext {
+        MatsStage<?, ?, ?> getStage();
+
+        Instant getStartedInstant();
+    }
+
+    interface StageReceiveDeconstructErrorContext extends StageContext {
+        ReceiveDeconstructError getReceiveDeconstructError();
+
+        Optional<Throwable> getThrowable();
+
+        enum ReceiveDeconstructError {
+            /**
+             * If the incoming message is not of the message system's expected type (for JMS, it should be MapMessage)
+             */
+            WRONG_MESSAGE_TYPE,
+
+            /**
+             * If there is missing required contents in the message system message (i.e. MatsTrace keys give null
+             * values).
+             */
+            MISSING_CONTENTS,
+
+            /**
+             * If getting problems deserializing the message, or getting hold of other properties from the message.
+             */
+            DECONSTRUCT_ERROR,
+
+            /**
+             * If the incoming Mats message is not intended for this stage.
+             */
+            WRONG_STAGE
+
+            // TODO: Here we should add some "SIGNATURE_VALIDATION_ERROR"
+        }
+    }
+
+    interface StageCommonContext extends StageContext {
+        /**
+         * @return the incoming message.
+         */
+        Object getIncomingMessage();
+
+        /**
+         * @return the incoming state, if present (which it typically is for all stages except initial - albeit it is
+         *         also possible to send state to the initial stage).
+         */
+        Optional<Object> getIncomingState();
+
+        /**
+         * @return time taken (in nanoseconds) to pick the pieces out of the message system message.
+         */
+        long getMessageSystemDeconstructNanos();
+
+        /**
+         * @return size (in bytes) of the envelope "on the wire", which often is compressed, which is picked out of the
+         *         message system message in {@link #getMessageSystemDeconstructNanos()}. If compression was not
+         *         applied, returns the same value as {@link #getEnvelopeSerializedSize()}. Note that the returned size
+         *         is only the (compressed) Mats envelope, and does not include the size of the messaging system's
+         *         message/envelope and any meta-data that Mats adds to this. This means that the message size on the
+         *         wire will be larger.
+         */
+        int getEnvelopeWireSize();
+
+        /**
+         * @return time taken (in nanoseconds) to decompress the "on the wire" representation of the envelope. - will be
+         *         <code>0</code> if no compression was applied, while it will return > 0 if compression was applied.
+         */
+        long getEnvelopeDecompressionNanos();
+
+        /**
+         * @return size (in bytes) of the serialized envelope - after decompression. Do read the JavaDoc of
+         *         {@link #getEnvelopeWireSize()} too, as the same applies here: This size only refers to the Mats
+         *         envelope, not the messaging system's final message size.
+         */
+        int getEnvelopeSerializedSize();
+
+        /**
+         * @return time taken (in nanoseconds) to deserialize the envelope.
+         */
+        long getEnvelopeDeserializationNanos();
+
+        /**
+         * @return time taken (in nanoseconds) to deserialize the message (DTO) and state (STO) from the envelope,
+         *         before invoking the user lambda with them.
+         */
+        long getMessageAndStateDeserializationNanos();
+
+        /**
+         * @return the total time taken (in nanoseconds) from the reception of a message system message, via
+         *         deserialization of envelope, message and state, to right before the invocation of the
+         *         {@link MatsStageInterceptor#stageReceived(StageReceivedContext)}; approx. the sum of the times above.
+         */
+        long getTotalPreprocessingAndDeserializationNanos();
+    }
+
+    interface StageReceivedContext extends StageCommonContext {
+        ProcessContext<Object> getProcessContext();
+    }
+
+    interface StageInterceptUserLambdaContext extends StageCommonContext {
+        ProcessContext<Object> getProcessContext();
+    }
+
+    interface StageInterceptOutgoingMessageContext extends StageCommonContext {
+        ProcessContext<Object> getProcessContext();
+
+        MatsEditableOutgoingMessage getOutgoingMessage();
+
+        void cancelOutgoingMessage();
+    }
+
+    interface StageCompletedContext extends StageCommonContext, CommonCompletedContext {
+        DetachedProcessContext getProcessContext();
+
+        /**
+         * 
+         * @return The type of the main result of the Stage Processing - <b>which do not include any stage-initiations,
+         *         look at {@link #getStageInitiatedMessages()} for that.</b>
+         */
+        ProcessResult getProcessResult();
+
+        /**
+         * The main result of the Stage Processing - <b>which do not include any initiation, look at
+         * {@link #getStageInitiatedMessages()} for that.</b>
+         */
+        enum ProcessResult {
+            REQUEST,
+
+            REPLY,
+
+            NEXT,
+
+            GOTO,
+
+            /**
+             * No standard processing result (but may have produced {@link #getStageInitiatedMessages() initiations}!),
+             * which is default mode for a Terminator.
+             */
+            NONE,
+
+            /**
+             * Any exception thrown in the user lambda, causing rollback of the processing. This may both be code
+             * failures (e.g. {@link NullPointerException}, explicit validation failures (which probably should result
+             * in {@link MatsRefuseMessageException}), and database access or other types of external communication
+             * failures.
+             */
+            USER_EXCEPTION,
+
+            /**
+             * If the messaging or processing system failed, this will be either
+             * {@link com.stolsvik.mats.MatsInitiator.MatsBackendException MatsBackendException} (messaging handling or
+             * db commit), or {@link com.stolsvik.mats.MatsInitiator.MatsMessageSendException MatsMessageSendException}
+             * (which is the "VERY BAD!" scenario where db is committed, whereupon the messaging commit failed - which
+             * most probably is a "notify the humans!"-situation, unless the code is crafted very specifically to handle
+             * such a situation).
+             */
+            SYSTEM_EXCEPTION
+        }
+
+        /**
+         * @return the Reply, Next or Goto outgoing message, it this was the {@link ProcessResult ProcessingResult}.
+         *         Otherwise, <code>Optional.empty()</code>. The message will be of {@link DispatchType#STAGE
+         *         ProcessType.STAGE}.
+         */
+        Optional<MatsSentOutgoingMessage> getStageResult();
+
+        /**
+         * @return the outgoing Requests, if this was the {@link ProcessResult}. Otherwise, an empty list. The
+         *         messages will be of {@link DispatchType#STAGE ProcessType.STAGE}.
+         */
+        List<MatsSentOutgoingMessage> getStageRequests();
+
+        /**
+         * @return all stage-initiated messages, which is of {@link DispatchType#STAGE_INIT ProcessType.STAGE_INIT}.
+         */
+        List<MatsSentOutgoingMessage> getStageInitiatedMessages();
+    }
+}

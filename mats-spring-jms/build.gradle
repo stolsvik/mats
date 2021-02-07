@@ -3,6 +3,7 @@
 dependencies {
     compile project(":mats-spring")
     compile project(":mats-impl-jms")
+    compile project(":mats-util")
 
     compile "org.springframework:spring-context:$springVersion"
     compile "org.springframework:spring-tx:$springVersion"

@@ -144,13 +144,20 @@ public interface MatsSerializer<Z> {
         /**
          * @return how long time the serialization process took, in milliseconds.
          */
-        double getMillisSerialization();
+        long getNanosSerialization();
+
+        /**
+         * @return <code>getMatsTraceBytes().length</code>
+         */
+        default int getSizeCompressed() {
+            return getMatsTraceBytes().length;
+        }
 
         /**
          * @return how long time the (optional) compression process took, in milliseconds - will be 0 if no compression
          *         took place.
          */
-        double getMillisCompression();
+        long getNanosCompression();
     }
 
     /**
@@ -197,15 +204,15 @@ public interface MatsSerializer<Z> {
         int getSizeDecompressed();
 
         /**
-         * @return how long time the (optional) decompression process took, in milliseconds - will be 0 if no
+         * @return how long time the (optional) decompression process took, in nanoseconds - will be 0 if no
          *         decompression took place.
          */
-        double getMillisDecompression();
+        long getNanosDecompression();
 
         /**
-         * @return how long time the deserialization process took, in milliseconds.
+         * @return how long time the deserialization process took, in nanoseconds.
          */
-        double getMillisDeserialization();
+        long getNanosDeserialization();
     }
 
     /**

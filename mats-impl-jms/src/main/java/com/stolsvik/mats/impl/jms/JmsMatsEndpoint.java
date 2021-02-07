@@ -36,6 +36,8 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
         _queue = queue;
         _stateClass = stateClass;
         _replyClass = replyClass;
+
+        log.info(LOG_PREFIX + "Created Endpoint [" + id(_endpointId, this) + "].");
     }
 
     private final JmsEndpointConfig _endpointConfig = new JmsEndpointConfig();
@@ -128,18 +130,22 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
     public void finishSetup() {
         _finishedSetup = true;
         if (!_parentFactory.isHoldEndpointsUntilFactoryIsStarted()) {
+            log.info(LOG_PREFIX+"   \\- Finished setup of, and will immediately start, Endpoint ["+id(_endpointId, this)+"].");
             start();
+        }
+        else {
+            log.info(LOG_PREFIX+"   \\- Finished setup, but holding start of Endpoint ["+id(_endpointId, this)+"].");
         }
     }
 
     @Override
     public void start() {
         if (!_finishedSetup) {
-            log.info(LOG_PREFIX + "   | !! NOT starting Stages for [" + _endpointId + "], as Endpoint is not"
+            log.info(LOG_PREFIX + "!! NOT starting Stages for Endpoint [" + _endpointId + "], as Endpoint is not"
                     + " finishSetup() yet!");
             return;
         }
-        log.info(JmsMatsStatics.LOG_PREFIX + "   | Starting all Stages for [" + _endpointId + "].");
+        log.info(JmsMatsStatics.LOG_PREFIX + "Starting all Stages for Endpoint [" + _endpointId + "].");
         _stages.forEach(JmsMatsStage::start);
     }
 

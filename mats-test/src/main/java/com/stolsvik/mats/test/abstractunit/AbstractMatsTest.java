@@ -15,6 +15,7 @@ import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
+import com.stolsvik.mats.intercept.logging.MatsMetricsLoggingInterceptor;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.test.MatsTestLatch;
@@ -88,6 +89,7 @@ public abstract class AbstractMatsTest<Z> {
         log.debug("Setting up JmsMatsFactory.");
         // Allow for override in specialization classes, in particular the one with DB.
         _matsFactory = createMatsFactory();
+        MatsMetricsLoggingInterceptor.install(_matsFactory);
         log.debug("--- JUnit/Jupiter --- BEFORE_CLASS done on ClassRule/Extension '" + id(getClass())
                 + "', JMS and MATS.");
     }
@@ -245,6 +247,9 @@ public abstract class AbstractMatsTest<Z> {
                     "*testing*", sessionHandler, _dataSource, _matsSerializer);
 
         }
+
+        // Set name
+        matsFactory.getFactoryConfig().setName(this.getClass().getSimpleName());
 
         // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
         matsFactory.getFactoryConfig().setConcurrency(1);

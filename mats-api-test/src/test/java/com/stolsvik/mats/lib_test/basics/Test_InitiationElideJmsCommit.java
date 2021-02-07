@@ -47,6 +47,7 @@ import com.stolsvik.mats.serial.json.MatsSerializerJson;
 import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.test.junit.Rule_Mats;
+import com.stolsvik.mats.util.wrappers.ConnectionFactoryWrapper;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
 /**
@@ -102,7 +103,7 @@ public class Test_InitiationElideJmsCommit {
         JmsMatsJmsSessionHandler_Pooling sessionPool = JmsMatsJmsSessionHandler_Pooling.create(wrapper);
         JmsMatsFactory<String> matsFactory = JmsMatsFactory.createMatsFactory_JmsOnlyTransactions("test", "testversion",
                 sessionPool, MatsSerializerJson.create());
-        matsFactory.getFactoryConfig().setConcurrency(2);
+        matsFactory.getFactoryConfig().setConcurrency(5);
 
         CopyOnWriteArrayList<String> strings = new CopyOnWriteArrayList<>();
 
@@ -165,118 +166,22 @@ public class Test_InitiationElideJmsCommit {
         Assert.assertEquals(expected, actual);
 
         // :: Now, the magic:
-
-        // NOTE! THIS TEST IS BORROWED FROM A FUTURE VERSION OF MATS, WHERE JMS COMMIT ELISION IS IMPLEMENTED.
-        // AS SUCH, THE TEST IS USED TO CHECK FOR BUG https://github.com/stolsvik/mats/issues/235
-
         // There should be exactly 2 x count commits: 1 for each of the sending of the actual message,
         // and 1 for each of the terminator receiving it. The non-sending initiations shall not have counted.
-        Assert.assertEquals(4 * count, wrapper.getCommitCount());
+        Assert.assertEquals(2 * count, wrapper.getCommitCount());
 
-        // :: Also, we threw once per loop, and rollbacks aren't elided (at least yet)
+        // :: Also, we threw once per send loop, and rollbacks aren't elided (at least yet)
         Assert.assertEquals(count, wrapper.getRollbackCount());
 
         // :: Clean
 
         matsFactory.close();
         // Note, this will be a double close, as MatsFactory also has closed the pool. But just to assert that we
-        // do not have any lingering sessions:
+        // do not have any lingering JMS Connections:
         int liveConnectionsAfterClose = sessionPool.closeAllAvailableSessions();
         Assert.assertEquals("There should be no live JMS Connections.",0, liveConnectionsAfterClose);
         inVmActiveMq.close();
     }
-
-
-    /**
-     * A base Wrapper for a JMS {@link ConnectionFactory}, which simply implements ConnectionFactory, takes a
-     * ConnectionFactory instance and forwards all calls to that. Meant to be extended to add extra functionality, e.g.
-     * Spring integration.
-     *
-     * @author Endre Stølsvik 2019-06-10 11:43 - http://stolsvik.com/, endre@stolsvik.com
-     */
-    private static class ConnectionFactoryWrapper implements MatsWrapperDefault<ConnectionFactory>, ConnectionFactory {
-
-        /**
-         * This field is private - if you in extensions need the instance, invoke {@link #unwrap()}. If you want to take
-         * control of the wrapped ConnectionFactory instance, then override {@link #unwrap()}.
-         */
-        private ConnectionFactory _targetConnectionFactory;
-
-        /**
-         * Standard constructor, taking the wrapped {@link ConnectionFactory} instance.
-         *
-         * @param targetConnectionFactory
-         *            the {@link ConnectionFactory} instance which {@link #unwrap()} will return (and hence all forwarded
-         *            methods will use).
-         */
-        public ConnectionFactoryWrapper(ConnectionFactory targetConnectionFactory) {
-            setWrappee(targetConnectionFactory);
-        }
-
-        /**
-         * No-args constructor, which implies that you either need to invoke {@link #setWrappee(ConnectionFactory)} before
-         * publishing the instance (making it available for other threads), or override {@link #unwrap()} to provide the
-         * desired {@link ConnectionFactory} instance. In these cases, make sure to honor memory visibility semantics - i.e.
-         * establish a happens-before edge between the setting of the instance and any other threads getting it.
-         */
-        public ConnectionFactoryWrapper() {
-            /* no-op */
-        }
-
-        /**
-         * Sets the wrapped {@link ConnectionFactory}, e.g. in case you instantiated it with the no-args constructor. <b>Do
-         * note that the field holding the wrapped instance is not volatile nor synchronized</b>. This means that if you
-         * want to set it after it has been published to other threads, you will have to override both this method and
-         * {@link #unwrap()} to provide for needed memory visibility semantics, i.e. establish a happens-before edge between
-         * the setting of the instance and any other threads getting it.
-         *
-         * @param targetConnectionFactory
-         *            the {@link ConnectionFactory} which is returned by {@link #unwrap()}, unless that is overridden.
-         */
-        public void setWrappee(ConnectionFactory targetConnectionFactory) {
-            _targetConnectionFactory = targetConnectionFactory;
-        }
-
-        /**
-         * @return the wrapped {@link ConnectionFactory}. All forwarding methods invokes this method to get the wrapped
-         *         {@link ConnectionFactory}, thus if you want to get creative wrt. how and when the ConnectionFactory is
-         *         decided, you can override this method.
-         */
-        public ConnectionFactory unwrap() {
-            if (_targetConnectionFactory == null) {
-                throw new IllegalStateException("ConnectionFactoryWrapper.getTarget():"
-                        + " The target ConnectionFactory is not set!");
-            }
-            return _targetConnectionFactory;
-        }
-
-        /**
-         * @deprecated #setTarget
-         */
-        @Deprecated
-        public void setTargetConnectionFactory(ConnectionFactory targetConnectionFactory) {
-            setWrappee(targetConnectionFactory);
-        }
-
-        /**
-         * @deprecated #getTarget
-         */
-        @Deprecated
-        public ConnectionFactory getTargetConnectionFactory() {
-            return unwrap();
-        }
-
-        @Override
-        public Connection createConnection() throws JMSException {
-            return unwrap().createConnection();
-        }
-
-        @Override
-        public Connection createConnection(String userName, String password) throws JMSException {
-            return unwrap().createConnection(userName, password);
-        }
-    }
-
 
     private static class ConnectionFactoryWithCommitCounter extends ConnectionFactoryWrapper {
         private final AtomicInteger _commitCount = new AtomicInteger();

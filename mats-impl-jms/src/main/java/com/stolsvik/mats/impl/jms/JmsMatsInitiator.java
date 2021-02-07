@@ -2,6 +2,7 @@ package com.stolsvik.mats.impl.jms;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -13,13 +14,26 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsMessageSendException;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
-import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_Jms.JmsMatsMessageSendException;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateCompletedContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptUserLambdaContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptOutgoingMessagesContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateStartedContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptInterceptor;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateMessageInterceptor;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingMessage;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
 
 /**
  * The JMS implementation of {@link MatsInitiator}.
@@ -67,16 +81,30 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
         // TODO / OPTIMIZE: Consider doing lazy init for TransactionContext too
         // as well as being able to "open" again after close? What about introspection/monitoring/instrumenting -
-        // that is, "turn off" a MatsInitiator: Either hang requsts, or probably more interesting, fail them. And
+        // that is, "turn off" a MatsInitiator: Either hang requests, or probably more interesting, fail them. And
         // that would be nice to use "close()" for: As long as it is closed, it can't be used. Need to evaluate.
 
         Instant startedInstant = Instant.now();
-        long nanosStart = System.nanoTime();
+        long nanosAtStart_Init = System.nanoTime();
 
         String existingTraceId = MDC.get(MDC_TRACE_ID);
+        String existingMatsInit = MDC.get(MDC_MATS_INIT);
+
+        // :: For Intercepting, base intercept context.
+        InitiateContextImpl interceptContext = new InitiateContextImpl(this, startedInstant);
+        List<MatsInitiateInterceptor> interceptorsForInitiation = _parentFactory.getInterceptorsForInitiation(
+                interceptContext);
 
         try { // :: try-finally: Remove MDC_MATS_INITIATE and MDC_TRACE_ID
-            MDC.put(MDC_MATS_INITIATE, "true");
+            MDC.put(MDC_MATS_INIT, "true");
+
+            List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
+
+            long[] nanosTaken_UserLambda = { 0L };
+            long[] nanosTaken_totalEnvelopeSerialization = {0L};
+            long[] nanosTaken_totalProduceAndSendMsgSysMessages = { 0L };
+
+            Throwable throwableResult = null;
 
             JmsSessionHolder jmsSessionHolder;
             try {
@@ -87,32 +115,106 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 // JmsMatsJmsSessionHandler.getSessionHolder()
                 throw new MatsBackendException("Could not get hold of JMS Connection.", e);
             }
+            JmsMatsInternalExecutionContext internalExecutionContext = JmsMatsInternalExecutionContext
+                    .forInitiation(jmsSessionHolder);
             try {
                 DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
-                JmsMatsMessageContext jmsMatsMessageContext = new JmsMatsMessageContext(jmsSessionHolder, null);
                 // ===== Going into Transactional Demarcation
-                _transactionContext.doTransaction(jmsMatsMessageContext, () -> {
-                    List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
+                _transactionContext.doTransaction(internalExecutionContext, () -> {
 
-                    JmsMatsInitiate<Z> init = new JmsMatsInitiate<>(_parentFactory, messagesToSend,
-                            jmsMatsMessageContext, doAfterCommitRunnableHolder);
+                    // TODO: Handle "sub init" within stage. 2021-01-31
+                    // TODO: Use the createForStage if already within a stage.
+                    // TODO: Use ThreadLocal, remember new Thread() when doing non-hoisted init.
+
+                    JmsMatsInitiate<Z> init = JmsMatsInitiate.createForInitiation(_parentFactory, messagesToSend,
+                            internalExecutionContext, doAfterCommitRunnableHolder);
                     JmsMatsContextLocalCallback.bindResource(MatsInitiate.class, init);
-                    _parentFactory.setCurrentThreadLocalMatsDemarcation(() -> init);
+                    _parentFactory.setCurrentMatsFactoryThreadLocalMatsDemarcation(() -> init);
 
-                    InitiateLambda lambdaToInvoke = lambda;
+                    // === Invoke any interceptors, stage "Started"
+                    InitiateStartedContextImpl initiateStartedContext = new InitiateStartedContextImpl(interceptContext,
+                            init);
+                    interceptorsForInitiation.forEach(interceptor -> interceptor.initiateStarted(
+                            initiateStartedContext));
 
-                    lambdaToInvoke.initiate(init);
+                    // === Invoke any interceptors, stage "Intercept"
+                    // Create the InitiateInterceptContext instance (one for all interceptors)
+                    InitiateInterceptUserLambdaContextImpl
+                            initiateInterceptContext = new InitiateInterceptUserLambdaContextImpl(
+                            interceptContext, init);
+                    // :: Create a "lambda stack" of the interceptors
+                    // This is the resulting lambda we will actually invoke
+                    // .. if there are no interceptors, it will directly be the user lambda
+                    InitiateLambda currentLambda = lambda;
+                    /*
+                     * Create the lambda stack by moving "backwards" through the registered interceptors, as when we'll
+                     * actually invoke the resulting lambda stack, the last stacked (at top), which is the first
+                     * registered (due to iterating backwards), will be the first code to run.
+                     */
+                    for (int i = interceptorsForInitiation.size() - 1; i >= 0; i--) {
+                        MatsInitiateInterceptor interceptor = interceptorsForInitiation.get(i);
+                        if (!(interceptor instanceof MatsInitiateInterceptInterceptor)) {
+                            continue;
+                        }
+                        final MatsInitiateInterceptInterceptor interceptInterceptor = (MatsInitiateInterceptInterceptor) interceptor;
+                        // The currentLambda is the one that the interceptor should invoke
+                        final InitiateLambda lambdaThatInterceptorMustInvoke = currentLambda;
+                        // .. and, wrap the current lambda with the interceptor.
+                        // It may, or may not, wrap the provided init with its own implementation
+                        currentLambda = initForInterceptor -> interceptInterceptor.interceptInitiateUserLambda(
+                                initiateInterceptContext, lambdaThatInterceptorMustInvoke, initForInterceptor);
+                    }
 
-                    // Trick to get the commit of transaction to contain TraceIds of all outgoing messages
-                    // - which should handle if we get any Exceptions when committing.
-                    String traceId = messagesToSend.stream()
-                            .map(m -> m.getMatsTrace().getTraceId())
-                            .distinct()
-                            .collect(Collectors.joining(";"));
-                    MDC.put(MDC_TRACE_ID, traceId);
+                    // :: == ACTUALLY Invoke the lambda. The current lambda is the one we should invoke.
+                    long nanosAtStart_UserLambda = System.nanoTime();
+                    try {
+                        currentLambda.initiate(init);
+                    }
+                    finally {
+                        nanosTaken_UserLambda[0] = System.nanoTime() - nanosAtStart_UserLambda;
+                    }
 
-                    sendMatsMessages(log, nanosStart, jmsSessionHolder, _parentFactory, messagesToSend);
-                });
+                    // === Invoke any interceptors, stage "Message"
+                    invokeInitiateMessageInterceptors(interceptorsForInitiation, interceptContext, init,
+                            messagesToSend);
+
+                    /*
+                     * Concatenate all TraceIds for the outgoing messages, to put on the MDC. - which is good for the
+                     * logging, so that they are all present on the MDC for the send/commit log lines, and in particular
+                     * if we get any Exceptions when committing. Notice that the typical situation is that there is just
+                     * one message.
+                     */
+                    concatAllTraceIds(messagesToSend);
+
+                    // :: Check whether we can elide the entire committing of JMS, due to no messages to send
+                    // ?: Any messages produced?
+                    if (messagesToSend.isEmpty()) {
+                        // -> No, no messages produced
+                        if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Mark the internal execution context to elide"
+                                + " JMS Commit, since there was no outgoing messages during initiation.");
+                        // Mark this execution context as "please elide JMS commit".
+                        internalExecutionContext.elideJmsCommit();
+                    }
+                    else {
+                        // -> Yes, there are messages, so serialize the envelopes and send them
+                        // (commit is performed when it exits the transaction lambda)
+                        // :: Serialize
+                        long nanosAtStart_totalEnvelopeSerialization = System.nanoTime();
+                        for (JmsMatsMessage<Z> matsMessage : messagesToSend) {
+                            matsMessage.serializeAndCacheMatsTrace();
+                        }
+                        long now = System.nanoTime();
+                        nanosTaken_totalEnvelopeSerialization[0] = now - nanosAtStart_totalEnvelopeSerialization;
+
+                        long nanosAtStart_totalProduceAndSendMsgSysMessages = now;
+                        produceAndSendMsgSysMessages(log, jmsSessionHolder, _parentFactory, messagesToSend);
+                        nanosTaken_totalProduceAndSendMsgSysMessages[0] = System.nanoTime() -
+                                nanosAtStart_totalProduceAndSendMsgSysMessages;
+                    }
+                }); // End: Mats Transaction
+
+                // ----- Transaction is now committed (if exceptions were raised, we've been thrown out earlier)
+
                 // :: Handle the context.doAfterCommit(Runnable) lambda.
                 try {
                     doAfterCommitRunnableHolder.runDoAfterCommitIfAny();
@@ -122,41 +224,152 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                             + " Ignoring.", re);
                 }
             }
-            catch (JmsMatsMessageSendException e) {
-                // JmsMatsMessageSendException is a JmsMatsJmsException, and that indicates that there was a problem
-                // with JMS - so we should "crash" the JmsSessionHolder to signal that the JMS Connection is probably
-                // broken.
-                jmsSessionHolder.crashed(e);
-                // This is a special variant of JmsMatsJmsException which is the "VERY BAD!" scenario.
-                // TODO: Do retries if it fails!
-                throw new MatsMessageSendException("Evidently got problems sending out the JMS message after having"
-                        + " run the process lambda and potentially committed other resources, typically database.", e);
+            catch (MatsRefuseMessageException | JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException e) {
+                // Just record this for interceptor (but the original undeclared Exception, which is the
+                // cause)..
+                throwableResult = e.getCause();
+                // .. and throw on out
+                // NOTE: In an initiation, a MatsRefuseMessageException is NOT declared!
+                throw new JmsMatsInitiationRaisedUndeclaredCheckedException("Undeclared checked Exception"
+                        + " [" + e.getCause().getClass().getName() + "] from initiation lambda.", e);
             }
-            catch (JmsMatsJmsException e) {
-                // Catch any JmsMatsJmsException, as that indicates that there was a problem with JMS - so we should
-                // "crash" the JmsSessionHolder to signal that the JMS Connection is probably broken.
-                // Notice that we shall NOT have committed "external resources" at this point, meaning database.
+            catch (JmsMatsMessageSendException e) {
+                /*
+                 * This is the special situation which is the "VERY BAD!" scenario, i.e. DB was committed, but JMS was
+                 * not, which is .. very bad. JmsMatsMessageSendException is a JmsMatsJmsException, and that indicates
+                 * that there was a problem with JMS - so we should "crash" the JmsSessionHolder to signal that the JMS
+                 * Connection is probably broken.
+                 */
+                // :: Create the API-level Exception for this situation, so that interceptor will get that.
+                MatsMessageSendException rethrow = new MatsMessageSendException("Evidently got problems sending out"
+                        + " the JMS message after having run the process lambda and potentially committed other"
+                        + " resources, typically database.", e);
+                // Record for interceptor
+                throwableResult = rethrow;
+                // Crash the JMS Session
                 jmsSessionHolder.crashed(e);
-                // .. then throw on. This is a lesser evil than JmsMatsMessageSendException, as it probably have
-                // happened before we committed database etc.
-                throw new MatsBackendException("Evidently have problems talking with our backend, which is a JMS"
-                        + " Broker.", e);
+                // TODO: Do retries if it fails!
+                // .. and throw on out
+                throw rethrow;
+            }
+            catch (JmsMatsException e) {
+                /*
+                 * Catch any other JmsMatsException, as that most probably indicates that there was some serious problem
+                 * with JMS - so we should "crash" the JmsSessionHolder to signal that the JMS Connection is probably
+                 * broken. This is a lesser evil than JmsMatsMessageSendException (aka "VERY BAD!"), as we've not
+                 * committed neither DB nor JMS.
+                 */
+                // :: Create the API-level Exception for this situation, so that interceptor will get that.
+                MatsBackendException rethrow = new MatsBackendException("Evidently have problems talking with our"
+                        + " backend, which is a JMS Broker.", e);
+                // Record for interceptor
+                throwableResult = rethrow;
+                // Crash the JMS Session
+                jmsSessionHolder.crashed(e);
+                // .. and throw on out
+                throw rethrow;
+            }
+            catch (RuntimeException | Error e) {
+                // Just record this for interceptor..
+                throwableResult = e;
+                // .. and throw on out
+                throw e;
             }
             finally {
-                jmsSessionHolder.release();
+                jmsSessionHolder.release(); // <- handles if has already been crashed()
                 JmsMatsContextLocalCallback.unbindResource(MatsInitiate.class);
-                _parentFactory.clearCurrentThreadLocalMatsDemarcation();
+                _parentFactory.clearCurrentMatsFactoryThreadLocalMatsDemarcation();
+
+                long nanosTaken_TotalStartInitToFinished = System.nanoTime() - nanosAtStart_Init;
+
+                // === Invoke any interceptors, stage "Completed"
+                InitiateCompletedContextImpl initiateCompletedContext = new InitiateCompletedContextImpl(
+                        interceptContext,
+                        nanosTaken_UserLambda[0],
+                        nanosTaken_totalEnvelopeSerialization[0],
+                        internalExecutionContext.getDbCommitNanos(),
+                        nanosTaken_totalProduceAndSendMsgSysMessages[0],
+                        internalExecutionContext.getMessageSystemCommitNanos(),
+                        nanosTaken_TotalStartInitToFinished,
+                        throwableResult,
+                        Collections.unmodifiableList(messagesToSend));
+                // Go through interceptors "backwards" for this exit-style stage
+                for (int i = interceptorsForInitiation.size() - 1; i >= 0; i--) {
+                    interceptorsForInitiation.get(i).initiateCompleted(initiateCompletedContext);
+                }
             }
         }
         finally {
-
             // :: Restore MDC
-            MDC.remove(MDC_MATS_INITIATE);
+            // ?: Was "mats.Init" set?
+            if (existingMatsInit == null) {
+                // -> No, so clear it.
+                MDC.remove(MDC_MATS_INIT);
+            }
+            // ?: Was traceId set?
             if (existingTraceId != null) {
+                // -> Yes, so restore it.
                 MDC.put(MDC_TRACE_ID, existingTraceId);
             }
             else {
+                // -> No, so clear it.
                 MDC.remove(MDC_TRACE_ID);
+            }
+        }
+    }
+
+    private void concatAllTraceIds(List<JmsMatsMessage<Z>> messagesToSend) {
+        String traceId = messagesToSend.stream()
+                .map(m -> m.getMatsTrace().getTraceId())
+                .distinct()
+                .collect(Collectors.joining(";"));
+        MDC.put(MDC_TRACE_ID, traceId);
+    }
+
+    private static class JmsMatsInitiationRaisedUndeclaredCheckedException extends RuntimeException {
+        public JmsMatsInitiationRaisedUndeclaredCheckedException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    private void invokeInitiateMessageInterceptors(List<MatsInitiateInterceptor> interceptorsForInitiation,
+            InitiateContextImpl interceptContext,
+            JmsMatsInitiate<Z> initiate, List<JmsMatsMessage<Z>> messagesToSend) {
+        // :: Find the Message interceptors. Goddamn why is there no stream.filter[InstanceOf](Clazz.class)?
+        List<MatsInitiateMessageInterceptor> messageInterceptors = interceptorsForInitiation.stream()
+                .filter(MatsInitiateMessageInterceptor.class::isInstance)
+                .map(MatsInitiateMessageInterceptor.class::cast)
+                .collect(Collectors.toList());
+        if (!messageInterceptors.isEmpty()) {
+            boolean[] cancelled = new boolean[1];
+            Runnable cancelOutgoingMessage = () -> cancelled[0] = true;
+            // :: So, we go through the messages one by one, invoking each of the message interceptors
+            // NOTE: We COPY the list here and traverse that, so that if the interceptor initiates a new
+            // message, we won't get a ConcurrentModificationException.
+            List<JmsMatsMessage<Z>> copy = new ArrayList<>(messagesToSend);
+            for (JmsMatsMessage<Z> matsMessage : copy) {
+                InitiateInterceptOutgoingMessagesContextImpl
+                        initiateMessageContext = new InitiateInterceptOutgoingMessagesContextImpl(
+                        interceptContext, initiate, matsMessage, cancelOutgoingMessage);
+                // Set correct traceId for the current matsMessage
+                MDC.put(MDC_TRACE_ID, matsMessage.getTraceId());
+                // The matsMessage isn't cancelled so far..!
+                cancelled[0] = false;
+                // Iterate through the interceptors, "showing" the matsMessage.
+                for (MatsInitiateMessageInterceptor messageInterceptor : messageInterceptors) {
+                    // :: Invoke the interceptor
+                    // NOTICE: If the interceptor initiates a new matsMessage, this will NOT be be run
+                    // through neither this interceptor, nor any of the others.
+                    messageInterceptor.interceptInitiateOutgoingMessages(initiateMessageContext);
+                    // ?: Did the interceptor invoke "cancel"?
+                    if (cancelled[0]) {
+                        // -> Yes, cancel was invoked.
+                        // Remove this matsMessage from the outgoing list
+                        messagesToSend.remove(matsMessage);
+                        // Don't invoke more messageInterceptors for this matsMessage.
+                        break;
+                    }
+                }
             }
         }
     }
@@ -203,6 +416,211 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         return idThis();
     }
 
+    /**
+     * Implementation of {@link InitiateContext}.
+     */
+    static class InitiateContextImpl implements InitiateContext {
+        private final MatsInitiator _matsInitiator;
+        private final Instant _startedInstant;
+
+        public InitiateContextImpl(MatsInitiator matsInitiator, Instant startedInstant) {
+            _matsInitiator = matsInitiator;
+            _startedInstant = startedInstant;
+        }
+
+        @Override
+        public MatsInitiator getMatsInitiator() {
+            return _matsInitiator;
+        }
+
+        @Override
+        public Instant getStartedInstant() {
+            return _startedInstant;
+        }
+    }
+
+    static class InitiateStartedContextImpl implements InitiateStartedContext {
+        private final InitiateContextImpl _initiationInterceptContext;
+        private final MatsInitiate _matsInitiate;
+
+        public InitiateStartedContextImpl(
+                InitiateContextImpl initiationInterceptContext, MatsInitiate matsInitiate) {
+            _initiationInterceptContext = initiationInterceptContext;
+            _matsInitiate = matsInitiate;
+        }
+
+        @Override
+        public MatsInitiator getMatsInitiator() {
+            return _initiationInterceptContext.getMatsInitiator();
+        }
+
+        @Override
+        public Instant getStartedInstant() {
+            return _initiationInterceptContext.getStartedInstant();
+        }
+
+        @Override
+        public void initiate(InitiateLambda lambda) {
+            lambda.initiate(_matsInitiate);
+        }
+    }
+
+    static class InitiateInterceptUserLambdaContextImpl implements InitiateInterceptUserLambdaContext {
+        private final InitiateContextImpl _initiationInterceptContext;
+        private final MatsInitiate _matsInitiate;
+
+        public InitiateInterceptUserLambdaContextImpl(
+                InitiateContextImpl initiationInterceptContext, MatsInitiate matsInitiate) {
+            _initiationInterceptContext = initiationInterceptContext;
+            _matsInitiate = matsInitiate;
+        }
+
+        @Override
+        public MatsInitiator getMatsInitiator() {
+            return _initiationInterceptContext.getMatsInitiator();
+        }
+
+        @Override
+        public Instant getStartedInstant() {
+            return _initiationInterceptContext.getStartedInstant();
+        }
+
+        @Override
+        public void initiate(InitiateLambda lambda) {
+            lambda.initiate(_matsInitiate);
+        }
+    }
+
+    static class InitiateInterceptOutgoingMessagesContextImpl implements InitiateInterceptOutgoingMessagesContext {
+        private final InitiateContextImpl _initiationInterceptContext;
+        private final MatsInitiate _matsInitiate;
+        private final JmsMatsMessage<?> _matsMessage;
+        private final Runnable _cancelOutgoingMessage;
+
+        public InitiateInterceptOutgoingMessagesContextImpl(
+                InitiateContextImpl initiationInterceptContext, MatsInitiate matsInitiate,
+                JmsMatsMessage<?> matsMessage, Runnable cancelOutgoingMessage) {
+            _initiationInterceptContext = initiationInterceptContext;
+            _matsInitiate = matsInitiate;
+            _matsMessage = matsMessage;
+            _cancelOutgoingMessage = cancelOutgoingMessage;
+        }
+
+        @Override
+        public MatsInitiator getMatsInitiator() {
+            return _initiationInterceptContext.getMatsInitiator();
+        }
+
+        @Override
+        public Instant getStartedInstant() {
+            return _initiationInterceptContext.getStartedInstant();
+        }
+
+        @Override
+        public MatsEditableOutgoingMessage getOutgoingMessage() {
+            return _matsMessage;
+        }
+
+        @Override
+        public void initiate(InitiateLambda lambda) {
+            lambda.initiate(_matsInitiate);
+        }
+
+        @Override
+        public void cancelOutgoingMessage() {
+            _cancelOutgoingMessage.run();
+        }
+    }
+
+    static class InitiateCompletedContextImpl implements InitiateCompletedContext {
+
+        private final InitiateContextImpl _initiationInterceptContext;
+
+        private final long _userLambdaNanos;
+        private final long _envelopeSerializationNanos;
+        private final long _messageSystemMessageProductionAndSendNanos;
+        private final long _dbCommitNanos;
+        private final long _messageSystemCommitNanos;
+        private final long _totalProcessingNanos;
+        private final Throwable _throwable;
+        private final List<MatsSentOutgoingMessage> _messages;
+
+        public InitiateCompletedContextImpl(
+                InitiateContextImpl initiationInterceptContext,
+
+                long userLambdaNanos,
+                long envelopeSerializationNanos,
+                long dbCommitNanos,
+                long messageSystemMessageProductionAndSendNanos,
+                long messageSystemCommitNanos,
+                long totalProcessingNanos,
+
+                Throwable throwable,
+                List<MatsSentOutgoingMessage> messages) {
+            _initiationInterceptContext = initiationInterceptContext;
+
+            _userLambdaNanos = userLambdaNanos;
+            _envelopeSerializationNanos = envelopeSerializationNanos;
+            _messageSystemMessageProductionAndSendNanos = messageSystemMessageProductionAndSendNanos;
+            _dbCommitNanos = dbCommitNanos;
+            _messageSystemCommitNanos = messageSystemCommitNanos;
+            _totalProcessingNanos = totalProcessingNanos;
+
+            _throwable = throwable;
+            _messages = messages;
+        }
+
+        @Override
+        public MatsInitiator getMatsInitiator() {
+            return _initiationInterceptContext.getMatsInitiator();
+        }
+
+        @Override
+        public Instant getStartedInstant() {
+            return _initiationInterceptContext.getStartedInstant();
+        }
+
+        @Override
+        public long getUserLambdaNanos() {
+            return _userLambdaNanos;
+        }
+
+        @Override
+        public long getSumEnvelopeSerializationAndCompressionNanos() {
+            return _envelopeSerializationNanos;
+        }
+
+        @Override
+        public long getDbCommitNanos() {
+            return _dbCommitNanos;
+        }
+
+        @Override
+        public long getSumMessageSystemProductionAndSendNanos() {
+            return _messageSystemMessageProductionAndSendNanos;
+        }
+
+        @Override
+        public long getMessageSystemCommitNanos() {
+            return _messageSystemCommitNanos;
+        }
+
+        @Override
+        public long getTotalExecutionNanos() {
+            return _totalProcessingNanos;
+        }
+
+        @Override
+        public Optional<Throwable> getThrowable() {
+            return Optional.ofNullable(_throwable);
+        }
+
+        @Override
+        public List<MatsSentOutgoingMessage> getOutgoingMessages() {
+            return _messages;
+        }
+    }
+
     static class MessageReferenceImpl implements MessageReference {
         private final String _matsMessageId;
 
@@ -213,6 +631,11 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public String getMatsMessageId() {
             return _matsMessageId;
+        }
+
+        @Override
+        public String toString() {
+            return "matsMessageId=" + _matsMessageId;
         }
     }
 
@@ -243,7 +666,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public void initiate(InitiateLambda lambda) throws MatsMessageSendException, MatsBackendException {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
                 // -> Evidently within a Mats demarcation, so use the ThreadLocal MatsInitiate.
@@ -259,7 +682,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         public void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
                 MatsMessageSendRuntimeException {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
                 // -> Evidently within a Mats demarcation, so use the ThreadLocal MatsInitiate.
@@ -274,7 +697,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public void close() {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
                 // -> Evidently within a Mats demarcation, so point this out pretty harshly.
@@ -295,7 +718,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public String toString() {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
             return matsInitiateForNesting.isPresent()
                     ? "[nested-process wrapper of MatsFactory.getDefaultInitiator()]@" + Integer
                             .toHexString(System.identityHashCode(this))
@@ -330,7 +753,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public void initiate(InitiateLambda lambda) throws MatsMessageSendException, MatsBackendException {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
                 // -> Evidently within a Mats demarcation, so fire up a new thread to do the initiation.
@@ -385,7 +808,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         public void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
                 MatsMessageSendRuntimeException {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
                 // -> Evidently within a Mats demarcation, so fire up a new thread to do the initiation.
@@ -433,7 +856,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public void close() {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
                 // -> Evidently within a Mats demarcation, so point this out pretty harshly.
@@ -449,7 +872,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public String toString() {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
             return matsInitiateForNesting.isPresent()
                     ? "[nested-process wrapper of MatsFactory.getDefaultInitiator()]@" + Integer
                             .toHexString(System.identityHashCode(this))

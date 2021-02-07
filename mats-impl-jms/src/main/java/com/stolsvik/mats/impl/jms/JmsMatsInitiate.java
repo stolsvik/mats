@@ -4,7 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -20,6 +19,7 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsInitiator.MessageReference;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MessageReferenceImpl;
 import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.DispatchType;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsSerializer.DeserializedMatsTrace;
 import com.stolsvik.mats.serial.MatsTrace;
@@ -38,34 +38,37 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
 
     private final JmsMatsFactory<Z> _parentFactory;
     private final List<JmsMatsMessage<Z>> _messagesToSend;
-    private final JmsMatsMessageContext _jmsMatsMessageContext;
+    private final JmsMatsInternalExecutionContext _jmsMatsInternalExecutionContext;
     private final DoAfterCommitRunnableHolder _doAfterCommitRunnableHolder;
 
-    JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
-            JmsMatsMessageContext jmsMatsMessageContext,
-            DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
-        _parentFactory = parentFactory;
-        _messagesToSend = messagesToSend;
-        _jmsMatsMessageContext = jmsMatsMessageContext;
-        _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
+    // :: Only for "within Stage"
+    private final MatsTrace<Z> _existingMatsTrace;
 
-        reset();
+    static <Z> JmsMatsInitiate<Z> createForInitiation(JmsMatsFactory<Z> parentFactory,
+            List<JmsMatsMessage<Z>> messagesToSend, JmsMatsInternalExecutionContext jmsMatsInternalExecutionContext,
+            DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
+        return new JmsMatsInitiate<>(parentFactory, messagesToSend, jmsMatsInternalExecutionContext, doAfterCommitRunnableHolder,
+                null);
     }
 
-    private MatsTrace<Z> _existingMatsTrace;
-    private Map<String, Object> _tracePropertiesSetSoFarInStage;
-
-    JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
-            JmsMatsMessageContext jmsMatsMessageContext,
+    static <Z> JmsMatsInitiate<Z> createForStage(JmsMatsFactory<Z> parentFactory,
+            List<JmsMatsMessage<Z>> messagesToSend, JmsMatsInternalExecutionContext jmsMatsInternalExecutionContext,
             DoAfterCommitRunnableHolder doAfterCommitRunnableHolder,
-            MatsTrace<Z> existingMatsTrace, Map<String, Object> tracePropertiesSetSoFarInStage) {
+            MatsTrace<Z> existingMatsTrace) {
+        return new JmsMatsInitiate<>(parentFactory, messagesToSend, jmsMatsInternalExecutionContext, doAfterCommitRunnableHolder,
+                existingMatsTrace);
+    }
+
+    private JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
+            JmsMatsInternalExecutionContext jmsMatsInternalExecutionContext,
+            DoAfterCommitRunnableHolder doAfterCommitRunnableHolder,
+            MatsTrace<Z> existingMatsTrace) {
         _parentFactory = parentFactory;
         _messagesToSend = messagesToSend;
-        _jmsMatsMessageContext = jmsMatsMessageContext;
+        _jmsMatsInternalExecutionContext = jmsMatsInternalExecutionContext;
         _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
 
         _existingMatsTrace = existingMatsTrace;
-        _tracePropertiesSetSoFarInStage = tracePropertiesSetSoFarInStage;
 
         reset();
     }
@@ -85,25 +88,22 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
     private final LinkedHashMap<String, byte[]> _binaries = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> _strings = new LinkedHashMap<>();
 
+    /**
+     * Invoked to (re)set situation at creation, AND after each of request(..), send(..) or publish(..).
+     */
     private void reset() {
-        // ?: Is this a initiation from within a Stage? (Not via a MatsInitiator "from the outside")
+        // ?: Is this a initiation from within a Stage? (NOT via a MatsInitiator, i.e. NOT "from the outside")
         if (_existingMatsTrace != null) {
             // -> Yes, initiation within a Stage.
             // Set the initial traceId - any setting of TraceId is appended.
             _traceId = _existingMatsTrace.getTraceId();
             // Set the initial from (initiatorId), which is the current processing stage
             _from = _existingMatsTrace.getCurrentCall().getTo().getId();
-
-            // Copy over the properties which so far has been set in the stage (before this message is initiated).
-            // (This is a reset() function, thus we must clear the map in case this is message #x, x>1).
-            _props.clear();
-            _props.putAll(_tracePropertiesSetSoFarInStage);
         }
         else {
             // -> No, this is an initiation from MatsInitiator, i.e. "from the outside".
             _traceId = null;
             _from = null;
-            _props.clear();
         }
 
         // :: Set defaults
@@ -117,7 +117,7 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
         _replyTo = null;
         _replyToSubscription = false;
         _replySto = null;
-        // _props is cleared above
+        _props.clear();
         _binaries.clear();
         _strings.clear();
     }
@@ -241,7 +241,7 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
 
     @Override
     public MessageReference request(Object requestDto, Object initialTargetSto) {
-        long nanosStart = System.nanoTime();
+        long nanosStartProducingOutgoingMessage = System.nanoTime();
         String msg = "All of 'traceId', 'from', 'to' and 'replyTo' must be set when request(..)";
         checkCommon(msg);
         if (_replyTo == null) {
@@ -249,26 +249,96 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
         }
         MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
         long now = System.currentTimeMillis();
-        MatsTrace<Z> matsTrace = createMatsTrace(ser, now)
+        MatsTrace<Z> requestMatsTrace = createMatsTrace(ser, now)
                 .addRequestCall(_from, _to, MessagingModel.QUEUE,
                         _replyTo, (_replyToSubscription ? MessagingModel.TOPIC : MessagingModel.QUEUE),
                         ser.serializeObject(requestDto),
                         ser.serializeObject(_replySto),
                         ser.serializeObject(initialTargetSto));
-        addDebugInfoToCurrentCall(now, matsTrace);
+        produceMessage(requestDto, initialTargetSto, nanosStartProducingOutgoingMessage, now, requestMatsTrace);
 
-        copyOverAnyExistingTraceProperties(matsTrace);
+        return new MessageReferenceImpl(requestMatsTrace.getCurrentCall().getMatsMessageId());
+    }
 
-        // Produce the new REQUEST JmsMatsMessage to send
-        JmsMatsMessage<Z> request = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
-                matsTrace, _props, _binaries, _strings, "new REQUEST",
-                _parentFactory.getFactoryConfig().getName());
-        _messagesToSend.add(request);
+    @Override
+    public MessageReference send(Object messageDto) {
+        return send(messageDto, null);
+    }
+
+    @Override
+    public MessageReference send(Object messageDto, Object initialTargetSto) {
+        long nanosStart = System.nanoTime();
+        String msg = "All of 'traceId', 'from' and 'to' must be set, and 'replyTo' not set, when send(..)";
+        checkCommon(msg);
+        if (_replyTo != null) {
+            throw new IllegalArgumentException(msg + ": 'replyTo' is set.");
+        }
+
+        MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
+        long now = System.currentTimeMillis();
+        MatsTrace<Z> sendMatsTrace = createMatsTrace(ser, now)
+                .addSendCall(_from, _to, MessagingModel.QUEUE,
+                        ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
+        produceMessage(messageDto, initialTargetSto, nanosStart, now, sendMatsTrace);
+
+        return new MessageReferenceImpl(sendMatsTrace.getCurrentCall().getMatsMessageId());
+    }
+
+    @Override
+    public MessageReference publish(Object messageDto) {
+        return publish(messageDto, null);
+    }
+
+    @Override
+    public MessageReference publish(Object messageDto, Object initialTargetSto) {
+        long nanosStart = System.nanoTime();
+        String msg = "All of 'traceId', 'from' and 'to' must be set, and 'replyTo' not set, when publish(..)";
+        checkCommon(msg);
+        if (_replyTo != null) {
+            throw new IllegalArgumentException(msg + ": 'replyTo' is set.");
+        }
+        MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
+        long now = System.currentTimeMillis();
+        MatsTrace<Z> publishMatsTrace = createMatsTrace(ser, now)
+                .addSendCall(_from, _to, MessagingModel.TOPIC,
+                        ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
+        produceMessage(messageDto, initialTargetSto, nanosStart, now, publishMatsTrace);
+
+        return new MessageReferenceImpl(publishMatsTrace.getCurrentCall().getMatsMessageId());
+    }
+
+    private void produceMessage(Object messageDto, Object initialTargetSto, long nanosStartProducingOutgoingMessage,
+            long now, MatsTrace<Z> outgoingMatsTrace) {
+        Call<Z> currentCall = outgoingMatsTrace.getCurrentCall();
+
+        currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
+                _parentFactory.getFactoryConfig().getAppVersion(),
+                _parentFactory.getFactoryConfig().getNodename(), now,
+                createMatsMessageId(outgoingMatsTrace.getFlowId(), now, now, outgoingMatsTrace.getCallNumber()),
+                "#init#");
+
+        // ?: Do we have an existing MatsTrace (implying that we are being initiated within a Stage)
+        if (_existingMatsTrace != null) {
+            // -> Yes, so copy over existing Trace Properties
+            for (String key : _existingMatsTrace.getTracePropertyKeys()) {
+                outgoingMatsTrace.setTraceProperty(key, _existingMatsTrace.getTraceProperty(key));
+            }
+        }
+
+        // Produce the new PUBLISH JmsMatsMessage to send
+        JmsMatsMessage<Z> publish = JmsMatsMessage.produceMessage(getProcessType(), nanosStartProducingOutgoingMessage,
+                _parentFactory.getMatsSerializer(), outgoingMatsTrace,
+                messageDto, initialTargetSto, _replySto, _props, _binaries, _strings);
+        _messagesToSend.add(publish);
 
         // Reset, in preparation for more messages
+        // Note: Props, Binaries and Strings are cleared (but copied off by the produceMessage(..) call)
         reset();
+    }
 
-        return new MessageReferenceImpl(matsTrace.getCurrentCall().getMatsMessageId());
+    private DispatchType getProcessType() {
+        // If we have an existing MatsTrace, it is because we're initiating within a Stage, otherwise "outside".
+        return _existingMatsTrace != null ? DispatchType.STAGE_INIT : DispatchType.INIT;
     }
 
     private MatsTrace<Z> createMatsTrace(MatsSerializer<Z> ser, long now) {
@@ -285,76 +355,6 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
                         _parentFactory.getFactoryConfig().getNodename(), _from, now, debugInfo);
     }
 
-    private void addDebugInfoToCurrentCall(long now, MatsTrace<Z> matsTrace) {
-        Call<Z> currentCall = matsTrace.getCurrentCall();
-
-        currentCall.setDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
-                _parentFactory.getFactoryConfig().getAppVersion(),
-                _parentFactory.getFactoryConfig().getNodename(), now,
-                createMatsMessageId(matsTrace.getFlowId(), now, now, matsTrace.getCallNumber()),
-                "#init#");
-    }
-
-    @Override
-    public MessageReference send(Object messageDto) {
-        return send(messageDto, null);
-    }
-
-    @Override
-    public MessageReference send(Object messageDto, Object initialTargetSto) {
-        long nanosStart = System.nanoTime();
-        checkCommon("All of 'traceId', 'from' and 'to' must be set when send(..)");
-        MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
-        long now = System.currentTimeMillis();
-        MatsTrace<Z> matsTrace = createMatsTrace(ser, now)
-                .addSendCall(_from, _to, MessagingModel.QUEUE,
-                        ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
-        addDebugInfoToCurrentCall(now, matsTrace);
-
-        copyOverAnyExistingTraceProperties(matsTrace);
-
-        // Produce the new SEND JmsMatsMessage to send
-        JmsMatsMessage<Z> send = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
-                matsTrace, _props, _binaries, _strings, "new SEND",
-                _parentFactory.getFactoryConfig().getName());
-        _messagesToSend.add(send);
-
-        // Reset, in preparation for more messages
-        reset();
-
-        return new MessageReferenceImpl(matsTrace.getCurrentCall().getMatsMessageId());
-    }
-
-    @Override
-    public MessageReference publish(Object messageDto) {
-        return publish(messageDto, null);
-    }
-
-    @Override
-    public MessageReference publish(Object messageDto, Object initialTargetSto) {
-        long nanosStart = System.nanoTime();
-        checkCommon("All of 'traceId', 'from' and 'to' must be set when publish(..)");
-        MatsSerializer<Z> ser = _parentFactory.getMatsSerializer();
-        long now = System.currentTimeMillis();
-        MatsTrace<Z> matsTrace = createMatsTrace(ser, now)
-                .addSendCall(_from, _to, MessagingModel.TOPIC,
-                        ser.serializeObject(messageDto), ser.serializeObject(initialTargetSto));
-        addDebugInfoToCurrentCall(now, matsTrace);
-
-        copyOverAnyExistingTraceProperties(matsTrace);
-
-        // Produce the new PUBLISH JmsMatsMessage to send
-        JmsMatsMessage<Z> publish = produceJmsMatsMessage(log, nanosStart, _parentFactory.getMatsSerializer(),
-                matsTrace, _props, _binaries, _strings, "new PUBLISH",
-                _parentFactory.getFactoryConfig().getName());
-        _messagesToSend.add(publish);
-
-        // Reset, in preparation for more messages
-        reset();
-
-        return new MessageReferenceImpl(matsTrace.getCurrentCall().getMatsMessageId());
-    }
-
     @Override
     public <R, S, I> void unstash(byte[] stash,
             Class<R> replyClass, Class<S> stateClass, Class<I> incomingClass,
@@ -366,7 +366,7 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
             throw new NullPointerException("byte[] stash");
         }
 
-        // :: Validate that this is a "MATSjmts" v.1 stash.
+        // :: Validate that this is a "MATSjmts" v.1 stash. ("jmts" -> "Jms MatsTrace Serializer")
         validateByte(stash, 0, 77);
         validateByte(stash, 1, 65);
         validateByte(stash, 2, 84);
@@ -441,12 +441,11 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
                 + "], NextStageId:[" + nextStageId + "] - deserializing took ["
                 + millisDeserializing + " ms]");
 
-        LinkedHashMap<String, Object> outgoingProps = new LinkedHashMap<>();
-        Supplier<MatsInitiate> initiateSupplier = () -> new JmsMatsInitiate<>(_parentFactory,
-                _messagesToSend, _jmsMatsMessageContext, _doAfterCommitRunnableHolder,
-                matsTrace, outgoingProps);
+        Supplier<MatsInitiate> initiateSupplier = () -> JmsMatsInitiate.createForStage(_parentFactory,
+                _messagesToSend, _jmsMatsInternalExecutionContext, _doAfterCommitRunnableHolder,
+                matsTrace);
 
-        _parentFactory.setCurrentThreadLocalMatsDemarcation(initiateSupplier);
+        _parentFactory.setCurrentMatsFactoryThreadLocalMatsDemarcation(initiateSupplier);
 
         // :: Invoke the process lambda (the actual user code).
         try {
@@ -460,8 +459,7 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
                     matsTraceMeta, matsTrace,
                     currentSto, initiateSupplier,
                     new LinkedHashMap<>(), new LinkedHashMap<>(),
-                    _messagesToSend, _jmsMatsMessageContext,
-                    outgoingProps,
+                    _messagesToSend, _jmsMatsInternalExecutionContext,
                     _doAfterCommitRunnableHolder);
 
             JmsMatsContextLocalCallback.bindResource(ProcessContext.class, processContext);
@@ -474,7 +472,7 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
                     + " stash()'ing it.", e);
         }
         finally {
-            _parentFactory.clearCurrentThreadLocalMatsDemarcation();
+            _parentFactory.clearCurrentMatsFactoryThreadLocalMatsDemarcation();
             JmsMatsContextLocalCallback.unbindResource(ProcessContext.class);
         }
 
@@ -488,7 +486,7 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
         // ?: Is this a query for SQL Connection, without any names?
         if ((type == Connection.class) && (name.length == 0)) {
             // -> Yes, then it is the default transactional SQL Connection.
-            return (Optional<T>) _jmsMatsMessageContext.getSqlConnection();
+            return (Optional<T>) _jmsMatsInternalExecutionContext.getSqlConnection();
         }
         return Optional.empty();
     }
@@ -512,16 +510,6 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
         catch (ArrayIndexOutOfBoundsException e) {
             throw new IllegalArgumentException("The stash byte array does not contain the zeros I expected,"
                     + " starting from index [" + fromIndex + "]");
-        }
-    }
-
-    private void copyOverAnyExistingTraceProperties(MatsTrace<Z> matsTrace) {
-        // ?: Do we have an existing MatsTrace (implying that we are being initiated within a Stage)
-        if (_existingMatsTrace != null) {
-            // -> Yes, so copy over existing Trace Properties
-            for (String key : _existingMatsTrace.getTracePropertyKeys()) {
-                matsTrace.setTraceProperty(key, _existingMatsTrace.getTraceProperty(key));
-            }
         }
     }
 
