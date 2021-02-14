@@ -251,8 +251,13 @@ public abstract class AbstractMatsTest<Z> {
         // Set name
         matsFactory.getFactoryConfig().setName(this.getClass().getSimpleName());
 
-        // For all test scenarios, it makes no sense to have a concurrency more than 1, unless explicitly testing that.
-        matsFactory.getFactoryConfig().setConcurrency(1);
+        /*
+         * For most test scenarios, it really makes little meaning to have a concurrency of more than 1 - unless
+         * explicitly testing Mats' handling of concurrency. However, due to some testing scenarios might come to rely
+         * on such sequential processing, we set it to 2, to try to weed out such dependencies - hopefully tests will
+         * (at least occasionally) fail by two consumers each getting a message and thus processing them concurrently.
+         */
+        matsFactory.getFactoryConfig().setConcurrency(2);
         // Add it to the list of created MatsFactories.
         _createdMatsFactories.add(matsFactory);
         return matsFactory;
