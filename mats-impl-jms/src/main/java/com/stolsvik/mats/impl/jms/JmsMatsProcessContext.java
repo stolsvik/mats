@@ -147,6 +147,11 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     }
 
     @Override
+    public String getInitiatorId() {
+        return _incomingMatsTrace.getInitiatorId();
+    }
+
+    @Override
     public String getMatsMessageId() {
         return _incomingMatsTrace.getCurrentCall().getMatsMessageId();
     }

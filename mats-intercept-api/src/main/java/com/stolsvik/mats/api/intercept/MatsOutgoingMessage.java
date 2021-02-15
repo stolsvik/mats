@@ -14,7 +14,7 @@ import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContex
  */
 public interface MatsOutgoingMessage {
 
-    // ===== Flow Ids and properties
+    // ===== Flow Ids and Flow properties
 
     String getTraceId();
 
@@ -27,6 +27,12 @@ public interface MatsOutgoingMessage {
     boolean isInteractive();
 
     boolean isNoAudit();
+
+    String getInitiatingAppName();
+
+    String getInitiatingAppVersion();
+
+    String getInitiatorId();
 
     // ===== Message Ids and properties
 

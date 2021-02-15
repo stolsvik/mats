@@ -41,8 +41,8 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
         /**
          * Each initiator gets its own JSM Connection. Notice that due to the prevalent use of
-         * {@link MatsFactory#getDefaultInitiator()}, this is often equivalent to {@link #FACTORY}.
-         * (However, each instance of the utility <code>MatsFuturizer</code> creates its own initiator).
+         * {@link MatsFactory#getDefaultInitiator()}, this is often equivalent to {@link #FACTORY}. (However, each
+         * instance of the utility <code>MatsFuturizer</code> creates its own initiator).
          */
         INITIATOR
     }
@@ -161,14 +161,14 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
     @Override
     public int closeAllAvailableSessions() {
-        log.info(LOG_PREFIX + "Closing all available SessionHolders in all pools,"
-                + " thus hoping to close all JMS Connections.");
-        int liveConnectionsBefore;
+        log.info(LOG_PREFIX + "Closing all available SessionHolders in all ConnectionWithPools,"
+                + " thus hoping to close all JMS Connections (Note: Each Session pool has a single Connection).");
+        int liveConnectionsWithPoolBefore;
         int availableSessionsNowClosed = 0;
-        int liveConnectionsAfter;
+        int liveConnectionsWithPoolAfter;
         int employedSessions = 0;
         synchronized (this) {
-            liveConnectionsBefore = _connectionWithSessionPools_live.size();
+            liveConnectionsWithPoolBefore = _connectionWithSessionPools_live.size();
             // Copying over the liveConnections, since it hopefully will be modified.
             ArrayList<ConnectionWithSessionPool> connWithSessionPools = new ArrayList<>(_connectionWithSessionPools_live
                     .values());
@@ -189,14 +189,15 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
 
             // ----- Closed all available JmsSessionHolders
 
-            liveConnectionsAfter = _connectionWithSessionPools_live.size();
+            liveConnectionsWithPoolAfter = _connectionWithSessionPools_live.size();
         }
-        log.info(LOG_PREFIX + " \\- Before closing: Live *Connections*:[" + liveConnectionsBefore
-                + "] with total Employed Sessions: [" + employedSessions + "] and total Available Sessions:["
-                + availableSessionsNowClosed + "] ## All Available Sessions closed, Employed Sessions keeps back its"
-                + " pool, resulting in Live *Connections*:[" + liveConnectionsAfter + "].");
+        log.info(LOG_PREFIX + " \\- Before closing: Live ConnectionWithPools:[" + liveConnectionsWithPoolBefore
+                + "] with total Employed Sessions:[" + employedSessions + "], and total Available Sessions:["
+                + availableSessionsNowClosed + "] -> After: All Available Sessions closed, resulting in Live"
+                + " ConnectionWithPools:[" + liveConnectionsWithPoolAfter + "]. NOTE: Employed Sessions hinders their"
+                + " ConnectionWithPool and thus the pool's JMS Connection from being closed.");
 
-        return liveConnectionsAfter;
+        return liveConnectionsWithPoolAfter;
     }
 
     protected JmsSessionHolder getSessionHolder_internal(JmsMatsTxContextKey txContextKey) throws JmsMatsJmsException {
@@ -566,7 +567,7 @@ public class JmsMatsJmsSessionHandler_Pooling implements JmsMatsJmsSessionHandle
                 }
             }
             if (ret) {
-                log.info(LOG_PREFIX + "Pool was empty of Sessions, so removed it from the pool-sets ["+this+"].");
+                log.info(LOG_PREFIX + "Pool was empty of Sessions, so removed it from the pool-sets [" + this + "].");
             }
             return ret;
         }

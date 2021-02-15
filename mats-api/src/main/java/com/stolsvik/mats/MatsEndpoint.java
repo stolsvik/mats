@@ -300,23 +300,29 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
 
         /**
          * @return the stageId from which the currently processing message came. Note that the stageId of the initial
-         *         stage of an endpoint is equal to the endpointId.
+         *         stage of an endpoint is equal to the endpointId. If this endpoint is the initial target of the
+         *         initiation, this value is equal to {@link #getInitiatorId()}.
          */
         String getFromStageId();
 
         /**
          * @return the {@link FactoryConfig#getAppName() AppName} of the MatsFactory that initiated the Flow which the
-         *         currently processing is a part of. Thus, if this endpoint is the actual target of the initiation,
+         *         currently processing is a part of. Thus, if this endpoint is the initial target of the initiation,
          *         this value is equal to {@link #getFromAppName()}.
          */
         String getInitiatingAppName();
 
         /**
-         * @return the {@link FactoryConfig#getAppVersion() AppVersion} of the MatsFactory from which the currently
-         *         processing message came. Thus, if this endpoint is the actual target of the initiation, this value is
-         *         equal to {@link #getFromAppVersion()}.
+         * @return the {@link FactoryConfig#getAppVersion() AppVersion} of the MatsFactory that initiated the Flow which
+         *         the currently processing is a part of. Thus, if this endpoint is the initial target of the initiation,
+         *         this value is equal to {@link #getFromAppVersion()}.
          */
         String getInitiatingAppVersion();
+
+        /**
+         * @return the "initiatorId" set by the initiation with {@link MatsInitiate#from(String)}.
+         */
+        String getInitiatorId();
 
         /**
          * @return the unique messageId for the incoming message from Mats - which can be used to catch
@@ -872,6 +878,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         @Override
         public String getInitiatingAppVersion() {
             return unwrap().getInitiatingAppVersion();
+        }
+
+        @Override
+        public String getInitiatorId() {
+            return unwrap().getInitiatorId();
         }
 
         @Override

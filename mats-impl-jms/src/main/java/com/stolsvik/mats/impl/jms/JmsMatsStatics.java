@@ -42,27 +42,33 @@ public interface JmsMatsStatics {
 
     // ::: MDC-values. Using "mats." prefix for the Mats-specific parts of MDC
 
+    String MDC_MATS_APP_NAME = "mats.AppName";
+    String MDC_MATS_APP_VERSION = "mats.AppVersion";
+
     // Whether we're talking Init, or Stage, or Init within Stage:
-    String MDC_MATS_INIT = "mats.Init";
-    String MDC_MATS_STAGE = "mats.Stage"; // "Static" on Stage Processor threads
+    String MDC_MATS_INIT = "mats.Init"; // 'true' on any loglines involving Initialization (also within Stages)
+    String MDC_MATS_STAGE = "mats.Stage"; // "Static" 'true' on Stage Processor threads
 
     // :: Stage
 
     String MDC_MATS_STAGE_ID = "mats.StageId"; // "Static" on Stage Processor threads
-    String MDC_MATS_PROCESSOR_ID = "mats.ProcessorId"; // "Static" on Stage Processor threads
 
-    String MDC_MATS_IN_FROM = "mats.in.From"; // Set by stage Processor when receiving a message
-    // NOTICE: NOT using MDC_MATS_IN_TO, as that is identical to MDC_MATS_STAGE_ID
-    String MDC_MATS_IN_MATS_MESSAGE_ID = "mats.in.MatsMessageId"; // Set by Processor when receiving a message
-    String MDC_MATS_IN_SYS_MESSAGE_ID = "mats.in.SystemMessageId"; // Set by Processor when receiving a message
+    // .. Set by Processor when receiving a message:
+    String MDC_MATS_IN_INIT_APP_NAME = "mats.in.init.App";
+    String MDC_MATS_IN_INIT_ID = "mats.in.init.Id"; // InitiatorId
+    String MDC_MATS_IN_FROM_APP_NAME = "mats.in.from.App";
+    String MDC_MATS_IN_FROM_ID = "mats.in.from.Id";
+    // NOTICE: NOT using MDC_MATS_IN_TO_APP, as that is identical to MDC_MATS_APP_NAME
+    // NOTICE: NOT using MDC_MATS_IN_TO_ID, as that is identical to MDC_MATS_STAGE_ID
+    String MDC_MATS_IN_MATS_MESSAGE_ID = "mats.in.MatsMsgId";
+    String MDC_MATS_IN_MESSAGE_SYSTEM_ID = "mats.in.MsgSysId";
     String MDC_MATS_IN_AUDIT = "mats.in.Audit";
     String MDC_MATS_IN_PERSISTENT = "mats.in.Persistent";
 
     // :: Message Out
 
     // NOTICE: Same on MatsMetricsLoggingInterceptor
-    String MDC_MATS_OUT_MATS_MESSAGE_ID = "mats.out.MatsMessageId"; // Set when producing and sending a message
-    String MDC_MATS_OUT_SYS_MESSAGE_ID = "mats.out.SystemMessageId"; // Set when a message *has been sent* on MsgSys
+    String MDC_MATS_OUT_MATS_MESSAGE_ID = "mats.out.MatsMsgId"; // Set when producing message
 
 
     // JMS Properties put on the JMSMessage via set[String|Long|Boolean]Property(..)
@@ -153,9 +159,6 @@ public interface JmsMatsStatics {
                 // :: Send the message (but since transactional, won't be committed until TransactionContext does).
                 messageProducer.send(destination, mm, deliveryMode, priority, timeToLive);
 
-                // We now have a JMSMessageID, so set it on MDC for outgoing.
-                MDC.put(MDC_MATS_OUT_SYS_MESSAGE_ID, mm.getJMSMessageID());
-
                 // Log it.
                 long nanosTaken_ProduceAndSendSingleJmsMessage = System.nanoTime()
                         - nanosStart_ProduceAndSendSingleJmsMessage;
@@ -186,7 +189,6 @@ public interface JmsMatsStatics {
                 }
                 // The rest..
                 MDC.remove(MDC_MATS_OUT_MATS_MESSAGE_ID);
-                MDC.remove(MDC_MATS_OUT_SYS_MESSAGE_ID);
             }
         }
     }

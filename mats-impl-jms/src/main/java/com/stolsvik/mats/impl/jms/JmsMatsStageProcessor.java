@@ -380,7 +380,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                 matsTraceMeta = mapMessage.getString(matsTraceKey
                                         + MatsSerializer.META_KEY_POSTFIX);
                                 jmsMessageId = mapMessage.getJMSMessageID();
-                                MDC.put(MDC_MATS_IN_SYS_MESSAGE_ID, jmsMessageId);
+                                MDC.put(MDC_MATS_IN_MESSAGE_SYSTEM_ID, jmsMessageId);
 
                                 // Fetching the TraceId early from the JMS Message for MDC, so that can follow in logs.
                                 String jmsTraceId = mapMessage.getStringProperty(JMS_MSG_PROP_TRACE_ID);
@@ -463,10 +463,13 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
                             // :: Setting MDC values from MatsTrace
                             MDC.put(MDC_TRACE_ID, matsTrace.getTraceId());
+                            MDC.put(MDC_MATS_IN_INIT_APP_NAME, matsTrace.getInitializingAppName());
+                            MDC.put(MDC_MATS_IN_INIT_ID, matsTrace.getInitiatorId());
+                            MDC.put(MDC_MATS_IN_FROM_APP_NAME, matsTrace.getCurrentCall().getCallingAppName());
+                            MDC.put(MDC_MATS_IN_FROM_ID, matsTrace.getCurrentCall().getFrom());
+                            MDC.put(MDC_MATS_IN_MATS_MESSAGE_ID, matsTrace.getCurrentCall().getMatsMessageId());
                             MDC.put(MDC_MATS_IN_AUDIT, Boolean.toString(!matsTrace.isNoAudit()));
                             MDC.put(MDC_MATS_IN_PERSISTENT, Boolean.toString(!matsTrace.isNonPersistent()));
-                            MDC.put(MDC_MATS_IN_FROM, matsTrace.getCurrentCall().getFrom());
-                            MDC.put(MDC_MATS_IN_MATS_MESSAGE_ID, matsTrace.getCurrentCall().getMatsMessageId());
 
                             // :: Current Call
                             Call<Z> currentCall = matsTrace.getCurrentCall();
@@ -982,9 +985,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         MDC.put(MDC_MATS_STAGE, "true");
         // Set the "static" values again
         MDC.put(MDC_MATS_STAGE_ID, _jmsMatsStage.getStageId());
-        // Notice that this is the qualifier of processor id, needs to take the stageId as prefix.
-        // .. but to save some space, we don't repeat that.
-        MDC.put(MDC_MATS_PROCESSOR_ID, "#" + _processorNumber + "{" + _randomInstanceId + '}');
+        MDC.put(MDC_MATS_APP_NAME, _jmsMatsStage.getParentFactory().getFactoryConfig().getAppName());
+        MDC.put(MDC_MATS_APP_VERSION, _jmsMatsStage.getParentFactory().getFactoryConfig().getAppVersion());
     }
 
     private void chillWait(long millis) {

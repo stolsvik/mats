@@ -62,13 +62,13 @@ import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingM
  * 
  * .. then the following sequence of log lines and operations ensues:
  * <ol>
- * <li>First the {@link MatsInitiateInterceptor#initiateStarted(InitiateStartedContext) initiateStarted(..)} are invoked in
- * sequence:</li>
+ * <li>First the {@link MatsInitiateInterceptor#initiateStarted(InitiateStartedContext) initiateStarted(..)} are invoked
+ * in sequence:</li>
  * <li><code>Started #1</code></li>
  * <li><code>Started #2</code></li>
  * <li>Then the initiation goes into the transaction, and a "reverse stack" of lambdas are generated from the two
  * interceptors'
- * {@link MatsInitiateInterceptor#initiateIntercept(InitiateInterceptUserLambdaContext, InitiateLambda, MatsInitiate)
+ * {@link MatsInitiateInterceptInterceptor#interceptInitiateUserLambda(InitiateInterceptUserLambdaContext, InitiateLambda, MatsInitiate)
  * initiateIntercept(..)} methods, and then the resulting lambda is invoked:</li>
  * <li><code>Intercept pre #1</code></li>
  * <li><code>Intercept pre #2</code></li>
@@ -83,8 +83,8 @@ import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingM
  * <li>.. and then the user lambda exits, traversing back up the <code>initiateIntercept(..)</code> stack</li>
  * <li><code>Intercept post #2</code></li>
  * <li><code>Intercept post #1</code></li>
- * <li>Finally, the {link {@link MatsInitiateInterceptor#initiateCompleted(InitiateCompletedContext) initiateComplete(..)} is
- * invoked, in explicit reversed order:</li>
+ * <li>Finally, the {link {@link MatsInitiateInterceptor#initiateCompleted(InitiateCompletedContext)
+ * initiateComplete(..)} is invoked, in explicit reversed order:</li>
  * <li><code>Completed #2</code></li>
  * <li><code>Completed #1</code></li>
  * </ol>
@@ -94,9 +94,10 @@ import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingM
  * from the actual user provided lambda to MatsInitiate.send(..) ends up in what is seemingly the "wrong"
  * <i>sequential</i> order, due to how the interception is logically performed: The #2 is the <i>last</i>
  * initiateIntercept(..) that is invoked, which thus is the code that <i>lastly</i> wraps the MatsInitiate instance, and
- * hence when the user code invokes matsInitiate.send(..), that lastly added wrapping is the first to be executed. What
- * this means, is that you should probably not make severe ordering dependencies between interceptors which depends on
- * wrapping the MatsInitiate instance, as your head will most probably hurt from the ensuing twisted reasoning!
+ * hence when the user code invokes matsInitiate.send(..), that lastly added wrapping is the <i>first</i> to be
+ * executed. What this means, is that you should probably not make severe ordering dependencies between interceptors
+ * which depends on wrapping the MatsInitiate instance, as your head will most probably hurt from the ensuing twisted
+ * reasoning!
  * <p />
  * <b>Note: This is only invoked for proper, actual initiations "from outside of Mats", i.e. using a
  * {@link MatsInitiator} gotten with {@link MatsFactory#getDefaultInitiator()} or

@@ -147,6 +147,7 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
         }
         log.info(JmsMatsStatics.LOG_PREFIX + "Starting all Stages for Endpoint [" + _endpointId + "].");
         _stages.forEach(JmsMatsStage::start);
+        log.info(JmsMatsStatics.LOG_PREFIX + "   \\- All stages started for Endpoint [" + _endpointId + "].");
     }
 
     @Override

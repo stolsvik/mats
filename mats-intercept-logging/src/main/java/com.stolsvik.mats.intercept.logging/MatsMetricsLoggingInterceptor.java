@@ -50,6 +50,8 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
     // ===== For Receiving a message
     public String MDC_MATS_MESSAGE_RECEIVED = "mats.MessageReceived"; // Set on a single logline per received message.
 
+    // NOTICE: Lots of Stage Receive&Processing MDCs are set by the JMS Mats Implementation.
+
     // ... Metrics:
     public String MDC_MATS_IN_TIME_TOTAL_PREPROC_AND_DESERIAL = "mats.in.ms.TotalPreprocDeserial";
     public String MDC_MATS_IN_TIME_MSGSYS_DECONSTRUCT = "mats.in.ms.MsgSysDeconstruct";
@@ -70,13 +72,16 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
     public String MDC_MATS_MESSAGE_SENT = "mats.MessageSent"; // Set "true" on single logline per msg
     public String MDC_MATS_DISPATCH_TYPE = "mats.DispatchType"; // Set on single logline per msg: INIT, STAGE,
                                                                 // STAGE_INIT
-    public String MDC_MATS_OUT_MATS_MESSAGE_ID = "mats.out.MatsMessageId";
-    public String MDC_MATS_OUT_SYS_MESSAGE_ID = "mats.out.SystemMessageId";
+    public String MDC_MATS_OUT_MATS_MESSAGE_ID = "mats.out.MatsMsgId";
+    public String MDC_MATS_OUT_MESSAGE_SYSTEM_ID = "mats.out.MsgSysId";
 
-    public String MDC_MATS_OUT_FROM = "mats.out.From"; // Set when producing and sending a message
-    public String MDC_MATS_OUT_TO = "mats.out.To"; // Set when producing and sending a message
-    public String MDC_MATS_OUT_AUDIT = "mats.out.Audit"; // Set when producing and sending a message
-    public String MDC_MATS_OUT_PERSISTENT = "mats.out.Persistent"; // Set when producing and sending a message
+    public String MDC_MATS_OUT_INIT_APP = "mats.out.init.App";
+    public String MDC_MATS_OUT_INIT_ID = "mats.out.init.Id"; // InitiatorId.
+    // NOT using 'MDC_MATS_OUT_FROM_APP' / "mats.out.from.App", as that is 'this' App, 'MDC_MATS_APP_NAME'.
+    public String MDC_MATS_OUT_FROM_ID = "mats.out.from.Id";  // "this" EndpointId/StageId/InitiatorId.
+    public String MDC_MATS_OUT_TO_ID = "mats.out.to.Id"; // target EndpointId/StageId.
+    public String MDC_MATS_OUT_AUDIT = "mats.out.Audit";
+    public String MDC_MATS_OUT_PERSISTENT = "mats.out.Persistent";
 
     // ... Metrics:
     public String MDC_MATS_OUT_TIME_ENVELOPE_PRODUCE = "mats.out.ms.EnvelopeProduce";
@@ -233,7 +238,7 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
 
             // :: Output the 'completed' line
             completedLog(ctx, LOG_PREFIX + what + " completed" + extraResult, extraBreakdown, extraNanosBreakdown,
-                    outgoingMessages, Level.ERROR, logger, null, "");
+                    outgoingMessages, Level.INFO, logger, null, "");
 
             // :: Output the per-message logline (there might be >1, or 0, messages)
             for (MatsSentOutgoingMessage outgoingMessage : ctx.getOutgoingMessages()) {
@@ -260,10 +265,12 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
             MDC.put(MDC_MATS_DISPATCH_TYPE, msg.getDispatchType().toString());
 
             MDC.put(MDC_MATS_OUT_MATS_MESSAGE_ID, msg.getMatsMessageId());
-            MDC.put(MDC_MATS_OUT_SYS_MESSAGE_ID, msg.getSystemMessageId());
+            MDC.put(MDC_MATS_OUT_MESSAGE_SYSTEM_ID, msg.getSystemMessageId());
 
-            MDC.put(MDC_MATS_OUT_FROM, msg.getFrom());
-            MDC.put(MDC_MATS_OUT_TO, msg.getTo());
+            MDC.put(MDC_MATS_OUT_INIT_APP, msg.getInitiatingAppName());
+            MDC.put(MDC_MATS_OUT_INIT_ID, msg.getInitiatorId());
+            MDC.put(MDC_MATS_OUT_FROM_ID, msg.getFrom());
+            MDC.put(MDC_MATS_OUT_TO_ID, msg.getTo());
             MDC.put(MDC_MATS_OUT_AUDIT, Boolean.toString(!msg.isNoAudit()));
             MDC.put(MDC_MATS_OUT_PERSISTENT, Boolean.toString(!msg.isNonPersistent()));
 
@@ -297,10 +304,12 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
             MDC.remove(MDC_MATS_DISPATCH_TYPE);
 
             MDC.remove(MDC_MATS_OUT_MATS_MESSAGE_ID);
-            MDC.remove(MDC_MATS_OUT_SYS_MESSAGE_ID);
+            MDC.remove(MDC_MATS_OUT_MESSAGE_SYSTEM_ID);
 
-            MDC.remove(MDC_MATS_OUT_FROM);
-            MDC.remove(MDC_MATS_OUT_TO);
+            MDC.remove(MDC_MATS_OUT_INIT_APP);
+            MDC.remove(MDC_MATS_OUT_INIT_ID);
+            MDC.remove(MDC_MATS_OUT_FROM_ID);
+            MDC.remove(MDC_MATS_OUT_TO_ID);
             MDC.remove(MDC_MATS_OUT_AUDIT);
             MDC.remove(MDC_MATS_OUT_PERSISTENT);
 

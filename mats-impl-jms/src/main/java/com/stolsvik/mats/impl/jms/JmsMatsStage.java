@@ -107,9 +107,9 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
     @Override
     public synchronized void start() {
-        log.info(LOG_PREFIX + "     |-  Starting Stage [" + id(_stageId, this) + "].");
+        log.info(LOG_PREFIX + "   |-  Starting Stage [" + id(_stageId, this) + "].");
         if (_stageProcessors.size() > 1) {
-            log.warn(LOG_PREFIX + "     \\- When asked to start Stage, it was ALREADY STARTED! [" + id(_stageId, this)
+            log.warn(LOG_PREFIX + "   |- When asked to start Stage, it was ALREADY STARTED! [" + id(_stageId, this)
                     + "].");
             return;
         }

@@ -196,6 +196,7 @@ public class Test_ComplexLargeMultiStage {
     private void doTest(KeepTrace keepTrace) {
         StateTO sto = new StateTO(420, 420.024);
         DataTO dto = new DataTO(42, "TheAnswer");
+        log.info("Sending request ..");
         MATS.getMatsInitiator().initiateUnchecked(
                 (msg) -> msg.traceId(MatsTestHelp.traceId())
                         .keepTrace(keepTrace)
@@ -203,6 +204,7 @@ public class Test_ComplexLargeMultiStage {
                         .to(SERVICE)
                         .replyTo(TERMINATOR, sto)
                         .request(dto));
+        log.info(".. request sent.");
 
         // Wait synchronously for terminator to finish.
         Result<StateTO, DataTO> result = MATS.getMatsTestLatch().waitForResult();

@@ -147,6 +147,21 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
     }
 
     @Override
+    public String getInitiatingAppName() {
+        return _matsTrace.getInitializingAppName();
+    }
+
+    @Override
+    public String getInitiatingAppVersion() {
+        return _matsTrace.getInitializingAppName();
+    }
+
+    @Override
+    public String getInitiatorId() {
+        return _matsTrace.getInitiatorId();
+    }
+
+    @Override
     public String getMatsMessageId() {
         return _matsTrace.getCurrentCall().getMatsMessageId();
     }

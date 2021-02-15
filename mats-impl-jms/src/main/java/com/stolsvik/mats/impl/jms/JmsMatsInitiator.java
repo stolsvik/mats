@@ -89,6 +89,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
         String existingTraceId = MDC.get(MDC_TRACE_ID);
         String existingMatsInit = MDC.get(MDC_MATS_INIT);
+        String existingMatsAppName = MDC.get(MDC_MATS_APP_NAME);
+        String existingMatsAppVersion = MDC.get(MDC_MATS_APP_VERSION);
 
         // :: For Intercepting, base intercept context.
         InitiateContextImpl interceptContext = new InitiateContextImpl(this, startedInstant);
@@ -306,6 +308,17 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 // -> No, so clear it.
                 MDC.remove(MDC_MATS_INIT);
             }
+            // ?: Was "mats.AppName" set?
+            if (existingMatsAppName == null) {
+                // -> No, so clear it.
+                MDC.remove(MDC_MATS_APP_NAME);
+            }
+            // ?: Was "mats.AppVersion" set?
+            if (existingMatsAppVersion == null) {
+                // -> No, so clear it.
+                MDC.remove(MDC_MATS_APP_VERSION);
+            }
+
             // ?: Was traceId set?
             if (existingTraceId != null) {
                 // -> Yes, so restore it.
