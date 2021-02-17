@@ -1240,8 +1240,8 @@ class MatsSocket {
       return;
     }
     // ?: Check whether we have expired authorization
-    if ((_expirationTimestamp?.subtract(_roomForLatencyMillis) ?? DateTime.now()).isBefore(
-        DateTime.now())) {
+    if ((_expirationTimestamp != null)
+        && (_expirationTimestamp.subtract(_roomForLatencyMillis).isBefore(DateTime.now()))) {
       // -> Yes, authorization is expired.
       _requestNewAuthorizationFromApp('Authorization is expired',
           AuthorizationRequiredEvent(AuthorizationRequiredEventType.EXPIRED, _expirationTimestamp));
@@ -1494,6 +1494,22 @@ class MatsSocket {
 
       // ----- We do not already have a WebSocket and the MatsSocket instance is Open!
 
+      // :: First need to check whether we have OK Authorization - if not, we must terminate entire connection procedure, ask for new, and start over.
+      // Note: The start-over will happen when new auth comes in, _evaluatePipelineSend(..) is invoked, and there is no WebSocket there.
+      // ?: Check whether we have expired authorization
+      if ((_expirationTimestamp != null)
+          && ((_expirationTimestamp.subtract(_roomForLatencyMillis)).isBefore(DateTime.now()))) {
+          // -> Yes, authorization is expired.
+          _logger.fine(() => 'InitiateWebSocketCreation: Authorization is expired, we need new to continue.');
+          // We are not connecting anymore
+          _webSocketConnecting = false;
+          // Request new auth
+          _requestNewAuthorizationFromApp('expired', AuthorizationRequiredEvent(AuthorizationRequiredEventType.EXPIRED, _expirationTimestamp));
+          return;
+      }
+
+      // ------ We have a valid, unexpired authorization token ready to use for connection
+
       // :: We are currently trying to connect! (This will be set to true repeatedly while in the process of opening)
       _webSocketConnecting = true;
 
@@ -1588,22 +1604,6 @@ class MatsSocket {
       };
 
       w_attemptPreConnectionOperation = () {
-          // :: First need to check whether we have OK Authorization - if not, we must terminate entire connection procedure, ask for new, and start over.
-          // Note: The start-over will happen when new auth comes in, _evaluatePipelineSend(..) is invoked, and there is no WebSocket there.
-          // ?: Check whether we have expired authorization
-          if ((_expirationTimestamp != null)
-              && ((_expirationTimestamp.subtract(_roomForLatencyMillis)).isBefore(DateTime.now()))) {
-              // -> Yes, authorization is expired.
-              _logger.fine(() => 'PreConnectOperation: Authorization is expired, we need new to continue.');
-              // We are not connecting anymore
-              _webSocketConnecting = false;
-              // Cancel the "connection timeout" thingy
-              countdownId?.cancel();
-              // Request new auth
-              _requestNewAuthorizationFromApp('expired', AuthorizationRequiredEvent(AuthorizationRequiredEventType.EXPIRED, _expirationTimestamp));
-              return;
-          }
-
           // :: Decide based on type of 'preconnectoperation' how to do the .. PreConnectOperation..!
           var abortAndPromise = preconnectoperation(_currentWebSocketUrl, _authorization);
 
