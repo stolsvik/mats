@@ -133,8 +133,12 @@ public class MatsSerializerJson implements MatsSerializer<String> {
 
     @Override
     public boolean handlesMeta(String meta) {
-        // If it is the old "plain" or "deflate", then we handle it, as well as if it is the new "MatsTrace_JSON_v1".
-        return COMPRESS_DEFLATE.equals(meta) | COMPRESS_PLAIN.equals(meta) | meta.startsWith(IDENTIFICATION);
+        if (meta == null) {
+            return false;
+        }
+        // If it starts with the old "plain" or "deflate", then we handle it, as well as if it is the new identification
+        // "MatsTrace_JSON_v1".
+        return meta.startsWith(COMPRESS_DEFLATE) || meta.startsWith(COMPRESS_PLAIN) | meta.startsWith(IDENTIFICATION);
     }
 
     @Override
@@ -250,7 +254,7 @@ public class MatsSerializerJson implements MatsSerializer<String> {
                 // -> Yes, there is. This is the identification-meta, so chop off everything before it.
                 // NOTICE: It is currently not added as prefix, as another implementation of the Mats-concepts are using
                 // an older version of MatsSerializer, which does not handle it.
-                // Note: When "everybody" is at-or-above 0.15.0, it can be added.
+                // TODO: When "everybody" is at-or-above 0.16.0, it can be added.
                 meta = meta.substring(meta.indexOf(':') + 1);
             }
 
@@ -409,7 +413,7 @@ public class MatsSerializerJson implements MatsSerializer<String> {
         }
 
         // Whether we should enpool the deflater at end
-        boolean reuseDeflater = true;
+        boolean reuseDeflater = false;
         try {
             deflater.setInput(data);
             // Hoping for at least 50% reduction, so set "best guess" to half incoming
@@ -425,9 +429,11 @@ public class MatsSerializerJson implements MatsSerializer<String> {
             }
             catch (IOException e) {
                 // Just in case this leaves the Inflater in some strange stage, ditch it instead of reuse.
-                reuseDeflater = false;
+                // NOT setting reuseDeflater to true.
                 throw new DecompressionException("Shall not throw IOException here.", e);
             }
+            // We can reuse this Deflater, since things behaved correctly
+            reuseDeflater = true;
             return outputStream.toByteArray();
         }
         finally {
@@ -438,7 +444,7 @@ public class MatsSerializerJson implements MatsSerializer<String> {
                 _deflaterPool.push(deflater);
             }
             else {
-                // -> No, not reuse, so ditch it: end(), and do not enpool.
+                // -> No, not reuse, so ditch it: end(), and do NOT enpool.
                 // Invoke the "end()" method to timely release off-heap resource, thus not depending on finalization.
                 deflater.end();
             }
@@ -457,7 +463,7 @@ public class MatsSerializerJson implements MatsSerializer<String> {
         }
 
         // Whether we should enpool the inflater at end
-        boolean reuseInflater = true;
+        boolean reuseInflater = false;
         try {
             inflater.setInput(data, offset, length);
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream(bestGuessDecompressedSize);
@@ -469,7 +475,7 @@ public class MatsSerializerJson implements MatsSerializer<String> {
                 }
                 catch (DataFormatException e) {
                     // Just in case this leaves the Inflater in some strange stage, ditch it instead of reuse.
-                    reuseInflater = false;
+                    // NOT setting reuseInflater to true.
                     throw new DecompressionException("DataFormatException was bad here.", e);
                 }
             }
@@ -479,6 +485,8 @@ public class MatsSerializerJson implements MatsSerializer<String> {
             catch (IOException e) {
                 throw new DecompressionException("Shall not throw IOException here.", e);
             }
+            // We can reuse this Inflater, since things behaved correctly
+            reuseInflater = true;
             return outputStream.toByteArray();
         }
         finally {
@@ -489,7 +497,7 @@ public class MatsSerializerJson implements MatsSerializer<String> {
                 _inflaterPool.push(inflater);
             }
             else {
-                // -> No, not reuse, so ditch it: end(), and do not enpool.
+                // -> No, not reuse, so ditch it: end(), and do NOT enpool.
                 // Invoke the "end()" method to timely release off-heap resource, thus not depending on finalization.
                 inflater.end();
             }
