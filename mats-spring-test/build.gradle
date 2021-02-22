@@ -3,6 +3,8 @@
 dependencies {
     compile project(":mats-spring")
     compile project(":mats-spring-jms")
+    // We want the standard logging, which will be auto-installed by being on the classpath.
+    compile project(':mats-intercept-logging')
     // MatsSerializerJson (default serializer, if you do not provide yourself)
     compile project(":mats-serial-json")
     // MatsTestLatch (provided in the simple test context)

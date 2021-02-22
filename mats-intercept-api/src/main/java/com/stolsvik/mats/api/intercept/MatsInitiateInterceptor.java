@@ -6,7 +6,6 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
-import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingMessage;
 
 /**
  * <b>EXPERIMENTAL!!</b> (Will probably change. Implementation started 2020-01-08)
@@ -68,7 +67,7 @@ import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingM
  * <li><code>Started #2</code></li>
  * <li>Then the initiation goes into the transaction, and a "reverse stack" of lambdas are generated from the two
  * interceptors'
- * {@link MatsInitiateInterceptInterceptor#interceptInitiateUserLambda(InitiateInterceptUserLambdaContext, InitiateLambda, MatsInitiate)
+ * {@link MatsInitiateInterceptUserLambda#initiateInterceptUserLambda(InitiateInterceptUserLambdaContext, InitiateLambda, MatsInitiate)
  * initiateIntercept(..)} methods, and then the resulting lambda is invoked:</li>
  * <li><code>Intercept pre #1</code></li>
  * <li><code>Intercept pre #2</code></li>
@@ -118,25 +117,23 @@ import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingM
  */
 public interface MatsInitiateInterceptor {
 
-    @FunctionalInterface
-    interface MatsInitiateInterceptorProvider {
-        /**
-         * @param initiateContext
-         *            the context of this initiation
-         * @return a {@link MatsInitiateInterceptor} if you want to intercept this, or <code>null</code> if you do not.
-         */
-        MatsInitiateInterceptor provide(InitiateContext initiateContext);
-    }
-
+    /**
+     * Invoked right before user lambda is invoked.
+     */
     default void initiateStarted(InitiateStartedContext initiateStartedContext) {
         /* no-op */
     }
 
     /**
+     * Enables the intercepting of the invocation of the user lambda in an Initiation, with ability to wrap the
+     * {@link MatsInitiate} (and thus modify any request, send or publishes) - or even take over the entire initiation.
+     * Wrt. changing messages, you should also consider
+     * {@link MatsInitiateInterceptOutgoingMessages#initiateInterceptOutgoingMessages(InitiateInterceptOutgoingMessagesContext)}.
+     * <p />
      * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
      */
-    interface MatsInitiateInterceptInterceptor {
-        default void interceptInitiateUserLambda(InitiateInterceptUserLambdaContext initiateInterceptUserLambdaContext,
+    interface MatsInitiateInterceptUserLambda {
+        default void initiateInterceptUserLambda(InitiateInterceptUserLambdaContext initiateInterceptUserLambdaContext,
                 InitiateLambda initiateLambda, MatsInitiate matsInitiate) {
             // Default: Call directly through
             initiateLambda.initiate(matsInitiate);
@@ -144,17 +141,13 @@ public interface MatsInitiateInterceptor {
     }
 
     /**
-     * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
+     * While still within the initiation context, this interception enables modifying outgoing messages from the user
+     * lambda, setting trace properties, adding "sideloads", deleting a message, or initiating additional messages.
      * <p />
-     * Note on implementation: Whether this is invoked when e.g. the MatsInitiate.send(..) is invoked, or right after,
-     * or after the entire initiate lambda is processed (meaning that any messages from the lambda are collected, then
-     * fed to these interceptors one by one), is up to the implementation. The contract is that it is before the message
-     * is sent out and committed, and that as such it is both editable as defined in the
-     * {@link MatsEditableOutgoingMessage}, and cancellable, as defined by
-     * {@link InitiateInterceptOutgoingMessagesContext#cancelOutgoingMessage()}.
+     * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
      */
-    interface MatsInitiateMessageInterceptor extends MatsInitiateInterceptor {
-        default void interceptInitiateOutgoingMessages(
+    interface MatsInitiateInterceptOutgoingMessages extends MatsInitiateInterceptor {
+        default void initiateInterceptOutgoingMessages(
                 InitiateInterceptOutgoingMessagesContext initiateInterceptOutgoingMessagesContext) {
             /* no-op */
         }
@@ -164,28 +157,24 @@ public interface MatsInitiateInterceptor {
         /* no-op */
     }
 
-    interface InitiateContext {
+    interface InitiateInterceptContext {
         MatsInitiator getMatsInitiator();
 
         Instant getStartedInstant();
     }
 
-    interface InitiateStartedContext extends InitiateContext {
+    interface InitiateStartedContext extends InitiateInterceptContext {
         void initiate(InitiateLambda lambda);
     }
 
-    interface InitiateInterceptUserLambdaContext extends InitiateContext {
+    interface InitiateInterceptUserLambdaContext extends InitiateInterceptContext {
         void initiate(InitiateLambda lambda);
     }
 
-    interface InitiateInterceptOutgoingMessagesContext extends InitiateContext {
-        void initiate(InitiateLambda lambda);
-
-        MatsEditableOutgoingMessage getOutgoingMessage();
-
-        void cancelOutgoingMessage();
+    interface InitiateInterceptOutgoingMessagesContext extends InitiateInterceptContext,
+            CommonInterceptOutgoingMessagesContext {
     }
 
-    interface InitiateCompletedContext extends InitiateContext, CommonCompletedContext {
+    interface InitiateCompletedContext extends InitiateInterceptContext, CommonCompletedContext {
     }
 }

@@ -89,7 +89,6 @@ public abstract class AbstractMatsTest<Z> {
         log.debug("Setting up JmsMatsFactory.");
         // Allow for override in specialization classes, in particular the one with DB.
         _matsFactory = createMatsFactory();
-        MatsMetricsLoggingInterceptor.install(_matsFactory);
         log.debug("--- JUnit/Jupiter --- BEFORE_CLASS done on ClassRule/Extension '" + id(getClass())
                 + "', JMS and MATS.");
     }

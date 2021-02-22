@@ -10,7 +10,8 @@ import org.slf4j.MDC;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.api.intercept.CommonCompletedContext;
 import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor;
-import com.stolsvik.mats.api.intercept.MatsInterceptableMatsFactory;
+import com.stolsvik.mats.api.intercept.MatsInterceptable;
+import com.stolsvik.mats.api.intercept.MatsLoggingInterceptor;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
 
@@ -19,11 +20,12 @@ import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
  * (timing and endpointIds/stageIds), so as to be able to use the logging system (e.g. Kibana over ElasticSearch) to
  * create statistics.
  * <p />
- * Simple way to add it: {@link #install(MatsInterceptableMatsFactory)}.
+ * Simple way to add it: {@link #install(MatsInterceptable)}.
  *
  * @author Endre Stølsvik - 2021-02-07 12:45 - http://endre.stolsvik.com
  */
-public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, MatsStageInterceptor {
+public class MatsMetricsLoggingInterceptor
+        implements MatsLoggingInterceptor, MatsInitiateInterceptor, MatsStageInterceptor {
 
     public static final Logger log_init = LoggerFactory.getLogger("com.stolsvik.mats.log.init");
     public static final Logger log_stage = LoggerFactory.getLogger("com.stolsvik.mats.log.stage");
@@ -78,7 +80,7 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
     public String MDC_MATS_OUT_INIT_APP = "mats.out.init.App";
     public String MDC_MATS_OUT_INIT_ID = "mats.out.init.Id"; // InitiatorId.
     // NOT using 'MDC_MATS_OUT_FROM_APP' / "mats.out.from.App", as that is 'this' App, 'MDC_MATS_APP_NAME'.
-    public String MDC_MATS_OUT_FROM_ID = "mats.out.from.Id";  // "this" EndpointId/StageId/InitiatorId.
+    public String MDC_MATS_OUT_FROM_ID = "mats.out.from.Id"; // "this" EndpointId/StageId/InitiatorId.
     public String MDC_MATS_OUT_TO_ID = "mats.out.to.Id"; // target EndpointId/StageId.
     public String MDC_MATS_OUT_AUDIT = "mats.out.Audit";
     public String MDC_MATS_OUT_PERSISTENT = "mats.out.Persistent";
@@ -96,9 +98,9 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
      * Adds the singleton {@link #INSTANCE} as both Initiation and Stage interceptors.
      * 
      * @param matsInterceptableMatsFactory
-     *            the {@link MatsInterceptableMatsFactory} to add it to.
+     *            the {@link MatsInterceptable} MatsFactory to add it to.
      */
-    public static void install(MatsInterceptableMatsFactory matsInterceptableMatsFactory) {
+    public static void install(MatsInterceptable matsInterceptableMatsFactory) {
         matsInterceptableMatsFactory.addInitiationInterceptorSingleton(INSTANCE);
         matsInterceptableMatsFactory.addStageInterceptorSingleton(INSTANCE);
     }
@@ -107,9 +109,9 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
      * Removes the singleton {@link #INSTANCE} as both Initiation and Stage interceptors.
      *
      * @param matsInterceptableMatsFactory
-     *            the {@link MatsInterceptableMatsFactory} to remove it from.
+     *            the {@link MatsInterceptable} to remove it from.
      */
-    public static void remove(MatsInterceptableMatsFactory matsInterceptableMatsFactory) {
+    public static void remove(MatsInterceptable matsInterceptableMatsFactory) {
         matsInterceptableMatsFactory.removeInitiationInterceptorSingleton(INSTANCE);
         matsInterceptableMatsFactory.removeStageInterceptorSingleton(INSTANCE);
     }
@@ -151,7 +153,7 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
 
             // Total:
             MDC.put(MDC_MATS_IN_TIME_TOTAL_PREPROC_AND_DESERIAL,
-                    msS(ctx.getTotalPreprocessingAndDeserializationNanos()));
+                    msS(ctx.getTotalPreprocessAndDeserializeNanos()));
 
             // Breakdown:
             MDC.put(MDC_MATS_IN_TIME_MSGSYS_DECONSTRUCT, msS(ctx.getMessageSystemDeconstructNanos()));
@@ -163,7 +165,7 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
 
             log_stage.info(LOG_PREFIX + "RECEIVED message from [" + processContext.getFromStageId()
                     + "@" + processContext.getFromAppName() + ",v." + processContext.getFromAppVersion()
-                    + "], totPreprocAndDeserial:[" + ms(ctx.getTotalPreprocessingAndDeserializationNanos())
+                    + "], totPreprocAndDeserial:[" + ms(ctx.getTotalPreprocessAndDeserializeNanos())
                     + "] || breakdown: msgSysDeconstruct:[" + ms(ctx.getMessageSystemDeconstructNanos())
                     + " ms]->envelopeWireSize:[" + ctx.getEnvelopeWireSize()
                     + " B]->decomp:[" + ms(ctx.getEnvelopeDecompressionNanos())
@@ -171,7 +173,7 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
                     + " B]->deserial:[" + ms(ctx.getEnvelopeDeserializationNanos())
                     + " ms]->(envelope)->dto&stoDeserial:[" + ms(ctx.getMessageAndStateDeserializationNanos())
                     + " ms] - sum pieces:[" + ms(sumNanosPieces)
-                    + " ms], diff:[" + ms(ctx.getTotalPreprocessingAndDeserializationNanos() - sumNanosPieces)
+                    + " ms], diff:[" + ms(ctx.getTotalPreprocessAndDeserializeNanos() - sumNanosPieces)
                     + " ms]");
         }
         finally {
@@ -198,11 +200,11 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
                     .getFactoryConfig().getName();
 
             // :: Specific metric for stage completed
-            String extraBreakdown = " totPreprocAndDeserial:[" + ms(ctx.getTotalPreprocessingAndDeserializationNanos())
+            String extraBreakdown = " totPreprocAndDeserial:[" + ms(ctx.getTotalPreprocessAndDeserializeNanos())
                     + " ms],";
-            long extraNanosBreakdown = ctx.getTotalPreprocessingAndDeserializationNanos();
+            long extraNanosBreakdown = ctx.getTotalPreprocessAndDeserializeNanos();
             MDC.put(MDC_MATS_COMPLETE_TOTAL_PREPROC_AND_DESERIAL, msS(ctx
-                    .getTotalPreprocessingAndDeserializationNanos()));
+                    .getTotalPreprocessAndDeserializeNanos()));
 
             MDC.put(MDC_MATS_COMPLETE_PROCESS_RESULT, ctx.getProcessResult().toString());
 
@@ -280,11 +282,11 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
             MDC.put(MDC_MATS_OUT_SIZE_ENVELOPE_SERIAL, Long.toString(msg.getEnvelopeSerializedSize()));
             MDC.put(MDC_MATS_OUT_TIME_ENVELOPE_COMPRESS, msS(msg.getEnvelopeCompressionNanos()));
             MDC.put(MDC_MATS_OUT_SIZE_ENVELOPE_WIRE, Long.toString(msg.getEnvelopeWireSize()));
-            MDC.put(MDC_MATS_OUT_TIME_MSGSYS_CONSTRUCT_AND_SEND, msS(msg.getMessageSystemConstructAndSendNanos()));
+            MDC.put(MDC_MATS_OUT_TIME_MSGSYS_CONSTRUCT_AND_SEND, msS(msg.getMessageSystemProductionAndSendNanos()));
             long nanosTaken_Total = msg.getEnvelopeProduceNanos()
                     + msg.getEnvelopeSerializationNanos()
                     + msg.getEnvelopeCompressionNanos()
-                    + msg.getMessageSystemConstructAndSendNanos();
+                    + msg.getMessageSystemProductionAndSendNanos();
             MDC.put(MDC_MATS_OUT_TIME_TOTAL, msS(nanosTaken_Total));
 
             // :: Actually run the Runnable
@@ -327,7 +329,7 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
         long nanosTaken_Total = msg.getEnvelopeProduceNanos()
                 + msg.getEnvelopeSerializationNanos()
                 + msg.getEnvelopeCompressionNanos()
-                + msg.getMessageSystemConstructAndSendNanos();
+                + msg.getMessageSystemProductionAndSendNanos();
 
         return msg.getDispatchType() + " outgoing " + msg.getMessageType()
                 + " message from [" + messageSenderName + "|" + msg.getFrom()
@@ -338,7 +340,7 @@ public class MatsMetricsLoggingInterceptor implements MatsInitiateInterceptor, M
                 + " ms]->serialSize:[" + msg.getEnvelopeSerializedSize()
                 + " B]->comp:[" + ms(msg.getEnvelopeCompressionNanos())
                 + " ms]->envelopeWireSize:[" + msg.getEnvelopeWireSize()
-                + " B]->msgSysConstruct&Send:[" + ms(msg.getMessageSystemConstructAndSendNanos())
+                + " B]->msgSysConstruct&Send:[" + ms(msg.getMessageSystemProductionAndSendNanos())
                 + " ms]";
     }
 

@@ -6,7 +6,7 @@ import java.util.Optional;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateCompletedContext;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptInterceptor;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptUserLambda;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContext;
 
@@ -19,7 +19,7 @@ public interface CommonCompletedContext {
     /**
      * @return time taken (in nanoseconds) to run the user supplied initiate lambda itself. If it includes database
      *         access (e.g. a SELECT and/or UPDATE), this time should probably be dominated by this. If there are
-     *         {@link MatsInitiateInterceptInterceptor}s involved, the interceptor(s) might have added some overhead
+     *         {@link MatsInitiateInterceptUserLambda}s involved, the interceptor(s) might have added some overhead
      *         both by the interception, and by potentially having wrapped the {@link MatsInitiate} instance.
      */
     long getUserLambdaNanos();
@@ -43,8 +43,8 @@ public interface CommonCompletedContext {
     /**
      * @return time taken (in nanoseconds) to produce, and then send (transfer) the message(s) to the message broker,
      *         should basically be the sum of any {@link #getOutgoingMessages() outgoing} messages'
-     *         {@link MatsSentOutgoingMessage#getMessageSystemConstructAndSendNanos()}.
-     * @see MatsSentOutgoingMessage#getMessageSystemConstructAndSendNanos()
+     *         {@link MatsSentOutgoingMessage#getMessageSystemProductionAndSendNanos()}.
+     * @see MatsSentOutgoingMessage#getMessageSystemProductionAndSendNanos()
      */
     long getSumMessageSystemProductionAndSendNanos();
 
@@ -68,8 +68,8 @@ public interface CommonCompletedContext {
 
     /**
      * @return the resulting full list of outgoing messages that was sent in this initiation/stage context. <i>(For
-     *         Stages, this contains any request(s), reply and initiated messages - for which there are separate methods
-     *         to get in separate lists/Optional.)</i>
+     *         Stages, this contains all messages, including any reply, next or gotos, any request(s), and initiated
+     *         messages - for which there are separate methods to get in separate lists/Optional.)</i>
      */
     List<MatsSentOutgoingMessage> getOutgoingMessages();
 }

@@ -9,8 +9,8 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsInitiator.MatsInitiateWrapper;
 import com.stolsvik.mats.MatsInitiator.MessageReference;
 import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptInterceptor;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateMessageInterceptor;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptUserLambda;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptOutgoingMessages;
 import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.junit.Rule_Mats;
 
@@ -47,7 +47,7 @@ public class Test_InitiationIntercept_JavaDoc {
     }
 
     private static class MyMatsInitiateInterceptor implements MatsInitiateInterceptor,
-            MatsInitiateInterceptInterceptor, MatsInitiateMessageInterceptor {
+            MatsInitiateInterceptUserLambda, MatsInitiateInterceptOutgoingMessages {
 
         private final int _number;
 
@@ -61,7 +61,7 @@ public class Test_InitiationIntercept_JavaDoc {
         }
 
         @Override
-        public void interceptInitiateUserLambda(InitiateInterceptUserLambdaContext initiateInterceptUserLambdaContext,
+        public void initiateInterceptUserLambda(InitiateInterceptUserLambdaContext initiateInterceptUserLambdaContext,
                 InitiateLambda initiateLambda, MatsInitiate matsInitiate) {
             log.info("Stage 'Intercept', pre lambda-invoke, interceptor #" + _number);
 
@@ -88,11 +88,10 @@ public class Test_InitiationIntercept_JavaDoc {
         }
 
         @Override
-        public void interceptInitiateOutgoingMessages(
+        public void initiateInterceptOutgoingMessages(
                 InitiateInterceptOutgoingMessagesContext initiateInterceptOutgoingMessagesContext) {
             log.info("Stage 'Message', interceptor #" + _number + ", message:"
-                    + initiateInterceptOutgoingMessagesContext
-                            .getOutgoingMessage().getMessage());
+                    + initiateInterceptOutgoingMessagesContext.getOutgoingMessages());
         }
 
         @Override

@@ -2,11 +2,15 @@ package com.stolsvik.mats.impl.jms;
 
 import java.io.BufferedInputStream;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -27,18 +31,22 @@ import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsStage.StageConfig;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptContext;
+import com.stolsvik.mats.api.intercept.MatsInterceptable;
 import com.stolsvik.mats.api.intercept.MatsInterceptableMatsFactory;
+import com.stolsvik.mats.api.intercept.MatsLoggingInterceptor;
+import com.stolsvik.mats.api.intercept.MatsMetricsInterceptor;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageInterceptContext;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MatsInitiator_TxRequired;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MatsInitiator_TxRequiresNew;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateContext;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptorProvider;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptorProvider;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageContext;
 import com.stolsvik.mats.serial.MatsSerializer;
 
 public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsStatics, JmsMatsStartStoppable {
+
+    public static final String INTERCEPTOR_CLASS_MATS_LOGGING = "com.stolsvik.mats.intercept.logging.MatsMetricsLoggingInterceptor";
+    public static final String INTERCEPTOR_CLASS_MATS_METRICS = "com.stolsvik.mats.intercept.micrometer.MatsMicrometerInterceptor";
 
     private static final Logger log = LoggerFactory.getLogger(JmsMatsFactory.class);
 
@@ -64,9 +72,29 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
                 matsSerializer);
     }
 
+    private static final Class<?> _matsLoggingInterceptor;
+    private static final Class<?> _matsMetricsInterceptor;
+
     static {
         // Initialize any Specifics for the MessageBrokers that are on the classpath (i.e. if ActiveMQ is there..)
         JmsMatsMessageBrokerSpecifics.init();
+        // Load the MatsMetricsLoggingInterceptor class if we have it on classpath
+        Class<?> matsLoggingInterceptor = null;
+        try {
+            matsLoggingInterceptor = Class.forName(INTERCEPTOR_CLASS_MATS_LOGGING);
+        }
+        catch (ClassNotFoundException e) {
+            log.info(LOG_PREFIX + "Did NOT find '" + INTERCEPTOR_CLASS_MATS_LOGGING + "' on classpath, won't install.");
+        }
+        _matsLoggingInterceptor = matsLoggingInterceptor;
+        Class<?> matsMetricsInterceptor = null;
+        try {
+            matsMetricsInterceptor = Class.forName(INTERCEPTOR_CLASS_MATS_METRICS);
+        }
+        catch (ClassNotFoundException e) {
+            log.info(LOG_PREFIX + "Did NOT find '" + INTERCEPTOR_CLASS_MATS_METRICS + "' on classpath, won't install.");
+        }
+        _matsMetricsInterceptor = matsMetricsInterceptor;
     }
 
     private final String _appName;
@@ -101,7 +129,24 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
         _matsSerializer = matsSerializer;
         _factoryConfig = new JmsMatsFactoryConfig();
 
+        installIfPresent(_matsLoggingInterceptor);
+        installIfPresent(_matsMetricsInterceptor);
+
         log.info(LOG_PREFIX + "Created [" + idThis() + "].");
+    }
+
+    private void installIfPresent(Class<?> standardInterceptorClass) {
+        if (standardInterceptorClass != null) {
+            log.info(LOG_PREFIX + "Found '" + standardInterceptorClass.getSimpleName()
+                    + "' on classpath, installing for [" + idThis() + "].");
+            try {
+                Method install = standardInterceptorClass.getDeclaredMethod("install", MatsInterceptable.class);
+                install.invoke(null, this);
+            }
+            catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                log.warn(LOG_PREFIX + "Got problems installing '" + standardInterceptorClass.getSimpleName() + "'.", e);
+            }
+        }
     }
 
     private final List<JmsMatsEndpoint<?, ?, Z>> _createdEndpoints = new ArrayList<>();
@@ -139,43 +184,94 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
         return _matsSerializer;
     }
 
+    // :: Interceptors
+
     private final CopyOnWriteArrayList<MatsInitiateInterceptorProvider> _initiationInterceptorProviders = new CopyOnWriteArrayList<>();
-    private final IdentityHashMap<MatsInitiateInterceptor, MatsInitiateInterceptorProvider> _initiateInterceptors = new IdentityHashMap<>();
+    private final IdentityHashMap<MatsInitiateInterceptor, MatsInitiateInterceptorProvider> _initiateInterceptorSingletonToProvider = new IdentityHashMap<>();
 
     private final CopyOnWriteArrayList<MatsStageInterceptorProvider> _stageInterceptorProviders = new CopyOnWriteArrayList<>();
-    private final IdentityHashMap<MatsStageInterceptor, MatsStageInterceptorProvider> _stageInterceptors = new IdentityHashMap<>();
-
-    // :: Interceptors
+    private final IdentityHashMap<MatsStageInterceptor, MatsStageInterceptorProvider> _stageInterceptorSingletonToProvider = new IdentityHashMap<>();
 
     @Override
     public void addInitiationInterceptorProvider(MatsInitiateInterceptorProvider initiationInterceptorProvider) {
+        log.info(LOG_PREFIX + "Adding Provider " + MatsInitiateInterceptor.class.getSimpleName()
+                + ": [" + initiationInterceptorProvider + "].");
         _initiationInterceptorProviders.add(initiationInterceptorProvider);
     }
 
     @Override
     public void removeInitiationInterceptorProvider(MatsInitiateInterceptorProvider initiationInterceptorProvider) {
+        log.info(LOG_PREFIX + "Removing Provider " + MatsInitiateInterceptor.class.getSimpleName()
+                + ": [" + initiationInterceptorProvider + "].");
         _initiationInterceptorProviders.remove(initiationInterceptorProvider);
     }
 
     @Override
-    public void addInitiationInterceptorSingleton(MatsInitiateInterceptor initiateInterceptor) {
-        MatsInitiateInterceptorProvider provider = na -> initiateInterceptor;
-        synchronized (_initiateInterceptors) {
-            if (_initiateInterceptors.containsKey(initiateInterceptor)) {
-                throw new IllegalStateException("Already added: " + initiateInterceptor + ".");
+    public void addInitiationInterceptorSingleton(MatsInitiateInterceptor initiateInterceptorSingleton) {
+        MatsInitiateInterceptorProvider provider = na -> initiateInterceptorSingleton;
+        addSingletonInterceptor(MatsInitiateInterceptor.class, initiateInterceptorSingleton, provider,
+                _initiationInterceptorProviders, _initiateInterceptorSingletonToProvider);
+    }
+
+    private <I, IP> void addSingletonInterceptor(Class<I> interceptorType,
+            I initiateInterceptorSingleton, IP provider, CopyOnWriteArrayList<IP> providersList,
+            IdentityHashMap<I, IP> singletonToProviderMap) {
+        log.info(LOG_PREFIX + "Adding Singleton " + interceptorType.getSimpleName()
+                + ": [" + initiateInterceptorSingleton + "].");
+        synchronized (singletonToProviderMap) {
+            // ?: Is this a MatsLoggingInterceptor?
+            if (initiateInterceptorSingleton instanceof MatsLoggingInterceptor) {
+                // -> Yes, MatsLoggingInterceptor - so clear out any existing to add this new.
+                removeInterceptorSingletonType(providersList, singletonToProviderMap,
+                        MatsLoggingInterceptor.class);
             }
-            _initiateInterceptors.put(initiateInterceptor, provider);
+            if (initiateInterceptorSingleton instanceof MatsMetricsInterceptor) {
+                // -> Yes, MatsMetricsInterceptor - so clear out any existing to add this new.
+                removeInterceptorSingletonType(providersList, singletonToProviderMap,
+                        MatsMetricsInterceptor.class);
+            }
+            if (!((initiateInterceptorSingleton instanceof MatsLoggingInterceptor))
+                    || (initiateInterceptorSingleton instanceof MatsMetricsInterceptor)) {
+                // ?: Have we already added this same instance?
+                if (singletonToProviderMap.containsKey(initiateInterceptorSingleton)) {
+                    // -> Yes, already added, cannot add twice.
+                    throw new IllegalStateException(interceptorType.getSimpleName()
+                            + ": Interceptor Singleton already added: " + initiateInterceptorSingleton + ".");
+                }
+            }
+
+            // Add the new
+            providersList.add(provider);
+            singletonToProviderMap.put(initiateInterceptorSingleton, provider);
         }
-        addInitiationInterceptorProvider(provider);
+    }
+
+    private <I, IP> void removeInterceptorSingletonType(CopyOnWriteArrayList<IP> providersList,
+            IdentityHashMap<I, IP> singletonToProviderMap, Class<?> typeToRemove) {
+        Iterator<Entry<I, IP>> it = singletonToProviderMap.entrySet().iterator();
+        while (it.hasNext()) {
+            Entry<I, IP> next = it.next();
+            // ?: Is this existing interceptor of a type to remove?
+            if (typeToRemove.isInstance(next.getKey())) {
+                // -> Yes, so remove it, and from the providers.
+                log.info(LOG_PREFIX + ".. removing existing: [" + next.getKey() + "], since adding new "
+                        + typeToRemove.getSimpleName());
+                providersList.remove(next.getValue());
+                it.remove();
+            }
+        }
     }
 
     @Override
-    public void removeInitiationInterceptorSingleton(MatsInitiateInterceptor initiateInterceptor) {
+    public void removeInitiationInterceptorSingleton(MatsInitiateInterceptor initiateInterceptorSingleton) {
+        log.info(LOG_PREFIX + "Removing Singleton " + MatsInitiateInterceptor.class.getSimpleName()
+                + ": [" + initiateInterceptorSingleton + "].");
         MatsInitiateInterceptorProvider provider;
-        synchronized (_initiateInterceptors) {
-            provider = _initiateInterceptors.remove(initiateInterceptor);
+        synchronized (_initiateInterceptorSingletonToProvider) {
+            provider = _initiateInterceptorSingletonToProvider.remove(initiateInterceptorSingleton);
             if (provider == null) {
-                throw new IllegalStateException("Cannot remove because not added: [" + initiateInterceptor + "]");
+                throw new IllegalStateException("Cannot remove because not added: ["
+                        + initiateInterceptorSingleton + "]");
             }
         }
         removeInitiationInterceptorProvider(provider);
@@ -183,46 +279,47 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
 
     @Override
     public void addStageInterceptorProvider(MatsStageInterceptorProvider stageInterceptorProvider) {
+        log.info(LOG_PREFIX + "Adding Provider " + MatsStageInterceptorProvider.class.getSimpleName()
+                + ": [" + stageInterceptorProvider + "].");
         _stageInterceptorProviders.add(stageInterceptorProvider);
     }
 
     @Override
     public void removeStageInterceptorProvider(MatsStageInterceptorProvider stageInterceptorProvider) {
+        log.info(LOG_PREFIX + "Removing Provider " + MatsStageInterceptorProvider.class.getSimpleName()
+                + ": [" + stageInterceptorProvider + "].");
         _stageInterceptorProviders.remove(stageInterceptorProvider);
     }
 
     @Override
     public void addStageInterceptorSingleton(MatsStageInterceptor stageInterceptor) {
         MatsStageInterceptorProvider provider = na -> stageInterceptor;
-        synchronized (_stageInterceptors) {
-            if (_stageInterceptors.containsKey(stageInterceptor)) {
-                throw new IllegalStateException("Already added: " + stageInterceptor + ".");
-            }
-            _stageInterceptors.put(stageInterceptor, provider);
-        }
-        addStageInterceptorProvider(provider);
+        addSingletonInterceptor(MatsStageInterceptor.class, stageInterceptor, provider,
+                _stageInterceptorProviders, _stageInterceptorSingletonToProvider);
     }
 
     @Override
-    public void removeStageInterceptorSingleton(MatsStageInterceptor stageInterceptor) {
+    public void removeStageInterceptorSingleton(MatsStageInterceptor stageInterceptorSingleton) {
+        log.info(LOG_PREFIX + "Removing Singleton " + MatsStageInterceptor.class.getSimpleName()
+                + ": [" + stageInterceptorSingleton + "].");
         MatsStageInterceptorProvider provider;
-        synchronized (_stageInterceptors) {
-            provider = _stageInterceptors.remove(stageInterceptor);
+        synchronized (_stageInterceptorSingletonToProvider) {
+            provider = _stageInterceptorSingletonToProvider.remove(stageInterceptorSingleton);
             if (provider == null) {
-                throw new IllegalStateException("Cannot remove because not added: [" + stageInterceptor + "]");
+                throw new IllegalStateException("Cannot remove because not added: [" + stageInterceptorSingleton + "]");
             }
         }
         removeStageInterceptorProvider(provider);
     }
 
-    List<MatsInitiateInterceptor> getInterceptorsForInitiation(InitiateContext context) {
+    List<MatsInitiateInterceptor> getInterceptorsForInitiation(InitiateInterceptContext context) {
         return _initiationInterceptorProviders.stream()
                 .map(provider -> provider.provide(context))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
     }
 
-    List<MatsStageInterceptor> getInterceptorsForStage(StageContext context) {
+    List<MatsStageInterceptor> getInterceptorsForStage(StageInterceptContext context) {
         return _stageInterceptorProviders.stream()
                 .map(provider -> provider.provide(context))
                 .filter(Objects::nonNull)

@@ -27,7 +27,7 @@ dependencies {
 
     // :: TEST
 
-    // We need an implementation of the MatsSerializer, the MatsSerializer_DefaultJson.
+    // We need an implementation of the MatsSerializer, the MatsSerializerJson
     testImplementation project(':mats-serial-json')
 
     // Testing tools for Mats

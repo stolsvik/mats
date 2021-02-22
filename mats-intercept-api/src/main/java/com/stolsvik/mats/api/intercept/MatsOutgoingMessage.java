@@ -169,6 +169,6 @@ public interface MatsOutgoingMessage {
         /**
          * @return time taken (in nanoseconds) to produce, and then send (transfer) the message to the message broker.
          */
-        long getMessageSystemConstructAndSendNanos();
+        long getMessageSystemProductionAndSendNanos();
     }
 }

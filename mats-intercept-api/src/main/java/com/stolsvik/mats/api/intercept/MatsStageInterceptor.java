@@ -10,7 +10,6 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.DispatchType;
-import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingMessage;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContext.ProcessResult;
 
@@ -23,39 +22,41 @@ import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContex
  * @author Endre Stølsvik - 2021-01-08 - http://endre.stolsvik.com
  */
 public interface MatsStageInterceptor {
-    @FunctionalInterface
-    interface MatsStageInterceptorProvider {
-        /**
-         * @param stageContext
-         *            the context of this stage
-         * @return a {@link MatsStageInterceptor} if you want to intercept this, or <code>null</code> if you do not.
-         */
-        MatsStageInterceptor provide(StageContext stageContext);
-    }
 
     /**
-     * Invoked if the receiving and/or deconstruction of the incoming message from the message system fails, and hence
-     * no Stage processing will be performed - i.e., no further methods of the interceptor will be invoked. Conversely,
-     * this method will not be invoked in normal situations: If the normal user lambda throws, or database or messaging
-     * system fails, this will result in the {@link StageCompletedContext} of the
+     * Invoked if any of the preprocessing and deserialization activities on the incoming message from the message
+     * system fails, and hence no Stage processing will be performed - i.e., no further methods of the interceptor will
+     * be invoked. Conversely, this method will not be invoked in normal situations: If the normal user lambda throws,
+     * or database or messaging system fails, this will result in the {@link StageCompletedContext} of the
      * {@link #stageCompleted(StageCompletedContext) stageCompleted(..)} call describe the problem and contain the
      * cause, see {@link ProcessResult#USER_EXCEPTION} and {@link ProcessResult#SYSTEM_EXCEPTION}.
      * <p />
      * <b>Note: This should really never be triggered. It would be prudent to "notify the humans" if it ever did.</b>
      */
-    default void receiveDeconstructError(StageReceiveDeconstructErrorContext stageReceiveDeconstructErrorContext) {
+    default void stagePreprocessAndDeserializeError(
+            StagePreprocessAndDeserializeErrorContext stagePreprocessAndDeserializeErrorContext) {
         /* no-op */
     }
 
+    /**
+     * Invoked right after message have been received, preprocessed and deserialized, before invoking the user lambda.
+     * (If any error occurs during preprocess or deserialization, then
+     * {@link #stagePreprocessAndDeserializeError(StagePreprocessAndDeserializeErrorContext)} is invoked instead).
+     */
     default void stageReceived(StageReceivedContext stageReceivedContext) {
         /* no-op */
     }
 
     /**
+     * Enables the intercepting of the invocation of the "user lambda" in a Stage, with ability to wrap the
+     * {@link ProcessContext} (and thus modify any reply, request, next or initiations) and/or modifying state and
+     * message - or even take over the entire stage. Wrt. changing messages, you should also consider
+     * {@link MatsStageInterceptOutgoingMessages#stageInterceptOutgoingMessages(StageInterceptOutgoingMessageContext)}.
+     * <p />
      * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
      */
-    interface MatsStageInterceptInterceptor {
-        default void interceptStageUserLambda(StageInterceptUserLambdaContext processingIntercept,
+    interface MatsStageInterceptUserLambda {
+        default void stageInterceptUserLambda(StageInterceptUserLambdaContext processingIntercept,
                 ProcessLambda<Object, Object, Object> processLambda,
                 ProcessContext<Object> ctx, Object state, Object msg)
                 throws MatsRefuseMessageException {
@@ -65,17 +66,13 @@ public interface MatsStageInterceptor {
     }
 
     /**
-     * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
+     * While still within the stage process context, this interception enables modifying outgoing messages from the user
+     * lambda, setting trace properties, adding "sideloads", deleting a message, or initiating additional messages.
      * <p />
-     * Note on implementation: Whether this is invoked when e.g. the processContext.reply(..) is invoked, or right
-     * after, or after the entire stage lambda is processed (meaning that any messages from the lambda are collected,
-     * then fed to these interceptors one by one), is up to the implementation. The contract is that it is before the
-     * message is sent out and committed, and that as such it is both editable as defined in the
-     * {@link MatsEditableOutgoingMessage}, and cancellable, as defined by
-     * {@link StageInterceptOutgoingMessageContext#cancelOutgoingMessage()}.
+     * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
      */
-    interface MatsStageMessageInterceptor extends MatsStageInterceptor {
-        default void interceptStageOutgoingMessages(
+    interface MatsStageInterceptOutgoingMessages extends MatsStageInterceptor {
+        default void stageInterceptOutgoingMessages(
                 StageInterceptOutgoingMessageContext stageInterceptOutgoingMessageContext) {
             /* no-op */
         }
@@ -85,13 +82,13 @@ public interface MatsStageInterceptor {
         /* no-op */
     }
 
-    interface StageContext {
+    interface StageInterceptContext {
         MatsStage<?, ?, ?> getStage();
 
         Instant getStartedInstant();
     }
 
-    interface StageReceiveDeconstructErrorContext extends StageContext {
+    interface StagePreprocessAndDeserializeErrorContext extends StageInterceptContext {
         ReceiveDeconstructError getReceiveDeconstructError();
 
         Optional<Throwable> getThrowable();
@@ -122,7 +119,7 @@ public interface MatsStageInterceptor {
         }
     }
 
-    interface StageCommonContext extends StageContext {
+    interface StageCommonContext extends StageInterceptContext {
         /**
          * @return the incoming message.
          */
@@ -133,6 +130,14 @@ public interface MatsStageInterceptor {
          *         also possible to send state to the initial stage).
          */
         Optional<Object> getIncomingState();
+
+        /**
+         * @return the total time taken (in nanoseconds) from the reception of a message system message, via
+         *         deconstruct; decompression; deserialization of envelope, message and state, to right before the
+         *         invocation of the {@link MatsStageInterceptor#stageReceived(StageReceivedContext)}; approx. the sum
+         *         of the timings below.
+         */
+        long getTotalPreprocessAndDeserializeNanos();
 
         /**
          * @return time taken (in nanoseconds) to pick the pieces out of the message system message.
@@ -172,13 +177,6 @@ public interface MatsStageInterceptor {
          *         before invoking the user lambda with them.
          */
         long getMessageAndStateDeserializationNanos();
-
-        /**
-         * @return the total time taken (in nanoseconds) from the reception of a message system message, via
-         *         deserialization of envelope, message and state, to right before the invocation of the
-         *         {@link MatsStageInterceptor#stageReceived(StageReceivedContext)}; approx. the sum of the times above.
-         */
-        long getTotalPreprocessingAndDeserializationNanos();
     }
 
     interface StageReceivedContext extends StageCommonContext {
@@ -189,19 +187,14 @@ public interface MatsStageInterceptor {
         ProcessContext<Object> getProcessContext();
     }
 
-    interface StageInterceptOutgoingMessageContext extends StageCommonContext {
+    interface StageInterceptOutgoingMessageContext extends StageCommonContext, CommonInterceptOutgoingMessagesContext {
         ProcessContext<Object> getProcessContext();
-
-        MatsEditableOutgoingMessage getOutgoingMessage();
-
-        void cancelOutgoingMessage();
     }
 
     interface StageCompletedContext extends StageCommonContext, CommonCompletedContext {
         DetachedProcessContext getProcessContext();
 
         /**
-         * 
          * @return The type of the main result of the Stage Processing - <b>which do not include any stage-initiations,
          *         look at {@link #getStageInitiatedMessages()} for that.</b>
          */
@@ -221,8 +214,8 @@ public interface MatsStageInterceptor {
             GOTO,
 
             /**
-             * No standard processing result (but may have produced {@link #getStageInitiatedMessages() initiations}!),
-             * which is default mode for a Terminator.
+             * No standard processing result, which is default mode for a Terminator - <b>but note that
+             * {@link #getStageInitiatedMessages() initiations} might have been produced nevertheless!</b>
              */
             NONE,
 
@@ -239,8 +232,8 @@ public interface MatsStageInterceptor {
              * {@link com.stolsvik.mats.MatsInitiator.MatsBackendException MatsBackendException} (messaging handling or
              * db commit), or {@link com.stolsvik.mats.MatsInitiator.MatsMessageSendException MatsMessageSendException}
              * (which is the "VERY BAD!" scenario where db is committed, whereupon the messaging commit failed - which
-             * most probably is a "notify the humans!"-situation, unless the code is crafted very specifically to handle
-             * such a situation).
+             * most probably is a "notify the humans!"-situation, unless the user code is crafted very specifically to
+             * handle such a situation).
              */
             SYSTEM_EXCEPTION
         }
@@ -250,13 +243,13 @@ public interface MatsStageInterceptor {
          *         Otherwise, <code>Optional.empty()</code>. The message will be of {@link DispatchType#STAGE
          *         ProcessType.STAGE}.
          */
-        Optional<MatsSentOutgoingMessage> getStageResult();
+        Optional<MatsSentOutgoingMessage> getStageResultMessage();
 
         /**
-         * @return the outgoing Requests, if this was the {@link ProcessResult}. Otherwise, an empty list. The
-         *         messages will be of {@link DispatchType#STAGE ProcessType.STAGE}.
+         * @return the outgoing Requests, if this was the {@link ProcessResult}. Otherwise, an empty list. The messages
+         *         will be of {@link DispatchType#STAGE ProcessType.STAGE}.
          */
-        List<MatsSentOutgoingMessage> getStageRequests();
+        List<MatsSentOutgoingMessage> getStageRequestMessages();
 
         /**
          * @return all stage-initiated messages, which is of {@link DispatchType#STAGE_INIT ProcessType.STAGE_INIT}.

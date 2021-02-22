@@ -14,8 +14,8 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContextWrapper;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsInitiator.MessageReference;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptInterceptor;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageMessageInterceptor;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptUserLambda;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptOutgoingMessages;
 import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.junit.Rule_Mats;
 
@@ -50,7 +50,7 @@ public class Test_StageIntercept_Simple {
     }
 
     @Test
-    public void hdoTest() throws InterruptedException {
+    public void doTest() throws InterruptedException {
         final MatsStageInterceptor stageInterceptor_1 = new MyMatsStageInterceptor(1);
         final MatsStageInterceptor stageInterceptor_2 = new MyMatsStageInterceptor(2);
 
@@ -74,7 +74,7 @@ public class Test_StageIntercept_Simple {
     }
 
     private static class MyMatsStageInterceptor implements MatsStageInterceptor,
-            MatsStageInterceptInterceptor, MatsStageMessageInterceptor {
+            MatsStageInterceptUserLambda, MatsStageInterceptOutgoingMessages {
 
         private final int _number;
 
@@ -83,7 +83,8 @@ public class Test_StageIntercept_Simple {
         }
 
         @Override
-        public void receiveDeconstructError(StageReceiveDeconstructErrorContext stageReceiveDeconstructErrorContext) {
+        public void stagePreprocessAndDeserializeError(
+                StagePreprocessAndDeserializeErrorContext stagePreprocessAndDeserializeErrorContext) {
 
         }
 
@@ -93,7 +94,7 @@ public class Test_StageIntercept_Simple {
         }
 
         @Override
-        public void interceptStageUserLambda(StageInterceptUserLambdaContext processingIntercept,
+        public void stageInterceptUserLambda(StageInterceptUserLambdaContext processingIntercept,
                 ProcessLambda<Object, Object, Object> processLambda,
                 ProcessContext<Object> ctx, Object state, Object msg) throws MatsRefuseMessageException {
             log.info("Stage 'Intercept', pre lambda-invoke, interceptor #" + _number);
@@ -117,10 +118,10 @@ public class Test_StageIntercept_Simple {
         }
 
         @Override
-        public void interceptStageOutgoingMessages(
+        public void stageInterceptOutgoingMessages(
                 StageInterceptOutgoingMessageContext stageInterceptOutgoingMessageContext) {
-            log.info("Stage 'Message', interceptor #" + _number + ", message:" + stageInterceptOutgoingMessageContext
-                    .getOutgoingMessage().getMessage());
+            log.info("Stage 'Message', interceptor #" + _number + ", messages:" + stageInterceptOutgoingMessageContext
+                    .getOutgoingMessages());
         }
 
         @Override
@@ -129,5 +130,4 @@ public class Test_StageIntercept_Simple {
                     .getOutgoingMessages());
         }
     }
-
 }

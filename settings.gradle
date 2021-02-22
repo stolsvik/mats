@@ -2,7 +2,7 @@ rootProject.name = 'mats'
 
 include 'mats-api', 'mats-serial', 'mats-util', 'mats-test', 'mats-api-test',
         'mats-intercept-api',
-        'mats-intercept-logging',
+        'mats-intercept-logging', 'mats-intercept-micrometer',
         'mats-impl-jms', 'mats-serial-json',
         'mats-spring', 'mats-spring-test', 'mats-spring-jms',
         'mats-amq', 'mats-amq-monitor', 'mats-util_activemq',

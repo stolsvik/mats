@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -28,6 +29,7 @@ import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
+import com.stolsvik.mats.MatsInitiator.InitiateLambda;
 import com.stolsvik.mats.MatsInitiator.MatsBackendException;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsInitiator.MatsMessageSendException;
@@ -38,16 +40,16 @@ import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingM
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MessageType;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptInterceptor;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageMessageInterceptor;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptUserLambda;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptOutgoingMessages;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCommonContext;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContext;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContext.ProcessResult;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageContext;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageInterceptContext;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageInterceptOutgoingMessageContext;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageInterceptUserLambdaContext;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageReceiveDeconstructErrorContext;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageReceiveDeconstructErrorContext.ReceiveDeconstructError;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StagePreprocessAndDeserializeErrorContext;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StagePreprocessAndDeserializeErrorContext.ReceiveDeconstructError;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageReceivedContext;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsMessageSendException;
@@ -348,7 +350,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                     ProcessResult throwableProcessResult = null;
 
                     ReceiveDeconstructError[] receiveDeconstructError = new ReceiveDeconstructError[1];
-                    @SuppressWarnings({"unchecked", "rawtypes"})
+                    @SuppressWarnings({ "unchecked", "rawtypes" })
                     ProcessContext<R>[] processContext = new ProcessContext[1];
 
                     try { // try-catch-finally: Catch processing Exceptions, handle cleanup in finally
@@ -573,15 +575,15 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                              */
                             for (int i = interceptorsForStage.size() - 1; i >= 0; i--) {
                                 MatsStageInterceptor interceptor = interceptorsForStage.get(i);
-                                if (!(interceptor instanceof MatsStageInterceptInterceptor)) {
+                                if (!(interceptor instanceof MatsStageInterceptUserLambda)) {
                                     continue;
                                 }
-                                final MatsStageInterceptInterceptor interceptInterceptor = (MatsStageInterceptInterceptor) interceptor;
+                                final MatsStageInterceptUserLambda interceptInterceptor = (MatsStageInterceptUserLambda) interceptor;
                                 // The currentLambda is the one that the interceptor should invoke
                                 final ProcessLambda<Object, Object, Object> lambdaThatInterceptorMustInvoke = currentLambda;
                                 // .. and, wrap the current lambda with the interceptor.
                                 // It may, or may not, wrap the provided init with its own implementation
-                                currentLambda = (pc, state, incoming) -> interceptInterceptor.interceptStageUserLambda(
+                                currentLambda = (pc, state, incoming) -> interceptInterceptor.stageInterceptUserLambda(
                                         stageInterceptContext, lambdaThatInterceptorMustInvoke, pc, state, incoming);
                             }
 
@@ -731,11 +733,12 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                         // ?: Was there a receive/deconstruct error?
                         if (receiveDeconstructError[0] != null) {
                             // -> Yes, so then the rest of the processing never happened.
-                            StageReceiveDeconstructErrorContextImpl context = new StageReceiveDeconstructErrorContextImpl(
+                            StagePreprocessAndDeserializeErrorContextImpl
+                                    context = new StagePreprocessAndDeserializeErrorContextImpl(
                                     _jmsMatsStage, startedInstant, receiveDeconstructError[0], throwableResult);
                             for (MatsStageInterceptor matsStageInterceptor : interceptorsForStage) {
                                 try {
-                                    matsStageInterceptor.receiveDeconstructError(context);
+                                    matsStageInterceptor.stagePreprocessAndDeserializeError(context);
                                 }
                                 catch (Throwable t) {
                                     log.error(LOG_PREFIX + "StageInterceptor raised exception on"
@@ -900,40 +903,27 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
             StageCommonContextImpl stageCommonContext, ProcessContext<Object> processContextCasted,
             List<JmsMatsMessage<Z>> messagesToSend) {
         // :: Find the Message interceptors. Goddamn why is there no stream.filter[InstanceOf](Clazz.class)?
-        List<MatsStageMessageInterceptor> messageInterceptors = interceptorsForStage.stream()
-                .filter(MatsStageMessageInterceptor.class::isInstance)
-                .map(MatsStageMessageInterceptor.class::cast)
+        List<MatsStageInterceptOutgoingMessages> messageInterceptors = interceptorsForStage.stream()
+                .filter(MatsStageInterceptOutgoingMessages.class::isInstance)
+                .map(MatsStageInterceptOutgoingMessages.class::cast)
                 .collect(Collectors.toList());
         if (!messageInterceptors.isEmpty()) {
-            boolean[] cancelled = new boolean[1];
-            Runnable cancelOutgoingMessage = () -> cancelled[0] = true;
-            // :: So, we go through the messages one by one, invoking each of the message interceptors
-            // NOTE: We COPY the list here and traverse that, so that if the interceptor initiates a
-            // new message, we won't get a ConcurrentModificationException.
-            List<JmsMatsMessage<Z>> copy = new ArrayList<>(messagesToSend);
-            for (JmsMatsMessage<Z> matsMessage : copy) {
-                StageInterceptOutgoingMessageContextImpl stageMessageContext = new StageInterceptOutgoingMessageContextImpl(
-                        stageCommonContext, processContextCasted,
-                        matsMessage, cancelOutgoingMessage);
-                // Set correct traceId for the current matsMessage
-                MDC.put(MDC_TRACE_ID, matsMessage.getTraceId());
-                // The matsMessage isn't cancelled so far..!
-                cancelled[0] = false;
-                // Iterate through the interceptors, "showing" the matsMessage.
-                for (MatsStageMessageInterceptor messageInterceptor : messageInterceptors) {
-                    // :: Invoke the interceptor
-                    // NOTICE: If the interceptor initiates a new matsMessage, this will NOT be be
-                    // run through neither this interceptor, nor any of the others.
-                    messageInterceptor.interceptStageOutgoingMessages(stageMessageContext);
-                    // ?: Did the interceptor invoke "cancel"?
-                    if (cancelled[0]) {
-                        // -> Yes, cancel was invoked.
-                        // Remove this matsMessage from the outgoing list
-                        messagesToSend.remove(matsMessage);
-                        // Don't invoke more messageInterceptors for this matsMessage.
-                        break;
-                    }
-                }
+            Consumer<String> cancelOutgoingMessage = matsMsgId -> messagesToSend
+                    .removeIf(next -> next.getMatsMessageId().equals(matsMsgId));
+            // Making a copy for the 'messagesToSend', as it can be modified (add/remove) by the interceptor.
+            ArrayList<JmsMatsMessage<Z>> copiedMessages = new ArrayList<>();
+            List<MatsEditableOutgoingMessage> unmodifiableMessages = Collections.unmodifiableList(copiedMessages);
+            StageInterceptOutgoingMessageContextImpl context = new StageInterceptOutgoingMessageContextImpl(
+                    stageCommonContext, processContextCasted, unmodifiableMessages, cancelOutgoingMessage);
+            // Iterate through the interceptors, "showing" the matsMessages.
+            for (MatsStageInterceptOutgoingMessages messageInterceptor : messageInterceptors) {
+                // Filling with the /current/ set of messagesToSend.
+                copiedMessages.clear();
+                copiedMessages.addAll(messagesToSend);
+                // :: Invoke the interceptor
+                // NOTICE: If the interceptor cancels a message, or initiates a new matsMessage, this WILL show up for
+                // the next invoked interceptor.
+                messageInterceptor.stageInterceptOutgoingMessages(context);
             }
         }
     }
@@ -1018,9 +1008,9 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     }
 
     /**
-     * Implementation of {@link StageContext}.
+     * Implementation of {@link StageInterceptContext}.
      */
-    private static class StageContextImpl implements StageContext {
+    private static class StageContextImpl implements StageInterceptContext {
 
         private final MatsStage<?, ?, ?> _matsStage;
         private final Instant _startedInstant;
@@ -1136,7 +1126,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         }
 
         @Override
-        public long getTotalPreprocessingAndDeserializationNanos() {
+        public long getTotalPreprocessAndDeserializeNanos() {
             return _preUserLambdaNanos;
         }
     }
@@ -1203,8 +1193,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         }
 
         @Override
-        public long getTotalPreprocessingAndDeserializationNanos() {
-            return _stageCommonContext.getTotalPreprocessingAndDeserializationNanos();
+        public long getTotalPreprocessAndDeserializeNanos() {
+            return _stageCommonContext.getTotalPreprocessAndDeserializeNanos();
         }
     }
 
@@ -1252,15 +1242,17 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
             StageInterceptOutgoingMessageContext {
         private final ProcessContext<Object> _processContext;
 
-        private final JmsMatsMessage<?> _matsMessage;
-        private final Runnable _cancelOutgoingMessage;
+        private final List<MatsEditableOutgoingMessage> _matsMessages;
+        private final Consumer<String> _cancelOutgoingMessage;
 
         public StageInterceptOutgoingMessageContextImpl(
                 StageCommonContext stageCommonContext,
-                ProcessContext<Object> processContext, JmsMatsMessage<?> matsMessage, Runnable cancelOutgoingMessage) {
+                ProcessContext<Object> processContext,
+                List<MatsEditableOutgoingMessage> matsMessages,
+                Consumer<String> cancelOutgoingMessage) {
             super(stageCommonContext);
             _processContext = processContext;
-            _matsMessage = matsMessage;
+            _matsMessages = matsMessages;
             _cancelOutgoingMessage = cancelOutgoingMessage;
         }
 
@@ -1270,13 +1262,18 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         }
 
         @Override
-        public MatsEditableOutgoingMessage getOutgoingMessage() {
-            return _matsMessage;
+        public List<MatsEditableOutgoingMessage> getOutgoingMessages() {
+            return _matsMessages;
         }
 
         @Override
-        public void cancelOutgoingMessage() {
-            _cancelOutgoingMessage.run();
+        public void initiate(InitiateLambda lambda) {
+            _processContext.initiate(lambda);
+        }
+
+        @Override
+        public void cancelOutgoingMessage(String matsMessageId) {
+            _cancelOutgoingMessage.accept(matsMessageId);
         }
     }
 
@@ -1386,12 +1383,12 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         }
 
         @Override
-        public Optional<MatsSentOutgoingMessage> getStageResult() {
+        public Optional<MatsSentOutgoingMessage> getStageResultMessage() {
             return Optional.ofNullable(_reply);
         }
 
         @Override
-        public List<MatsSentOutgoingMessage> getStageRequests() {
+        public List<MatsSentOutgoingMessage> getStageRequestMessages() {
             return _requests;
         }
 
@@ -1402,15 +1399,16 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     }
 
     /**
-     * Implementation of {@link MatsStageInterceptor.StageReceiveDeconstructErrorContext}
+     * Implementation of {@link StagePreprocessAndDeserializeErrorContext}
      */
-    private static class StageReceiveDeconstructErrorContextImpl implements StageReceiveDeconstructErrorContext {
+    private static class StagePreprocessAndDeserializeErrorContextImpl
+            implements StagePreprocessAndDeserializeErrorContext {
         private final MatsStage<?, ?, ?> _stage;
         private final Instant _startedInstant;
         private final ReceiveDeconstructError _receiveDeconstructError;
         private final Throwable _throwable;
 
-        public StageReceiveDeconstructErrorContextImpl(MatsStage<?, ?, ?> stage, Instant startedInstant,
+        public StagePreprocessAndDeserializeErrorContextImpl(MatsStage<?, ?, ?> stage, Instant startedInstant,
                 ReceiveDeconstructError receiveDeconstructError, Throwable throwable) {
             _stage = stage;
             _startedInstant = startedInstant;

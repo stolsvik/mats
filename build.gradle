@@ -15,6 +15,7 @@ ext {
     springVersionForJupiter = '5.+'
     jacksonVersion = '2.11.+'
     slf4jVersion = '1.7.+'
+    micrometerVersion = '1.6.+'
 
     // For the JUnit system tests, and the JUnit testing tools
     junitVersion = '4.+'

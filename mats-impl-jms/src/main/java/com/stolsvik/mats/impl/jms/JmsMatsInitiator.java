@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -17,6 +18,16 @@ import org.slf4j.MDC;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsFactory;
 import com.stolsvik.mats.MatsInitiator;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateCompletedContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptOutgoingMessagesContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptUserLambdaContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateStartedContext;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptUserLambda;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptOutgoingMessages;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingMessage;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsMessageSendException;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException;
@@ -24,16 +35,6 @@ import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.TransactionContext;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateCompletedContext;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateContext;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptUserLambdaContext;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptOutgoingMessagesContext;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateStartedContext;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptInterceptor;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateMessageInterceptor;
-import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingMessage;
-import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
 
 /**
  * The JMS implementation of {@link MatsInitiator}.
@@ -97,13 +98,13 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         List<MatsInitiateInterceptor> interceptorsForInitiation = _parentFactory.getInterceptorsForInitiation(
                 interceptContext);
 
-        try { // :: try-finally: Remove MDC_MATS_INITIATE and MDC_TRACE_ID
+        try { // :: try-finally: Clear up the MDC.
             MDC.put(MDC_MATS_INIT, "true");
 
             List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
 
             long[] nanosTaken_UserLambda = { 0L };
-            long[] nanosTaken_totalEnvelopeSerialization = {0L};
+            long[] nanosTaken_totalEnvelopeSerialization = { 0L };
             long[] nanosTaken_totalProduceAndSendMsgSysMessages = { 0L };
 
             Throwable throwableResult = null;
@@ -141,8 +142,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
                     // === Invoke any interceptors, stage "Intercept"
                     // Create the InitiateInterceptContext instance (one for all interceptors)
-                    InitiateInterceptUserLambdaContextImpl
-                            initiateInterceptContext = new InitiateInterceptUserLambdaContextImpl(
+                    InitiateInterceptUserLambdaContextImpl initiateInterceptContext = new InitiateInterceptUserLambdaContextImpl(
                             interceptContext, init);
                     // :: Create a "lambda stack" of the interceptors
                     // This is the resulting lambda we will actually invoke
@@ -155,15 +155,15 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                      */
                     for (int i = interceptorsForInitiation.size() - 1; i >= 0; i--) {
                         MatsInitiateInterceptor interceptor = interceptorsForInitiation.get(i);
-                        if (!(interceptor instanceof MatsInitiateInterceptInterceptor)) {
+                        if (!(interceptor instanceof MatsInitiateInterceptUserLambda)) {
                             continue;
                         }
-                        final MatsInitiateInterceptInterceptor interceptInterceptor = (MatsInitiateInterceptInterceptor) interceptor;
+                        final MatsInitiateInterceptUserLambda interceptInterceptor = (MatsInitiateInterceptUserLambda) interceptor;
                         // The currentLambda is the one that the interceptor should invoke
                         final InitiateLambda lambdaThatInterceptorMustInvoke = currentLambda;
                         // .. and, wrap the current lambda with the interceptor.
                         // It may, or may not, wrap the provided init with its own implementation
-                        currentLambda = initForInterceptor -> interceptInterceptor.interceptInitiateUserLambda(
+                        currentLambda = initForInterceptor -> interceptInterceptor.initiateInterceptUserLambda(
                                 initiateInterceptContext, lambdaThatInterceptorMustInvoke, initForInterceptor);
                     }
 
@@ -349,40 +349,27 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             InitiateContextImpl interceptContext,
             JmsMatsInitiate<Z> initiate, List<JmsMatsMessage<Z>> messagesToSend) {
         // :: Find the Message interceptors. Goddamn why is there no stream.filter[InstanceOf](Clazz.class)?
-        List<MatsInitiateMessageInterceptor> messageInterceptors = interceptorsForInitiation.stream()
-                .filter(MatsInitiateMessageInterceptor.class::isInstance)
-                .map(MatsInitiateMessageInterceptor.class::cast)
+        List<MatsInitiateInterceptOutgoingMessages> messageInterceptors = interceptorsForInitiation.stream()
+                .filter(MatsInitiateInterceptOutgoingMessages.class::isInstance)
+                .map(MatsInitiateInterceptOutgoingMessages.class::cast)
                 .collect(Collectors.toList());
         if (!messageInterceptors.isEmpty()) {
-            boolean[] cancelled = new boolean[1];
-            Runnable cancelOutgoingMessage = () -> cancelled[0] = true;
-            // :: So, we go through the messages one by one, invoking each of the message interceptors
-            // NOTE: We COPY the list here and traverse that, so that if the interceptor initiates a new
-            // message, we won't get a ConcurrentModificationException.
-            List<JmsMatsMessage<Z>> copy = new ArrayList<>(messagesToSend);
-            for (JmsMatsMessage<Z> matsMessage : copy) {
-                InitiateInterceptOutgoingMessagesContextImpl
-                        initiateMessageContext = new InitiateInterceptOutgoingMessagesContextImpl(
-                        interceptContext, initiate, matsMessage, cancelOutgoingMessage);
-                // Set correct traceId for the current matsMessage
-                MDC.put(MDC_TRACE_ID, matsMessage.getTraceId());
-                // The matsMessage isn't cancelled so far..!
-                cancelled[0] = false;
-                // Iterate through the interceptors, "showing" the matsMessage.
-                for (MatsInitiateMessageInterceptor messageInterceptor : messageInterceptors) {
-                    // :: Invoke the interceptor
-                    // NOTICE: If the interceptor initiates a new matsMessage, this will NOT be be run
-                    // through neither this interceptor, nor any of the others.
-                    messageInterceptor.interceptInitiateOutgoingMessages(initiateMessageContext);
-                    // ?: Did the interceptor invoke "cancel"?
-                    if (cancelled[0]) {
-                        // -> Yes, cancel was invoked.
-                        // Remove this matsMessage from the outgoing list
-                        messagesToSend.remove(matsMessage);
-                        // Don't invoke more messageInterceptors for this matsMessage.
-                        break;
-                    }
-                }
+            Consumer<String> cancelOutgoingMessage = matsMsgId -> messagesToSend
+                    .removeIf(next -> next.getMatsMessageId().equals(matsMsgId));
+            // Making a copy for the 'messagesToSend', as it can be modified (add/remove) by the interceptor.
+            ArrayList<JmsMatsMessage<Z>> copiedMessages = new ArrayList<>();
+            List<MatsEditableOutgoingMessage> unmodifiableMessages = Collections.unmodifiableList(copiedMessages);
+            InitiateInterceptOutgoingMessagesContextImpl context = new InitiateInterceptOutgoingMessagesContextImpl(
+                    interceptContext, initiate, unmodifiableMessages, cancelOutgoingMessage);
+            // Iterate through the interceptors, "showing" the matsMessages.
+            for (MatsInitiateInterceptOutgoingMessages messageInterceptor : messageInterceptors) {
+                // Filling with the /current/ set of messagesToSend.
+                copiedMessages.clear();
+                copiedMessages.addAll(messagesToSend);
+                // :: Invoke the interceptor
+                // NOTICE: If the interceptor cancels a message, or initiates a new matsMessage, this WILL show up for
+                // the next invoked interceptor.
+                messageInterceptor.initiateInterceptOutgoingMessages(context);
             }
         }
     }
@@ -430,9 +417,9 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
     }
 
     /**
-     * Implementation of {@link InitiateContext}.
+     * Implementation of {@link InitiateInterceptContext}.
      */
-    static class InitiateContextImpl implements InitiateContext {
+    static class InitiateContextImpl implements InitiateInterceptContext {
         private final MatsInitiator _matsInitiator;
         private final Instant _startedInstant;
 
@@ -507,15 +494,17 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
     static class InitiateInterceptOutgoingMessagesContextImpl implements InitiateInterceptOutgoingMessagesContext {
         private final InitiateContextImpl _initiationInterceptContext;
         private final MatsInitiate _matsInitiate;
-        private final JmsMatsMessage<?> _matsMessage;
-        private final Runnable _cancelOutgoingMessage;
+
+        private final List<MatsEditableOutgoingMessage> _matsMessages;
+        private final Consumer<String> _cancelOutgoingMessage;
 
         public InitiateInterceptOutgoingMessagesContextImpl(
                 InitiateContextImpl initiationInterceptContext, MatsInitiate matsInitiate,
-                JmsMatsMessage<?> matsMessage, Runnable cancelOutgoingMessage) {
+                List<MatsEditableOutgoingMessage> matsMessages,
+                Consumer<String> cancelOutgoingMessage) {
             _initiationInterceptContext = initiationInterceptContext;
             _matsInitiate = matsInitiate;
-            _matsMessage = matsMessage;
+            _matsMessages = matsMessages;
             _cancelOutgoingMessage = cancelOutgoingMessage;
         }
 
@@ -530,8 +519,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         @Override
-        public MatsEditableOutgoingMessage getOutgoingMessage() {
-            return _matsMessage;
+        public List<MatsEditableOutgoingMessage> getOutgoingMessages() {
+            return _matsMessages;
         }
 
         @Override
@@ -540,8 +529,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         @Override
-        public void cancelOutgoingMessage() {
-            _cancelOutgoingMessage.run();
+        public void cancelOutgoingMessage(String matsMessageId) {
+            _cancelOutgoingMessage.accept(matsMessageId);
         }
     }
 

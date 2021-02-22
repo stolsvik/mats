@@ -347,7 +347,7 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
     }
 
     @Override
-    public long getMessageSystemConstructAndSendNanos() {
+    public long getMessageSystemProductionAndSendNanos() {
         return _messageSystemMessageCreationAndSendNanos;
     }
 
