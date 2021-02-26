@@ -3,6 +3,7 @@ package com.stolsvik.mats.spring.jms.tx;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -28,8 +29,8 @@ import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory.ContextLocal;
 import com.stolsvik.mats.impl.jms.JmsMatsContextLocalCallback;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
-import com.stolsvik.mats.impl.jms.JmsMatsInternalExecutionContext;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException;
+import com.stolsvik.mats.impl.jms.JmsMatsInternalExecutionContext;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager_Jms;
 import com.stolsvik.mats.util.wrappers.DeferredConnectionProxyDataSourceWrapper;
@@ -594,16 +595,53 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                      * LazyConnectionDataSourceProxy, and then introspect that for whether the Connection was gotten.
                      * But why could you not then instead use Mats' magic proxy which specifically handles this?!?
                      */
+                    // Assume 'true' ("yes, it was employed"), unless we can do better
                     Supplier<Boolean> connectionEmployedState = () -> true;
 
-                    // :? If we have a "magic" DataSource, enable the logic where we know whether Stage employed SQL
+                    // :? If we have a "magic" DataSource, enable the logic where we know whether Stage employed SQL.
                     if (_dataSource instanceof DeferredConnectionProxyDataSourceWrapper_InfrastructureProxy) {
-                        // -> Yes, special DataSourceWrapper, so magic can ensue
-                        // Fetch the transactional SQL Connection, which we can query whether have retrieved actual con
-                        DeferredConnectionProxy sqlConnection = (DeferredConnectionProxy) DataSourceUtils.getConnection(
-                                _dataSource);
-                        log.debug(LOG_PREFIX + "SQL Connection gotten: [" + sqlConnection + "]");
-                        connectionEmployedState = sqlConnection::isActualConnectionRetrieved;
+                        // -> Yes, special DataSourceWrapper, so magic was-sql-Connection-employed tracking can ensue.
+                        /*
+                         * Fetch the transactional SQL Connection using DataSourceUtils. This should be of our own
+                         * DeferredConnectionProxy (or a wrapped instance of it, which evidently can happen with certain
+                         * setups of Hibernate), which we can utilize to query whether the user lambda code actually
+                         * employed the underlying Connection.
+                         *
+                         * Note that just fetching the transactional SQL Connection instance from DataSourceUtils
+                         * doesn't "employ" it (the actual SQL Connection is not yet fetched from the underlying
+                         * DataSource).
+                         */
+                        Connection connectionFromDataSourceUtils = DataSourceUtils.getConnection(_dataSource);
+                        // ?: Is it directly a DeferredConnectionProxy? (normal case)
+                        if (connectionFromDataSourceUtils instanceof DeferredConnectionProxy) {
+                            // -> Yes it is directly a DeferredConnectionProxy, so cast it
+                            log.debug(LOG_PREFIX + "SQL Connection directly wrapped as DeferredConnectionProxy gotten"
+                                    + " from DataSourceUtils: [" + connectionFromDataSourceUtils + "]");
+                            DeferredConnectionProxy deferredConnectionProxy = (DeferredConnectionProxy) connectionFromDataSourceUtils;
+                            connectionEmployedState = deferredConnectionProxy::isActualConnectionRetrieved;
+                        }
+                        else {
+                            // -> No, it wasn't directly a DeferredConnectionProxy, so check if it isWrapperFor(..)
+                            try {
+                                if (connectionFromDataSourceUtils.isWrapperFor(DeferredConnectionProxy.class)) {
+                                    // -> Yes, it isWrapperFor(..), so unwrap it.
+                                    DeferredConnectionProxy deferredConnectionProxy = connectionFromDataSourceUtils
+                                            .unwrap(DeferredConnectionProxy.class);
+                                    log.debug(LOG_PREFIX + "SQL Connection gotten from DataSourceUtils"
+                                            + " isWrapperFor(DeferredConnectionProxy), thus unwrapped to that:"
+                                            + " [" + deferredConnectionProxy + "], original: ["
+                                            + connectionFromDataSourceUtils + "]");
+                                    connectionEmployedState = deferredConnectionProxy::isActualConnectionRetrieved;
+                                }
+                            }
+                            catch (SQLException e) {
+                                log.warn("Got SQLException when trying to invoke .isWrapperFor(DeferredConnectionProxy)"
+                                        + " or .unwrap(DeferredConnectionProxy) on the SQL Connection retrieved by"
+                                        + " DataSourceUtils.getConnection(_dataSource). This should really not happen."
+                                        + " Ignoring (cannot do sql-employ-tracking now) -"
+                                        + " please notify Mats maintainers about this situation.", e);
+                            }
+                        }
                     }
 
                     // :: Make the potential SQL Connection available
@@ -637,7 +675,8 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                         /*
                          * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                          */
-                        commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, false, transactionStatus);
+                        commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, false,
+                                transactionStatus);
 
                         // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
@@ -655,7 +694,8 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                         /*
                          * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                          */
-                        commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, false, transactionStatus);
+                        commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, false,
+                                transactionStatus);
 
                         // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
@@ -678,7 +718,8 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                     /*
                      * IFF the SQL Connection was fetched, we will now commit (and close) it.
                      */
-                    commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, true, transactionStatus);
+                    commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, true,
+                            transactionStatus);
 
                     // ----- We're now *outside* the SQL Transaction demarcation (committed).
 

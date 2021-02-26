@@ -138,7 +138,7 @@ public class DeferredConnectionProxyDataSourceWrapper extends DataSourceWrapper 
     }
 
     /**
-     * Implement if you want to know when the actual Connection was retrieved. Default implementation logs to debug.
+     * Override if you want to know when the actual Connection was retrieved. Default implementation logs to debug.
      */
     protected void actualConnectionWasRetrieved(DeferredConnectionProxy connectionProxy, Connection actualConnection) {
         if (log.isDebugEnabled()) log.debug("Actual Connection retrieved from DataSource@"
@@ -149,7 +149,7 @@ public class DeferredConnectionProxyDataSourceWrapper extends DataSourceWrapper 
     }
 
     /**
-     * Implement if you want to know about every method invoked on the {@link DeferredConnectionProxy}, its arguments
+     * Override if you want to know about every method invoked on the {@link DeferredConnectionProxy}, its arguments
      * and its return value, and whether it was the proxy or the actual Connection that answered. Default implementation
      * does nothing.
      */
@@ -263,7 +263,7 @@ public class DeferredConnectionProxyDataSourceWrapper extends DataSourceWrapper 
                     return _actualConnection != null;
 
                 case "getTargetConnection":
-                    // -> Spring's ConnectionProxy.getTargetConnection()
+                    // -> Spring's ConnectionProxy.getTargetConnection() ("magically" implemented if on Classpath)
                     // Actually get the Connection
                     retrieveActualConnection(method);
                     // Return it
