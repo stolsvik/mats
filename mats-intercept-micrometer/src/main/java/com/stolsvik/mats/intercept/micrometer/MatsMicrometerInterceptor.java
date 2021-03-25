@@ -26,8 +26,12 @@ import io.micrometer.core.instrument.Timer;
  * {@link MeterRegistry}, it will employ this to create the metrics on, otherwise it employs the
  * {@link Metrics#globalRegistry}.
  * <p />
- * Simple way to add it: {@link #install(MatsInterceptable, MeterRegistry)} or {@link #install(MatsInterceptable)},
- * which returns the installed interceptor instance (so you could potentially can remove it again).
+ * <b>Note: This interceptor (Micrometer Metrics) has special support in <code>JmsMatsFactory</code>: If present on the
+ * classpath, it is automatically installed using the {@link #install(MatsInterceptable)} install method.</b> This
+ * implies that it employs the {@link Metrics#globalRegistry Micrometer 'globalRegistry'}. If you rather want to supply
+ * a specific registry, then install a different instance using the {@link #install(MatsInterceptable, MeterRegistry)}
+ * method - the <code>JmsMatsFactory</code> will then remove the automatically installed, since it implements the
+ * special marker-interface {@link MatsMetricsInterceptor} of which there can only be one instance installed.
  *
  * @author Endre Stølsvik - 2021-02-07 12:45 - http://endre.stolsvik.com
  */
@@ -117,7 +121,6 @@ public class MatsMicrometerInterceptor
                     .register(_meterRegistry);
             timer_MsgCommit.record(ctx.getMessageSystemCommitNanos(), TimeUnit.NANOSECONDS);
 
-
             for (MatsSentOutgoingMessage msg : outgoingMessages) {
                 DistributionSummary size = DistributionSummary.builder("mats.msg.out")
                         .tag("from", msg.getFrom())
@@ -169,7 +172,6 @@ public class MatsMicrometerInterceptor
                 .register(_meterRegistry);
         timer_TotalTime.record(ctx.getTotalExecutionNanos(), TimeUnit.NANOSECONDS);
 
-
         for (MatsSentOutgoingMessage msg : outgoingMessages) {
             DistributionSummary distSum_size = DistributionSummary.builder("mats.msg.size")
                     .tag("from", msg.getFrom())
@@ -189,8 +191,6 @@ public class MatsMicrometerInterceptor
                     + msg.getEnvelopeCompressionNanos()
                     + msg.getMessageSystemProductionAndSendNanos(), TimeUnit.NANOSECONDS);
         }
-
-
 
         String messageSenderName = ctx.getStage().getParentEndpoint().getParentFactory()
                 .getFactoryConfig().getName();

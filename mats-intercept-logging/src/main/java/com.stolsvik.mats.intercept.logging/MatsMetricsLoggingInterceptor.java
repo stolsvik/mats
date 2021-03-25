@@ -20,7 +20,12 @@ import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
  * (timing and endpointIds/stageIds), so as to be able to use the logging system (e.g. Kibana over ElasticSearch) to
  * create statistics.
  * <p />
- * Simple way to add it: {@link #install(MatsInterceptable)}.
+ * <b>Note: This interceptor (SLF4J Logger with Metrics on MDC) has special support in <code>JmsMatsFactory</code>: If
+ * present on the classpath, it is automatically installed using the {@link #install(MatsInterceptable)} install
+ * method.</b> This interceptor implements the special marker-interface {@link MatsLoggingInterceptor} of which there
+ * can only be one instance installed in a <code>JmsMatsFactory</code> - implying that if you want a different type of
+ * logging, you may implement a custom variant (either subclassing this, on your own risk, or start from scratch), and
+ * simply install it, leading to this instance being removed (or just not have this variant on the classpath).
  *
  * @author Endre Stølsvik - 2021-02-07 12:45 - http://endre.stolsvik.com
  */
@@ -82,6 +87,7 @@ public class MatsMetricsLoggingInterceptor
     // NOT using 'MDC_MATS_OUT_FROM_APP' / "mats.out.from.App", as that is 'this' App, 'MDC_MATS_APP_NAME'.
     public String MDC_MATS_OUT_FROM_ID = "mats.out.from.Id"; // "this" EndpointId/StageId/InitiatorId.
     public String MDC_MATS_OUT_TO_ID = "mats.out.to.Id"; // target EndpointId/StageId.
+    // NOTE: There is no MDC_MATS_OUT_TO_APP, since we do not know which app will consume it.
     public String MDC_MATS_OUT_AUDIT = "mats.out.Audit";
     public String MDC_MATS_OUT_PERSISTENT = "mats.out.Persistent";
 
