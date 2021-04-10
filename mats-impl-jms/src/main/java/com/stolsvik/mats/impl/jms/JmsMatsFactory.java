@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -213,53 +214,10 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
                 _initiationInterceptorProviders, _initiateInterceptorSingletonToProvider);
     }
 
-    private <I, IP> void addSingletonInterceptor(Class<I> interceptorType,
-            I initiateInterceptorSingleton, IP provider, CopyOnWriteArrayList<IP> providersList,
-            IdentityHashMap<I, IP> singletonToProviderMap) {
-        log.info(LOG_PREFIX + "Adding Singleton " + interceptorType.getSimpleName()
-                + ": [" + initiateInterceptorSingleton + "].");
-        synchronized (singletonToProviderMap) {
-            // ?: Is this a MatsLoggingInterceptor?
-            if (initiateInterceptorSingleton instanceof MatsLoggingInterceptor) {
-                // -> Yes, MatsLoggingInterceptor - so clear out any existing to add this new.
-                removeInterceptorSingletonType(providersList, singletonToProviderMap,
-                        MatsLoggingInterceptor.class);
-            }
-            if (initiateInterceptorSingleton instanceof MatsMetricsInterceptor) {
-                // -> Yes, MatsMetricsInterceptor - so clear out any existing to add this new.
-                removeInterceptorSingletonType(providersList, singletonToProviderMap,
-                        MatsMetricsInterceptor.class);
-            }
-            if (!((initiateInterceptorSingleton instanceof MatsLoggingInterceptor))
-                    || (initiateInterceptorSingleton instanceof MatsMetricsInterceptor)) {
-                // ?: Have we already added this same instance?
-                if (singletonToProviderMap.containsKey(initiateInterceptorSingleton)) {
-                    // -> Yes, already added, cannot add twice.
-                    throw new IllegalStateException(interceptorType.getSimpleName()
-                            + ": Interceptor Singleton already added: " + initiateInterceptorSingleton + ".");
-                }
-            }
-
-            // Add the new
-            providersList.add(provider);
-            singletonToProviderMap.put(initiateInterceptorSingleton, provider);
-        }
-    }
-
-    private <I, IP> void removeInterceptorSingletonType(CopyOnWriteArrayList<IP> providersList,
-            IdentityHashMap<I, IP> singletonToProviderMap, Class<?> typeToRemove) {
-        Iterator<Entry<I, IP>> it = singletonToProviderMap.entrySet().iterator();
-        while (it.hasNext()) {
-            Entry<I, IP> next = it.next();
-            // ?: Is this existing interceptor of a type to remove?
-            if (typeToRemove.isInstance(next.getKey())) {
-                // -> Yes, so remove it, and from the providers.
-                log.info(LOG_PREFIX + ".. removing existing: [" + next.getKey() + "], since adding new "
-                        + typeToRemove.getSimpleName());
-                providersList.remove(next.getValue());
-                it.remove();
-            }
-        }
+    @Override
+    public <T extends MatsInitiateInterceptor> Optional<T> getInitiationInterceptorSingleton(
+            Class<T> interceptorClass) {
+        return getInterceptorSingleton(_initiateInterceptorSingletonToProvider.keySet(), interceptorClass);
     }
 
     @Override
@@ -296,6 +254,76 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
         MatsStageInterceptorProvider provider = na -> stageInterceptor;
         addSingletonInterceptor(MatsStageInterceptor.class, stageInterceptor, provider,
                 _stageInterceptorProviders, _stageInterceptorSingletonToProvider);
+    }
+
+    @Override
+    public <T extends MatsStageInterceptor> Optional<T> getStageInterceptorSingleton(Class<T> interceptorClass) {
+        return getInterceptorSingleton(_stageInterceptorSingletonToProvider.keySet(), interceptorClass);
+    }
+
+    private <I, T extends I> Optional<T> getInterceptorSingleton(Set<I> singletons, Class<T> typeToFind) {
+        for (I singleton : singletons) {
+            if (typeToFind.isInstance(singleton)) {
+                @SuppressWarnings("unchecked")
+                Optional<T> ret = (Optional<T>) Optional.of(singleton);
+                return ret;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private <I, IP> void addSingletonInterceptor(Class<I> interceptorType,
+            I initiateInterceptorSingleton, IP provider, CopyOnWriteArrayList<IP> providersList,
+            IdentityHashMap<I, IP> singletonToProviderMap) {
+        log.info(LOG_PREFIX + "Adding Singleton " + interceptorType.getSimpleName()
+                + ": [" + initiateInterceptorSingleton + "].");
+        synchronized (singletonToProviderMap) {
+            // :: Special handling for our special interceptors
+            // ?: Is this a MatsLoggingInterceptor?
+            if (initiateInterceptorSingleton instanceof MatsLoggingInterceptor) {
+                // -> Yes, MatsLoggingInterceptor - so clear out any existing to add this new.
+                removeInterceptorSingletonType(providersList, singletonToProviderMap,
+                        MatsLoggingInterceptor.class);
+            }
+            if (initiateInterceptorSingleton instanceof MatsMetricsInterceptor) {
+                // -> Yes, MatsMetricsInterceptor - so clear out any existing to add this new.
+                removeInterceptorSingletonType(providersList, singletonToProviderMap,
+                        MatsMetricsInterceptor.class);
+            }
+
+            // ----- Not our special handling interceptors
+
+            // :: Handle double-adding of same instance (not allowed)
+            if (!((initiateInterceptorSingleton instanceof MatsLoggingInterceptor))
+                    || (initiateInterceptorSingleton instanceof MatsMetricsInterceptor)) {
+                // ?: Have we already added this same instance?
+                if (singletonToProviderMap.containsKey(initiateInterceptorSingleton)) {
+                    // -> Yes, already added, cannot add twice.
+                    throw new IllegalStateException(interceptorType.getSimpleName()
+                            + ": Interceptor Singleton already added: " + initiateInterceptorSingleton + ".");
+                }
+            }
+
+            // Add the new
+            providersList.add(provider);
+            singletonToProviderMap.put(initiateInterceptorSingleton, provider);
+        }
+    }
+
+    private <I, IP> void removeInterceptorSingletonType(CopyOnWriteArrayList<IP> providersList,
+            IdentityHashMap<I, IP> singletonToProviderMap, Class<?> typeToRemove) {
+        Iterator<Entry<I, IP>> it = singletonToProviderMap.entrySet().iterator();
+        while (it.hasNext()) {
+            Entry<I, IP> next = it.next();
+            // ?: Is this existing interceptor of a type to remove?
+            if (typeToRemove.isInstance(next.getKey())) {
+                // -> Yes, so remove it, and from the providers.
+                log.info(LOG_PREFIX + ".. removing existing: [" + next.getKey() + "], since adding new "
+                        + typeToRemove.getSimpleName());
+                providersList.remove(next.getValue());
+                it.remove();
+            }
+        }
     }
 
     @Override
@@ -340,7 +368,7 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
     public <R, S> JmsMatsEndpoint<R, S, Z> staged(String endpointId, Class<R> replyClass, Class<S> stateClass,
             Consumer<? super EndpointConfig<R, S>> endpointConfigLambda) {
         JmsMatsEndpoint<R, S, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, true, stateClass, replyClass);
-        addCreatedEndpoint(endpoint);
+        validateNewEndpoint(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
         return endpoint;
     }
@@ -415,7 +443,7 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
         // Need to create the JmsMatsEndpoint ourselves, since we need to set the queue-parameter.
         JmsMatsEndpoint<Void, S, Z> endpoint = new JmsMatsEndpoint<>(this, endpointId, queue, stateClass,
                 Void.TYPE);
-        addCreatedEndpoint(endpoint);
+        validateNewEndpoint(endpoint);
         endpointConfigLambda.accept(endpoint.getEndpointConfig());
         // :: Wrap the ProcessTerminatorLambda in a single stage that does not return.
         // This is just a direct forward, w/o any return value.
@@ -485,14 +513,31 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
         }
     }
 
-    private void addCreatedEndpoint(JmsMatsEndpoint<?, ?, Z> newEndpoint) {
+    private void validateNewEndpoint(JmsMatsEndpoint<?, ?, Z> newEndpoint) {
         // :: Assert that it is possible to instantiate the State and Reply classes.
         assertOkToInstantiateClass(newEndpoint.getEndpointConfig().getStateClass(), "State 'STO' Class",
                 "Endpoint " + newEndpoint.getEndpointId());
         assertOkToInstantiateClass(newEndpoint.getEndpointConfig().getReplyClass(), "Reply DTO Class",
                 "Endpoint " + newEndpoint.getEndpointId());
 
-        // :: Check that we do not have the endpoint already, and if not, register it.
+        // :: Check that we do not have the endpoint already.
+        synchronized (_createdEndpoints) {
+            Optional<MatsEndpoint<?, ?>> existingEndpoint = getEndpoint(newEndpoint.getEndpointConfig()
+                    .getEndpointId());
+            if (existingEndpoint.isPresent()) {
+                throw new IllegalStateException("An Endpoint with endpointId='"
+                        + newEndpoint.getEndpointConfig().getEndpointId()
+                        + "' was already present. Existing: [" + existingEndpoint.get()
+                        + "], attempted registered:[" + newEndpoint + "].");
+            }
+        }
+    }
+
+    /**
+     * Invoked by the endpoint upon {@link MatsEndpoint#finishSetup()}.
+     */
+    void addNewEndpointToFactory(JmsMatsEndpoint<?, ?, Z> newEndpoint) {
+        // :: Check that we do not have the endpoint already - and if not, add it.
         synchronized (_createdEndpoints) {
             Optional<MatsEndpoint<?, ?>> existingEndpoint = getEndpoint(newEndpoint.getEndpointConfig()
                     .getEndpointId());

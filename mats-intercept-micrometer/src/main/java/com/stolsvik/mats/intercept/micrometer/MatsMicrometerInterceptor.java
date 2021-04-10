@@ -94,28 +94,28 @@ public class MatsMicrometerInterceptor
             MatsSentOutgoingMessage firstMessage = outgoingMessages.get(0);
             String fromId = firstMessage.getFrom();
             Timer timer_TotalTime = Timer.builder("mats.init.total")
-                    .tag("initiator", ctx.getMatsInitiator().getName())
+                    .tag("initiator", ctx.getInitiator().getName())
                     .tag("from", fromId)
                     .description("Total time taken to execute initialization")
                     .register(_meterRegistry);
             timer_TotalTime.record(ctx.getTotalExecutionNanos(), TimeUnit.NANOSECONDS);
 
             Timer timer_DbCommit = Timer.builder("mats.init.dbcommit")
-                    .tag("initiator", ctx.getMatsInitiator().getName())
+                    .tag("initiator", ctx.getInitiator().getName())
                     .tag("from", fromId)
                     .description("Time taken to commit database")
                     .register(_meterRegistry);
             timer_DbCommit.record(ctx.getDbCommitNanos(), TimeUnit.NANOSECONDS);
 
             Timer timer_MsgSend = Timer.builder("mats.init.msgsend")
-                    .tag("initiator", ctx.getMatsInitiator().getName())
+                    .tag("initiator", ctx.getInitiator().getName())
                     .tag("from", fromId)
                     .description("Time taken (sum) to produce and send messages to message system")
                     .register(_meterRegistry);
             timer_MsgSend.record(ctx.getSumMessageSystemProductionAndSendNanos(), TimeUnit.NANOSECONDS);
 
             Timer timer_MsgCommit = Timer.builder("mats.init.msgcommit")
-                    .tag("initiator", ctx.getMatsInitiator().getName())
+                    .tag("initiator", ctx.getInitiator().getName())
                     .tag("from", fromId)
                     .description("Time taken to commit message system")
                     .register(_meterRegistry);
@@ -132,8 +132,8 @@ public class MatsMicrometerInterceptor
             }
         }
 
-        String messageSenderName = ctx.getMatsInitiator().getParentFactory()
-                .getFactoryConfig().getName() + "|" + ctx.getMatsInitiator().getName();
+        String messageSenderName = ctx.getInitiator().getParentFactory()
+                .getFactoryConfig().getName() + "|" + ctx.getInitiator().getName();
 
         completed(ctx, "", log_init, outgoingMessages, messageSenderName, "", 0L);
     }

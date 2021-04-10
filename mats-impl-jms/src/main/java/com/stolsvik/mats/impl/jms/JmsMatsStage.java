@@ -25,7 +25,7 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
     private final String _stageId;
     private final boolean _queue;
     private final Class<S> _stateClass;
-    private final Class<I> _incomingMessageClass;
+    private final Class<I> _incomingClass;
     private final ProcessLambda<R, S, I> _processLambda;
 
     private final JmsMatsFactory<Z> _parentFactory;
@@ -33,12 +33,12 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
     private final JmsStageConfig _stageConfig = new JmsStageConfig();
 
     public JmsMatsStage(JmsMatsEndpoint<R, S, Z> parentEndpoint, String stageId, boolean queue,
-            Class<I> incomingMessageClass, Class<S> stateClass, ProcessLambda<R, S, I> processLambda) {
+            Class<I> incomingClass, Class<S> stateClass, ProcessLambda<R, S, I> processLambda) {
         _parentEndpoint = parentEndpoint;
         _stageId = stageId;
         _queue = queue;
         _stateClass = stateClass;
-        _incomingMessageClass = incomingMessageClass;
+        _incomingClass = incomingClass;
         _processLambda = processLambda;
 
         _parentFactory = _parentEndpoint.getParentFactory();
@@ -64,8 +64,8 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         return _stateClass;
     }
 
-    Class<I> getIncomingMessageClass() {
-        return _incomingMessageClass;
+    Class<I> getMessageClass() {
+        return _incomingClass;
     }
 
     ProcessLambda<R, S, I> getProcessLambda() {
@@ -107,6 +107,11 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
 
     @Override
     public synchronized void start() {
+        if (!_parentEndpoint.isFinishedSetup()) {
+            throw new IllegalStateException("Cannot start Stage [" + id(_stageId, this) + "] of Endpoint ["
+                    + _parentEndpoint + "], as Endpoint is not finishSetup() yet!");
+        }
+
         log.info(LOG_PREFIX + "   |-  Starting Stage [" + id(_stageId, this) + "].");
         if (_stageProcessors.size() > 1) {
             log.warn(LOG_PREFIX + "   |- When asked to start Stage, it was ALREADY STARTED! [" + id(_stageId, this)
@@ -205,8 +210,14 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
         }
 
         @Override
+        @Deprecated
         public Class<I> getIncomingMessageClass() {
-            return _incomingMessageClass;
+            return getIncomingClass();
+        }
+
+        @Override
+        public Class<I> getIncomingClass() {
+            return _incomingClass;
         }
     }
 

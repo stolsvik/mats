@@ -429,7 +429,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         @Override
-        public MatsInitiator getMatsInitiator() {
+        public MatsInitiator getInitiator() {
             return _matsInitiator;
         }
 
@@ -450,8 +450,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         @Override
-        public MatsInitiator getMatsInitiator() {
-            return _initiationInterceptContext.getMatsInitiator();
+        public MatsInitiator getInitiator() {
+            return _initiationInterceptContext.getInitiator();
         }
 
         @Override
@@ -476,8 +476,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         @Override
-        public MatsInitiator getMatsInitiator() {
-            return _initiationInterceptContext.getMatsInitiator();
+        public MatsInitiator getInitiator() {
+            return _initiationInterceptContext.getInitiator();
         }
 
         @Override
@@ -509,8 +509,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         @Override
-        public MatsInitiator getMatsInitiator() {
-            return _initiationInterceptContext.getMatsInitiator();
+        public MatsInitiator getInitiator() {
+            return _initiationInterceptContext.getInitiator();
         }
 
         @Override
@@ -573,8 +573,8 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         }
 
         @Override
-        public MatsInitiator getMatsInitiator() {
-            return _initiationInterceptContext.getMatsInitiator();
+        public MatsInitiator getInitiator() {
+            return _initiationInterceptContext.getInitiator();
         }
 
         @Override

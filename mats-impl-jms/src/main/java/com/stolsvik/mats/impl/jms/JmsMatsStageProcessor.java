@@ -493,7 +493,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
                             // :: Incoming Message DTO
                             I incomingDto = handleIncomingMessageMatsObject(matsSerializer,
-                                    _jmsMatsStage.getIncomingMessageClass(), currentCall.getData());
+                                    _jmsMatsStage.getMessageClass(), currentCall.getData());
 
                             long nanosTaken_incomingMessageAndStateDeserializationNanos = System.nanoTime()
                                     - nanosAtStart_incomingMessageAndStateDeserializationNanos;

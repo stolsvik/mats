@@ -127,8 +127,8 @@ public class MatsMetricsLoggingInterceptor
         try {
             MDC.put(MDC_MATS_INITIATE_COMPLETED, "true");
             List<MatsSentOutgoingMessage> outgoingMessages = ctx.getOutgoingMessages();
-            String messageSenderName = ctx.getMatsInitiator().getParentFactory()
-                    .getFactoryConfig().getName() + "|" + ctx.getMatsInitiator().getName();
+            String messageSenderName = ctx.getInitiator().getParentFactory()
+                    .getFactoryConfig().getName() + "|" + ctx.getInitiator().getName();
 
             completed(ctx, "", log_init, outgoingMessages, messageSenderName, "", 0L);
         }

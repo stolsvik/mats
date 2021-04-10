@@ -129,6 +129,7 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
     @Override
     public void finishSetup() {
         _finishedSetup = true;
+        _parentFactory.addNewEndpointToFactory(this);
         if (!_parentFactory.isHoldEndpointsUntilFactoryIsStarted()) {
             log.info(LOG_PREFIX+"   \\- Finished setup of, and will immediately start, Endpoint ["+id(_endpointId, this)+"].");
             start();
@@ -140,14 +141,17 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
 
     @Override
     public void start() {
-        if (!_finishedSetup) {
-            log.info(LOG_PREFIX + "!! NOT starting Stages for Endpoint [" + _endpointId + "], as Endpoint is not"
-                    + " finishSetup() yet!");
-            return;
+        if (!isFinishedSetup()) {
+            throw new IllegalStateException("Cannot start Stages for Endpoint [" + _endpointId + "], as Endpoint is"
+                    + " not finishSetup() yet!");
         }
         log.info(JmsMatsStatics.LOG_PREFIX + "Starting all Stages for Endpoint [" + _endpointId + "].");
         _stages.forEach(JmsMatsStage::start);
         log.info(JmsMatsStatics.LOG_PREFIX + "   \\- All stages started for Endpoint [" + _endpointId + "].");
+    }
+
+    boolean isFinishedSetup() {
+        return _finishedSetup;
     }
 
     @Override

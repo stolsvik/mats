@@ -158,7 +158,7 @@ public interface MatsInitiateInterceptor {
     }
 
     interface InitiateInterceptContext {
-        MatsInitiator getMatsInitiator();
+        MatsInitiator getInitiator();
 
         Instant getStartedInstant();
     }

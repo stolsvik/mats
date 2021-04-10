@@ -1,5 +1,7 @@
 package com.stolsvik.mats.api.intercept;
 
+import java.util.Optional;
+
 import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptContext;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageInterceptContext;
 
@@ -17,6 +19,8 @@ public interface MatsInterceptable {
     void removeInitiationInterceptorProvider(MatsInitiateInterceptorProvider initiationInterceptorProvider);
 
     void addInitiationInterceptorSingleton(MatsInitiateInterceptor initiateInterceptor);
+
+    <T extends MatsInitiateInterceptor> Optional<T> getInitiationInterceptorSingleton(Class<T> interceptorClass);
 
     void removeInitiationInterceptorSingleton(MatsInitiateInterceptor initiateInterceptor);
 
@@ -37,6 +41,8 @@ public interface MatsInterceptable {
     void removeStageInterceptorProvider(MatsStageInterceptorProvider stageInterceptorProvider);
 
     void addStageInterceptorSingleton(MatsStageInterceptor stageInterceptor);
+
+    <T extends MatsStageInterceptor> Optional<T> getStageInterceptorSingleton(Class<T> interceptorClass);
 
     void removeStageInterceptorSingleton(MatsStageInterceptor stageInterceptor);
 
