@@ -60,9 +60,16 @@ public interface MatsStage<R, S, I> extends StartStoppable {
         String getStageId();
 
         /**
+         * TODO: Remove once all are >= 0.17
+         * @deprecated use correctly named {@link #getIncomingClass()}.
+         */
+        @Deprecated
+        Class<I> getIncomingMessageClass();
+
+        /**
          * @return the class expected for incoming messages to this process stage.
          */
-        Class<I> getIncomingMessageClass();
+        Class<I> getIncomingClass();
 
         /**
          * @return the currently number of running Stage Processors (the actual concurrency - this might be different
