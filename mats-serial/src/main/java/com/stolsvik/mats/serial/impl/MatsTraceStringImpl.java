@@ -80,10 +80,11 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private int tcn; // For future "StackOverflow" detector: "Total Call Number", does not reset when initiation within.
 
     private List<CallImpl> c = new ArrayList<>(); // Calls, "Call Flow". Not final due to clone-impl.
-    private List<StackStateImpl> ss = new ArrayList<>(); // StackStates. Not final due to clone-impl.
+    private List<StackStateImpl> ss = new ArrayList<>(); // StackStates, "State Flow". Not final due to clone-impl.
     private Map<String, String> tp = new LinkedHashMap<>(); // TraceProps. Not final due to clone-impl.
 
     /**
+     * TODO: Remove once everybody >= 0.16.
      * @deprecated Use {@link #createNew(String, String, KeepMatsTrace, boolean, boolean, long, boolean)}.
      */
     @Deprecated
@@ -363,7 +364,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     private long getRootSpanId() {
-        // TODO: Remove this hack in 2020 - when everybody is > v.0.15.0
+        // TODO: Remove this hack when everybody is >= v.0.16.0
         if (getFlowId() == null) {
             return 0;
         }
@@ -695,7 +696,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                 throw new IllegalStateException("Type of this call is not REPLY, so you cannot ask for"
                         + " ReplyFromSpanId.");
             }
-            // TODO: REMOVE THIS HACK IN 2020
+            // TODO: REMOVE THIS HACK ONCE EVERYONE IS >=0.16
             if (rid == null) {
                 return 0;
             }

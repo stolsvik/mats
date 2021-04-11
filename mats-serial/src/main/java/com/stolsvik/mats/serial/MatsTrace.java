@@ -211,10 +211,10 @@ public interface MatsTrace<Z> {
             Z data, Z initialState);
 
     /**
-     * Adds a {@link Call.CallType#NEXT NEXT} Call, which is a "downwards call" to the next stage in a multistage
-     * service, as opposed to the normal request out to a service expecting a reply. The functionality is functionally
-     * identical to {@link #addSendCall(String, String, MessagingModel, Z, Z) addSendCall(...)}, but has its own
-     * {@link Call.CallType CallType} enum value {@link Call.CallType#NEXT NEXT}.
+     * Adds a {@link Call.CallType#NEXT NEXT} Call, which is a "skip call" to the next stage in a multistage service, as
+     * opposed to the normal request out to a service expecting a reply. The functionality is functionally identical to
+     * {@link #addSendCall(String, String, MessagingModel, Z, Z) addSendCall(...)}, but has its own {@link Call.CallType
+     * CallType} enum value {@link Call.CallType#NEXT NEXT}.
      * <p>
      * Note: Cannot specify {@link MessagingModel} here, as one cannot fathom where that would make sense: It must be
      * {@link MessagingModel#QUEUE QUEUE}.
@@ -319,7 +319,7 @@ public interface MatsTrace<Z> {
      */
     interface Call<Z> {
         /**
-         * Remove once all are above 0.15.0
+         * TODO: Remove once all are >= 0.16
          *
          * DEPRECATED! Use {@link #setDebugInfo(String, String, String, long, String, String)} (the right below).
          */
@@ -423,7 +423,7 @@ public interface MatsTrace<Z> {
         int getStackHeight();
 
         /**
-         * @return a COPY of the replyTo stack of Channels (if you need the height (i.e. size), use
+         * @return a COPY of the replyTo stack of Channels (if you just need the height (i.e. size), use
          *         {@link #getStackHeight()}) - NOTICE: This will most probably be a List with {@link #getStackHeight()}
          *         elements containing "-nulled-" for any other Call than the {@link MatsTrace#getCurrentCall()}, to
          *         conserve space in the MatsTrace. The LAST (i.e. position 'size()-1') element is the most recent,
