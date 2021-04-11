@@ -107,8 +107,11 @@ public class MatsSpringDefinedTest_MatsEndpointSetup {
                 // Resolve directly
                 _latch.resolve(sto, new SpringTestDataTO(dto.number * 17, dto.string + ":FromSingleVoidVoid"));
             });
-            // Must invoke .start(), since we're not invoking lastStage.
-            ep.start();
+            // NOTE: We're not employing lastStage(), and hence finishedSetup() is not invoked.
+            // However, since the SpringConfig knows that the endpoint should now be set up, as this method
+            // is finished, it does it for you. Double-invocation of finishedSetup() is allowed, so even if
+            // we did invoke it (i.e. as all the other here does implicitly by either lastStage or single/terminator),
+            // that would not be a problem. Thus: No need to invoke finishedSetup()!
         }
 
         /**

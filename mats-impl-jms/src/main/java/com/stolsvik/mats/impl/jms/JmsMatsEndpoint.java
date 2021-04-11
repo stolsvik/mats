@@ -128,6 +128,11 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
 
     @Override
     public void finishSetup() {
+        // ?: Already invoked?
+        if (_finishedSetup) {
+            // -> Yes, already invoked, so ignore.
+            return;
+        }
         _finishedSetup = true;
         _parentFactory.addNewEndpointToFactory(this);
         if (!_parentFactory.isHoldEndpointsUntilFactoryIsStarted()) {
@@ -218,7 +223,7 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
 
         @Override
         public Class<?> getIncomingClass() {
-            return _stages.get(0).getStageConfig().getIncomingMessageClass();
+            return _stages.get(0).getStageConfig().getIncomingClass();
         }
 
         @Override
