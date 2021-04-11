@@ -24,8 +24,8 @@ import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateIntercept
 import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptOutgoingMessagesContext;
 import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateInterceptUserLambdaContext;
 import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.InitiateStartedContext;
-import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptUserLambda;
 import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptOutgoingMessages;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor.MatsInitiateInterceptUserLambda;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingMessage;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
@@ -332,11 +332,23 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
     }
 
     private void concatAllTraceIds(List<JmsMatsMessage<Z>> messagesToSend) {
-        String traceId = messagesToSend.stream()
+        List<String> collected = messagesToSend.stream()
                 .map(m -> m.getMatsTrace().getTraceId())
                 .distinct()
-                .collect(Collectors.joining(";"));
-        MDC.put(MDC_TRACE_ID, traceId);
+                .collect(Collectors.toList());
+        String collectedTraceIds;
+        // ?: Are there many?
+        if (collected.size() <= 15) {
+            // -> No, not too many
+            collectedTraceIds = String.join(";", collected);
+        }
+        else {
+            // -> Yes, too many - creating a "traceId" reflecting cropping.
+            collectedTraceIds = "<cropped,numTraceIds:" + collected.size() + ">;"
+                    + String.join(";", collected.subList(0, 20))
+                    + ";...";
+        }
+        MDC.put(MDC_TRACE_ID, collectedTraceIds);
     }
 
     private static class JmsMatsInitiationRaisedUndeclaredCheckedException extends RuntimeException {
