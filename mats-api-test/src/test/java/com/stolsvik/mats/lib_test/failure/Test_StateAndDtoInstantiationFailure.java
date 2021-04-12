@@ -72,5 +72,4 @@ public class Test_StateAndDtoInstantiationFailure  {
     public void exceptionInConstructor_Stage_State() {
         MATS.getMatsFactory().staged(SERVICE, String.class, ExceptionInConstructor.class);
     }
-
 }

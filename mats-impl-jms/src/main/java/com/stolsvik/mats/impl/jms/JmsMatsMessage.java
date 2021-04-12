@@ -9,6 +9,7 @@ import java.util.Set;
 
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingMessage;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsOverflowRuntimeException;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsSerializer.SerializedMatsTrace;
 import com.stolsvik.mats.serial.MatsTrace;
@@ -60,6 +61,25 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
         HashMap<String, String> stringsCopied = (HashMap<String, String>) strings.clone();
 
         long nanosTaken_ProduceOutgoingMessage = System.nanoTime() - nanosAtStart_ProducingOutgoingMessage;
+
+        // ?: Do we have a "stack overflow" situation - i.e. the stack height of the outgoing message is too high?
+        if (outgoingMatsTrace.getCurrentCall().getStackHeight() > JmsMatsStatics.MAX_STACK_HEIGHT) {
+            throw new JmsMatsOverflowRuntimeException("\"Stack Overflow\": Outgoing message with"
+                    + " MatsMessageId [" + outgoingMatsTrace.getCurrentCall().getMatsMessageId() + "]"
+                    + " and TraceId [" + outgoingMatsTrace.getTraceId() + "] had a stack height higher"
+                    + " than " + JmsMatsStatics.MAX_STACK_HEIGHT + ", so stopping this flow now by refusing the"
+                    + " _incoming_ message.");
+        }
+
+        // ?: Do we have a "call overflow" situation - i.e. too high totalCallNumber and not REPLY?
+        if (outgoingMatsTrace.getTotalCallNumber() > JmsMatsStatics.MAX_TOTAL_CALL_NUMBER
+                && (outgoingMatsTrace.getCurrentCall().getCallType() != CallType.REPLY)) {
+            throw new JmsMatsOverflowRuntimeException("\"Call Overflow\": Outgoing message with"
+                    + " MatsMessageId [" + outgoingMatsTrace.getCurrentCall().getMatsMessageId() + "]"
+                    + " and TraceId [" + outgoingMatsTrace.getTraceId() + "] had a total call number higher"
+                    + " than " + JmsMatsStatics.MAX_TOTAL_CALL_NUMBER + ", and it's not a REPLY, so stopping this"
+                    + " flow now by refusing the _incoming_ message");
+        }
 
         // Produce and return the JmsMatsMessage
         return new JmsMatsMessage<>(dispatchType, matsSerializer, outgoingMatsTrace,

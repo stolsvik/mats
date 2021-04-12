@@ -49,6 +49,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     private final String id; // "Flow Id", system-def Id for this call flow (as oppose to traceId, which is user def.)
     private final String tid; // TraceId, user-def Id for this call flow.
 
+    private String pmid; // If initiated within a flow (stage): Parent MatsMessageId.
+
     private Long tidh; // For future OpenTracing support: 16-byte TraceId HIGH
     private Long tidl; // For future OpenTracing support: 16-byte TraceId LOW
     private Long sid; // For future OpenTracing support: Override SpanId for root
@@ -85,6 +87,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     /**
      * TODO: Remove once everybody >= 0.16.
+     *
      * @deprecated Use {@link #createNew(String, String, KeepMatsTrace, boolean, boolean, long, boolean)}.
      */
     @Deprecated
@@ -138,6 +141,23 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         return this;
     }
 
+    @Override
+    public MatsTrace<String> withChildFlow(String parentMatsMessageId, int totalCallNumber) {
+        pmid = parentMatsMessageId;
+        tcn = totalCallNumber;
+        return this;
+    }
+
+    @Override
+    public int getTotalCallNumber() {
+        return tcn;
+    }
+
+    @Override
+    public String getParentMatsMessageId() {
+        return pmid;
+    }
+
     // TODO: POTENTIAL withOpenTracingTraceId() and withOpenTracingSpanId()..
 
     // Jackson JSON-lib needs a no-args constructor, but it can re-set finals.
@@ -164,6 +184,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         this.tl = ttlMillis > 0 ? ttlMillis : null;
         this.na = noAudit ? Boolean.TRUE : null;
         this.cn = 0;
+        this.tcn = 0;
     }
 
     // == NOTICE == Serialization and deserialization is an implementation specific feature.
@@ -559,6 +580,9 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             cloned.tp = new LinkedHashMap<>(tp);
             // Increase CallNumber
             cloned.cn = this.cn + 1;
+            // Increase TotalCallNumber, handling previous versions which didn't handle it.
+            // TODO: Remove special handling once all are >=0.17.
+            cloned.tcn = Math.max(cloned.cn, this.tcn + 1);
             return cloned;
         }
         catch (CloneNotSupportedException e) {

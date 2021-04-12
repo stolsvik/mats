@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsMessageSendException;
+import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsOverflowRuntimeException;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 
@@ -85,7 +86,7 @@ public class JmsMatsTransactionManager_Jms implements JmsMatsTransactionManager,
             /*
              * Catch EVERYTHING that can come out of the try-block, with some cases handled specially.
              */
-            catch (MatsRefuseMessageException e) {
+            catch (MatsRefuseMessageException | JmsMatsOverflowRuntimeException e) {
                 /*
                  * Special exception allowed from the MATS API from the MatsStage lambda, denoting that one wants
                  * immediate refusal of the message. (This is just a hint/wish, as e.g. the JMS specification does
@@ -108,7 +109,7 @@ public class JmsMatsTransactionManager_Jms implements JmsMatsTransactionManager,
                     JmsMatsMessageBrokerSpecifics.instaDlqWithRollbackLambda(messageConsumer.get(),
                             () -> rollback(jmsSession, e));
                 }
-                // Rethrow as special JmsMatsException, to be caught in JmsMatsStageProcessor/JmsMatsInitiator
+                // Rethrow
                 throw e;
             }
             catch (JmsMatsJmsException e) {

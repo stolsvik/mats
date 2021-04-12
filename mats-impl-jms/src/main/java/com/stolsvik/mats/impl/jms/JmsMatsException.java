@@ -58,11 +58,11 @@ public class JmsMatsException extends Exception {
     }
 
     /**
-     * {@link MatsRefuseMessageException} is rethrown out as this, to be caught in the {@link JmsMatsStageProcessor}.
+     * If we get "stack overflow" or "call overflow", then the sending method will throw this.
      */
-    protected static class JmsMatsRefuseMessageException extends JmsMatsException {
-        public JmsMatsRefuseMessageException(String message, Throwable cause) {
-            super(message, cause);
+    protected static class JmsMatsOverflowRuntimeException extends RuntimeException {
+        public JmsMatsOverflowRuntimeException(String message) {
+            super(message);
         }
     }
 

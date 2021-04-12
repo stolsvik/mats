@@ -40,8 +40,8 @@ import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsEditableOutgoingM
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MessageType;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
-import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptUserLambda;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptOutgoingMessages;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor.MatsStageInterceptUserLambda;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCommonContext;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContext;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContext.ProcessResult;
@@ -498,12 +498,15 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                             long nanosTaken_incomingMessageAndStateDeserializationNanos = System.nanoTime()
                                     - nanosAtStart_incomingMessageAndStateDeserializationNanos;
 
-                            Supplier<MatsInitiate> initiateSupplier = () -> JmsMatsInitiate.createForStage(getFactory(),
-                                    messagesToSend, internalExecutionContext, doAfterCommitRunnableHolder,
+                            Supplier<MatsInitiate> initiateSupplier = () -> JmsMatsInitiate.createForChildFlow(
+                                    getFactory(), messagesToSend, internalExecutionContext, doAfterCommitRunnableHolder,
                                     matsTrace);
 
-                            _jmsMatsStage.getParentFactory().setCurrentMatsFactoryThreadLocalMatsDemarcation(
+                            // Set the nested initiation context supplier
+                            _jmsMatsStage.getParentFactory().setCurrentMatsFactoryThreadLocal_MatsInitiate(
                                     initiateSupplier);
+                            // Set the MatsTrace for nested initiations
+                            _jmsMatsStage.getParentFactory().setCurrentMatsFactoryThreadLocal_WithinStageContext(matsTrace, jmsConsumer);
 
                             // :: Create contexts, invoke interceptors
                             // ==========================================================
@@ -706,7 +709,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
                     finally {
                         JmsMatsContextLocalCallback.unbindResource(ProcessContext.class);
-                        _jmsMatsStage.getParentFactory().clearCurrentMatsFactoryThreadLocalMatsDemarcation();
+                        _jmsMatsStage.getParentFactory().clearCurrentMatsFactoryThreadLocal_MatsInitiate();
+                        _jmsMatsStage.getParentFactory().clearCurrentMatsFactoryThreadLocal_WithinStageContext();
 
                         if (throwableProcessResult == ProcessResult.USER_EXCEPTION) {
                             log.info(LOG_PREFIX + "Got [" + throwableResult.getClass().getName()
@@ -733,8 +737,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                         // ?: Was there a receive/deconstruct error?
                         if (receiveDeconstructError[0] != null) {
                             // -> Yes, so then the rest of the processing never happened.
-                            StagePreprocessAndDeserializeErrorContextImpl
-                                    context = new StagePreprocessAndDeserializeErrorContextImpl(
+                            StagePreprocessAndDeserializeErrorContextImpl context = new StagePreprocessAndDeserializeErrorContextImpl(
                                     _jmsMatsStage, startedInstant, receiveDeconstructError[0], throwableResult);
                             for (MatsStageInterceptor matsStageInterceptor : interceptorsForStage) {
                                 try {

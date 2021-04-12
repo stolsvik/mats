@@ -117,6 +117,11 @@ public class Test_InitiateWithinStage {
                                  * transaction will commit before the transaction surrounding the Mats process lambda
                                  * that we're within.
                                  *
+                                 * Note that with the change 2021-04-12 (one year later!), where I finalized the logic
+                                 * of inside/outside, now the original "WithinStageContext" is kept even through such an
+                                 * "outside transaction demarcation", thus the TraceId set below ("New TraceId") will be
+                                 * appended to the existing traceId.
+                                 *
                                  * Please check through the logs to see what happens.
                                  *
                                  * TAKEAWAY: This should not be a normal way to code! But it is possible to do.
@@ -225,7 +230,7 @@ public class Test_InitiateWithinStage {
                 .waitForResult();
         Assert.assertEquals(new StateTO(0, 0), result_withMatsFactory_NonDefaultInitiator.getState());
         Assert.assertEquals(new DataTO(-Math.PI, "Stølsvik"), result_withMatsFactory_NonDefaultInitiator.getData());
-        Assert.assertEquals("New TraceId", _traceId_stageInit_withMatsFactory_NonDefaultInitiator);
+        Assert.assertEquals(traceId + "|New TraceId", _traceId_stageInit_withMatsFactory_NonDefaultInitiator);
     }
 
     @Test
@@ -254,7 +259,7 @@ public class Test_InitiateWithinStage {
                 .waitForResult();
         Assert.assertEquals(new StateTO(0, 0), result_withMatsFactory_NonDefaultInitiator.getState());
         Assert.assertEquals(new DataTO(-Math.PI, "Stølsvik"), result_withMatsFactory_NonDefaultInitiator.getData());
-        Assert.assertEquals("New TraceId", _traceId_stageInit_withMatsFactory_NonDefaultInitiator);
+        Assert.assertEquals(traceId + "|New TraceId", _traceId_stageInit_withMatsFactory_NonDefaultInitiator);
 
         // HOWEVER, NONE of the IN-STAGE-DEMARCATED messages should have come!
 

@@ -19,6 +19,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import javax.jms.MessageConsumer;
 import javax.sql.DataSource;
 
 import org.slf4j.Logger;
@@ -42,7 +43,9 @@ import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageInterceptContext;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MatsInitiator_TxRequired;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MatsInitiator_TxRequiresNew;
+import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
 import com.stolsvik.mats.serial.MatsSerializer;
+import com.stolsvik.mats.serial.MatsTrace;
 
 public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsStatics, JmsMatsStartStoppable {
 
@@ -452,24 +455,72 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
         return endpoint;
     }
 
-    ThreadLocal<Supplier<MatsInitiate>> __nestedMatsInitiate_elg = new ThreadLocal<>();
+    private ThreadLocal<Supplier<MatsInitiate>> __containingMatsInitiate = new ThreadLocal<>();
+    private ThreadLocal<WithinStageContext<Z>> __withinStageContext = new ThreadLocal<>();
+
+    static class WithinStageContext<Z> {
+        private final MatsTrace<Z> _matsTrace;
+        private final MessageConsumer _messageConsumer;
+
+        public WithinStageContext(MatsTrace<Z> matsTrace, MessageConsumer messageConsumer) {
+            _matsTrace = matsTrace;
+            _messageConsumer = messageConsumer;
+        }
+
+        public MatsTrace<Z> getMatsTrace() {
+            return _matsTrace;
+        }
+
+        public MessageConsumer getMessageConsumer() {
+            return _messageConsumer;
+        }
+    }
 
     /**
+     * Solution for "hoisting" transactions
+     * <ul>
+     *     <li>If this exists, and DefaultInitiator: Use the existing - otherwise normal.</li>
+     *     <li>If this exists, and non-default Initiator: Fork out in thread, to get own context - otherwise normal.</li>
+     * </ul>
      * Note: This ThreadLocal is on the MatsFactory, thus the {@link MatsInitiate} is scoped to the MatsFactory. This
      * should make some sense: If you in a Stage do a new Initiation, even with the
      * {@link MatsFactory#getDefaultInitiator()}, if this is <i>on a different MatsFactory</i>, then the transaction
      * should not be hoisted.
      */
-    void setCurrentMatsFactoryThreadLocalMatsDemarcation(Supplier<MatsInitiate> matsInitiateSupplier) {
-        __nestedMatsInitiate_elg.set(matsInitiateSupplier);
+    void setCurrentMatsFactoryThreadLocal_MatsInitiate(Supplier<MatsInitiate> matsInitiateSupplier) {
+        __containingMatsInitiate.set(matsInitiateSupplier);
     }
 
-    Optional<Supplier<MatsInitiate>> getCurrentMatsFactoryThreadLocalMatsDemarcation() {
-        return Optional.ofNullable(__nestedMatsInitiate_elg.get());
+    /**
+     * Solution for keeping Stage context when doing nested initiations.
+     * <ul>
+     *     <li>If this exists, then use {@link JmsMatsInitiate#createForChildFlow(JmsMatsFactory, List, JmsMatsInternalExecutionContext, DoAfterCommitRunnableHolder, MatsTrace)}</li>
+     *     <li>If this does not exists, then use {@link JmsMatsInitiate#createForTrueInitiation(JmsMatsFactory, List, JmsMatsInternalExecutionContext, DoAfterCommitRunnableHolder)}</li>
+     * </ul>
+     * <b>Notice: When forking out in new thread, make sure to copy over this ThreadLocal!</b>
+     */
+    void setCurrentMatsFactoryThreadLocal_WithinStageContext(MatsTrace<Z> matsTrace, MessageConsumer messageConsumer) {
+        __withinStageContext.set(new WithinStageContext<>(matsTrace, messageConsumer));
     }
 
-    void clearCurrentMatsFactoryThreadLocalMatsDemarcation() {
-        __nestedMatsInitiate_elg.remove();
+    void setCurrentMatsFactoryThreadLocal_WithinStageContext(WithinStageContext<Z> existing) {
+        __withinStageContext.set(existing);
+    }
+
+    Optional<Supplier<MatsInitiate>> getCurrentMatsFactoryThreadLocal_MatsInitiate() {
+        return Optional.ofNullable(__containingMatsInitiate.get());
+    }
+
+    Optional<WithinStageContext<Z>> getCurrentMatsFactoryThreadLocal_WithinStageContext() {
+        return Optional.ofNullable(__withinStageContext.get());
+    }
+
+    void clearCurrentMatsFactoryThreadLocal_MatsInitiate() {
+        __containingMatsInitiate.remove();
+    }
+
+    void clearCurrentMatsFactoryThreadLocal_WithinStageContext() {
+        __withinStageContext.remove();
     }
 
     private volatile JmsMatsInitiator<Z> _defaultMatsInitiator;

@@ -17,9 +17,9 @@ import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsInitiator.KeepTrace;
 import com.stolsvik.mats.MatsInitiator.MatsInitiate;
 import com.stolsvik.mats.MatsInitiator.MessageReference;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.DispatchType;
 import com.stolsvik.mats.impl.jms.JmsMatsInitiator.MessageReferenceImpl;
 import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
-import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.DispatchType;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsSerializer.DeserializedMatsTrace;
 import com.stolsvik.mats.serial.MatsTrace;
@@ -44,18 +44,20 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
     // :: Only for "within Stage"
     private final MatsTrace<Z> _existingMatsTrace;
 
-    static <Z> JmsMatsInitiate<Z> createForInitiation(JmsMatsFactory<Z> parentFactory,
+    static <Z> JmsMatsInitiate<Z> createForTrueInitiation(JmsMatsFactory<Z> parentFactory,
             List<JmsMatsMessage<Z>> messagesToSend, JmsMatsInternalExecutionContext jmsMatsInternalExecutionContext,
             DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
-        return new JmsMatsInitiate<>(parentFactory, messagesToSend, jmsMatsInternalExecutionContext, doAfterCommitRunnableHolder,
+        return new JmsMatsInitiate<>(parentFactory, messagesToSend, jmsMatsInternalExecutionContext,
+                doAfterCommitRunnableHolder,
                 null);
     }
 
-    static <Z> JmsMatsInitiate<Z> createForStage(JmsMatsFactory<Z> parentFactory,
+    static <Z> JmsMatsInitiate<Z> createForChildFlow(JmsMatsFactory<Z> parentFactory,
             List<JmsMatsMessage<Z>> messagesToSend, JmsMatsInternalExecutionContext jmsMatsInternalExecutionContext,
             DoAfterCommitRunnableHolder doAfterCommitRunnableHolder,
             MatsTrace<Z> existingMatsTrace) {
-        return new JmsMatsInitiate<>(parentFactory, messagesToSend, jmsMatsInternalExecutionContext, doAfterCommitRunnableHolder,
+        return new JmsMatsInitiate<>(parentFactory, messagesToSend, jmsMatsInternalExecutionContext,
+                doAfterCommitRunnableHolder,
                 existingMatsTrace);
     }
 
@@ -346,13 +348,20 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
         String debugInfo = _keepTrace != KeepMatsTrace.MINIMAL
                 ? getInvocationPoint()
                 : null;
-        return ser.createNewMatsTrace(_traceId, flowId, _keepTrace, _nonPersistent, _interactive,
+        MatsTrace<Z> matsTrace = ser.createNewMatsTrace(_traceId, flowId, _keepTrace, _nonPersistent, _interactive,
                 _timeToLive, _noAudit)
                 // NOTE! We set "from" both on the MatsTrace, AND on the initial Call, so that you can have the
                 // origin of the flow even though it is in KeepTrace.MINIMAL mode.
                 .withDebugInfo(_parentFactory.getFactoryConfig().getAppName(),
                         _parentFactory.getFactoryConfig().getAppVersion(),
                         _parentFactory.getFactoryConfig().getNodename(), _from, now, debugInfo);
+        // ?: Is this a child flow?
+        if (_existingMatsTrace != null) {
+            // -> Yes, so initialize it as such.
+            matsTrace.withChildFlow(_existingMatsTrace.getCurrentCall().getMatsMessageId(),
+                    _existingMatsTrace.getTotalCallNumber() + 1);
+        }
+        return matsTrace;
     }
 
     @Override
@@ -441,11 +450,11 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
                 + "], NextStageId:[" + nextStageId + "] - deserializing took ["
                 + millisDeserializing + " ms]");
 
-        Supplier<MatsInitiate> initiateSupplier = () -> JmsMatsInitiate.createForStage(_parentFactory,
+        Supplier<MatsInitiate> initiateSupplier = () -> JmsMatsInitiate.createForChildFlow(_parentFactory,
                 _messagesToSend, _jmsMatsInternalExecutionContext, _doAfterCommitRunnableHolder,
                 matsTrace);
 
-        _parentFactory.setCurrentMatsFactoryThreadLocalMatsDemarcation(initiateSupplier);
+        _parentFactory.setCurrentMatsFactoryThreadLocal_MatsInitiate(initiateSupplier);
 
         // :: Invoke the process lambda (the actual user code).
         try {
@@ -472,7 +481,7 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
                     + " stash()'ing it.", e);
         }
         finally {
-            _parentFactory.clearCurrentMatsFactoryThreadLocalMatsDemarcation();
+            _parentFactory.clearCurrentMatsFactoryThreadLocal_MatsInitiate();
             JmsMatsContextLocalCallback.unbindResource(ProcessContext.class);
         }
 

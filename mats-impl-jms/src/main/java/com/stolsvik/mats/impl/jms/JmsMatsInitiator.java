@@ -31,6 +31,7 @@ import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessa
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsMessageSendException;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException;
+import com.stolsvik.mats.impl.jms.JmsMatsFactory.WithinStageContext;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsProcessContext.DoAfterCommitRunnableHolder;
 import com.stolsvik.mats.impl.jms.JmsMatsTransactionManager.JmsMatsTxContextKey;
@@ -80,11 +81,6 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         // it might be used concurrently by all the 200 Servlet Container threads). Thus, each initiation needs to
         // get hold of its own Session. However, the Sessions should be pooled.
 
-        // TODO / OPTIMIZE: Consider doing lazy init for TransactionContext too
-        // as well as being able to "open" again after close? What about introspection/monitoring/instrumenting -
-        // that is, "turn off" a MatsInitiator: Either hang requests, or probably more interesting, fail them. And
-        // that would be nice to use "close()" for: As long as it is closed, it can't be used. Need to evaluate.
-
         Instant startedInstant = Instant.now();
         long nanosAtStart_Init = System.nanoTime();
 
@@ -118,21 +114,28 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 // JmsMatsJmsSessionHandler.getSessionHolder()
                 throw new MatsBackendException("Could not get hold of JMS Connection.", e);
             }
-            JmsMatsInternalExecutionContext internalExecutionContext = JmsMatsInternalExecutionContext
-                    .forInitiation(jmsSessionHolder);
+            DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
+
+            Optional<WithinStageContext<Z>> withinStageContext = _parentFactory
+                    .getCurrentMatsFactoryThreadLocal_WithinStageContext();
+
+            JmsMatsInternalExecutionContext internalExecutionContext = withinStageContext
+                    .map(within -> JmsMatsInternalExecutionContext.forStage(jmsSessionHolder, within
+                            .getMessageConsumer()))
+                    .orElseGet(() -> JmsMatsInternalExecutionContext.forInitiation(jmsSessionHolder));
+
+            JmsMatsInitiate<Z> init = withinStageContext
+                    .map(within -> JmsMatsInitiate.createForChildFlow(_parentFactory, messagesToSend,
+                            internalExecutionContext, doAfterCommitRunnableHolder,
+                            withinStageContext.get().getMatsTrace()))
+                    .orElseGet(() -> JmsMatsInitiate.createForTrueInitiation(_parentFactory, messagesToSend,
+                            internalExecutionContext, doAfterCommitRunnableHolder));
             try {
-                DoAfterCommitRunnableHolder doAfterCommitRunnableHolder = new DoAfterCommitRunnableHolder();
                 // ===== Going into Transactional Demarcation
                 _transactionContext.doTransaction(internalExecutionContext, () -> {
 
-                    // TODO: Handle "sub init" within stage. 2021-01-31
-                    // TODO: Use the createForStage if already within a stage.
-                    // TODO: Use ThreadLocal, remember new Thread() when doing non-hoisted init.
-
-                    JmsMatsInitiate<Z> init = JmsMatsInitiate.createForInitiation(_parentFactory, messagesToSend,
-                            internalExecutionContext, doAfterCommitRunnableHolder);
                     JmsMatsContextLocalCallback.bindResource(MatsInitiate.class, init);
-                    _parentFactory.setCurrentMatsFactoryThreadLocalMatsDemarcation(() -> init);
+                    _parentFactory.setCurrentMatsFactoryThreadLocal_MatsInitiate(() -> init);
 
                     // === Invoke any interceptors, stage "Started"
                     InitiateStartedContextImpl initiateStartedContext = new InitiateStartedContextImpl(interceptContext,
@@ -226,14 +229,30 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                             + " Ignoring.", re);
                 }
             }
-            catch (MatsRefuseMessageException | JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException e) {
+            catch (JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException e) {
                 // Just record this for interceptor (but the original undeclared Exception, which is the
                 // cause)..
                 throwableResult = e.getCause();
                 // .. and throw on out
-                // NOTE: In an initiation, a MatsRefuseMessageException is NOT declared!
                 throw new JmsMatsInitiationRaisedUndeclaredCheckedException("Undeclared checked Exception"
                         + " [" + e.getCause().getClass().getName() + "] from initiation lambda.", e);
+            }
+            catch (MatsRefuseMessageException e) {
+                // NOTICE! MatsRefuseMessageException IS NOT DECLARED FOR INITIATION, i.e. "it cannot happen", i.e.
+                // sneaky throws - handle as with undeclared exception above!
+                //
+                // NOTICE! The special JmsMatsOverflowRuntimeException is NOT relevant to catch here, and it should
+                // rather percolate out, as that can only happen when an initiation is performed within a Stage - there
+                // is no way to increase the "total call number" beyond 1 when doing "true initiations" "from the
+                // outside", let alone 100 (when it is raised). It should percolate out, as it IS caught in the JMS
+                // transaction manager, being handled exactly as MatsRefuseMessageException - which is relevant if an
+                // initiation is performed within a Stage, and the "total call number" then overflows.
+
+                // Store the original Exception (as we do with JmsMatsUndeclaredCheckedExceptionRaisedRuntimeException)
+                throwableResult = e;
+                // .. and throw on as a JmsMatsInitiationRaisedUndeclaredCheckedException
+                throw new JmsMatsInitiationRaisedUndeclaredCheckedException("Undeclared checked Exception"
+                        + " [" + e.getClass().getSimpleName() + "] from initiation lambda.", e);
             }
             catch (JmsMatsMessageSendException e) {
                 /*
@@ -280,7 +299,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             finally {
                 jmsSessionHolder.release(); // <- handles if has already been crashed()
                 JmsMatsContextLocalCallback.unbindResource(MatsInitiate.class);
-                _parentFactory.clearCurrentMatsFactoryThreadLocalMatsDemarcation();
+                _parentFactory.clearCurrentMatsFactoryThreadLocal_MatsInitiate();
 
                 long nanosTaken_TotalStartInitToFinished = System.nanoTime() - nanosAtStart_Init;
 
@@ -680,7 +699,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public void initiate(InitiateLambda lambda) throws MatsMessageSendException, MatsBackendException {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocal_MatsInitiate();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
                 // -> Evidently within a Mats demarcation, so use the ThreadLocal MatsInitiate.
@@ -696,7 +715,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         public void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
                 MatsMessageSendRuntimeException {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocal_MatsInitiate();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
                 // -> Evidently within a Mats demarcation, so use the ThreadLocal MatsInitiate.
@@ -711,7 +730,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public void close() {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocal_MatsInitiate();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
                 // -> Evidently within a Mats demarcation, so point this out pretty harshly.
@@ -732,7 +751,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public String toString() {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocal_MatsInitiate();
             return matsInitiateForNesting.isPresent()
                     ? "[nested-process wrapper of MatsFactory.getDefaultInitiator()]@" + Integer
                             .toHexString(System.identityHashCode(this))
@@ -767,35 +786,47 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public void initiate(InitiateLambda lambda) throws MatsMessageSendException, MatsBackendException {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocal_MatsInitiate();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
-                // -> Evidently within a Mats demarcation, so fire up a new thread to do the initiation.
+                // -> Evidently within a Mats demarcation, so fire up a new subInitiateThread to do the initiation.
                 Throwable[] throwableResult = new Throwable[1];
                 String threadName = Thread.currentThread().getName() + ":subInitiation_" + Integer.toString(
-                        ThreadLocalRandom.current().nextInt(), 36);
+                        Math.abs(ThreadLocalRandom.current().nextInt()), 36);
                 Map<String, String> copyOfContextMap = MDC.getCopyOfContextMap();
-                Thread thread = new Thread(() -> {
+                Optional<WithinStageContext<Z>> existingMatsTrace = _matsFactory
+                        .getCurrentMatsFactoryThreadLocal_WithinStageContext();
+                Thread subInitiateThread = new Thread(() -> {
                     MDC.setContextMap(copyOfContextMap);
+                    existingMatsTrace.ifPresent(_matsFactory::setCurrentMatsFactoryThreadLocal_WithinStageContext);
                     try {
                         _matsInitiator.initiate(lambda);
                     }
                     catch (Throwable t) {
                         throwableResult[0] = t;
                     }
+                    finally {
+                        // Not really necessary, since the thread currently exits and dies, but just to point out that
+                        // I handle my resources correctly..! ;-)
+                        _matsFactory.clearCurrentMatsFactoryThreadLocal_WithinStageContext();
+                    }
                 }, threadName);
-                thread.start();
+
+                subInitiateThread.start();
+
                 try {
-                    thread.join();
+                    subInitiateThread.join();
                 }
                 catch (InterruptedException e) {
-                    // Pass on the interruption.
-                    thread.interrupt();
+                    // Pass on the interrupt to the sub-initiate Thread.
+                    subInitiateThread.interrupt();
                     // Throw out.
-                    throw new RuntimeException("Got interrupted.", e);
+                    throw new InterruptedRuntimeException("Got interrupted while waiting for sub-initiate"
+                            + " Thread to complete. (Passed on the interrupt to that Thread).", e);
                 }
                 if (throwableResult[0] != null) {
                     Throwable t = throwableResult[0];
+                    t.addSuppressed(new RuntimeException("Stacktrace representing actual sub-initiation point."));
                     if (t instanceof RuntimeException) {
                         throw (RuntimeException) t;
                     }
@@ -822,15 +853,19 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         public void initiateUnchecked(InitiateLambda lambda) throws MatsBackendRuntimeException,
                 MatsMessageSendRuntimeException {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocal_MatsInitiate();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
-                // -> Evidently within a Mats demarcation, so fire up a new thread to do the initiation.
+                // -> Evidently within a Mats demarcation, so fire up a new subInitiateThread to do the initiation.
                 Throwable[] throwableResult = new Throwable[1];
                 String threadName = Thread.currentThread().getName() + ":subInitiation_" + Integer.toString(
-                        ThreadLocalRandom.current().nextInt(), 36);
+                        Math.abs(ThreadLocalRandom.current().nextInt()), 36);
                 Map<String, String> copyOfContextMap = MDC.getCopyOfContextMap();
-                Thread thread = new Thread(() -> {
+                Optional<WithinStageContext<Z>> existingMatsTrace = _matsFactory
+                        .getCurrentMatsFactoryThreadLocal_WithinStageContext();
+                Thread subInitiateThread = new Thread(() -> {
+                    MDC.setContextMap(copyOfContextMap);
+                    existingMatsTrace.ifPresent(_matsFactory::setCurrentMatsFactoryThreadLocal_WithinStageContext);
                     MDC.setContextMap(copyOfContextMap);
                     try {
                         _matsInitiator.initiateUnchecked(lambda);
@@ -838,19 +873,29 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     catch (Throwable t) {
                         throwableResult[0] = t;
                     }
+                    finally {
+                        // Not really necessary, since the thread currently exits and dies, but just to point out that
+                        // I handle my resources correctly..! ;-)
+                        _matsFactory.clearCurrentMatsFactoryThreadLocal_WithinStageContext();
+                    }
                 }, threadName);
-                thread.start();
+
+                subInitiateThread.start();
+
                 try {
-                    thread.join();
+                    subInitiateThread.join();
                 }
                 catch (InterruptedException e) {
-                    // Pass on the interruption.
-                    thread.interrupt();
+                    // Pass on the interrupt to the sub-initiate Thread.
+                    subInitiateThread.interrupt();
                     // Throw out.
-                    throw new RuntimeException("Got interrupted.", e);
+                    throw new InterruptedRuntimeException("Got interrupted while waiting for sub-initiate"
+                            + " Thread to complete. (Passed on the interrupt to that Thread).", e);
                 }
                 if (throwableResult[0] != null) {
                     Throwable t = throwableResult[0];
+                    t.addSuppressed(new RuntimeException("Stacktrace representing actual sub-initiation point."));
+                    // Also handles the two MatsBackendRuntimeException and MatsMessageSendRuntimeException
                     if (t instanceof RuntimeException) {
                         throw (RuntimeException) t;
                     }
@@ -867,10 +912,16 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
             }
         }
 
+        static class InterruptedRuntimeException extends RuntimeException {
+            public InterruptedRuntimeException(String message, Throwable cause) {
+                super(message, cause);
+            }
+        }
+
         @Override
         public void close() {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocal_MatsInitiate();
             // ?: Are we within a Mats demarcation?
             if (matsInitiateForNesting.isPresent()) {
                 // -> Evidently within a Mats demarcation, so point this out pretty harshly.
@@ -886,7 +937,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         @Override
         public String toString() {
             Optional<Supplier<MatsInitiate>> matsInitiateForNesting = _matsFactory
-                    .getCurrentMatsFactoryThreadLocalMatsDemarcation();
+                    .getCurrentMatsFactoryThreadLocal_MatsInitiate();
             return matsInitiateForNesting.isPresent()
                     ? "[nested-process wrapper of MatsFactory.getDefaultInitiator()]@" + Integer
                             .toHexString(System.identityHashCode(this))

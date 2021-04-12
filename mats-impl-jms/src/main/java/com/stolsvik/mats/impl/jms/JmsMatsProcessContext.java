@@ -388,7 +388,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         if (_nextStageId == null) {
             throw new IllegalStateException("Stage [" + _stageId
                     + "] invoked context.request(..), but there is no next stage to reply to."
-                    + " Use context.send(..) if you want to 'invoke' the endpoint w/o req/rep semantics.");
+                    + " Use context.initiate(..send()..) if you want to 'invoke' the endpoint w/o req/rep semantics.");
         }
 
         /*

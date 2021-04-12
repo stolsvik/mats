@@ -5,6 +5,8 @@ import java.util.zip.Deflater;
 /**
  * <b>Deprecated</b> - currently just present to point to new name {@link MatsSerializerJson}, directly extending it.
  *
+ * TODO: Delete once everybody >= 0.16.0
+ *
  * @author Endre Stølsvik - 2020-11-15 - http://endre.stolsvik.com
  */
 public class MatsSerializer_DefaultJson extends MatsSerializerJson {

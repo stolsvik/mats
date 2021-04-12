@@ -15,7 +15,6 @@ import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
-import com.stolsvik.mats.intercept.logging.MatsMetricsLoggingInterceptor;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.test.MatsTestLatch;
@@ -277,13 +276,16 @@ public abstract class AbstractMatsTest<Z> {
     }
 
     /**
-     * Loops through all the {@link MatsFactory}'s contained within the {@link #_createdMatsFactories}, this ensures
-     * that all factories are "clean".
+     * Loops through all the {@link MatsFactory}'s contained within the {@link #_createdMatsFactories}, and removes all
+     * endpoints from each of them, this ensures that all factories are "clean".
      * <p />
      * You may want to utilize this if you have multiple tests in a class, and set up the Endpoints using a @Before type
      * annotation in the test, as opposed to @BeforeClass. This because otherwise you will on the second test try to
      * create the endpoints one more time, and they will already exist, thus you'll get an Exception from the
-     * MatsFactory.
+     * MatsFactory. Another scenario is that you have a bunch of @Test methods, which inside the test sets up an
+     * endpoint in the "Arrange" section. If you employ the same endpointId for each of those setups (that is, inside
+     * the @Test method itself), you will get "dupliate endpoint". Thus, as the first statement of each test, before
+     * creating the endpoint, invoke this method.
      */
     public void cleanMatsFactory() {
         // :: Since removing all endpoints will destroy the MatsFuturizer if it is made, we'll first close that

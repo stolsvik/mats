@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.MDC;
 
 import com.stolsvik.mats.MatsEndpoint.MatsObject;
+import com.stolsvik.mats.MatsEndpoint.MatsRefuseMessageException;
 import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.impl.jms.JmsMatsException.JmsMatsJmsException;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler.JmsSessionHolder;
@@ -70,7 +71,6 @@ public interface JmsMatsStatics {
     // NOTICE: Same on MatsMetricsLoggingInterceptor
     String MDC_MATS_OUT_MATS_MESSAGE_ID = "mats.out.MatsMsgId"; // Set when producing message
 
-
     // JMS Properties put on the JMSMessage via set[String|Long|Boolean]Property(..)
     String JMS_MSG_PROP_TRACE_ID = "mats.TraceId"; // String
     String JMS_MSG_PROP_MATS_MESSAGE_ID = "mats.MsgId"; // String
@@ -87,17 +87,30 @@ public interface JmsMatsStatics {
     int EXTRA_GRACE_MILLIS = 50;
 
     /**
+     * If an outgoing message has {@link MatsTrace#getTotalCallNumber()} higher than this (100), the processing will be
+     * refused (i.e. {@link MatsRefuseMessageException} will be thrown).
+     */
+    int MAX_TOTAL_CALL_NUMBER = 100;
+
+    /**
+     * If an outgoing message has {@link MatsTrace#getTotalCallNumber()} higher than this (25), the processing will be
+     * refused (i.e. {@link MatsRefuseMessageException} will be thrown).
+     */
+    int MAX_STACK_HEIGHT = 25;
+
+    /**
      * Send a bunch of {@link JmsMatsMessage}s.
      */
     default <Z> void produceAndSendMsgSysMessages(Logger log, JmsSessionHolder jmsSessionHolder,
-            JmsMatsFactory<Z> jmsMatsFactory, List<JmsMatsMessage<Z>> messagesToSend) throws JmsMatsJmsException {
+            JmsMatsFactory<Z> jmsMatsFactory, List<JmsMatsMessage<Z>> messagesToSend)
+            throws JmsMatsJmsException {
         Session jmsSession = jmsSessionHolder.getSession();
         if (log.isDebugEnabled()) log.debug(LOG_PREFIX + "Sending [" + messagesToSend.size() + "] messages.");
 
         MessageProducer messageProducer = jmsSessionHolder.getDefaultNoDestinationMessageProducer();
 
+        // :: Send each message
         for (JmsMatsMessage<Z> jmsMatsMessage : messagesToSend) {
-
             MatsTrace<Z> outgoingMatsTrace = jmsMatsMessage.getMatsTrace();
             SerializedMatsTrace serializedOutgoingMatsTrace = jmsMatsMessage.getCachedSerializedMatsTrace();
 
@@ -151,7 +164,6 @@ public interface JmsMatsStatics {
                 long timeToLive = outgoingMatsTrace.getTimeToLive();
 
                 // :: Create the JMS Queue or Topic.
-                // TODO: OPTIMIZE: Cache these?!
                 Destination destination = toChannel.getMessagingModel() == MessagingModel.QUEUE
                         ? jmsSession.createQueue(factoryConfig.getMatsDestinationPrefix() + toChannel.getId())
                         : jmsSession.createTopic(factoryConfig.getMatsDestinationPrefix() + toChannel.getId());

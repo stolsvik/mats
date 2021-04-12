@@ -34,6 +34,46 @@ public interface MatsTrace<Z> {
             String initiatorId, long initializedTimestamp, String debugInfo);
 
     /**
+     * If this newly created MatsTrace is a child-flow (initiated within a Stage) of an existing flow, then this method
+     * should be invoked to set the parent MatsMessageId, and the "total call number" which is a "Call Overflow
+     * protection" mechanism.
+     * <p />
+     * <b>Parent Mats Message Id:</b> The MatsMessageId of the message whose processing spawned this new flow.
+     * <p />
+     * <b>Total Call Number:</b> Initializes the {@link #getTotalCallNumber()}. If this message is initiated within an
+     * existing call flow, set to the current call's {@link #getTotalCallNumber()} + 1. This number will increase for
+     * every subsequent call this flow is going through, just as with {@link #getCallNumber()} - the difference being
+     * that it should <i>continue</i> increasing if a new message is initiated within a flow. Thereby it is possible to
+     * stop an out-of-control initiate-send/request recursion, by checking that the {@link #getTotalCallNumber()}
+     * doesn't ever go above a fixed number, e.g. 100.
+     *
+     * @param parentMatsMessageId
+     *            the MatsMessageId of the message whose processing spawned this new flow.
+     * @param totalCallNumber
+     *            the {@link #getTotalCallNumber()} to initialize this MatsTrace with.
+     * @return <code>this</code>, for chaining. Note that this is opposed to the add[Request|Send|Next|Reply]Call(..)
+     *         methods, which return a new, independent instance.
+     */
+    MatsTrace<Z> withChildFlow(String parentMatsMessageId, int totalCallNumber);
+
+    /**
+     * If this is a {@link #withChildFlow(String, int)} of an existing flow, this should return the MatsMessageId of the
+     * message whose processing spawned this new flow.
+     *
+     * @return the MatsMessageId of the message whose processing spawned this new flow.
+     */
+    String getParentMatsMessageId();
+
+    /**
+     * "Stack overflow protection" mechanism.
+     *
+     * @return the total call number, which for a new call flow is initially set by {@link #withChildFlow(String, int)}
+     *         (or is 0 if it wasn't set, indicating a "brand new" / "from the outside" flow), and increased by 1 for
+     *         each call in the flow.
+     */
+    int getTotalCallNumber();
+
+    /**
      * @return the TraceId that this {@link MatsTrace} was initiated with - this is set once, at initiation time, and
      *         follows the processing till it terminates. (All log lines will have the traceId set on the MDC.)
      */
