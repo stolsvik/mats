@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -139,6 +140,33 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
         log.info(LOG_PREFIX + "Created [" + idThis() + "].");
     }
 
+    // :: Configurable variables:
+
+    // Set to default, which is null.
+    private Function<String, String> _initiateTraceIdModifier = null;
+
+    // Set to default, which is 0 (which means default logic; 2x numCpus)
+    private int _concurrency = 0;
+
+    // Set to default, which is empty string (not null).
+    private String _name = "";
+
+    // Set to default, which is "mats.".
+    private String _matsDestinationPrefix = "mats.";
+
+    // Set to default, which is "mats:trace".
+    private String _matsTraceKey = "mats:trace";
+
+    // Set to default, which is what returned from command 'hostname', failing that, InetAddress..getHostName().
+    private String _nodename = getHostname_internal();
+
+    // Set to default, which is false. Volatile since quite probably set by differing threads.
+    private volatile boolean _holdEndpointsUntilFactoryIsStarted = false;
+
+    Function<String, String> getInitiateTraceIdModifier() {
+        return _initiateTraceIdModifier;
+    }
+
     private void installIfPresent(Class<?> standardInterceptorClass) {
         if (standardInterceptorClass != null) {
             log.info(LOG_PREFIX + "Found '" + standardInterceptorClass.getSimpleName()
@@ -155,9 +183,6 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
 
     private final List<JmsMatsEndpoint<?, ?, Z>> _createdEndpoints = new ArrayList<>();
     private final List<JmsMatsInitiator<Z>> _createdInitiators = new ArrayList<>();
-
-    private volatile String _nodename = getHostname_internal();
-    private volatile boolean _holdEndpointsUntilFactoryIsStarted;
 
     private static String getHostname_internal() {
         try (BufferedInputStream in = new BufferedInputStream(Runtime.getRuntime().exec("hostname").getInputStream())) {
@@ -479,8 +504,8 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
     /**
      * Solution for "hoisting" transactions
      * <ul>
-     *     <li>If this exists, and DefaultInitiator: Use the existing - otherwise normal.</li>
-     *     <li>If this exists, and non-default Initiator: Fork out in thread, to get own context - otherwise normal.</li>
+     * <li>If this exists, and DefaultInitiator: Use the existing - otherwise normal.</li>
+     * <li>If this exists, and non-default Initiator: Fork out in thread, to get own context - otherwise normal.</li>
      * </ul>
      * Note: This ThreadLocal is on the MatsFactory, thus the {@link MatsInitiate} is scoped to the MatsFactory. This
      * should make some sense: If you in a Stage do a new Initiation, even with the
@@ -494,8 +519,10 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
     /**
      * Solution for keeping Stage context when doing nested initiations.
      * <ul>
-     *     <li>If this exists, then use {@link JmsMatsInitiate#createForChildFlow(JmsMatsFactory, List, JmsMatsInternalExecutionContext, DoAfterCommitRunnableHolder, MatsTrace)}</li>
-     *     <li>If this does not exists, then use {@link JmsMatsInitiate#createForTrueInitiation(JmsMatsFactory, List, JmsMatsInternalExecutionContext, DoAfterCommitRunnableHolder)}</li>
+     * <li>If this exists, then use
+     * {@link JmsMatsInitiate#createForChildFlow(JmsMatsFactory, List, JmsMatsInternalExecutionContext, DoAfterCommitRunnableHolder, MatsTrace)}</li>
+     * <li>If this does not exists, then use
+     * {@link JmsMatsInitiate#createForTrueInitiation(JmsMatsFactory, List, JmsMatsInternalExecutionContext, DoAfterCommitRunnableHolder)}</li>
      * </ul>
      * <b>Notice: When forking out in new thread, make sure to copy over this ThreadLocal!</b>
      */
@@ -747,26 +774,15 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
     }
 
     private class JmsMatsFactoryConfig implements FactoryConfig {
-        // Set to default, which is 0 (which means default logic; 2x numCpus)
-        private int _concurrency = 0;
-
-        // Set to default, which is empty string (not null).
-        private String _name = "";
-
-        // Set to default.
-        private String _matsDestinationPrefix = "mats.";
-
-        // Set to default.
-        private String _matsTraceKey = "mats:trace";
-
         @Override
-        public void setName(String name) {
+        public FactoryConfig setName(String name) {
             if (name == null) {
                 throw new NullPointerException("name");
             }
             String idBefore = idThis();
             _name = name;
             log.info(LOG_PREFIX + "Set name to [" + name + "] for [" + idBefore + "], new id: [" + idThis() + "].");
+            return this;
         }
 
         @Override
@@ -778,6 +794,12 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
         public int getNumberOfCpus() {
             return Integer.parseInt(System.getProperty("mats.cpus",
                     Integer.toString(Runtime.getRuntime().availableProcessors())));
+        }
+
+        @Override
+        public FactoryConfig setInitiateTraceIdModifier(Function<String, String> modifier) {
+            _initiateTraceIdModifier = modifier;
+            return this;
         }
 
         @Override
@@ -808,7 +830,9 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
         @Override
         public FactoryConfig setConcurrency(int concurrency) {
             log.info(LOG_PREFIX + "MatsFactory's Concurrency is set to [" + concurrency
-                    + "] (was: [" + _concurrency + "]).");
+                    + "] (was:[" + _concurrency + "]" + (isConcurrencyDefault()
+                            ? ", default, yielded:[" + getConcurrency() + "]"
+                            : "") + ").");
             _concurrency = concurrency;
             return this;
         }
@@ -870,5 +894,4 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
             }
         }
     }
-
 }

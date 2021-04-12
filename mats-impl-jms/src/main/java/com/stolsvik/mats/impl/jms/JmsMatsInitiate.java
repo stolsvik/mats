@@ -126,12 +126,30 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
 
     @Override
     public MatsInitiate traceId(String traceId) {
-        // ?: If we're an initiation from within a stage, append the traceId to the existing traceId, else set.
-        _traceId = (_existingMatsTrace != null ? _existingMatsTrace.getTraceId() + '|' + traceId : traceId);
+        // :: Decide how to handle TraceId:
+        // 1. If within Stage, prefix with existing message's traceId
+        // 2. If outside Stage, modify with any configured function
+        // 3. Use as is.
+
+        // ?: Are we within a Stage?
+        if (_existingMatsTrace != null) {
+            // -> Yes, so use prefixing
+            _traceId = _existingMatsTrace.getTraceId() + "|" + traceId;
+        }
+        // ?: Do we have modifier function?
+        else if (_parentFactory.getInitiateTraceIdModifier() != null) {
+            // -> Yes, so use this.
+            _traceId = _parentFactory.getInitiateTraceIdModifier().apply(traceId);
+        }
+        else {
+            // -> No, neither within Stage, nor having modifier function, so use directly.
+            _traceId = traceId;
+        }
+
         // Also set this on the MDC so that we have it on log lines if it crashes within the initiation lambda
         // NOTICE: The MDC will always be reset to the existing, or overwritten with new, after initiation lambda
         // is finished, so this will not trash the traceId from an existing context.
-        MDC.put(MDC_TRACE_ID, traceId);
+        MDC.put(MDC_TRACE_ID, _traceId);
         return this;
     }
 

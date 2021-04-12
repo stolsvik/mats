@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import com.stolsvik.mats.MatsConfig.StartStoppable;
 import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
@@ -423,15 +424,17 @@ public interface MatsFactory extends StartStoppable {
      */
     interface FactoryConfig extends MatsConfig {
         /**
-         * Sets the name of the MatsFactory.
+         * Sets the name of the MatsFactory, default is "" (empty string).
          *
          * @param name
          *            the name that the MatsFactory should have.
+         * @return <code>this</code> for chaining.
          */
-        void setName(String name);
+        FactoryConfig setName(String name);
 
         /**
-         * @return the name of the MatsFactory, shall return "" (empty string) if not set, never {@code null}.
+         * @return the name of the MatsFactory, as set by {@link #setName(String)}, shall return "" (empty string) if
+         *         not set, never {@code null}.
          */
         String getName();
 
@@ -444,6 +447,28 @@ public interface MatsFactory extends StartStoppable {
         int getNumberOfCpus();
 
         /**
+         * Sets a Function that may modify the TraceId of Mats flows that are initiated "from the outside", i.e. not
+         * from within a Stage. The intended use is to automatically prefix the Mats flow TraceId with some sort of
+         * contextual request id, typically when the Mats flow is initiated in a HTTP/REST context where the incoming
+         * request carries a "X-Request-ID" or "X-Correlation-ID" header. The idea is then that this header is picked
+         * out in some form of filter, placed in some ThreadLocal context, and then prepended to the TraceId that the
+         * Mats flow is initiated with using the provided function. For example, if the the HTTP Request has a
+         * X-Request-ID of "abc", and the Mats flow is initiated with TraceId "123", the resulting TraceId for the Mats
+         * flow would be "abc|123" (the pipe character being the preferred separator for composed TraceIds, i.e.
+         * TraceIds that are put together by successively more specific information).
+         * <p />
+         * The Function gets the entire user provided TraceId as input (as set via {@link MatsInitiate#traceId(String)},
+         * and should return a fully formed TraceId that should be used instead. Needless to say, it should never throw,
+         * and if it doesn't have any contextual id to prefix with, it should return whatever that was passed into it.
+         *
+         * @param modifier
+         *            the function that accepts the TraceId that the Mats flow is initiated with, and returns the
+         *            TraceId that the Mats flow should actually get.
+         * @return <code>this</code> for chaining.
+         */
+        FactoryConfig setInitiateTraceIdModifier(Function<String, String> modifier);
+
+        /**
          * Sets the prefix that should be applied to the endpointIds to get queue or topic name in the underlying
          * messaging system - the default is <code>"mats."</code>. Needless to say, two MatsFactories which are
          * configured differently here will not be able to communicate. <b>Do not change this unless you have a
@@ -453,6 +478,7 @@ public interface MatsFactory extends StartStoppable {
          * @param prefix
          *            the prefix that should be applied to the endpointIds to get queue or topic name in the underlying
          *            messaging system. Default is <code>"mats."</code>.
+         * @return <code>this</code> for chaining.
          */
         FactoryConfig setMatsDestinationPrefix(String prefix);
 
@@ -472,6 +498,7 @@ public interface MatsFactory extends StartStoppable {
          * @param key
          *            the key name on which to store the "wire representation" of the Mats message if the underlying
          *            mechanism uses some kind of Map. Default is <code>"mats:trace"</code>.
+         * @return <code>this</code> for chaining.
          */
         FactoryConfig setMatsTraceKey(String key);
 
@@ -502,6 +529,7 @@ public interface MatsFactory extends StartStoppable {
          *
          * @param nodename
          *            the nodename that this MatsFactory should report from {@link #getNodename()}.
+         * @return <code>this</code> for chaining.
          */
         FactoryConfig setNodename(String nodename);
 
@@ -539,7 +567,7 @@ public interface MatsFactory extends StartStoppable {
          */
         <T> T instantiateNewObject(Class<T> type);
 
-        // Override to return the more specific FactoryConfig instead of MatsConfig
+        // Overridden to return the more specific FactoryConfig instead of MatsConfig
         @Override
         FactoryConfig setConcurrency(int concurrency);
     }
