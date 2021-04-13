@@ -489,7 +489,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
                             // :: Current State: If null, make an empty object instead, unless Void -> null.
                             S currentSto = handleIncomingState(matsSerializer, _jmsMatsStage.getStateClass(),
-                                    matsTrace.getCurrentState());
+                                    matsTrace.getCurrentStackState().orElse(null));
 
                             // :: Incoming Message DTO
                             I incomingDto = handleIncomingMessageMatsObject(matsSerializer,

@@ -1,6 +1,7 @@
 package com.stolsvik.mats.serial;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
@@ -302,6 +303,32 @@ public interface MatsTrace<Z> {
     Call<Z> getCurrentCall();
 
     /**
+     * @deprecated Use {@link #getCurrentStackState()}.
+     */
+    @Deprecated
+    Z getCurrentState();
+
+    /**
+     * Searches in the {@link #getStateFlow() 'State Flow'} from the back (most recent) for the first element that is at
+     * the current stack height, as defined by {@link #getCurrentCall()}.{@link Call#getStackHeight()}. If a more
+     * shallow stackDepth than the specified is encountered, or the list is exhausted without the Stack Height being
+     * found, the search is terminated with null. (This
+     * <p>
+     * The point of the 'State Flow' is the same as for the Call list: Monitoring and debugging, by keeping a history of
+     * all calls in the processing, along with the states that was present at each call point.
+     * <p>
+     * If "condensing" is on ({@link KeepMatsTrace#COMPACT COMPACT} or {@link KeepMatsTrace#MINIMAL MINIMAL}), the
+     * stack-state-list is - by the condensing algorithm - turned in to a pure stack (as available via
+     * {@link #getStateStack()}), with the StackState for the earliest stack element at position 0, while the latest
+     * (current) at end of list. The above-specified search algorithm still works, as it now will either find the
+     * element with the correct stack depth at the end of the list, or it is not there.
+     *
+     * @return the state for the {@link #getCurrentCall()} if it exists, <code>null</code> otherwise (as is typical when
+     *         entering initial stage of an endpoint).
+     */
+    Optional<StackState<Z>> getCurrentStackState();
+
+    /**
      * @return the number of calls that this MatsTrace have been through, i.e. how many times
      *         {@link MatsTrace#addRequestCall(String, String, MessagingModel, String, MessagingModel, Object, Object, Object)
      *         MatsTrace.add[Request|Next|Reply..](..)} has been invoked on this MatsTrace. This means that right after
@@ -320,28 +347,8 @@ public interface MatsTrace<Z> {
     List<Call<Z>> getCallFlow();
 
     /**
-     * Searches in the {@link #getStateFlow() 'State Flow'} from the back (most recent) for the first element that is at
-     * the current stack height, as defined by {@link #getCurrentCall()}.{@link Call#getStackHeight()}. If a more
-     * shallow stackDepth than the specified is encountered, or the list is exhausted without the Stack Height being
-     * found, the search is terminated with null.
-     * <p>
-     * The point of the 'State Flow' is the same as for the Call list: Monitoring and debugging, by keeping a history of
-     * all calls in the processing, along with the states that was present at each call point.
-     * <p>
-     * If "condensing" is on ({@link KeepMatsTrace#COMPACT COMPACT} or {@link KeepMatsTrace#MINIMAL MINIMAL}), the
-     * stack-list is - by the condensing algorithm - turned in to a pure stack (as available via
-     * {@link #getStateStack()}), with the StackState for the earliest stack element at position 0, while the latest
-     * (current) at end of list. The above-specified search algorithm still works, as it now will either find the
-     * element with the correct stack depth at the end of the list, or it is not there.
-     *
-     * @return the state for the {@link #getCurrentCall()} if it exists, <code>null</code> otherwise (as is typical when
-     *         entering "stage0").
-     */
-    Z getCurrentState();
-
-    /**
      * @return the stack of the states for the current stack: getCurrentCall().getStack().
-     * @see #getCurrentState() for more information on how the "State Flow" works.
+     * @see #getCurrentStackState() for more information on how the "State Flow" works.
      */
     List<StackState<Z>> getStateStack();
 
@@ -350,7 +357,7 @@ public interface MatsTrace<Z> {
      *         COMPACT or MINIMAL, then it will be a pure stack (as returned with {@link #getStateStack()}, with the
      *         last element being the most recent stack frame. NOTICE: The index position in this list has little to do
      *         with which stack level the state refers to. This must be gotten from {@link StackState#getHeight()}.
-     * @see #getCurrentState() for more information on how the "State Flow" works.
+     * @see #getCurrentStackState() for more information on how the "State Flow" works.
      */
     List<StackState<Z>> getStateFlow();
 
@@ -487,5 +494,15 @@ public interface MatsTrace<Z> {
          * @return the state at stack height {@link #getHeight()}.
          */
         Z getState();
+
+        /**
+         * Sets "extra state" on this StackState.
+         */
+        void setExtraState(String key, Z value);
+
+        /**
+         * Retrieves "extra state" on this StackState.
+         */
+        Z getExtraState(String key);
     }
 }

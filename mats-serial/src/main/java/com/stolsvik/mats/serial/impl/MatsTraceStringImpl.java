@@ -7,11 +7,13 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.TimeZone;
@@ -425,14 +427,10 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
      * @return a COPY of the current stack.
      */
     private List<ReplyChannelWithSpan> getCurrentStack() {
-        CallImpl currentCall = getCurrentCall();
-        // ?: Do we have a Current Call?
-        if (currentCall != null) {
-            // -> Yes, we have a current call, return its stack
-            return currentCall.getStack_internal(); // This is a copy.
+        if (c.isEmpty()) {
+            return new ArrayList<>();
         }
-        // E-> No, no Current call, thus we by definition have an empty stack.
-        return new ArrayList<>();
+        return getCurrentCall().getStack_internal(); // This is a copy.
     }
 
     /**
@@ -493,8 +491,9 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     public CallImpl getCurrentCall() {
         // ?: No calls?
         if (c.size() == 0) {
-            // -> No calls, so return null.
-            return null;
+            // -> No calls, so throw
+            throw new IllegalStateException("No calls added - this is evidently a newly created MatsTrace,"
+                    + " which isn't meaningful before an initial call is added");
         }
         // Return last element
         return c.get(c.size() - 1);
@@ -511,9 +510,14 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     @Override
+    public Optional<StackState<String>> getCurrentStackState() {
+        return Optional.ofNullable(getState(getCurrentCall().getStackHeight()));
+    }
+
+    @Override
     public String getCurrentState() {
         // Return the state for the current stack depth (which is the number of stack elements below this).
-        return getState(getCurrentCall().getStackHeight());
+        return getCurrentStackState().map(StackState::getState).orElse(null);
     }
 
     @Override
@@ -536,9 +540,9 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
      * @param stackDepth
      *            the stack depth to find stack state for - it should be the size of the stack below you. For e.g. a
      *            Terminator, it is 0. The first request adds a stack level, so it resides at stackDepth 1. Etc.
-     * @return the state String if found, <code>null</code> otherwise (as is typical when entering "stage0").
+     * @return the state StackStateImpl if found, <code>null</code> otherwise (as is typical when entering "stage0").
      */
-    private String getState(int stackDepth) {
+    private StackStateImpl getState(int stackDepth) {
         for (int i = ss.size() - 1; i >= 0; i--) {
             StackStateImpl stackState = ss.get(i);
             // ?: Have we reached a lower depth than ourselves?
@@ -547,7 +551,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                 break;
             }
             if (stackDepth == stackState.getHeight()) {
-                return stackState.getState();
+                return stackState;
             }
         }
         // Did not find any stack state for us.
@@ -574,10 +578,15 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                     cloned.c.add(call.clone());
                 }
             }
-            // StackStates are immutable.
-            cloned.ss = new ArrayList<>(ss);
+            // StackStates are mutable (the extra-state)
+            cloned.ss = new ArrayList<>(ss.size());
+            for (StackStateImpl stateState : ss) {
+                cloned.ss.add(stateState.clone());
+            }
+
             // TraceProps are immutable.
             cloned.tp = new LinkedHashMap<>(tp);
+
             // Increase CallNumber
             cloned.cn = this.cn + 1;
             // Increase TotalCallNumber, handling previous versions which didn't handle it.
@@ -913,9 +922,11 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         }
     }
 
-    private static class StackStateImpl implements StackState<String> {
+    private static class StackStateImpl implements StackState<String>, Cloneable {
         private final int h; // depth.
         private final String s; // state.
+
+        private Map<String, String> es; // extraState, map is null until first value present.
 
         // Jackson JSON-lib needs a no-args constructor, but it can re-set finals.
         private StackStateImpl() {
@@ -937,8 +948,38 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         }
 
         @Override
+        public void setExtraState(String key, String value) {
+            if (es == null) {
+                es = new HashMap<>();
+            }
+            es.put(key, value);
+        }
+
+        @Override
+        public String getExtraState(String key) {
+            return es != null
+                    ? es.get(key)
+                    : null;
+        }
+
+        @Override
         public String toString() {
             return "height=" + h + ", state=" + s;
+        }
+
+        @Override
+        protected StackStateImpl clone() {
+            StackStateImpl clone;
+            try {
+                clone = (StackStateImpl) super.clone();
+            }
+            catch (CloneNotSupportedException e) {
+                throw new AssertionError("Implements Cloneable, so shouldn't throw", e);
+            }
+            if (es != null) {
+                clone.es = new HashMap<>(this.es);
+            }
+            return clone;
         }
     }
 
@@ -993,7 +1034,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                         ? currentCall.getDebugInfo()
                         : "-not present-").append('\n')
                 .append("    Flow call# ________ : ").append(getCallNumber()).append('\n')
-                .append("    Incoming State ____ : ").append(getCurrentState() != null ? getCurrentState() : "-null-")
+                .append("    Incoming State ____ : ").append(getCurrentStackState().map(StackState::getState).orElse(
+                        "-null-"))
                 .append('\n')
                 .append("    Incoming Msg ______ : ").append(currentCall.getData()).append('\n')
                 .append("    Current SpanId ____ : ").append(Long.toString(getCurrentSpanId(), 36)).append('\n')

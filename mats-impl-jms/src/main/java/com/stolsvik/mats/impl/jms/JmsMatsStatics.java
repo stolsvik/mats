@@ -25,6 +25,7 @@ import com.stolsvik.mats.serial.MatsSerializer.SerializedMatsTrace;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call.Channel;
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
+import com.stolsvik.mats.serial.MatsTrace.StackState;
 
 /**
  * Common "static" stash, hacked up as an interface to be implemented if you need it.
@@ -205,19 +206,20 @@ public interface JmsMatsStatics {
         }
     }
 
-    default <S, Z> S handleIncomingState(MatsSerializer<Z> matsSerializer, Class<S> stateClass, Z data) {
+    default <S, Z> S handleIncomingState(MatsSerializer<Z> matsSerializer, Class<S> stateClass,
+            StackState<Z> stackState) {
         // ?: Is the desired class Void.TYPE/void.class (or Void.class for legacy reasons).
         if ((stateClass == Void.TYPE) || (stateClass == Void.class)) {
             // -> Yes, so return null (Void can only be null).
             return null;
         }
         // ?: Is the incoming data null?
-        if (data == null) {
+        if (stackState == null) {
             // -> Yes, so then we return a fresh new State instance
             return matsSerializer.newInstance(stateClass);
         }
         // E-> We have data, and it is not Void - so then deserialize the State
-        return matsSerializer.deserializeObject(data, stateClass);
+        return matsSerializer.deserializeObject(stackState.getState(), stateClass);
     }
 
     default <I, Z> I handleIncomingMessageMatsObject(MatsSerializer<Z> matsSerializer, Class<I> incomingMessageClass,

@@ -18,6 +18,7 @@ import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call;
+import com.stolsvik.mats.serial.MatsTrace.StackState;
 
 /**
  * Tool that makes it possible to query for a DLQ message on the underlying broker of a test MatsFactory - useful if the
@@ -248,8 +249,10 @@ public class MatsTestMqInterface {
 
         @Override
         public <S> S getIncomingState(Class<S> type) {
-            Z currentState = _matsTrace.getCurrentState();
-            return _matsSerializer.deserializeObject(currentState, type);
+            return _matsTrace.getCurrentStackState()
+                    .map(StackState::getState)
+                    .map(z -> _matsSerializer.deserializeObject(z, type))
+                    .orElse(null);
         }
 
         @Override
