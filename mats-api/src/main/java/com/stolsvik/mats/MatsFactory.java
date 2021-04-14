@@ -383,22 +383,24 @@ public interface MatsFactory extends StartStoppable {
     }
 
     /**
-     * Provides ThreadLocal access to elements from the {@link MatsStage} process context and {@link MatsInitiate}
-     * context - currently {@link #getAttribute(Class, String...)}, which can provide you with the transactionally
-     * demarcated SQL Connection if the Mats implementation provides such.
+     * Provides ThreadLocal access to attributes from the {@link MatsInitiate} initiate context and {@link MatsStage}
+     * process context - currently {@link #getAttribute(Class, String...)}, which can provide you with the
+     * transactionally demarcated SQL Connection if the Mats implementation provides such.
      */
     class ContextLocal {
         private static volatile BiFunction<Class<?>, String[], Optional<?>> callback;
 
         /**
-         * Provides a ThreadLocal-accessible variant of the {@link ProcessContext#getAttribute(Class, String...)} and
-         * {@link MatsInitiate#getAttribute(Class, String...)} methods: If the executing thread is currently processing
-         * a {@link MatsStage}, or is within a {@link MatsInitiator#initiate(InitiateLambda) Mats initiation}, the
-         * return value will be the same as if the relevant method was invoked. Otherwise, if the current thread is not
-         * processing a stage or performing an initiation., <code>Optional.empty()</code> is returned.
+         * Provides a ThreadLocal-accessible variant of the {@link ProcessContext#getAttribute(Class, String...)
+         * ProcessContext.getAttribute(..)} and {@link MatsInitiate#getAttribute(Class, String...)
+         * MatsInitiate.getAttribute(..)} methods: If the executing thread is within a
+         * {@link MatsInitiator#initiate(InitiateLambda) Mats initiation}, or is currently processing a
+         * {@link MatsStage}, the return value will be the same as if the relevant <code>getAttribute(..)</code> method
+         * was invoked. Otherwise, if the current thread is not processing a stage or performing an initiation,
+         * <code>Optional.empty()</code> is returned.
          * <p/>
-         * Mandatory: If the Mats implementation has a transactional SQL Connection, it shall be available by
-         * <code>'getAttribute(Connection.class)'</code>.
+         * If the Mats implementation has a transactional SQL Connection, it shall be available by
+         * <code>ContextLocal.getAttribute(Connection.class)</code> when in the relevant contexts (init or stage).
          *
          * @param type
          *            The expected type of the attribute
@@ -406,8 +408,8 @@ public interface MatsFactory extends StartStoppable {
          *            The (optional) (hierarchical) name(s) of the attribute.
          * @param <T>
          *            The type of the attribute.
-         * @return Optional of the attribute in question, the optionality pointing out that it depends on the Mats
-         *         implementation or configuration whether it is available.
+         * @return Optional of the attribute in question - if not in relevant context, <code>Optional.empty()</code> is
+         *         always returned.
          *
          * @see ProcessContext#getAttribute(Class, String...)
          * @see MatsInitiate#getAttribute(Class, String...)

@@ -116,7 +116,8 @@ public class Test_ComplexLargeMultiStage {
         ep.stage(DataTO.class, (context, sto, dto) -> {
             if (log.isDebugEnabled()) log.debug("Incoming message for Multi: DTO:[" + dto
                     + "], STO:[" + sto + "], context:\n" + context);
-            Assert.assertEquals(new StateTO(0, 0), sto);
+            // Checking that the "incoming initial state" (as sent from initiation) is present.
+            Assert.assertEquals(new StateTO(42, Math.PI), sto);
             sto.number1 = Integer.MAX_VALUE;
             sto.number2 = Math.E;
             context.request(SERVICE + ".Mid", new DataTO(dto.number, dto.string + ":MidCall1", 3));
@@ -203,7 +204,8 @@ public class Test_ComplexLargeMultiStage {
                         .from(MatsTestHelp.from("test"))
                         .to(SERVICE)
                         .replyTo(TERMINATOR, sto)
-                        .request(dto));
+                        // Testing with initial incoming state
+                        .request(dto, new StateTO(42, Math.PI)));
         log.info(".. request sent.");
 
         // Wait synchronously for terminator to finish.
