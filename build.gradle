@@ -55,10 +55,7 @@ subprojects {
         options.encoding = 'UTF-8'
         options.deprecation = true
         options.incremental = true
-        //options.compilerArgs += ['-Xlint:all', '-Xlint:-serial', '-Werror']
-
-        // Removing -Werror while making MatsSockets. TODO: Get it back! 2019-12-01
-        options.compilerArgs += ['-Xlint:all', '-Xlint:-serial']
+        options.compilerArgs += ['-Werror', '-Xlint:all', '-Xlint:-serial']
     }
 
     jar {
@@ -126,23 +123,6 @@ subprojects {
             println "** Java Version:   " + System.getProperty("java.version")
             println "** Groovy Version: " + GroovySystem.getVersion()
             println "** Gradle Version: " + gradle.gradleVersion
-        }
-    }
-
-    // Eclipse-plugin configuration
-    tasks.eclipse.dependsOn(cleanEclipse)
-    eclipse {
-        // project { natures 'org.springsource.ide.eclipse.gradle.core.nature'; }
-        classpath {
-            defaultOutputDir = file('build-eclipse')
-            file {
-                whenMerged { classpath ->
-                    // Dump the classpath entries so that we can see them
-                    classpath.entries.findAll { entry ->
-                        println("Entry: $entry")
-                    }
-                }
-            }
         }
     }
 }
