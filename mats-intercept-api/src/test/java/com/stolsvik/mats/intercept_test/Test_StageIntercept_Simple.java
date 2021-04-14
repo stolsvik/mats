@@ -84,17 +84,17 @@ public class Test_StageIntercept_Simple {
 
         @Override
         public void stagePreprocessAndDeserializeError(
-                StagePreprocessAndDeserializeErrorContext stagePreprocessAndDeserializeErrorContext) {
+                StagePreprocessAndDeserializeErrorContext context) {
 
         }
 
         @Override
-        public void stageReceived(StageReceivedContext stageReceivedContext) {
+        public void stageReceived(StageReceivedContext context) {
             log.info("Stage 'Started', interceptor #" + _number);
         }
 
         @Override
-        public void stageInterceptUserLambda(StageInterceptUserLambdaContext processingIntercept,
+        public void stageInterceptUserLambda(StageInterceptUserLambdaContext context,
                 ProcessLambda<Object, Object, Object> processLambda,
                 ProcessContext<Object> ctx, Object state, Object msg) throws MatsRefuseMessageException {
             log.info("Stage 'Intercept', pre lambda-invoke, interceptor #" + _number);
@@ -119,14 +119,14 @@ public class Test_StageIntercept_Simple {
 
         @Override
         public void stageInterceptOutgoingMessages(
-                StageInterceptOutgoingMessageContext stageInterceptOutgoingMessageContext) {
-            log.info("Stage 'Message', interceptor #" + _number + ", messages:" + stageInterceptOutgoingMessageContext
+                StageInterceptOutgoingMessageContext context) {
+            log.info("Stage 'Message', interceptor #" + _number + ", messages:" + context
                     .getOutgoingMessages());
         }
 
         @Override
-        public void stageCompleted(StageCompletedContext stageCompletedContext) {
-            log.info("Stage 'Completed', interceptor #" + _number + ", messages:" + stageCompletedContext
+        public void stageCompleted(StageCompletedContext context) {
+            log.info("Stage 'Completed', interceptor #" + _number + ", messages:" + context
                     .getOutgoingMessages());
         }
     }

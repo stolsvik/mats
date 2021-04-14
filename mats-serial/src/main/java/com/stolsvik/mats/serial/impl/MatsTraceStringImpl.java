@@ -8,10 +8,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -280,8 +278,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             String replyTo, MessagingModel replyToMessagingModel,
             String data, String replyState, String initialState) {
         MatsTraceStringImpl clone = cloneForNewCall();
-        // Get the stack from /this/
-        List<ReplyChannelWithSpan> newCallReplyStack = getCurrentStack();
+        // Get the stack from /this/ - note: This is a COPY
+        List<ReplyChannelWithSpan> newCallReplyStack = getCopyOfCurrentStackForNewCall();
         // Add the replyState - i.e. the state that is outgoing from the current call, destined for the reply.
         // NOTE: This must be added BEFORE we add to the newCallReplyStack, since it is targeted to the stack frame
         // below us!
@@ -308,7 +306,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             String data, String initialState) {
         MatsTraceStringImpl clone = cloneForNewCall();
         // For a send/next call, the stack does not change.
-        List<ReplyChannelWithSpan> newCallReplyStack = getCurrentStack();
+        List<ReplyChannelWithSpan> newCallReplyStack = getCopyOfCurrentStackForNewCall();
         // Prune the data and stack from current call if KeepMatsTrace says so.
         clone.dropValuesOnCurrentCallIfAny();
         // Add the new Call
@@ -330,7 +328,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         }
         MatsTraceStringImpl clone = cloneForNewCall();
         // For a send/next call, the stack does not change.
-        List<ReplyChannelWithSpan> newCallReplyStack = getCurrentStack();
+        List<ReplyChannelWithSpan> newCallReplyStack = getCopyOfCurrentStackForNewCall();
         // Prune the data and stack from current call if KeepMatsTrace says so.
         clone.dropValuesOnCurrentCallIfAny();
         // Add the new Call.
@@ -345,7 +343,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     @Override
     public MatsTraceStringImpl addReplyCall(String from, String data) {
-        List<ReplyChannelWithSpan> newCallReplyStack = getCurrentStack();
+        List<ReplyChannelWithSpan> newCallReplyStack = getCopyOfCurrentStackForNewCall();
         if (newCallReplyStack.size() == 0) {
             throw new IllegalStateException("Trying to add Reply Call when there is no stack."
                     + " (Implementation note: You need to check the getCurrentCall().getStackHeight() before trying to"
@@ -363,6 +361,29 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         // Prune the StackStates if KeepMatsTrace says so.
         clone.pruneUnnecessaryStackStates();
         return clone;
+    }
+
+    /**
+     * @return a COPY of the current stack.
+     */
+    private List<ReplyChannelWithSpan> getCopyOfCurrentStackForNewCall() {
+        if (c.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return getCurrentCall().getReplyStack_internal(); // This is a copy.
+    }
+
+    /**
+     * Should be invoked just after adding a new Call, so if in non-FULL mode (COMPACT or MINIMAL), we can clean out any
+     * stack states that either are higher than we're at now, or multiples for the same height (only the most recent for
+     * each stack height is actually a part of the stack, the rest on the same level are for history).
+     */
+    private void pruneUnnecessaryStackStates() {
+        // ?: Are we in MINIMAL or COMPACT modes?
+        if ((kt == KeepMatsTrace.MINIMAL) || (kt == KeepMatsTrace.COMPACT)) {
+            // -> Yes, so we'll drop the states we can.
+            ss = getStateStack_internal();
+        }
     }
 
     // TODO: POTENTIAL setSpanIdOnCurrentStack(..)
@@ -424,16 +445,6 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     /**
-     * @return a COPY of the current stack.
-     */
-    private List<ReplyChannelWithSpan> getCurrentStack() {
-        if (c.isEmpty()) {
-            return new ArrayList<>();
-        }
-        return getCurrentCall().getStack_internal(); // This is a copy.
-    }
-
-    /**
      * Should be invoked just before adding the new call to the cloneForNewCall()'ed MatsTrace, so as to clean out the
      * 'from' and Stack (and data if COMPACT) on the CurrentCall which after the add will become the <i>previous</i>
      * call.
@@ -446,43 +457,6 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             if (kt == KeepMatsTrace.COMPACT) {
                 // -> Yes, COMPACT, so drop data
                 getCurrentCall().dropData();
-            }
-        }
-    }
-
-    /**
-     * Should be invoked just after adding a new StackState, so we can clean out any stack states that either are higher
-     * than we're at now, or multiples for the same height (only the most recent is actually a part of the stack, the
-     * rest on the same level are for history).
-     */
-    private void pruneUnnecessaryStackStates() {
-        // ?: Are we in MINIMAL or COMPACT modes?
-        if ((kt == KeepMatsTrace.MINIMAL) || (kt == KeepMatsTrace.COMPACT)) {
-            // -> Yes, so we'll drop the states we can.
-            int currentPruneDepth = getCurrentCall().getStackHeight();
-            pruneUnnecessaryStackStates(ss, currentPruneDepth);
-        }
-    }
-
-    private static void pruneUnnecessaryStackStates(List<StackStateImpl> stackStates, int currentPruneDepth) {
-        Set<Integer> seen = new HashSet<>();
-        // Iterate over all elements backwards, from the most recent (which is the last) to the oldest (which is first).
-        for (ListIterator<StackStateImpl> it = stackStates.listIterator(stackStates.size()); it.hasPrevious();) {
-            StackStateImpl curr = it.previous();
-            // ?: Is this at a higher level than current stack height?
-            if (curr.getHeight() > currentPruneDepth) {
-                // -> Yes, so won't ever be used.
-                it.remove();
-                continue;
-            }
-            // ?: Have we seen this height before?
-            if (seen.contains(curr.getHeight())) {
-                // -> Yes, so since we're traversing backwards, we have the most recent from this height.
-                it.remove();
-            }
-            else {
-                // -> No, so we've seen it now (delete any subsequent).
-                seen.add(curr.getHeight());
             }
         }
     }
@@ -510,14 +484,8 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     }
 
     @Override
-    public Optional<StackState<String>> getCurrentStackState() {
-        return Optional.ofNullable(getState(getCurrentCall().getStackHeight()));
-    }
-
-    @Override
-    public String getCurrentState() {
-        // Return the state for the current stack depth (which is the number of stack elements below this).
-        return getCurrentStackState().map(StackState::getState).orElse(null);
+    public Optional<StackState<String>> getCurrentState() {
+        return Optional.ofNullable(getState(getCurrentCall().getReplyStackHeight()));
     }
 
     @Override
@@ -527,9 +495,46 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     @Override
     public List<StackState<String>> getStateStack() {
-        List<StackStateImpl> stackStates = new ArrayList<>(ss);
-        pruneUnnecessaryStackStates(stackStates, getCurrentCall().getStackHeight());
-        return new ArrayList<>(stackStates);
+        // heavy-handed hack to get this to conform to the return type.
+        @SuppressWarnings({ "unchecked", "rawtypes" })
+        List<StackState<String>> ret = (List<StackState<String>>) (List) getStateStack_internal();
+        return ret;
+    }
+
+    public List<StackStateImpl> getStateStack_internal() {
+        if (ss.isEmpty()) {
+            return new ArrayList<>();
+        }
+        // Current stack height - stack height is the /position/, not the /size()/.
+        int currentCallStackHeight = getCurrentCall().getReplyStackHeight();
+        // We want the lowest stack height between the currentCall's stack height, and what is at the last
+        // element of the stack (there might not be a StateState for the /current/ stack height yet, only lower,
+        // which will happen on every REQUEST that does not have "initial incoming state").
+        int topOfStateStack = Math.min(currentCallStackHeight, ss.get(ss.size() - 1).getHeight());
+        // Create the return StateStack.
+        // Note: the stack height is the /position/, not the /size()/, thus +1 for capacity.
+        ArrayList<StackStateImpl> newStateStack = new ArrayList<>(topOfStateStack + 1);
+        // Ensure all positions exist, since we will be traversing backwards when adding
+        for (int i = 0; i <= topOfStateStack; i++) {
+            newStateStack.add(null);
+        }
+        // Traverse all the StackStates, keeping the /last/ State at each level.
+        for (StackStateImpl stackState : ss) {
+            // ?: Is this a State for a stack frame that is /higher/ than we current are on?
+            // (Remember the "stack flow", and when we're "going back down" in the stack)
+            if (stackState.getHeight() > topOfStateStack) {
+                // -> Yes, so we'll not use that
+                continue;
+            }
+            // NOTE: Overwrite! In a FULL stack flow, there might be multiple states for the same stack height.
+            // We want the latest for each stack height.
+            newStateStack.set(stackState.getHeight(), stackState);
+        }
+        return newStateStack;
+
+        // Original:
+        // pruneUnnecessaryStackStates(stackStates, getCurrentCall().getStackHeight());
+        // return new ArrayList<>(stackStates);
     }
 
     /**
@@ -758,21 +763,21 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
          * @return a COPY of the stack.
          */
         @Override
-        public List<Channel> getStack() {
-            // Dirty, absurd stuff. Please give me a pull request if you know a better way! ;) -endre.
+        public List<Channel> getReplyStack() {
+            // heavy-handed hack to get this to conform to the return type.
             @SuppressWarnings({ "unchecked", "rawtypes" })
-            List<Channel> ret = (List<Channel>) (List) getStack_internal();
+            List<Channel> ret = (List<Channel>) (List) getReplyStack_internal();
             return ret;
         }
 
         /**
          * @return a COPY of the stack.
          */
-        List<ReplyChannelWithSpan> getStack_internal() {
+        List<ReplyChannelWithSpan> getReplyStack_internal() {
             // ?: Has the stack been nulled (to conserve space) due to not being Current Call?
             if (s == null) {
                 // -> Yes, nulled, so return a list of correct size where all elements are the string "-nulled-".
-                return new ArrayList<>(Collections.nCopies(getStackHeight(),
+                return new ArrayList<>(Collections.nCopies(getReplyStackHeight(),
                         new ReplyChannelWithSpan("-nulled-", null, 0)));
             }
             // E-> No, not nulled (thus Current Call), so return the stack.
@@ -780,12 +785,12 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         }
 
         @Override
-        public int getStackHeight() {
+        public int getReplyStackHeight() {
             return (s != null ? s.size() : ss);
         }
 
         private String indent() {
-            return new String(new char[getStackHeight()]).replace("\0", ": ");
+            return new String(new char[getReplyStackHeight()]).replace("\0", ": ");
         }
 
         private String fromStackData(boolean printNullData) {
@@ -881,7 +886,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     /**
      * The "special" implementation of {@link Channel}, extending the {@link ToChannel} by adding SpanId, employed on
-     * for the {@link CallImpl#getStack_internal()}.
+     * for the {@link CallImpl#getReplyStack_internal()}.
      * <p />
      * We're hitching the SpanIds onto the ReplyTo Stack, as they have the same stack semantics. However, do note that
      * the Channel-stack and the SpanId-stack are "offset" wrt. to what they refer to:
@@ -964,7 +969,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
         @Override
         public String toString() {
-            return "height=" + h + ", state=" + s;
+            return "height=" + h + ", state=" + s + (es != null ? ", extraState=" + es.toString() : "");
         }
 
         @Override
@@ -1034,7 +1039,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
                         ? currentCall.getDebugInfo()
                         : "-not present-").append('\n')
                 .append("    Flow call# ________ : ").append(getCallNumber()).append('\n')
-                .append("    Incoming State ____ : ").append(getCurrentStackState().map(StackState::getState).orElse(
+                .append("    Incoming State ____ : ").append(getCurrentState().map(StackState::getState).orElse(
                         "-null-"))
                 .append('\n')
                 .append("    Incoming Msg ______ : ").append(currentCall.getData()).append('\n')
@@ -1046,61 +1051,94 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
         // === CALLS ===
 
-        // --- Initiator "Call" ---
-        buf.append(" call#:       call type\n");
-        buf.append("    0    --- [Initiator]");
-        if (an != null) {
-            buf.append(" @").append(an);
+        if (getKeepTrace() == KeepMatsTrace.MINIMAL) {
+            // MINIMAL
+            buf.append(" initiator:  (MINIMAL, so only have initiator and current call)\n");
+            buf.append("     ");
+            if (an != null) {
+                buf.append(" @").append(an);
+            }
+            if (av != null) {
+                buf.append('[').append(av).append(']');
+            }
+            if (h != null) {
+                buf.append(" @").append(h);
+            }
+            if (ts != 0) {
+                buf.append(" @");
+                DateTimeFormatter.ISO_OFFSET_DATE_TIME.formatTo(
+                        ZonedDateTime.ofInstant(Instant.ofEpochMilli(ts), TimeZone.getDefault().toZoneId()), buf);
+            }
+            if (iid != null) {
+                buf.append(" #initiatorId:").append(iid);
+            }
+            buf.append('\n');
+            buf.append(" current call:  (stack height: " + currentCall.getReplyStackHeight() + ")\n");
+            buf.append("    ")
+                    .append(((CallImpl) getCallFlow().get(0)).toStringFromMatsTrace(ts, 0, 0, false));
+            buf.append('\n');
         }
-        if (av != null) {
-            buf.append('[').append(av).append(']');
-        }
-        if (h != null) {
-            buf.append(" @").append(h);
-        }
-        if (ts != 0) {
-            buf.append(" @");
-            DateTimeFormatter.ISO_OFFSET_DATE_TIME.formatTo(
-                    ZonedDateTime.ofInstant(Instant.ofEpochMilli(ts), TimeZone.getDefault().toZoneId()), buf);
-        }
-        if (iid != null) {
-            buf.append(" #initiatorId:").append(iid);
-        }
-        buf.append('\n');
-        int maxStackSize = c.stream().mapToInt(CallImpl::getStackHeight).max().orElse(0);
-        int maxToStageIdLength = c.stream()
-                .mapToInt(c -> c.getTo().toString().length())
-                .max().orElse(0);
+        else {
+            // FULL or COMPACT
+            // --- Initiator "Call" ---
+            buf.append(" call#:       call type\n");
+            buf.append("    0    --- [Initiator]");
+            if (an != null) {
+                buf.append(" @").append(an);
+            }
+            if (av != null) {
+                buf.append('[').append(av).append(']');
+            }
+            if (h != null) {
+                buf.append(" @").append(h);
+            }
+            if (ts != 0) {
+                buf.append(" @");
+                DateTimeFormatter.ISO_OFFSET_DATE_TIME.formatTo(
+                        ZonedDateTime.ofInstant(Instant.ofEpochMilli(ts), TimeZone.getDefault().toZoneId()), buf);
+            }
+            if (iid != null) {
+                buf.append(" #initiatorId:").append(iid);
+            }
+            buf.append('\n');
+            int maxStackSize = c.stream().mapToInt(CallImpl::getReplyStackHeight).max().orElse(0);
+            int maxToStageIdLength = c.stream()
+                    .mapToInt(c -> c.getTo().toString().length())
+                    .max().orElse(0);
 
-        // --- Actual Calls (will be just the current if "MINIMAL") ---
+            // --- Actual Calls (will be just the current if "MINIMAL") ---
 
-        List<Call<String>> callFlow = getCallFlow();
-        for (int i = 0; i < callFlow.size(); i++) {
-            boolean printNullData = (kt == KeepMatsTrace.FULL) || (i == (callFlow.size() - 1));
-            CallImpl call = (CallImpl) callFlow.get(i);
-            buf.append(String.format("   %2d %s\n", i + 1,
-                    call.toStringFromMatsTrace(ts, maxStackSize, maxToStageIdLength, printNullData)));
+            List<Call<String>> callFlow = getCallFlow();
+            for (int i = 0; i < callFlow.size(); i++) {
+                boolean printNullData = (kt == KeepMatsTrace.FULL) || (i == (callFlow.size() - 1));
+                CallImpl call = (CallImpl) callFlow.get(i);
+                buf.append(String.format("   %2d %s\n", i + 1,
+                        call.toStringFromMatsTrace(ts, maxStackSize, maxToStageIdLength, printNullData)));
+            }
         }
 
         buf.append('\n');
 
         // === STATES ===
 
-        // ?: Are we in FULL, meaning that there actually is a state flow?
-        if (getKeepTrace() == KeepMatsTrace.FULL) {
-            // -> Yes, FULL, so print the state flow
-            buf.append(" ").append("state flow:\n");
-            List<StackState<String>> stateFlow = getStateFlow();
-            for (int i = 0; i < stateFlow.size(); i++) {
-                buf.append(String.format("   %2d %s", i, stateFlow.get(i))).append('\n');
-            }
-            buf.append('\n');
+        // -> Yes, FULL, so print the state flow
+        buf.append(" ").append("states: (").append(getKeepTrace()).append(", thus ")
+                .append(getKeepTrace() == KeepMatsTrace.FULL ? "state flow" : "state stack")
+                .append(" - includes state (if any) for this frame, and for all reply frames below us)")
+                .append("\n");
+        List<StackState<String>> stateFlow = getStateFlow();
+        if (stateFlow.isEmpty()) {
+            buf.append("    <empty, no states>\n");
         }
+        for (int i = 0; i < stateFlow.size(); i++) {
+            buf.append(String.format("   %2d %s", i, stateFlow.get(i))).append('\n');
+        }
+        buf.append('\n');
 
         // === REPLY TO STACK ===
 
-        buf.append(" current ReplyTo stack: \n");
-        List<Channel> stack = currentCall.getStack();
+        buf.append(" current ReplyTo stack (frames below us): \n");
+        List<Channel> stack = currentCall.getReplyStack();
         if (stack.isEmpty()) {
             buf.append("    <empty, cannot reply>\n");
         }

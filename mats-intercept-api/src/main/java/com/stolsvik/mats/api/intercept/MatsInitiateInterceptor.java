@@ -120,7 +120,7 @@ public interface MatsInitiateInterceptor {
     /**
      * Invoked right before user lambda is invoked.
      */
-    default void initiateStarted(InitiateStartedContext initiateStartedContext) {
+    default void initiateStarted(InitiateStartedContext context) {
         /* no-op */
     }
 
@@ -133,7 +133,7 @@ public interface MatsInitiateInterceptor {
      * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
      */
     interface MatsInitiateInterceptUserLambda {
-        default void initiateInterceptUserLambda(InitiateInterceptUserLambdaContext initiateInterceptUserLambdaContext,
+        default void initiateInterceptUserLambda(InitiateInterceptUserLambdaContext context,
                 InitiateLambda initiateLambda, MatsInitiate matsInitiate) {
             // Default: Call directly through
             initiateLambda.initiate(matsInitiate);
@@ -147,13 +147,10 @@ public interface MatsInitiateInterceptor {
      * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
      */
     interface MatsInitiateInterceptOutgoingMessages extends MatsInitiateInterceptor {
-        default void initiateInterceptOutgoingMessages(
-                InitiateInterceptOutgoingMessagesContext initiateInterceptOutgoingMessagesContext) {
-            /* no-op */
-        }
+        void initiateInterceptOutgoingMessages(InitiateInterceptOutgoingMessagesContext context);
     }
 
-    default void initiateCompleted(InitiateCompletedContext initiateCompletedContext) {
+    default void initiateCompleted(InitiateCompletedContext context) {
         /* no-op */
     }
 

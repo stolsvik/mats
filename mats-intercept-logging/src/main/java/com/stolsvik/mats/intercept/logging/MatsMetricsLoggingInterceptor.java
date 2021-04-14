@@ -169,7 +169,8 @@ public class MatsMetricsLoggingInterceptor
             MDC.put(MDC_MATS_IN_TIME_ENVELOPE_DESERIAL, msS(ctx.getEnvelopeDeserializationNanos()));
             MDC.put(MDC_MATS_IN_TIME_MSG_AND_STATE_DESERIAL, msS(ctx.getMessageAndStateDeserializationNanos()));
 
-            log_stage.info(LOG_PREFIX + "RECEIVED message from [" + processContext.getFromStageId()
+            log_stage.info(LOG_PREFIX + "RECEIVED [" + ctx.getIncomingMessageType()
+                    + "] message from [" + processContext.getFromStageId()
                     + "@" + processContext.getFromAppName() + ",v." + processContext.getFromAppVersion()
                     + "], totPreprocAndDeserial:[" + ms(ctx.getTotalPreprocessAndDeserializeNanos())
                     + "] || breakdown: msgSysDeconstruct:[" + ms(ctx.getMessageSystemDeconstructNanos())

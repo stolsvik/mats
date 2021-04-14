@@ -62,6 +62,8 @@ import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsSerializer.DeserializedMatsTrace;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call;
+import com.stolsvik.mats.serial.MatsTrace.Call.CallType;
+import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
 
 /**
  * MessageConsumer-class for the {@link JmsMatsStage} which is instantiated {@link StageConfig#getConcurrency()} number
@@ -339,7 +341,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
                     List<JmsMatsMessage<Z>> messagesToSend = new ArrayList<>();
 
-                    StageCommonContextImpl[] stageCommonContext = new StageCommonContextImpl[1];
+                    @SuppressWarnings({ "unchecked", "rawtypes" })
+                    StageCommonContextImpl<Z>[] stageCommonContext = new StageCommonContextImpl[1];
 
                     long nanosAtStart_Received = System.nanoTime();
                     long[] nanosTaken_UserLambda = { 0L };
@@ -489,7 +492,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
                             // :: Current State: If null, make an empty object instead, unless Void -> null.
                             S currentSto = handleIncomingState(matsSerializer, _jmsMatsStage.getStateClass(),
-                                    matsTrace.getCurrentStackState().orElse(null));
+                                    matsTrace.getCurrentState().orElse(null));
 
                             // :: Incoming Message DTO
                             I incomingDto = handleIncomingMessageMatsObject(matsSerializer,
@@ -536,9 +539,9 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                             ProcessContext<Object> processContextCasted = (ProcessContext<Object>) processContext[0];
 
                             // Create the common part of the interceptor contexts
-                            stageCommonContext[0] = new StageCommonContextImpl(
+                            stageCommonContext[0] = new StageCommonContextImpl<>(
                                     _jmsMatsStage, startedInstant,
-                                    incomingDto, currentSto,
+                                    matsTrace, incomingDto, currentSto,
                                     nanosTaken_DeconstructMessage,
                                     matsTraceBytes.length,
                                     matsTraceDeserialized.getNanosDecompression(),
@@ -903,7 +906,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     }
 
     private void invokeStageMessageInterceptors(List<MatsStageInterceptor> interceptorsForStage,
-            StageCommonContextImpl stageCommonContext, ProcessContext<Object> processContextCasted,
+            StageCommonContextImpl<Z> stageCommonContext, ProcessContext<Object> processContextCasted,
             List<JmsMatsMessage<Z>> messagesToSend) {
         // :: Find the Message interceptors. Goddamn why is there no stream.filter[InstanceOf](Clazz.class)?
         List<MatsStageInterceptOutgoingMessages> messageInterceptors = interceptorsForStage.stream()
@@ -1038,10 +1041,11 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
      * Implementation of {@link StageCommonContext}, used as a container for the common fields for the subsequent
      * interface implementations.
      */
-    private static class StageCommonContextImpl implements StageCommonContext {
-        private final MatsStage<?, ?, ?> _stage;
+    private static class StageCommonContextImpl<Z> implements StageCommonContext {
+        private final JmsMatsStage<?, ?, ?, Z> _stage;
         private final Instant _startedInstant;
 
+        private final MatsTrace<Z> _matsTrace;
         private final Object _incomingMessage;
         private final Object _incomingState;
 
@@ -1053,8 +1057,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         private final long _incomingMessageAndStateDeserializationNanos;
         private final long _preUserLambdaNanos;
 
-        public StageCommonContextImpl(MatsStage<?, ?, ?> stage, Instant startedInstant,
-                Object incomingMessage, Object incomingState,
+        public StageCommonContextImpl(JmsMatsStage<?, ?, ?, Z> stage, Instant startedInstant,
+                MatsTrace<Z> matsTrace, Object incomingMessage, Object incomingState,
                 long incomingEnvelopeDeconstructNanos,
                 int incomingEnvelopeRawSize,
                 long incomingEnvelopeDecompressionNanos,
@@ -1066,6 +1070,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
             _stage = stage;
             _startedInstant = startedInstant;
 
+            _matsTrace = matsTrace;
             _incomingMessage = incomingMessage;
             _incomingState = incomingState;
 
@@ -1094,8 +1099,38 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         }
 
         @Override
+        public MessageType getIncomingMessageType() {
+            CallType callType = _matsTrace.getCurrentCall().getCallType();
+            if (callType == CallType.REQUEST) {
+                return MessageType.REQUEST;
+            }
+            else if (callType == CallType.REPLY) {
+                return MessageType.REPLY;
+            }
+            else if (callType == CallType.NEXT) {
+                return MessageType.NEXT;
+            }
+            else if (callType == CallType.SEND) {
+                // -> SEND, so must evaluate SEND or PUBLISH
+                if (_matsTrace.getCurrentCall().getTo().getMessagingModel() == MessagingModel.QUEUE) {
+                    return MessageType.SEND;
+                }
+                else {
+                    return MessageType.PUBLISH;
+                }
+            }
+            throw new AssertionError("Unknown CallType of matsTrace.currentCall: " + callType);
+        }
+
+        @Override
         public Optional<Object> getIncomingState() {
             return Optional.ofNullable(_incomingState);
+        }
+
+        @Override
+        public <T> Optional<T> getIncomingExtraState(String key, Class<T> type) {
+            MatsSerializer<Z> matsSerializer = _stage.getParentFactory().getMatsSerializer();
+            return _matsTrace.getCurrentState().map(s -> matsSerializer.deserializeObject(s.getExtraState(key), type));
         }
 
         @Override
@@ -1156,6 +1191,11 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         }
 
         @Override
+        public MessageType getIncomingMessageType() {
+            return _stageCommonContext.getIncomingMessageType();
+        }
+
+        @Override
         public Object getIncomingMessage() {
             return _stageCommonContext.getIncomingMessage();
         }
@@ -1163,6 +1203,11 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         @Override
         public Optional<Object> getIncomingState() {
             return _stageCommonContext.getIncomingState();
+        }
+
+        @Override
+        public <T> Optional<T> getIncomingExtraState(String key, Class<T> type) {
+            return _stageCommonContext.getIncomingExtraState(key, type);
         }
 
         @Override

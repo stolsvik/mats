@@ -56,12 +56,12 @@ public class Test_InitiationIntercept_JavaDoc {
         }
 
         @Override
-        public void initiateStarted(InitiateStartedContext initiateStartedContext) {
+        public void initiateStarted(InitiateStartedContext context) {
             log.info("Stage 'Started', interceptor #" + _number);
         }
 
         @Override
-        public void initiateInterceptUserLambda(InitiateInterceptUserLambdaContext initiateInterceptUserLambdaContext,
+        public void initiateInterceptUserLambda(InitiateInterceptUserLambdaContext context,
                 InitiateLambda initiateLambda, MatsInitiate matsInitiate) {
             log.info("Stage 'Intercept', pre lambda-invoke, interceptor #" + _number);
 
@@ -89,14 +89,14 @@ public class Test_InitiationIntercept_JavaDoc {
 
         @Override
         public void initiateInterceptOutgoingMessages(
-                InitiateInterceptOutgoingMessagesContext initiateInterceptOutgoingMessagesContext) {
+                InitiateInterceptOutgoingMessagesContext context) {
             log.info("Stage 'Message', interceptor #" + _number + ", message:"
-                    + initiateInterceptOutgoingMessagesContext.getOutgoingMessages());
+                    + context.getOutgoingMessages());
         }
 
         @Override
-        public void initiateCompleted(InitiateCompletedContext initiateCompletedContext) {
-            log.info("Stage 'Completed', interceptor #" + _number + ", messages:" + initiateCompletedContext
+        public void initiateCompleted(InitiateCompletedContext context) {
+            log.info("Stage 'Completed', interceptor #" + _number + ", messages:" + context
                     .getOutgoingMessages());
         }
 

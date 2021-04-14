@@ -42,20 +42,6 @@ public interface MatsOutgoingMessage {
 
     DispatchType getDispatchType();
 
-    // ===== "Sideloads" and trace props
-
-    Set<String> getTracePropertyKeys();
-
-    <T> T getTraceProperty(String propertyName, Class<T> type);
-
-    Set<String> getBytesKeys();
-
-    byte[] getBytes(String key);
-
-    Set<String> getStringKeys();
-
-    String getString(String key);
-
     // ===== Basics
 
     String getFrom();
@@ -71,6 +57,20 @@ public interface MatsOutgoingMessage {
     Optional<Object> getReplyToState();
 
     Object getMessage();
+
+    // ===== Extra-state, "Sideloads" and trace props
+
+    Set<String> getTracePropertyKeys();
+
+    <T> T getTraceProperty(String propertyName, Class<T> type);
+
+    Set<String> getBytesKeys();
+
+    byte[] getBytes(String key);
+
+    Set<String> getStringKeys();
+
+    String getString(String key);
 
     /**
      * @return for initiations, it is possible, albeit should be uncommon, to send along an initial <i>incoming</i>
@@ -116,6 +116,21 @@ public interface MatsOutgoingMessage {
 
     interface MatsEditableOutgoingMessage extends MatsOutgoingMessage {
         void setTraceProperty(String propertyName, Object object);
+
+        /**
+         * Only relevant for {@link MessageType#REQUEST}s - will throw IllegalStateException otherwise. Adds extra-state
+         * to the state which will be present on the REPLY for the outgoing REQUEST: If this extra-state is added to a
+         * REQUEST-message from ServiceA.stage1, it will be present again on the subsequent REPLY-message to
+         * ServiceA.stage2.
+         * <p />
+         * To add info to the receiving stage, you may employ {@link #addBytes(String, byte[])} and
+         * {@link #addString(String, String)}. Given that such extra-state would need support from the receiving
+         * endpoint too to make much sense (i.e. an installed interceptor reading and understanding the incoming extra
+         * state, typically the same interceptor installed there as the one adding the state), it could just pick up the
+         * side load and transfer it over to the extra state if that was desired. Therefore, even though it could be
+         * possible to add extra-state to the <i>targeted/receiving endpoint</i>, I've decided against it so far.
+         */
+        void setExtraStateForReply(String key, Object object);
 
         void addBytes(String key, byte[] payload);
 

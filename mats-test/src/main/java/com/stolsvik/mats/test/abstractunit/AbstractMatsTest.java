@@ -207,12 +207,15 @@ public abstract class AbstractMatsTest<Z> {
     }
 
     /**
-     * @return the {@link MatsFactory} that this JUnit Rule sets up.
+     * @return the {@link MatsFactory} that this JUnit Rule sets up - forwards directly to {@link #getJmsMatsFactory()}.
      */
     public MatsFactory getMatsFactory() {
-        return _matsFactory;
+        return getJmsMatsFactory();
     }
 
+    /**
+     * @return the {@link MatsFactory} that this JUnit Rule sets up.
+     */
     public JmsMatsFactory<Z> getJmsMatsFactory() {
         return _matsFactory;
     }
@@ -276,8 +279,15 @@ public abstract class AbstractMatsTest<Z> {
     }
 
     /**
-     * Loops through all the {@link MatsFactory}'s contained within the {@link #_createdMatsFactories}, and removes all
-     * endpoints from each of them, this ensures that all factories are "clean".
+     * @deprecated use {@link #cleanMatsFactories()}.
+     */
+    @Deprecated
+    public void cleanMatsFactory() {
+    }
+
+    /**
+     * Loops through all the {@link MatsFactory}'s contained in this Rule (default + any specifically created), and
+     * removes all endpoints from each of them, this ensures that all factories are "clean".
      * <p />
      * You may want to utilize this if you have multiple tests in a class, and set up the Endpoints using a @Before type
      * annotation in the test, as opposed to @BeforeClass. This because otherwise you will on the second test try to
@@ -287,7 +297,7 @@ public abstract class AbstractMatsTest<Z> {
      * the @Test method itself), you will get "dupliate endpoint". Thus, as the first statement of each test, before
      * creating the endpoint, invoke this method.
      */
-    public void cleanMatsFactory() {
+    public void cleanMatsFactories() {
         // :: Since removing all endpoints will destroy the MatsFuturizer if it is made, we'll first close that
         synchronized (this) {
             // ?: Have we made the MatsFuturizer?

@@ -12,7 +12,7 @@ import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
  * communicates. It is up to the implementation of the <code>MatsFactory</code> to implement a protocol of how the Mats
  * API is transferred over the wire. This is one such implementation that can be used, which is employed by the default
  * JMS implementation of Mats.
- * <p>
+ * <p />
  * From the outset, there is one format (JSON serialization of the {@link MatsTraceStringImpl} class using Jackson), and
  * one transport (JMS MATS). Notice that the serialization of the actual DTOs and STOs can be handled independently,
  * e.g. use GSON, or protobuf, or whatever can handle serialization to and from the DTOs and STOs being used.
@@ -100,7 +100,7 @@ public interface MatsTrace<Z> {
     enum KeepMatsTrace {
         /**
          * Keeps all Data and State history for the entire trace. (Still the {@link Call#getFrom() from} and
-         * {@link Call#getStack() stack} will be nulled, as it provide zero value that cannot be deduced from the
+         * {@link Call#getReplyStack() stack} will be nulled, as it provide zero value that cannot be deduced from the
          * previous calls).
          */
         FULL,
@@ -256,7 +256,7 @@ public interface MatsTrace<Z> {
      * opposed to the normal request out to a service expecting a reply. The functionality is functionally identical to
      * {@link #addSendCall(String, String, MessagingModel, Z, Z) addSendCall(...)}, but has its own {@link Call.CallType
      * CallType} enum value {@link Call.CallType#NEXT NEXT}.
-     * <p>
+     * <p />
      * Note: Cannot specify {@link MessagingModel} here, as one cannot fathom where that would make sense: It must be
      * {@link MessagingModel#QUEUE QUEUE}.
      *
@@ -291,7 +291,7 @@ public interface MatsTrace<Z> {
      * @return this MatsTrace's SpanId. If it is still on the initiator side, before having had a call added to it, or
      *         on the terminator side, when the stack again is empty, the SpanId is derived from the {@link #getFlowId()
      *         FlowId}. Otherwise, it is the topmost element of an internal stack, in the same way as
-     *         {@link #getCurrentCall()}.{@link Call#getStack()}.
+     *         {@link #getCurrentCall()}.{@link Call#getReplyStack()}.
      */
     long getCurrentSpanId();
 
@@ -301,32 +301,6 @@ public interface MatsTrace<Z> {
      *         <code>null</code> if not call has yet been added to the trace.
      */
     Call<Z> getCurrentCall();
-
-    /**
-     * @deprecated Use {@link #getCurrentStackState()}.
-     */
-    @Deprecated
-    Z getCurrentState();
-
-    /**
-     * Searches in the {@link #getStateFlow() 'State Flow'} from the back (most recent) for the first element that is at
-     * the current stack height, as defined by {@link #getCurrentCall()}.{@link Call#getStackHeight()}. If a more
-     * shallow stackDepth than the specified is encountered, or the list is exhausted without the Stack Height being
-     * found, the search is terminated with null. (This
-     * <p>
-     * The point of the 'State Flow' is the same as for the Call list: Monitoring and debugging, by keeping a history of
-     * all calls in the processing, along with the states that was present at each call point.
-     * <p>
-     * If "condensing" is on ({@link KeepMatsTrace#COMPACT COMPACT} or {@link KeepMatsTrace#MINIMAL MINIMAL}), the
-     * stack-state-list is - by the condensing algorithm - turned in to a pure stack (as available via
-     * {@link #getStateStack()}), with the StackState for the earliest stack element at position 0, while the latest
-     * (current) at end of list. The above-specified search algorithm still works, as it now will either find the
-     * element with the correct stack depth at the end of the list, or it is not there.
-     *
-     * @return the state for the {@link #getCurrentCall()} if it exists, <code>null</code> otherwise (as is typical when
-     *         entering initial stage of an endpoint).
-     */
-    Optional<StackState<Z>> getCurrentStackState();
 
     /**
      * @return the number of calls that this MatsTrace have been through, i.e. how many times
@@ -340,6 +314,43 @@ public interface MatsTrace<Z> {
     int getCallNumber();
 
     /**
+     * Searches in the {@link #getStateFlow() 'State Flow'} from the back (most recent) for the first element that is at
+     * the current stack height, as defined by {@link #getCurrentCall()}.{@link Call#getReplyStackHeight()}. If a more
+     * shallow stackDepth than the specified is encountered, or the list is exhausted without the Stack Height being
+     * found, the search is terminated with null. (This
+     * <p />
+     * The point of the 'State Flow' is the same as for the Call list: Monitoring and debugging, by keeping a history of
+     * all calls in the processing, along with the states that was present at each call point.
+     * <p />
+     * If "condensing" is on ({@link KeepMatsTrace#COMPACT COMPACT} or {@link KeepMatsTrace#MINIMAL MINIMAL}), the
+     * stack-state-list is - by the condensing algorithm - turned in to a pure stack (as available via
+     * {@link #getStateStack()}), with the StackState for the earliest stack element at position 0, while the latest
+     * (current) at end of list. The above-specified search algorithm still works, as it now will either find the
+     * element with the correct stack depth at the end of the list, or it is not there.
+     * <p />
+     * NOTE: The StateStack (mostly) includes a frame for the <i>current</i> call, as opposed to the
+     * {@link Call#getReplyStack()} (reply stack), which only includes frames below us. Note that as a matter of
+     * avoiding space use, on a REQUEST call, the StackState is not added for the actual REQUEST message's state stack,
+     * unless the "initial incoming state" is supplied (which is uncommon - a service invocation typically starts with
+     * an empty state). However, on REPLY messages, it will always be present, and hence the state stack is typically
+     * one level higher (includes current frame) than the reply stack (only includes frames below).
+     * <p />
+     * NOTE: As further info on how the state stack relates to the reply stack height: When a REPLY comes to a
+     * terminator, there are 0 more frames below. However, the terminator needs its state, which is at state stack
+     * height 0.
+     *
+     * @return the state for the {@link #getCurrentCall()} if it exists, <code>null</code> otherwise (as is typical when
+     *         entering initial stage of an endpoint).
+     */
+    Optional<StackState<Z>> getCurrentState();
+
+    /**
+     * @return the stack of the states for the current stack: getCurrentCall().getStack().
+     * @see #getCurrentState() for more information on how the "State Flow" works.
+     */
+    List<StackState<Z>> getStateStack();
+
+    /**
      * @return the flow of calls, from the first REQUEST (or SEND), to the {@link #getCurrentCall() current call} -
      *         unless {@link #getKeepTrace() KeepTrace} is MINIMAL, in which case only the current call is present in
      *         the list.
@@ -347,17 +358,11 @@ public interface MatsTrace<Z> {
     List<Call<Z>> getCallFlow();
 
     /**
-     * @return the stack of the states for the current stack: getCurrentCall().getStack().
-     * @see #getCurrentStackState() for more information on how the "State Flow" works.
-     */
-    List<StackState<Z>> getStateStack();
-
-    /**
      * @return the entire list of states as they have changed throughout the call flow. If {@link KeepMatsTrace} is
      *         COMPACT or MINIMAL, then it will be a pure stack (as returned with {@link #getStateStack()}, with the
      *         last element being the most recent stack frame. NOTICE: The index position in this list has little to do
      *         with which stack level the state refers to. This must be gotten from {@link StackState#getHeight()}.
-     * @see #getCurrentStackState() for more information on how the "State Flow" works.
+     * @see #getCurrentState() for more information on how the "State Flow" works.
      */
     List<StackState<Z>> getStateFlow();
 
@@ -462,23 +467,24 @@ public interface MatsTrace<Z> {
         Z getData();
 
         /**
-         * @return the size of the stack for this Call - which is the number of elements <i>below</i> this call. I.e.
-         *         for a {@link CallType#REPLY REPLY} to a Terminator, the stack is of size 0 (there are no more
-         *         elements to REPLY to), while for the first {@link CallType#REQUEST REQUEST} from an initiator, the
-         *         stack is of size 1 (the endpointId for the Terminator is the one element below this Call).
+         * @return the stack height of this Call - which is the number of elements <i>below</i> this call. I.e. for a
+         *         {@link CallType#REPLY REPLY} to a Terminator, the stack is of size 0 (there are no more elements to
+         *         REPLY to), while for the first {@link CallType#REQUEST REQUEST} from an initiator, the stack is of
+         *         size 1 (the endpointId for the Terminator is the one element below this Call).
          */
-        int getStackHeight();
+        int getReplyStackHeight();
 
         /**
-         * @return a COPY of the replyTo stack of Channels (if you just need the height (i.e. size), use
-         *         {@link #getStackHeight()}) - NOTICE: This will most probably be a List with {@link #getStackHeight()}
-         *         elements containing "-nulled-" for any other Call than the {@link MatsTrace#getCurrentCall()}, to
-         *         conserve space in the MatsTrace. The LAST (i.e. position 'size()-1') element is the most recent,
-         *         meaning that the next REPLY will go here, while the FIRST (i.e. position 0) element is the earliest
-         *         in the stack, i.e. the stageId where the Terminator endpointId typically will reside (unless the
-         *         initial call was a {@link CallType#SEND SEND}, which means that you don't want a reply).
+         * @return a COPY of the replyTo stack of Channels (if you just need the height, which is the common case, use
+         *         {@link #getReplyStackHeight()}) - NOTICE: This will most probably be a List with
+         *         {@link #getReplyStackHeight()} elements containing "-nulled-" for any other Call than the
+         *         {@link MatsTrace#getCurrentCall()}, to conserve space in the MatsTrace. The LAST (i.e. position
+         *         'size()-1') element is the most recent, meaning that the next REPLY will go here, while the FIRST
+         *         (i.e. position 0) element is the earliest in the stack, i.e. the stageId where the Terminator
+         *         endpointId typically will reside (unless the initial call was a {@link CallType#SEND SEND}, which
+         *         means that you don't want a reply).
          */
-        List<Channel> getStack();
+        List<Channel> getReplyStack();
     }
 
     /**

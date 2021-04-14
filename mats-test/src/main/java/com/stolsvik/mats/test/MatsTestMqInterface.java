@@ -249,7 +249,7 @@ public class MatsTestMqInterface {
 
         @Override
         public <S> S getIncomingState(Class<S> type) {
-            return _matsTrace.getCurrentStackState()
+            return _matsTrace.getCurrentState()
                     .map(StackState::getState)
                     .map(z -> _matsSerializer.deserializeObject(z, type))
                     .orElse(null);

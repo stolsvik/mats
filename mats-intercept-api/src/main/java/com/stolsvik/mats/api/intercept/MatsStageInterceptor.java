@@ -11,6 +11,7 @@ import com.stolsvik.mats.MatsEndpoint.ProcessLambda;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.DispatchType;
 import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MatsSentOutgoingMessage;
+import com.stolsvik.mats.api.intercept.MatsOutgoingMessage.MessageType;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContext.ProcessResult;
 
 /**
@@ -33,8 +34,7 @@ public interface MatsStageInterceptor {
      * <p />
      * <b>Note: This should really never be triggered. It would be prudent to "notify the humans" if it ever did.</b>
      */
-    default void stagePreprocessAndDeserializeError(
-            StagePreprocessAndDeserializeErrorContext stagePreprocessAndDeserializeErrorContext) {
+    default void stagePreprocessAndDeserializeError(StagePreprocessAndDeserializeErrorContext context) {
         /* no-op */
     }
 
@@ -43,7 +43,7 @@ public interface MatsStageInterceptor {
      * (If any error occurs during preprocess or deserialization, then
      * {@link #stagePreprocessAndDeserializeError(StagePreprocessAndDeserializeErrorContext)} is invoked instead).
      */
-    default void stageReceived(StageReceivedContext stageReceivedContext) {
+    default void stageReceived(StageReceivedContext context) {
         /* no-op */
     }
 
@@ -53,10 +53,13 @@ public interface MatsStageInterceptor {
      * message - or even take over the entire stage. Wrt. changing messages, you should also consider
      * {@link MatsStageInterceptOutgoingMessages#stageInterceptOutgoingMessages(StageInterceptOutgoingMessageContext)}.
      * <p />
+     * Default implementation is to call directly through - and you also need to call through to get the actual stage to
+     * execute.
+     * <p />
      * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
      */
     interface MatsStageInterceptUserLambda {
-        default void stageInterceptUserLambda(StageInterceptUserLambdaContext processingIntercept,
+        default void stageInterceptUserLambda(StageInterceptUserLambdaContext context,
                 ProcessLambda<Object, Object, Object> processLambda,
                 ProcessContext<Object> ctx, Object state, Object msg)
                 throws MatsRefuseMessageException {
@@ -72,13 +75,14 @@ public interface MatsStageInterceptor {
      * Pulled out in separate interface, so that we don't need to invoke it if the interceptor doesn't need it.
      */
     interface MatsStageInterceptOutgoingMessages extends MatsStageInterceptor {
-        default void stageInterceptOutgoingMessages(
-                StageInterceptOutgoingMessageContext stageInterceptOutgoingMessageContext) {
-            /* no-op */
-        }
+        void stageInterceptOutgoingMessages(StageInterceptOutgoingMessageContext context);
     }
 
-    default void stageCompleted(StageCompletedContext stageCompletedContext) {
+    /**
+     * Invoked <i>after</i> the stage is fully completed, outgoing messages sent, db and messaging system committed. You
+     * cannot anymore modify any outgoing messages etc - for this, implement {@link MatsStageInterceptOutgoingMessages}.
+     */
+    default void stageCompleted(StageCompletedContext context) {
         /* no-op */
     }
 
@@ -121,6 +125,11 @@ public interface MatsStageInterceptor {
 
     interface StageCommonContext extends StageInterceptContext {
         /**
+         * @return the {@link MessageType} of the incoming message.
+         */
+        MessageType getIncomingMessageType();
+
+        /**
          * @return the incoming message.
          */
         Object getIncomingMessage();
@@ -130,6 +139,11 @@ public interface MatsStageInterceptor {
          *         also possible to send state to the initial stage).
          */
         Optional<Object> getIncomingState();
+
+        /**
+         * @return the extra-state, if any, on the incoming message.
+         */
+        <T> Optional<T> getIncomingExtraState(String key, Class<T> type);
 
         /**
          * @return the total time taken (in nanoseconds) from the reception of a message system message, via

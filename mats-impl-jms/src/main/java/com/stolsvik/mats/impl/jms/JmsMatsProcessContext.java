@@ -360,7 +360,7 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
         _replySent = new RuntimeException("PREVIOUS REPLY STACKTRACE");
 
         // :: Short-circuit the reply (to no-op) if there is nothing on the stack to reply to.
-        List<Channel> stack = _incomingMatsTrace.getCurrentCall().getStack();
+        List<Channel> stack = _incomingMatsTrace.getCurrentCall().getReplyStack();
         if (stack.size() == 0) {
             // This is OK, it is just like a normal java call where you do not use the return value, e.g. map.put(k, v).
             // It happens if you use "send" (aka "fire-and-forget") to an endpoint which has reply-semantics, which

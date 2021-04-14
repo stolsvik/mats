@@ -16,6 +16,7 @@ import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.serial.MatsTrace.Call.CallType;
 import com.stolsvik.mats.serial.MatsTrace.Call.Channel;
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
+import com.stolsvik.mats.serial.MatsTrace.StackState;
 
 /**
  * Holds the entire contents of a "Mats Message" - so that it can be sent later.
@@ -63,7 +64,7 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
         long nanosTaken_ProduceOutgoingMessage = System.nanoTime() - nanosAtStart_ProducingOutgoingMessage;
 
         // ?: Do we have a "stack overflow" situation - i.e. the stack height of the outgoing message is too high?
-        if (outgoingMatsTrace.getCurrentCall().getStackHeight() > JmsMatsStatics.MAX_STACK_HEIGHT) {
+        if (outgoingMatsTrace.getCurrentCall().getReplyStackHeight() > JmsMatsStatics.MAX_STACK_HEIGHT) {
             throw new JmsMatsOverflowRuntimeException("\"Stack Overflow\": Outgoing message with"
                     + " MatsMessageId [" + outgoingMatsTrace.getCurrentCall().getMatsMessageId() + "]"
                     + " and TraceId [" + outgoingMatsTrace.getTraceId() + "] had a stack height higher"
@@ -121,12 +122,11 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
 
     SerializedMatsTrace getCachedSerializedMatsTrace() {
         if (_serialized == null) {
-            throw new IllegalStateException("This "+this.getClass().getSimpleName()+" does not have serialized trace.");
+            throw new IllegalStateException("This " + this.getClass().getSimpleName()
+                    + " does not have serialized trace.");
         }
         return _serialized;
     }
-
-
 
     public Map<String, byte[]> getBytes() {
         return _bytes;
@@ -272,7 +272,7 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
     }
 
     private Optional<Channel> getReplyToChannel() {
-        List<Channel> stack = _matsTrace.getCurrentCall().getStack();
+        List<Channel> stack = _matsTrace.getCurrentCall().getReplyStack();
         if (stack.isEmpty()) {
             return Optional.empty();
         }
@@ -300,6 +300,44 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
     public void setTraceProperty(String propertyName, Object object) {
         Z serializeObject = _matsSerializer.serializeObject(object);
         _matsTrace.setTraceProperty(propertyName, serializeObject);
+    }
+
+    @Override
+    public void setExtraStateForReply(String key, Object object) {
+        if (getMessageType() != MessageType.REQUEST) {
+            throw new IllegalStateException("setExtraStateForReply(..) is only applicable for MessageType.REQUEST"
+                    + " messages, this is [" + getMessageType() + "].");
+        }
+
+        // :: Get StackState for the REPLY to this REQUEST.
+        /*
+         * Note: Check the implementation for MatsTraceStringImpl.addRequestCall(..). The StackState we need is /either/
+         * the very last added, /or/ it is the next to last. The reason for this, is how the contract is: You may add
+         * two distinct states: The state for the REPLY is mandatory (may be null, though, but a StackState is added
+         * nevertheless). This is added to the "state flow" first. The "initial incoming state" is optional - this is
+         * the state which the called service "starts with". This is added to the "state flow" after the first. This is
+         * usually null, and thus not added, meaning that an invoked multi-stage service starts out with a
+         * "blank state".
+         *
+         * Therefore, the state we need to modify is either the very last (no initial incoming state), or the
+         * next-to-last (if initial incoming state was added).
+         */
+        // :: First, find the stack height for the REPLY stack frame
+        // This stack height is for the REQUEST frame (+1)..
+        int currentStackHeight = _matsTrace.getCurrentCall().getReplyStackHeight();
+        // .. we need the StackState for the stack frame below.
+        int stackHeightForReply = currentStackHeight - 1;
+
+        // Fetch the StateFlow (really need the StateStack, but for our use, there is no difference, and the state
+        // flow is the pure representation, while the StateStack might need modification.)
+        List<StackState<Z>> stateStack = _matsTrace.getStateFlow();
+        // So, either very last, or the next-to-last
+        StackState<Z> stateToModify = stateStack.get(stateStack.size() - 1).getHeight() == stackHeightForReply
+                ? stateStack.get(stateStack.size() - 1)
+                : stateStack.get(stateStack.size() - 2);
+
+        // Add the extra-state
+        stateToModify.setExtraState(key, _matsSerializer.serializeObject(object));
     }
 
     @Override

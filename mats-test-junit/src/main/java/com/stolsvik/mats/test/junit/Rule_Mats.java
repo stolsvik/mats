@@ -2,6 +2,7 @@ package com.stolsvik.mats.test.junit;
 
 import javax.sql.DataSource;
 
+import org.junit.ClassRule;
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
@@ -13,8 +14,8 @@ import com.stolsvik.mats.test.TestH2DataSource;
 import com.stolsvik.mats.test.abstractunit.AbstractMatsTest;
 
 /**
- * Provides a full MATS harness for unit testing by creating {@link JmsMatsFactory MatsFactory} utilizing an in-vm
- * Active MQ broker, and optionally a {@link TestH2DataSource} for database tests.
+ * {@link ClassRule} which provides a full MATS harness for unit testing by creating {@link JmsMatsFactory MatsFactory}
+ * utilizing an in-vm Active MQ broker, and optionally a {@link TestH2DataSource} for database tests.
  * <p>
  * By default the {@link #create() rule} will create a {@link MatsSerializerJson} which will be the serializer utilized
  * by the created {@link JmsMatsFactory MatsFactory}. Should one want to use a different serializer which serializes to
@@ -22,9 +23,9 @@ import com.stolsvik.mats.test.abstractunit.AbstractMatsTest;
  * should one want to specify a serializer which serializes into anything other than {@link String}, then
  * {@link Rule_MatsGeneric} offers this possibility.
  * <p>
- * {@link Rule_Mats} shall be considered a {@link org.junit.ClassRule} and thus annotated as such, being a
- * {@link org.junit.ClassRule} also means that the instance field shall be static. Therefore to utilize
- * {@link Rule_Mats} one should add it to a test class in this fashion:
+ * {@link Rule_Mats} shall be considered a {@link ClassRule} and thus annotated as such, being a {@link ClassRule} also
+ * means that the instance field shall be static. Therefore to utilize {@link Rule_Mats} one should add it to a test
+ * class in this fashion:
  * 
  * <pre>
  *     public class YourTestClass {
@@ -40,7 +41,7 @@ import com.stolsvik.mats.test.abstractunit.AbstractMatsTest;
  * <pre>
  *     public class YourTestClass {
  *         &#64;ClassRule
- *         public static Rule_Mats MATS = Rule_Mats.createWithDb()
+ *         public static Rule_Mats MATS = Rule_Mats.createWithDb() // Or provide your own serializer
  *
  *         &#64;Before  // Will clean the database before each test - if this is what you want.
  *         public void cleanDatabase() {
