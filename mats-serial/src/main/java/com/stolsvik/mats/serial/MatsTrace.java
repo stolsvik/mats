@@ -28,6 +28,8 @@ public interface MatsTrace<Z> {
     /**
      * Can only be set once..
      *
+     * @param initiatorId
+     *            the id set using <code>matsInitiate.from(initiatorId)</code> - it is not the name of the initiator.
      * @return <code>this</code>, for chaining. Note that this is opposed to the add[Request|Send|Next|Reply]Call(..)
      *         methods, which return a new, independent instance.
      */

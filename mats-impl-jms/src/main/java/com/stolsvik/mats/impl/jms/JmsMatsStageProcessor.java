@@ -385,6 +385,9 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                                 matsTraceMeta = mapMessage.getString(matsTraceKey
                                         + MatsSerializer.META_KEY_POSTFIX);
                                 jmsMessageId = mapMessage.getJMSMessageID();
+                                // Setting this in the JMS Mats implementation instead of MatsMetricsLoggingInterceptor,
+                                // so that if things fail before getting to the actual Mats part, we'll have it in
+                                // the log lines.
                                 MDC.put(MDC_MATS_IN_MESSAGE_SYSTEM_ID, jmsMessageId);
 
                                 // Fetching the TraceId early from the JMS Message for MDC, so that can follow in logs.
@@ -466,15 +469,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                             }
                             MatsTrace<Z> matsTrace = matsTraceDeserialized.getMatsTrace();
 
-                            // :: Setting MDC values from MatsTrace
+                            // :: Overwriting the TraceId MDC, now from MatsTrace (in case missing from JMS Message)
                             MDC.put(MDC_TRACE_ID, matsTrace.getTraceId());
-                            MDC.put(MDC_MATS_IN_INIT_APP_NAME, matsTrace.getInitializingAppName());
-                            MDC.put(MDC_MATS_IN_INIT_ID, matsTrace.getInitiatorId());
-                            MDC.put(MDC_MATS_IN_FROM_APP_NAME, matsTrace.getCurrentCall().getCallingAppName());
-                            MDC.put(MDC_MATS_IN_FROM_ID, matsTrace.getCurrentCall().getFrom());
-                            MDC.put(MDC_MATS_IN_MATS_MESSAGE_ID, matsTrace.getCurrentCall().getMatsMessageId());
-                            MDC.put(MDC_MATS_IN_AUDIT, Boolean.toString(!matsTrace.isNoAudit()));
-                            MDC.put(MDC_MATS_IN_PERSISTENT, Boolean.toString(!matsTrace.isNonPersistent()));
 
                             // :: Current Call
                             Call<Z> currentCall = matsTrace.getCurrentCall();
@@ -509,7 +505,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                             _jmsMatsStage.getParentFactory().setCurrentMatsFactoryThreadLocal_MatsInitiate(
                                     initiateSupplier);
                             // Set the MatsTrace for nested initiations
-                            _jmsMatsStage.getParentFactory().setCurrentMatsFactoryThreadLocal_WithinStageContext(matsTrace, jmsConsumer);
+                            _jmsMatsStage.getParentFactory().setCurrentMatsFactoryThreadLocal_WithinStageContext(
+                                    matsTrace, jmsConsumer);
 
                             // :: Create contexts, invoke interceptors
                             // ==========================================================

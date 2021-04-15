@@ -43,9 +43,10 @@ public class MatsMetricsLoggingInterceptor
     // enough that it might be used in similar applications.
     public String MDC_TRACE_ID = "traceId";
 
+    // ============================================================================================================
     // ===== For Initiate Completed, with timings:
-    public String MDC_MATS_INITIATE_COMPLETED = "mats.InitiateCompleted"; // Set on a single logline per completed
-                                                                          // initiation.
+    // 'true' on a single logline per completed initiation:
+    public String MDC_MATS_INITIATE_COMPLETED = "mats.InitiateCompleted";
 
     // ..... Stage/Init complete metrics.
     public String MDC_MATS_COMPLETE_TOTAL_EXECUTION = "mats.done.ms.TotalExecution";
@@ -54,8 +55,21 @@ public class MatsMetricsLoggingInterceptor
     public String MDC_MATS_COMPLETE_SUM_DB_COMMIT = "mats.done.ms.DbCommit";
     public String MDC_MATS_COMPLETE_SUM_MSG_SYS_COMMIT = "mats.done.ms.MsgSysCommit";
 
+    // ============================================================================================================
     // ===== For Receiving a message
-    public String MDC_MATS_MESSAGE_RECEIVED = "mats.MessageReceived"; // Set on a single logline per received message.
+    // !!! Note that these MDCs are already set by JmsMats core: !!!
+    // MDC_MATS_STAGE_ID = "mats.StageId";
+    // MDC_MATS_IN_SYS_MESSAGE_ID = "mats.in.SystemMessageId";
+    // MDC_TRACE_ID = "traceId"
+
+    // 'true' on a single logline per received message:
+    public String MDC_MATS_MESSAGE_RECEIVED = "mats.MessageReceived";
+
+    public String MDC_MATS_IN_FROM_APP_NAME = "mats.in.from.App";
+    public String MDC_MATS_IN_FROM_ID = "mats.in.from.Id";
+    // NOTICE: NOT using MDC_MATS_IN_TO_APP, as that is identical to MDC_MATS_APP_NAME
+    // NOTICE: NOT using MDC_MATS_IN_TO_ID, as that is identical to MDC_MATS_STAGE_ID
+    public String MDC_MATS_IN_MATS_MESSAGE_ID = "mats.in.MatsMsgId";
 
     // NOTICE: Lots of Stage Receive&Processing MDCs are set by the JMS Mats Implementation.
 
@@ -68,28 +82,31 @@ public class MatsMetricsLoggingInterceptor
     public String MDC_MATS_IN_TIME_ENVELOPE_DESERIAL = "mats.in.ms.EnvelopeDeserial";
     public String MDC_MATS_IN_TIME_MSG_AND_STATE_DESERIAL = "mats.in.ms.MsgAndStateDeserial";
 
+    // ============================================================================================================
     // ===== For Stage Completed
+    // !!! Note that these MDCs are already set by JmsMats core: !!!
+    // MDC_MATS_STAGE_ID = "mats.StageId";
+    // MDC_TRACE_ID = "traceId"
     public String MDC_MATS_STAGE_COMPLETED = "mats.StageCompleted"; // Set on a single logline per completed stage.
     public String MDC_MATS_COMPLETE_PROCESS_RESULT = "mats.done.ProcessResult"; // Set on a single logline per completed
 
     // ..... specific Stage complete metric.
     public String MDC_MATS_COMPLETE_TOTAL_PREPROC_AND_DESERIAL = "mats.done.ms.TotalPreprocDeserial";
 
+    // ============================================================================================================
     // ===== For Sending a single message (from init, or stage) - one line per message
-    public String MDC_MATS_MESSAGE_SENT = "mats.MessageSent"; // Set "true" on single logline per msg
+    // 'true' on single logline per msg:
+    public String MDC_MATS_MESSAGE_SENT = "mats.MessageSent";
     public String MDC_MATS_DISPATCH_TYPE = "mats.DispatchType"; // Set on single logline per msg: INIT, STAGE,
                                                                 // STAGE_INIT
     public String MDC_MATS_OUT_MATS_MESSAGE_ID = "mats.out.MatsMsgId";
     public String MDC_MATS_OUT_MESSAGE_SYSTEM_ID = "mats.out.MsgSysId";
 
-    public String MDC_MATS_OUT_INIT_APP = "mats.out.init.App";
-    public String MDC_MATS_OUT_INIT_ID = "mats.out.init.Id"; // InitiatorId.
-    // NOT using 'MDC_MATS_OUT_FROM_APP' / "mats.out.from.App", as that is 'this' App, 'MDC_MATS_APP_NAME'.
+    // NOTICE: NOT using MDC_MATS_OUT_FROM_APP / "mats.out.from.App", as that is 'this' App: MDC_MATS_APP_NAME.
+    // NOTICE: MDC_MATS_OUT_FROM_ID == MDC_MATS_STAGE_ID for Stages - but there is no corresponding for InitiatorId.
     public String MDC_MATS_OUT_FROM_ID = "mats.out.from.Id"; // "this" EndpointId/StageId/InitiatorId.
     public String MDC_MATS_OUT_TO_ID = "mats.out.to.Id"; // target EndpointId/StageId.
-    // NOTE: There is no MDC_MATS_OUT_TO_APP, since we do not know which app will consume it.
-    public String MDC_MATS_OUT_AUDIT = "mats.out.Audit";
-    public String MDC_MATS_OUT_PERSISTENT = "mats.out.Persistent";
+    // NOTICE: NOT using MDC_MATS_OUT_TO_APP, since we do not know which app will consume it.
 
     // ... Metrics:
     public String MDC_MATS_OUT_TIME_ENVELOPE_PRODUCE = "mats.out.ms.EnvelopeProduce";
@@ -99,6 +116,13 @@ public class MatsMetricsLoggingInterceptor
     public String MDC_MATS_OUT_SIZE_ENVELOPE_WIRE = "mats.out.bytes.EnvelopeWire";
     public String MDC_MATS_OUT_TIME_MSGSYS_CONSTRUCT_AND_SEND = "mats.out.ms.MsgSysConstructAndSend";
     public String MDC_MATS_OUT_TIME_TOTAL = "mats.out.ms.Total";
+
+    // ============================================================================================================
+    // ===== For both Message Received and Message Send (note: part of root MatsTrace, common for all msgs in flow)
+    public String MDC_MATS_INIT_APP = "mats.init.App";
+    public String MDC_MATS_INIT_ID = "mats.init.Id"; // matsInitiate.from(initiatorId).
+    public String MDC_MATS_AUDIT = "mats.Audit";
+    public String MDC_MATS_PERSISTENT = "mats.Persistent";
 
     /**
      * Adds the singleton {@link #INSTANCE} as both Initiation and Stage interceptors.
@@ -130,7 +154,7 @@ public class MatsMetricsLoggingInterceptor
             String messageSenderName = ctx.getInitiator().getParentFactory()
                     .getFactoryConfig().getName() + "|" + ctx.getInitiator().getName();
 
-            completed(ctx, "", log_init, outgoingMessages, messageSenderName, "", 0L);
+            commonStageAndInitiateCompleted(ctx, "", log_init, outgoingMessages, messageSenderName, "", 0L);
         }
         finally {
             MDC.remove(MDC_MATS_INITIATE_COMPLETED);
@@ -148,14 +172,14 @@ public class MatsMetricsLoggingInterceptor
                     + ctx.getEnvelopeDeserializationNanos()
                     + ctx.getMessageAndStateDeserializationNanos();
 
-            // !!! Note that these MDCs are already set by JmsMats core: !!!
-            //
-            // String MDC_MATS_STAGE_ID = "mats.StageId";
-            // String MDC_MATS_PROCESSOR_ID = "mats.ProcessorId";
-            // String MDC_MATS_IN_FROM = "mats.in.From";
-            // // NOTICE: NOT using MDC_MATS_IN_TO, as that is identical to MDC_MATS_STAGE_ID
-            // String MDC_MATS_IN_MATS_MESSAGE_ID = "mats.in.MatsMessageId";
-            // String MDC_MATS_IN_SYS_MESSAGE_ID = "mats.in.SystemMessageId";
+            MDC.put(MDC_MATS_INIT_APP, processContext.getInitiatingAppName());
+            MDC.put(MDC_MATS_INIT_ID, processContext.getInitiatorId());
+            MDC.put(MDC_MATS_AUDIT, Boolean.toString(!processContext.isNoAudit()));
+            MDC.put(MDC_MATS_PERSISTENT, Boolean.toString(!processContext.isNonPersistent()));
+
+            MDC.put(MDC_MATS_IN_FROM_APP_NAME, processContext.getFromAppName());
+            MDC.put(MDC_MATS_IN_FROM_ID, processContext.getFromStageId());
+            MDC.put(MDC_MATS_IN_MATS_MESSAGE_ID, processContext.getMatsMessageId());
 
             // Total:
             MDC.put(MDC_MATS_IN_TIME_TOTAL_PREPROC_AND_DESERIAL,
@@ -186,7 +210,17 @@ public class MatsMetricsLoggingInterceptor
         finally {
             MDC.remove(MDC_MATS_MESSAGE_RECEIVED);
 
+            MDC.remove(MDC_MATS_INIT_APP);
+            MDC.remove(MDC_MATS_INIT_ID);
+            MDC.remove(MDC_MATS_AUDIT);
+            MDC.remove(MDC_MATS_PERSISTENT);
+
+            MDC.remove(MDC_MATS_IN_FROM_APP_NAME);
+            MDC.remove(MDC_MATS_IN_FROM_ID);
+            MDC.remove(MDC_MATS_IN_MATS_MESSAGE_ID);
+
             MDC.remove(MDC_MATS_IN_TIME_TOTAL_PREPROC_AND_DESERIAL);
+
             MDC.remove(MDC_MATS_IN_TIME_MSGSYS_DECONSTRUCT);
             MDC.remove(MDC_MATS_IN_SIZE_ENVELOPE_WIRE);
             MDC.remove(MDC_MATS_IN_TIME_ENVELOPE_DECOMPRESS);
@@ -215,7 +249,7 @@ public class MatsMetricsLoggingInterceptor
 
             MDC.put(MDC_MATS_COMPLETE_PROCESS_RESULT, ctx.getProcessResult().toString());
 
-            completed(ctx, " with result " + ctx.getProcessResult(), log_stage,
+            commonStageAndInitiateCompleted(ctx, " with result " + ctx.getProcessResult(), log_stage,
                     outgoingMessages, messageSenderName, extraBreakdown, extraNanosBreakdown);
         }
         finally {
@@ -225,7 +259,7 @@ public class MatsMetricsLoggingInterceptor
         }
     }
 
-    private void completed(CommonCompletedContext ctx, String extraResult, Logger logger,
+    private void commonStageAndInitiateCompleted(CommonCompletedContext ctx, String extraResult, Logger logger,
             List<MatsSentOutgoingMessage> outgoingMessages, String messageSenderName,
             String extraBreakdown, long extraNanosBreakdown) {
 
@@ -263,92 +297,6 @@ public class MatsMetricsLoggingInterceptor
                         outgoingMessages, Level.INFO, logger, null, "\n    " + LOG_PREFIX + msgLine);
             });
         }
-    }
-
-    private void msgMdcLog(MatsSentOutgoingMessage msg, Runnable runnable) {
-        String existingTraceId = MDC.get(MDC_TRACE_ID);
-        try {
-            MDC.put(MDC_TRACE_ID, msg.getTraceId());
-
-            MDC.put(MDC_MATS_MESSAGE_SENT, "true");
-            MDC.put(MDC_MATS_DISPATCH_TYPE, msg.getDispatchType().toString());
-
-            MDC.put(MDC_MATS_OUT_MATS_MESSAGE_ID, msg.getMatsMessageId());
-            MDC.put(MDC_MATS_OUT_MESSAGE_SYSTEM_ID, msg.getSystemMessageId());
-
-            MDC.put(MDC_MATS_OUT_INIT_APP, msg.getInitiatingAppName());
-            MDC.put(MDC_MATS_OUT_INIT_ID, msg.getInitiatorId());
-            MDC.put(MDC_MATS_OUT_FROM_ID, msg.getFrom());
-            MDC.put(MDC_MATS_OUT_TO_ID, msg.getTo());
-            MDC.put(MDC_MATS_OUT_AUDIT, Boolean.toString(!msg.isNoAudit()));
-            MDC.put(MDC_MATS_OUT_PERSISTENT, Boolean.toString(!msg.isNonPersistent()));
-
-            // Metrics:
-            MDC.put(MDC_MATS_OUT_TIME_ENVELOPE_PRODUCE, msS(msg.getEnvelopeProduceNanos()));
-            MDC.put(MDC_MATS_OUT_TIME_ENVELOPE_SERIAL, msS(msg.getEnvelopeSerializationNanos()));
-            MDC.put(MDC_MATS_OUT_SIZE_ENVELOPE_SERIAL, Long.toString(msg.getEnvelopeSerializedSize()));
-            MDC.put(MDC_MATS_OUT_TIME_ENVELOPE_COMPRESS, msS(msg.getEnvelopeCompressionNanos()));
-            MDC.put(MDC_MATS_OUT_SIZE_ENVELOPE_WIRE, Long.toString(msg.getEnvelopeWireSize()));
-            MDC.put(MDC_MATS_OUT_TIME_MSGSYS_CONSTRUCT_AND_SEND, msS(msg.getMessageSystemProductionAndSendNanos()));
-            long nanosTaken_Total = msg.getEnvelopeProduceNanos()
-                    + msg.getEnvelopeSerializationNanos()
-                    + msg.getEnvelopeCompressionNanos()
-                    + msg.getMessageSystemProductionAndSendNanos();
-            MDC.put(MDC_MATS_OUT_TIME_TOTAL, msS(nanosTaken_Total));
-
-            // :: Actually run the Runnable
-            runnable.run();
-        }
-        finally {
-
-            // :: Restore MDC
-            // TraceId
-            if (existingTraceId == null) {
-                MDC.remove(MDC_TRACE_ID);
-            }
-            else {
-                MDC.put(MDC_TRACE_ID, existingTraceId);
-            }
-            MDC.remove(MDC_MATS_MESSAGE_SENT);
-            MDC.remove(MDC_MATS_DISPATCH_TYPE);
-
-            MDC.remove(MDC_MATS_OUT_MATS_MESSAGE_ID);
-            MDC.remove(MDC_MATS_OUT_MESSAGE_SYSTEM_ID);
-
-            MDC.remove(MDC_MATS_OUT_INIT_APP);
-            MDC.remove(MDC_MATS_OUT_INIT_ID);
-            MDC.remove(MDC_MATS_OUT_FROM_ID);
-            MDC.remove(MDC_MATS_OUT_TO_ID);
-            MDC.remove(MDC_MATS_OUT_AUDIT);
-            MDC.remove(MDC_MATS_OUT_PERSISTENT);
-
-            MDC.remove(MDC_MATS_OUT_TIME_ENVELOPE_PRODUCE);
-            MDC.remove(MDC_MATS_OUT_TIME_ENVELOPE_SERIAL);
-            MDC.remove(MDC_MATS_OUT_SIZE_ENVELOPE_SERIAL);
-            MDC.remove(MDC_MATS_OUT_TIME_ENVELOPE_COMPRESS);
-            MDC.remove(MDC_MATS_OUT_SIZE_ENVELOPE_WIRE);
-            MDC.remove(MDC_MATS_OUT_TIME_MSGSYS_CONSTRUCT_AND_SEND);
-            MDC.remove(MDC_MATS_OUT_TIME_TOTAL);
-        }
-    }
-
-    private String msgLogLine(String messageSenderName, MatsSentOutgoingMessage msg) {
-        long nanosTaken_Total = msg.getEnvelopeProduceNanos()
-                + msg.getEnvelopeSerializationNanos()
-                + msg.getEnvelopeCompressionNanos()
-                + msg.getMessageSystemProductionAndSendNanos();
-
-        return msg.getDispatchType() + " outgoing " + msg.getMessageType()
-                + " message from [" + messageSenderName + "|" + msg.getFrom()
-                + "] -> [" + msg.getTo()
-                + "], total:[" + ms(nanosTaken_Total)
-                + " ms] || breakdown: produce:[" + ms(msg.getEnvelopeProduceNanos())
-                + " ms]->(envelope)->serial:[" + ms(msg.getEnvelopeSerializationNanos())
-                + " ms]->serialSize:[" + msg.getEnvelopeSerializedSize()
-                + " B]->comp:[" + ms(msg.getEnvelopeCompressionNanos())
-                + " ms]->envelopeWireSize:[" + msg.getEnvelopeWireSize()
-                + " B]->msgSysConstruct&Send:[" + ms(msg.getMessageSystemProductionAndSendNanos())
-                + " ms]";
     }
 
     private enum Level {
@@ -435,6 +383,92 @@ public class MatsMetricsLoggingInterceptor
             MDC.remove(MDC_MATS_COMPLETE_SUM_DB_COMMIT);
             MDC.remove(MDC_MATS_COMPLETE_SUM_MSG_SYS_COMMIT);
         }
+    }
+
+    private void msgMdcLog(MatsSentOutgoingMessage msg, Runnable runnable) {
+        String existingTraceId = MDC.get(MDC_TRACE_ID);
+        try {
+            MDC.put(MDC_TRACE_ID, msg.getTraceId());
+
+            MDC.put(MDC_MATS_MESSAGE_SENT, "true");
+            MDC.put(MDC_MATS_DISPATCH_TYPE, msg.getDispatchType().toString());
+
+            MDC.put(MDC_MATS_OUT_MATS_MESSAGE_ID, msg.getMatsMessageId());
+            MDC.put(MDC_MATS_OUT_MESSAGE_SYSTEM_ID, msg.getSystemMessageId());
+
+            MDC.put(MDC_MATS_INIT_APP, msg.getInitiatingAppName());
+            MDC.put(MDC_MATS_INIT_ID, msg.getInitiatorId());
+            MDC.put(MDC_MATS_OUT_FROM_ID, msg.getFrom());
+            MDC.put(MDC_MATS_OUT_TO_ID, msg.getTo());
+            MDC.put(MDC_MATS_AUDIT, Boolean.toString(!msg.isNoAudit()));
+            MDC.put(MDC_MATS_PERSISTENT, Boolean.toString(!msg.isNonPersistent()));
+
+            // Metrics:
+            MDC.put(MDC_MATS_OUT_TIME_ENVELOPE_PRODUCE, msS(msg.getEnvelopeProduceNanos()));
+            MDC.put(MDC_MATS_OUT_TIME_ENVELOPE_SERIAL, msS(msg.getEnvelopeSerializationNanos()));
+            MDC.put(MDC_MATS_OUT_SIZE_ENVELOPE_SERIAL, Long.toString(msg.getEnvelopeSerializedSize()));
+            MDC.put(MDC_MATS_OUT_TIME_ENVELOPE_COMPRESS, msS(msg.getEnvelopeCompressionNanos()));
+            MDC.put(MDC_MATS_OUT_SIZE_ENVELOPE_WIRE, Long.toString(msg.getEnvelopeWireSize()));
+            MDC.put(MDC_MATS_OUT_TIME_MSGSYS_CONSTRUCT_AND_SEND, msS(msg.getMessageSystemProductionAndSendNanos()));
+            long nanosTaken_Total = msg.getEnvelopeProduceNanos()
+                    + msg.getEnvelopeSerializationNanos()
+                    + msg.getEnvelopeCompressionNanos()
+                    + msg.getMessageSystemProductionAndSendNanos();
+            MDC.put(MDC_MATS_OUT_TIME_TOTAL, msS(nanosTaken_Total));
+
+            // :: Actually run the Runnable
+            runnable.run();
+        }
+        finally {
+
+            // :: Restore MDC
+            // TraceId
+            if (existingTraceId == null) {
+                MDC.remove(MDC_TRACE_ID);
+            }
+            else {
+                MDC.put(MDC_TRACE_ID, existingTraceId);
+            }
+            MDC.remove(MDC_MATS_MESSAGE_SENT);
+            MDC.remove(MDC_MATS_DISPATCH_TYPE);
+
+            MDC.remove(MDC_MATS_OUT_MATS_MESSAGE_ID);
+            MDC.remove(MDC_MATS_OUT_MESSAGE_SYSTEM_ID);
+
+            MDC.remove(MDC_MATS_INIT_APP);
+            MDC.remove(MDC_MATS_INIT_ID);
+            MDC.remove(MDC_MATS_OUT_FROM_ID);
+            MDC.remove(MDC_MATS_OUT_TO_ID);
+            MDC.remove(MDC_MATS_AUDIT);
+            MDC.remove(MDC_MATS_PERSISTENT);
+
+            MDC.remove(MDC_MATS_OUT_TIME_ENVELOPE_PRODUCE);
+            MDC.remove(MDC_MATS_OUT_TIME_ENVELOPE_SERIAL);
+            MDC.remove(MDC_MATS_OUT_SIZE_ENVELOPE_SERIAL);
+            MDC.remove(MDC_MATS_OUT_TIME_ENVELOPE_COMPRESS);
+            MDC.remove(MDC_MATS_OUT_SIZE_ENVELOPE_WIRE);
+            MDC.remove(MDC_MATS_OUT_TIME_MSGSYS_CONSTRUCT_AND_SEND);
+            MDC.remove(MDC_MATS_OUT_TIME_TOTAL);
+        }
+    }
+
+    private String msgLogLine(String messageSenderName, MatsSentOutgoingMessage msg) {
+        long nanosTaken_Total = msg.getEnvelopeProduceNanos()
+                + msg.getEnvelopeSerializationNanos()
+                + msg.getEnvelopeCompressionNanos()
+                + msg.getMessageSystemProductionAndSendNanos();
+
+        return msg.getDispatchType() + " outgoing " + msg.getMessageType()
+                + " message from [" + messageSenderName + "|" + msg.getFrom()
+                + "] -> [" + msg.getTo()
+                + "], total:[" + ms(nanosTaken_Total)
+                + " ms] || breakdown: produce:[" + ms(msg.getEnvelopeProduceNanos())
+                + " ms]->(envelope)->serial:[" + ms(msg.getEnvelopeSerializationNanos())
+                + " ms]->serialSize:[" + msg.getEnvelopeSerializedSize()
+                + " B]->comp:[" + ms(msg.getEnvelopeCompressionNanos())
+                + " ms]->envelopeWireSize:[" + msg.getEnvelopeWireSize()
+                + " B]->msgSysConstruct&Send:[" + ms(msg.getMessageSystemProductionAndSendNanos())
+                + " ms]";
     }
 
     private static String msS(long nanosTake) {
