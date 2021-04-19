@@ -277,13 +277,21 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             String to, MessagingModel toMessagingModel,
             String replyTo, MessagingModel replyToMessagingModel,
             String data, String replyState, String initialState) {
-        MatsTraceStringImpl clone = cloneForNewCall();
-        // Get the stack from /this/ - note: This is a COPY
+        // Get copy of current stack. We're going to add a stack frame to it.
         List<ReplyChannelWithSpan> newCallReplyStack = getCopyOfCurrentStackForNewCall();
-        // Add the replyState - i.e. the state that is outgoing from the current call, destined for the reply.
+        // Clone the current MatsTrace, which is the one we're going to modify and return.
+        MatsTraceStringImpl clone = cloneForNewCall();
+        // :: Add the replyState - i.e. the state that is outgoing from the current stage, destined for the REPLY.
         // NOTE: This must be added BEFORE we add to the newCallReplyStack, since it is targeted to the stack frame
-        // below us!
-        clone.ss.add(new StackStateImpl(newCallReplyStack.size(), replyState));
+        // below this new Request stack frame!
+        StackStateImpl newState = new StackStateImpl(newCallReplyStack.size(), replyState);
+        // NOTE: Extra-state that was added from a previous message passing must be kept. We must thus copy that.
+        // Get current StackStateImpl - before adding new to reply stack. CAN BE NULL, both if initial stage, or no
+        // extra state added yet. Take into account if this the very first call.
+        forwardExtraStateIfExist(newState);
+        // Actually add the new state
+        clone.ss.add(newState);
+
         // Add the stageId to replyTo to the stack
         newCallReplyStack.add(ReplyChannelWithSpan.newWithRandomSpanId(replyTo, replyToMessagingModel));
         // Prune the data and stack from current call if KeepMatsTrace says so.
@@ -304,9 +312,10 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
     @Override
     public MatsTraceStringImpl addSendCall(String from, String to, MessagingModel toMessagingModel,
             String data, String initialState) {
-        MatsTraceStringImpl clone = cloneForNewCall();
-        // For a send/next call, the stack does not change.
+        // Get copy of current stack. NOTE: For a send/next call, the stack does not change.
         List<ReplyChannelWithSpan> newCallReplyStack = getCopyOfCurrentStackForNewCall();
+        // Clone the current MatsTrace, which is the one we're going to modify and return.
+        MatsTraceStringImpl clone = cloneForNewCall();
         // Prune the data and stack from current call if KeepMatsTrace says so.
         clone.dropValuesOnCurrentCallIfAny();
         // Add the new Call
@@ -326,16 +335,21 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         if (state == null) {
             throw new IllegalStateException("When adding next-call, state-data string should not be null.");
         }
-        MatsTraceStringImpl clone = cloneForNewCall();
-        // For a send/next call, the stack does not change.
+        // Get copy of current stack. NOTE: For a send/next call, the stack does not change.
         List<ReplyChannelWithSpan> newCallReplyStack = getCopyOfCurrentStackForNewCall();
+        // Clone the current MatsTrace, which is the one we're going to modify and return.
+        MatsTraceStringImpl clone = cloneForNewCall();
         // Prune the data and stack from current call if KeepMatsTrace says so.
         clone.dropValuesOnCurrentCallIfAny();
         // Add the new Call.
         clone.c.add(new CallImpl(CallType.NEXT, from, new ToChannel(to, MessagingModel.QUEUE), data,
                 newCallReplyStack));
-        // Add the state meant for the next stage
-        clone.ss.add(new StackStateImpl(newCallReplyStack.size(), state));
+        // Add the state meant for the next stage (Notice again that we do not change the reply stack here)
+        StackStateImpl newState = new StackStateImpl(newCallReplyStack.size(), state);
+        // NOTE: Extra-state that was added from a previous message passing must be kept. We must thus copy that.
+        forwardExtraStateIfExist(newState);
+        // Actually add the new state
+        clone.ss.add(newState);
         // Prune the StackStates if KeepMatsTrace says so.
         clone.pruneUnnecessaryStackStates();
         return clone;
@@ -343,12 +357,16 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
     @Override
     public MatsTraceStringImpl addReplyCall(String from, String data) {
+        // Get copy of current stack. We're going to pop an stack frame of it.
         List<ReplyChannelWithSpan> newCallReplyStack = getCopyOfCurrentStackForNewCall();
+        // ?: Do we actually have anything to pop?
         if (newCallReplyStack.size() == 0) {
+            // -> No stack, and that is illegal - you shouldn't be making a new call if there is nothing to reply to.
             throw new IllegalStateException("Trying to add Reply Call when there is no stack."
                     + " (Implementation note: You need to check the getCurrentCall().getStackHeight() before trying to"
                     + " do a reply - if it is zero, then just drop the reply instead.)");
         }
+        // Clone the current MatsTrace, which is the one we're going to modify and return.
         MatsTraceStringImpl clone = cloneForNewCall();
         // Prune the data and stack from current call if KeepMatsTrace says so.
         clone.dropValuesOnCurrentCallIfAny();
@@ -361,6 +379,20 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         // Prune the StackStates if KeepMatsTrace says so.
         clone.pruneUnnecessaryStackStates();
         return clone;
+    }
+
+    private void forwardExtraStateIfExist(StackStateImpl newState) {
+        // For REQUEST, it might be the very first call in a mats flow - in which case there obviously aren't any
+        // current state and extra state yet.
+        StackStateImpl currentState = c.isEmpty()
+                ? null
+                : getState(getCurrentCall().getReplyStackHeight());
+        // ?: Do we have a current state, and does that have extra-state?
+        if ((currentState != null) && (currentState.es != null)) {
+            // -> Yes, there was extra state on the current stage
+            // Copy it, and new StackState for the REPLY to the REQUEST we're currently adding.
+            newState.es = new HashMap<>(currentState.es);
+        }
     }
 
     /**

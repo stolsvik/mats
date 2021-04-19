@@ -15,10 +15,10 @@ import com.stolsvik.mats.test.MatsTestLatch.Result;
 import com.stolsvik.mats.test.junit.Rule_Mats;
 
 /**
- * Tests the extra-state functionality, by setting up a two-stage service, calling a leaf, called replyTo a terminator.
- * Extra-state is added to initiation REQUEST to Service (destined for Terminator), and added to to the REQUEST from
- * Service.initial (destined for Service.stage1.
- * 
+ * Tests the extra-state functionality, by setting up a 4-stage Service which invokes a leaf, then do next, then invoke
+ * another leaf, then return. Initiator calls the Service, with replyTo a Terminator. Extra-state is added to initiation
+ * REQUEST to Service (destined for Terminator), and added to to the REQUEST from Service.initial (destined for
+ * Service.stage1, and all later stages of Service)
  *
  * @author Endre Stølsvik - 2021-04-14 20:58 - http://endre.stolsvik.com
  */
@@ -28,7 +28,8 @@ public class Test_ExtraState {
     @ClassRule
     public static final Rule_Mats MATS = Rule_Mats.create();
 
-    private static final String EPID_LEAF = MatsTestHelp.endpointId("leaf");
+    private static final String EPID_LEAF1 = MatsTestHelp.endpointId("leaf1");
+    private static final String EPID_LEAF2 = MatsTestHelp.endpointId("leaf2");
     private static final String EPID_SERVICE = MatsTestHelp.service();
     private static final String EPID_TERMINATOR = MatsTestHelp.terminator();
 
@@ -38,6 +39,12 @@ public class Test_ExtraState {
     private static DataTO __data1ForServiceStage1;
     private static DataTO __data2ForServiceStage1;
 
+    private static DataTO __data1ForServiceStage2;
+    private static DataTO __data2ForServiceStage2;
+
+    private static DataTO __data1ForServiceStage3;
+    private static DataTO __data2ForServiceStage3;
+
     @Test
     public void doTest() {
         MATS.cleanMatsFactories();
@@ -45,11 +52,15 @@ public class Test_ExtraState {
         // :: ARRANGE
 
         // :: Create the endpoints and terminators
-        MATS.getMatsFactory().single(EPID_LEAF, DataTO.class, DataTO.class, (ctx, msg) -> msg);
+        MATS.getMatsFactory().single(EPID_LEAF1, DataTO.class, DataTO.class, (ctx, msg) -> msg);
+
+        MATS.getMatsFactory().single(EPID_LEAF2, DataTO.class, DataTO.class, (ctx, msg) -> msg);
 
         MatsEndpoint<DataTO, StateTO> ep_service = MATS.getMatsFactory().staged(EPID_SERVICE, DataTO.class,
                 StateTO.class);
-        ep_service.stage(DataTO.class, (ctx, state, msg) -> ctx.request(EPID_LEAF, msg));
+        ep_service.stage(DataTO.class, (ctx, state, msg) -> ctx.request(EPID_LEAF1, msg));
+        ep_service.stage(DataTO.class, (ctx, state, msg) -> ctx.next(msg));
+        ep_service.stage(DataTO.class, (ctx, state, msg) -> ctx.request(EPID_LEAF2, msg));
         ep_service.lastStage(DataTO.class, (ctx, state, msg) -> msg);
 
         MATS.getMatsFactory().terminator(EPID_TERMINATOR, StateTO.class, DataTO.class, (ctx, state, msg) -> {
@@ -85,6 +96,12 @@ public class Test_ExtraState {
         // Assert stage1 extra state
         Assert.assertEquals(new DataTO(3, "three"), __data1ForServiceStage1);
         Assert.assertEquals(new DataTO(4, "four"), __data2ForServiceStage1);
+        // Assert stage2 extra state
+        Assert.assertEquals(new DataTO(3, "three"), __data1ForServiceStage2);
+        Assert.assertEquals(new DataTO(4, "four"), __data2ForServiceStage2);
+        // Assert stage3 extra state
+        Assert.assertEquals(new DataTO(3, "three"), __data1ForServiceStage3);
+        Assert.assertEquals(new DataTO(4, "four"), __data2ForServiceStage3);
     }
 
     /**
@@ -110,7 +127,8 @@ public class Test_ExtraState {
 
         @Override
         public void stageInterceptOutgoingMessages(StageInterceptOutgoingMessageContext context) {
-            // If this is SERVICE, add extra state to outgoing
+            // If this is SERVICE entry point, add extra state to outgoing
+            // NOTE: This should exist for all subsequent stages!
             if (EPID_SERVICE.equals(context.getStage().getStageConfig().getStageId())) {
                 // There should only be one message here, as it is the REQUEST up to the Leaf.
                 Assert.assertEquals(1, context.getOutgoingMessages().size());
@@ -133,11 +151,27 @@ public class Test_ExtraState {
                 __data2ForTerminator = context.getIncomingExtraState("extra2_to_terminator", DataTO.class).orElse(null);
             }
 
-            // If FROM Leaf (i.e. this is stage1 of Service), read extra-state
-            if (EPID_LEAF.equals(context.getProcessContext().getFromStageId())) {
+            // If FROM Leaf1 (i.e. this is stage1 of Service), read extra-state
+            if (EPID_LEAF1.equals(context.getProcessContext().getFromStageId())) {
                 __data1ForServiceStage1 = context.getIncomingExtraState("extra1_to_Service.stage1", DataTO.class)
                         .orElse(null);
                 __data2ForServiceStage1 = context.getIncomingExtraState("extra2_to_Service.stage1", DataTO.class)
+                        .orElse(null);
+            }
+
+            // If FROM Server.stage1 (i.e. this is stage2 of Service), read extra-state
+            if ((EPID_SERVICE + ".stage1").equals(context.getProcessContext().getFromStageId())) {
+                __data1ForServiceStage2 = context.getIncomingExtraState("extra1_to_Service.stage1", DataTO.class)
+                        .orElse(null);
+                __data2ForServiceStage2 = context.getIncomingExtraState("extra2_to_Service.stage1", DataTO.class)
+                        .orElse(null);
+            }
+
+            // If FROM Leaf2 (i.e. this is stage3 of Service), read extra-state
+            if (EPID_LEAF2.equals(context.getProcessContext().getFromStageId())) {
+                __data1ForServiceStage3 = context.getIncomingExtraState("extra1_to_Service.stage1", DataTO.class)
+                        .orElse(null);
+                __data2ForServiceStage3 = context.getIncomingExtraState("extra2_to_Service.stage1", DataTO.class)
                         .orElse(null);
             }
         }
