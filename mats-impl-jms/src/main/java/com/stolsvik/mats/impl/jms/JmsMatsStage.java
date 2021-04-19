@@ -2,6 +2,7 @@ package com.stolsvik.mats.impl.jms;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -158,8 +159,21 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        JmsMatsStage<?, ?, ?, ?> that = (JmsMatsStage<?, ?, ?, ?>) o;
+        return _parentFactory.equals(that._parentFactory) && _stageId.equals(that._stageId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(_parentFactory, _stageId);
+    }
+
+    @Override
     public String idThis() {
-        return id(_stageId, this) + "@" + _parentFactory;
+        return id("JmsMatsStage{" + _stageId + "}", this) + "@" + _parentFactory;
     }
 
     @Override

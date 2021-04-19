@@ -8,6 +8,10 @@ import com.stolsvik.mats.MatsEndpoint.EndpointConfig;
  * endpoints, and terminators), or by invoking the
  * {@link MatsEndpoint#stage(Class, com.stolsvik.mats.MatsEndpoint.ProcessLambda) MatsEndpoint.stage(...)}-methods on
  * {@link MatsFactory#staged(String, Class, Class) multi-stage} endpoints.
+ * <p />
+ * Note: It should be possible to use instances of <code>MatsStage</code> as keys in a <code>HashMap</code>, i.e. their
+ * equals and hashCode should remain stable throughout the life of the MatsFactory - and similar instances but with
+ * different MatsFactory are <i>not</i> equals. Depending on the implementation, instance equality may be sufficient.
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
@@ -61,6 +65,7 @@ public interface MatsStage<R, S, I> extends StartStoppable {
 
         /**
          * TODO: Remove once all are >= 0.17
+         *
          * @deprecated use correctly named {@link #getIncomingClass()}.
          */
         @Deprecated

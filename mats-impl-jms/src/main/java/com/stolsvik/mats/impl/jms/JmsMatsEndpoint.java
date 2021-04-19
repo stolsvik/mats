@@ -2,6 +2,7 @@ package com.stolsvik.mats.impl.jms;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -185,8 +186,26 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        JmsMatsEndpoint<?, ?, ?> that = (JmsMatsEndpoint<?, ?, ?>) o;
+        return _parentFactory.equals(that._parentFactory) && _endpointId.equals(that._endpointId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(_parentFactory, _endpointId);
+    }
+
+    @Override
+    public String idThis() {
+        return id("JmsMatsEndpoint{"+_endpointId+"}", this) + "@" + _parentFactory;
+    }
+
+    @Override
     public String toString() {
-        return idThis() + "_" + _parentFactory.getFactoryConfig().getName() + "|" + _endpointId;
+        return idThis();
     }
 
     private class JmsEndpointConfig implements EndpointConfig<R, S> {

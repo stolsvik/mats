@@ -55,6 +55,10 @@ import com.stolsvik.mats.MatsStage.StageConfig;
  * [EndpointId, Reply Class, Incoming Class, process lambda]. The lambda params will then be: [Context, Incoming] - the
  * reply type is the the return type of the process lambda.</li>
  * </ul>
+ * Note: It should be possible to use instances of <code>MatsFactory</code> as keys in a <code>HashMap</code>, i.e.
+ * their equals and hashCode should remain stable throughout the life of the MatsFactory. Depending on the
+ * implementation, instance equality may be sufficient. Note that the {@link MatsFactoryWrapper} is implemented to
+ * forward equals and hashCode to wrappee.
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
@@ -618,6 +622,8 @@ public interface MatsFactory extends StartStoppable {
      * A base Wrapper for {@link MatsFactory}, which simply implements MatsFactory, takes a MatsFactory instance and
      * forwards all calls to that. Use this if you need to wrap the MatsFactory, where most of the methods are
      * pass-through to the target, as any changes to the MatsFactory interface then won't break your wrapper.
+     * <p />
+     * Note: The {@link #hashCode()} and {@link #equals(Object)} are implemented to forward to the wrappee.
      */
     class MatsFactoryWrapper implements MatsWrapper<MatsFactory>, MatsFactory {
         /**
@@ -782,6 +788,21 @@ public interface MatsFactory extends StartStoppable {
         @Override
         public boolean stop(int gracefulShutdownMillis) {
             return unwrap().stop(gracefulShutdownMillis);
+        }
+
+        @Override
+        public int hashCode() {
+            return unwrap().hashCode();
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            return unwrap().equals(obj);
+        }
+
+        @Override
+        public String toString() {
+            return this.getClass().getSimpleName()+"["+unwrap().toString()+"]";
         }
     }
 }

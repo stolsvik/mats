@@ -228,7 +228,7 @@ public abstract class AbstractMatsTestEndpoint<R, I> {
      * <li>BeforeEachCallback - Jupiter</li>
      * </ul>
      * <p>
-     * Note: If a test utilizes {@link AbstractMatsTest#cleanMatsFactory()} in a method annotated with
+     * Note: If a test utilizes {@link AbstractMatsTest#cleanMatsFactories()} in a method annotated with
      * {@link org.junit.Before} inside the test class. Then this is obsolete, however for the purpose of cleanliness the
      * endpoint will clean up after itself.
      */

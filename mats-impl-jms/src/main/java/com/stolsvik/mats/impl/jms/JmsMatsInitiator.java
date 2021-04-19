@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
@@ -440,6 +441,24 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
     @Override
     public JmsMatsFactory<Z> getFactory() {
         return _parentFactory;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        JmsMatsInitiator<?> that = (JmsMatsInitiator<?>) o;
+        return _parentFactory.equals(that._parentFactory) && _name.equals(that._name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(_parentFactory, _name);
+    }
+
+    @Override
+    public String idThis() {
+        return id("JmsMatsInitiator{"+_name+"}", this) + "@" + _parentFactory;
     }
 
     @Override

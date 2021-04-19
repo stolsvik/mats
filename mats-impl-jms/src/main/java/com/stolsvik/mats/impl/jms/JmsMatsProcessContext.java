@@ -2,6 +2,7 @@ package com.stolsvik.mats.impl.jms;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
@@ -137,6 +138,11 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     }
 
     @Override
+    public Instant getFromTimestamp() {
+        return Instant.ofEpochMilli(_incomingMatsTrace.getCurrentCall().getCalledTimestamp());
+    }
+
+    @Override
     public String getInitiatingAppName() {
         return _incomingMatsTrace.getInitializingAppName();
     }
@@ -149,6 +155,11 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
     @Override
     public String getInitiatorId() {
         return _incomingMatsTrace.getInitiatorId();
+    }
+
+    @Override
+    public Instant getInitiatingTimestamp() {
+        return Instant.ofEpochMilli(_incomingMatsTrace.getInitializedTimestamp());
     }
 
     @Override

@@ -36,7 +36,7 @@ public class Test_StateAndDtoInstantiationFailure  {
 
     @Before
     public void cleanMatsFactory() {
-        MATS.cleanMatsFactory();
+        MATS.cleanMatsFactories();
     }
 
     @Test(expected = CannotInstantiateClassException.class)

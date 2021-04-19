@@ -15,12 +15,17 @@ import com.stolsvik.mats.MatsFactory.MatsWrapper;
  * instance implementing this interface using typically {@link MatsFactory#getDefaultInitiator()}, and then invoke
  * {@link #initiate(InitiateLambda)}, where the lambda will provide you with the necessary {@link MatsInitiate} instance
  * on which you have methods to construct and dispatch "send" and "request" Messages.
- * <p/>
+ * <p />
  * <b>Notice: This class is Thread Safe</b> - you are not supposed to make one instance per message initiation, but
  * rather make one (or a few) for the entire application, and use it/them for all your initiation needs. The mentioned
  * {@link MatsFactory#getDefaultInitiator()} is what you typically want to use, get the instance, and keep it to perform
  * all your Mats initiations. E.g. in a Spring system, you'd typically put it in the Spring context, and inject it where
  * ever there is a need to perform Mats initiations.
+ * <p />
+ * Note: It should be possible to use instances of <code>MatsInitiator</code> as keys in a <code>HashMap</code>, i.e.
+ * their equals and hashCode should remain stable throughout the life of the MatsFactory - and similar instances but
+ * with different MatsFactory are <i>not</i> equals. Depending on the implementation, instance equality may be
+ * sufficient.
  *
  * @author Endre Stølsvik - 2015 - http://endre.stolsvik.com
  */
@@ -728,7 +733,6 @@ public interface MatsInitiator extends Closeable {
      * pass-through to the target, as any changes to the MatsInitiate interface then won't break your wrapper.
      */
     class MatsInitiateWrapper implements MatsWrapper<MatsInitiate>, MatsInitiate {
-
         /**
          * This field is private - all methods invoke {@link #unwrap()} to get the instance, which you should too if you
          * override any methods. If you want to take control of the wrapped MatsFactory instance, then override
@@ -913,6 +917,11 @@ public interface MatsInitiator extends Closeable {
         @Override
         public <T> Optional<T> getAttribute(Class<T> type, String... name) {
             return unwrap().getAttribute(type, name);
+        }
+
+        @Override
+        public String toString() {
+            return this.getClass().getSimpleName()+"["+unwrap().toString()+"]";
         }
     }
 }

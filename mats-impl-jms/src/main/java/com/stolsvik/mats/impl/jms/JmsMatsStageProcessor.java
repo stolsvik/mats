@@ -307,6 +307,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                     finally {
                         _processorInReceive = false;
                     }
+                    long startedNanos = System.nanoTime();
                     Instant startedInstant = Instant.now();
 
                     // Need to check whether the JMS Message gotten is null, as that signals that the
@@ -333,7 +334,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                     JmsMatsInternalExecutionContext internalExecutionContext = JmsMatsInternalExecutionContext
                             .forStage(_jmsSessionHolder, jmsConsumer);
 
-                    StageContextImpl stageContext = new StageContextImpl(_jmsMatsStage, startedInstant);
+                    StageContextImpl stageContext = new StageContextImpl(_jmsMatsStage, startedNanos, startedInstant);
 
                     // Fetch relevant interceptors
                     List<MatsStageInterceptor> interceptorsForStage = _jmsMatsStage.getParentFactory()
@@ -537,7 +538,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
                             // Create the common part of the interceptor contexts
                             stageCommonContext[0] = new StageCommonContextImpl<>(
-                                    _jmsMatsStage, startedInstant,
+                                    _jmsMatsStage,
+                                    startedNanos, startedInstant,
                                     matsTrace, incomingDto, currentSto,
                                     nanosTaken_DeconstructMessage,
                                     matsTraceBytes.length,
@@ -738,7 +740,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                         if (receiveDeconstructError[0] != null) {
                             // -> Yes, so then the rest of the processing never happened.
                             StagePreprocessAndDeserializeErrorContextImpl context = new StagePreprocessAndDeserializeErrorContextImpl(
-                                    _jmsMatsStage, startedInstant, receiveDeconstructError[0], throwableResult);
+                                    _jmsMatsStage, startedNanos, startedInstant,
+                                    receiveDeconstructError[0], throwableResult);
                             for (MatsStageInterceptor matsStageInterceptor : interceptorsForStage) {
                                 try {
                                     matsStageInterceptor.stagePreprocessAndDeserializeError(context);
@@ -1016,10 +1019,12 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     private static class StageContextImpl implements StageInterceptContext {
 
         private final MatsStage<?, ?, ?> _matsStage;
+        private final long _startedNanos;
         private final Instant _startedInstant;
 
-        public StageContextImpl(MatsStage<?, ?, ?> matsStage, Instant startedInstant) {
+        public StageContextImpl(MatsStage<?, ?, ?> matsStage, long startedNanos, Instant startedInstant) {
             _matsStage = matsStage;
+            _startedNanos = startedNanos;
             _startedInstant = startedInstant;
         }
 
@@ -1032,6 +1037,11 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         public Instant getStartedInstant() {
             return _startedInstant;
         }
+
+        @Override
+        public long getStartedNanoTime() {
+            return _startedNanos;
+        }
     }
 
     /**
@@ -1040,6 +1050,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
      */
     private static class StageCommonContextImpl<Z> implements StageCommonContext {
         private final JmsMatsStage<?, ?, ?, Z> _stage;
+        private final long _startedNanos;
         private final Instant _startedInstant;
 
         private final MatsTrace<Z> _matsTrace;
@@ -1054,7 +1065,8 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         private final long _incomingMessageAndStateDeserializationNanos;
         private final long _preUserLambdaNanos;
 
-        public StageCommonContextImpl(JmsMatsStage<?, ?, ?, Z> stage, Instant startedInstant,
+        public StageCommonContextImpl(JmsMatsStage<?, ?, ?, Z> stage,
+                long startedNanos, Instant startedInstant,
                 MatsTrace<Z> matsTrace, Object incomingMessage, Object incomingState,
                 long incomingEnvelopeDeconstructNanos,
                 int incomingEnvelopeRawSize,
@@ -1065,6 +1077,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                 long preUserLambdaNanos) {
 
             _stage = stage;
+            _startedNanos = startedNanos;
             _startedInstant = startedInstant;
 
             _matsTrace = matsTrace;
@@ -1088,6 +1101,11 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         @Override
         public Instant getStartedInstant() {
             return _startedInstant;
+        }
+
+        @Override
+        public long getStartedNanoTime() {
+            return _startedNanos;
         }
 
         @Override
@@ -1185,6 +1203,11 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         @Override
         public Instant getStartedInstant() {
             return _stageCommonContext.getStartedInstant();
+        }
+
+        @Override
+        public long getStartedNanoTime() {
+            return _stageCommonContext.getStartedNanoTime();
         }
 
         @Override
@@ -1449,13 +1472,16 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     private static class StagePreprocessAndDeserializeErrorContextImpl
             implements StagePreprocessAndDeserializeErrorContext {
         private final MatsStage<?, ?, ?> _stage;
+        private final long _startedNanos;
         private final Instant _startedInstant;
         private final ReceiveDeconstructError _receiveDeconstructError;
         private final Throwable _throwable;
 
-        public StagePreprocessAndDeserializeErrorContextImpl(MatsStage<?, ?, ?> stage, Instant startedInstant,
+        public StagePreprocessAndDeserializeErrorContextImpl(MatsStage<?, ?, ?> stage,
+                long startedNanos, Instant startedInstant,
                 ReceiveDeconstructError receiveDeconstructError, Throwable throwable) {
             _stage = stage;
+            _startedNanos = startedNanos;
             _startedInstant = startedInstant;
             _receiveDeconstructError = receiveDeconstructError;
             _throwable = throwable;
@@ -1469,6 +1495,11 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         @Override
         public Instant getStartedInstant() {
             return _startedInstant;
+        }
+
+        @Override
+        public long getStartedNanoTime() {
+            return _startedNanos;
         }
 
         @Override

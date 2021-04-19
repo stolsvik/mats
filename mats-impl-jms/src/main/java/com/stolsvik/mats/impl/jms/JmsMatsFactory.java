@@ -762,10 +762,18 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
     }
 
     @Override
+    public boolean equals(Object o) {
+        return this == o;
+    }
+
+    @Override
+    public int hashCode() {
+        return System.identityHashCode(this);
+    }
+
+    @Override
     public String idThis() {
-        String name = _factoryConfig.getName();
-        return ("".equals(name) ? this.getClass().getSimpleName() : name)
-                + '@' + Integer.toHexString(System.identityHashCode(this));
+        return id("JmsMatsFactory{"+_name+"}", this);
     }
 
     @Override

@@ -25,7 +25,7 @@ public class Test_CallOverflow {
     @Test
     public void infiniteRequestRecursionToSelf() throws MatsMessageSendException, MatsBackendException {
         // Arrange
-        MATS.cleanMatsFactory();
+        MATS.cleanMatsFactories();
         String SERVICE = MatsTestHelp.endpointId("infiniteRequestRecursionToSelf");
 
         MatsEndpoint<DataTO, DataTO> ep = MATS.getMatsFactory().staged(SERVICE, DataTO.class,
@@ -50,7 +50,7 @@ public class Test_CallOverflow {
     @Test
     public void infiniteSendChildFlow() throws MatsMessageSendException, MatsBackendException {
         // Arrange
-        MATS.cleanMatsFactory();
+        MATS.cleanMatsFactories();
         String SERVICE = MatsTestHelp.endpointId("infiniteSendChildFlow");
 
         MATS.getMatsFactory().terminator(SERVICE, StateTO.class, DataTO.class,
@@ -74,7 +74,7 @@ public class Test_CallOverflow {
     @Test
     public void infiniteSendChildFlow_UsingDefaultInitiator() throws MatsMessageSendException, MatsBackendException {
         // Arrange
-        MATS.cleanMatsFactory();
+        MATS.cleanMatsFactories();
         String SERVICE = MatsTestHelp.endpointId("infiniteSendChildFlow_UsingDefaultInitiator");
 
         // Here employing "magic" DefaultInitiator, which "shortcuts" to just be an invocation on ctx.initiate()..
@@ -105,7 +105,7 @@ public class Test_CallOverflow {
     @Test
     public void infiniteSendChildFlow_UsingNonDefaultInitiator() throws MatsMessageSendException, MatsBackendException {
         // Arrange
-        MATS.cleanMatsFactory();
+        MATS.cleanMatsFactories();
         String SERVICE = MatsTestHelp.endpointId("infiniteSendChildFlow_UsingNonDefaultInitiator");
 
         // Here employing "magic" DefaultInitiator, which "shortcuts" to just be an invocation on ctx.initiate()..

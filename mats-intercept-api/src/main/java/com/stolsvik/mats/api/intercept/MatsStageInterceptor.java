@@ -90,6 +90,8 @@ public interface MatsStageInterceptor {
         MatsStage<?, ?, ?> getStage();
 
         Instant getStartedInstant();
+
+        long getStartedNanoTime();
     }
 
     interface StagePreprocessAndDeserializeErrorContext extends StageInterceptContext {
@@ -123,6 +125,9 @@ public interface MatsStageInterceptor {
         }
     }
 
+    /**
+     * <b>Remember: There are also lots of properties on the ProcessContext!</b>
+     */
     interface StageCommonContext extends StageInterceptContext {
         /**
          * @return the {@link MessageType} of the incoming message.

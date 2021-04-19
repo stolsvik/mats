@@ -30,7 +30,7 @@ import com.stolsvik.mats.test.abstractunit.AbstractMatsTest;
  * This will ensure that Rule_MatsGeneric sets up the test harness correctly. However the factory needs to be cleaned in
  * between tests to ensure that there are no endpoint collisions (One can only register a given endpointId once per
  * MatsFactory), thus one should also implement a method within the test class which is annotated with
- * {@link org.junit.After} and executes a call to {@link Rule_MatsGeneric#cleanMatsFactory()} as such:
+ * {@link org.junit.After} and executes a call to {@link Rule_MatsGeneric#cleanMatsFactories()} as such:
  * 
  * <pre>
  * &#64;After

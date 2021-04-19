@@ -1,5 +1,6 @@
 package com.stolsvik.mats;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -15,6 +16,11 @@ import com.stolsvik.mats.MatsStage.StageConfig;
 
 /**
  * Represents a MATS Endpoint - you create instances from the {@link MatsFactory} (or use the Spring integration).
+ * <p />
+ * Note: It should be possible to use instances of <code>MatsEndpoint</code> as keys in a <code>HashMap</code>, i.e.
+ * their equals and hashCode should remain stable throughout the life of the MatsFactory - and similar instances but
+ * with different MatsFactory are <i>not</i> equals. Depending on the implementation, instance equality may be
+ * sufficient.
  *
  * @author Endre Stølsvik - 2015-07-11 - http://endre.stolsvik.com
  */
@@ -306,6 +312,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         String getFromStageId();
 
         /**
+         * @return the {@link Instant} which this message was created on the sending stage.
+         */
+        Instant getFromTimestamp();
+
+        /**
          * @return the {@link FactoryConfig#getAppName() AppName} of the MatsFactory that initiated the Flow which the
          *         currently processing is a part of. Thus, if this endpoint is the initial target of the initiation,
          *         this value is equal to {@link #getFromAppName()}.
@@ -314,8 +325,8 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
 
         /**
          * @return the {@link FactoryConfig#getAppVersion() AppVersion} of the MatsFactory that initiated the Flow which
-         *         the currently processing is a part of. Thus, if this endpoint is the initial target of the initiation,
-         *         this value is equal to {@link #getFromAppVersion()}.
+         *         the currently processing is a part of. Thus, if this endpoint is the initial target of the
+         *         initiation, this value is equal to {@link #getFromAppVersion()}.
          */
         String getInitiatingAppVersion();
 
@@ -323,6 +334,12 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
          * @return the "initiatorId" set by the initiation with {@link MatsInitiate#from(String)}.
          */
         String getInitiatorId();
+
+        /**
+         * @return the {@link Instant} which this message was initiated, i.e. sent from a MatsInitiator (or within a
+         *         Stage).
+         */
+        Instant getInitiatingTimestamp();
 
         /**
          * @return the unique messageId for the incoming message from Mats - which can be used to catch
@@ -871,6 +888,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         }
 
         @Override
+        public Instant getFromTimestamp() {
+            return unwrap().getFromTimestamp();
+        }
+
+        @Override
         public String getInitiatingAppName() {
             return unwrap().getInitiatingAppName();
         }
@@ -883,6 +905,11 @@ public interface MatsEndpoint<R, S> extends StartStoppable {
         @Override
         public String getInitiatorId() {
             return unwrap().getInitiatorId();
+        }
+
+        @Override
+        public Instant getInitiatingTimestamp() {
+            return unwrap().getInitiatingTimestamp();
         }
 
         @Override
