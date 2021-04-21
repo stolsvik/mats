@@ -32,6 +32,13 @@ public interface MatsOutgoingMessage {
 
     String getInitiatingAppVersion();
 
+    /**
+     * Note: For messages out of an initiator, this method and {@link #getFrom()} returns the same value, i.e. it is
+     * initiated from, and from, the same source.
+     *
+     * @return the value supplied to {@link com.stolsvik.mats.MatsInitiator.MatsInitiate#from(String)} at the time of
+     *         the Mats flow initiation.
+     */
     String getInitiatorId();
 
     // ===== Message Ids and properties
@@ -44,6 +51,12 @@ public interface MatsOutgoingMessage {
 
     // ===== Basics
 
+    /**
+     * Note: For messages out of an initiator, this method and {@link #getInitiatorId()} returns the same value, i.e. it is
+     * initiated from, and from, the same source.
+     *
+     * @return which stage the message is from, or for initiations, the same value as {@link #getInitiatorId()}.
+     */
     String getFrom();
 
     String getTo();
@@ -130,7 +143,7 @@ public interface MatsOutgoingMessage {
          * side load and transfer it over to the extra state if that was desired. Therefore, even though it could be
          * possible to add extra-state to the <i>targeted/receiving endpoint</i>, I've decided against it so far.
          */
-        void setExtraStateForReply(String key, Object object);
+        void setExtraStateForReplyOrNext(String key, Object object);
 
         void addBytes(String key, byte[] payload);
 

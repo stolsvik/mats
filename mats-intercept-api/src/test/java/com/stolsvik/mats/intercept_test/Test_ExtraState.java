@@ -41,9 +41,11 @@ public class Test_ExtraState {
 
     private static DataTO __data1ForServiceStage2;
     private static DataTO __data2ForServiceStage2;
+    private static DataTO __data3ForServiceStage2;
 
     private static DataTO __data1ForServiceStage3;
     private static DataTO __data2ForServiceStage3;
+    private static DataTO __data3ForServiceStage3;
 
     @Test
     public void doTest() {
@@ -99,9 +101,11 @@ public class Test_ExtraState {
         // Assert stage2 extra state
         Assert.assertEquals(new DataTO(3, "three"), __data1ForServiceStage2);
         Assert.assertEquals(new DataTO(4, "four"), __data2ForServiceStage2);
+        Assert.assertEquals(new DataTO(5, "five"), __data3ForServiceStage2);
         // Assert stage3 extra state
         Assert.assertEquals(new DataTO(3, "three"), __data1ForServiceStage3);
         Assert.assertEquals(new DataTO(4, "four"), __data2ForServiceStage3);
+        Assert.assertEquals(new DataTO(5, "five"), __data3ForServiceStage3);
     }
 
     /**
@@ -121,8 +125,8 @@ public class Test_ExtraState {
             Assert.assertEquals(MessageType.REQUEST, outgoing.getMessageType());
 
             // Add 2 x extra-state, which should be available at Terminator
-            outgoing.setExtraStateForReply("extra1_to_terminator", new DataTO(1, "one"));
-            outgoing.setExtraStateForReply("extra2_to_terminator", new DataTO(2, "two"));
+            outgoing.setExtraStateForReplyOrNext("extra1_to_terminator", new DataTO(1, "one"));
+            outgoing.setExtraStateForReplyOrNext("extra2_to_terminator", new DataTO(2, "two"));
         }
 
         @Override
@@ -138,8 +142,21 @@ public class Test_ExtraState {
                 Assert.assertEquals(MessageType.REQUEST, outgoing.getMessageType());
 
                 // Add 2 x extra-state, which should be available at next stage (stage1)
-                outgoing.setExtraStateForReply("extra1_to_Service.stage1", new DataTO(3, "three"));
-                outgoing.setExtraStateForReply("extra2_to_Service.stage1", new DataTO(4, "four"));
+                outgoing.setExtraStateForReplyOrNext("extra1_to_Service.stage1", new DataTO(3, "three"));
+                outgoing.setExtraStateForReplyOrNext("extra2_to_Service.stage1", new DataTO(4, "four"));
+            }
+
+            // ?: Is this the next-call?
+            if ((EPID_SERVICE + ".stage1").equals(context.getStage().getStageConfig().getStageId())) {
+                // -> Yes, this is the next-call
+                // There should only be one message here, as it is the REQUEST up to the Leaf.
+                Assert.assertEquals(1, context.getOutgoingMessages().size());
+                // Fetch it
+                MatsEditableOutgoingMessage outgoing = context.getOutgoingMessages().get(0);
+                // Assert that it is a NEXT
+                Assert.assertEquals(MessageType.NEXT, outgoing.getMessageType());
+                // Add 1 more extra-state
+                outgoing.setExtraStateForReplyOrNext("extra3_to_Service.nextCall", new DataTO(5, "five"));
             }
         }
 
@@ -159,11 +176,13 @@ public class Test_ExtraState {
                         .orElse(null);
             }
 
-            // If FROM Server.stage1 (i.e. this is stage2 of Service), read extra-state
-            if ((EPID_SERVICE + ".stage1").equals(context.getProcessContext().getFromStageId())) {
+            // If the incoming next-call to stage 2 (from stage 1), read extra-state
+            if (MessageType.NEXT == context.getIncomingMessageType()) {
                 __data1ForServiceStage2 = context.getIncomingExtraState("extra1_to_Service.stage1", DataTO.class)
                         .orElse(null);
                 __data2ForServiceStage2 = context.getIncomingExtraState("extra2_to_Service.stage1", DataTO.class)
+                        .orElse(null);
+                __data3ForServiceStage2 = context.getIncomingExtraState("extra3_to_Service.nextCall", DataTO.class)
                         .orElse(null);
             }
 
@@ -172,6 +191,8 @@ public class Test_ExtraState {
                 __data1ForServiceStage3 = context.getIncomingExtraState("extra1_to_Service.stage1", DataTO.class)
                         .orElse(null);
                 __data2ForServiceStage3 = context.getIncomingExtraState("extra2_to_Service.stage1", DataTO.class)
+                        .orElse(null);
+                __data3ForServiceStage3 = context.getIncomingExtraState("extra3_to_Service.nextCall", DataTO.class)
                         .orElse(null);
             }
         }

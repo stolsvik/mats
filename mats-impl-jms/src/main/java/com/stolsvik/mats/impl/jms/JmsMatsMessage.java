@@ -303,41 +303,58 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
     }
 
     @Override
-    public void setExtraStateForReply(String key, Object object) {
-        if (getMessageType() != MessageType.REQUEST) {
+    public void setExtraStateForReplyOrNext(String key, Object object) {
+        if (getMessageType() == MessageType.REQUEST) {
+            // :: Get StackState for the REPLY to this REQUEST.
+            /*
+             * Note: Check the implementation for MatsTraceStringImpl.addRequestCall(..). The StackState we need is
+             * /either/ the very last added, /or/ it is the next to last. The reason for this, is how the contract is:
+             * You may add two distinct states: The state for the REPLY is mandatory (may be null, though, but a
+             * StackState is added nevertheless). This is added to the "state flow" first. The "initial incoming state"
+             * is optional - this is the state which the called service "starts with". This is added to the "state flow"
+             * after the first. This is usually null, and thus not added, meaning that an invoked multi-stage service
+             * starts out with a "blank state".
+             *
+             * Therefore, the state we need to modify is either the very last (no initial incoming state), or the
+             * next-to-last (if initial incoming state was added).
+             */
+            // :: First, find the stack height for the REPLY stack frame
+            // This stack height is for the REQUEST frame (+1)..
+            int currentStackHeight = _matsTrace.getCurrentCall().getReplyStackHeight();
+            // .. we need the StackState for the stack frame below.
+            int stackHeightForReply = currentStackHeight - 1;
+
+            // :: Get the StackState to modify
+            // Fetch the StateFlow (really need the StateStack, but for our use, there is no difference, and the state
+            // flow is the pure representation, while the StateStack might need processing to produce.)
+            List<StackState<Z>> stateFlow = _matsTrace.getStateFlow();
+            // So, either very last, or the next-to-last
+            StackState<Z> stateToModify = stateFlow.get(stateFlow.size() - 1).getHeight() == stackHeightForReply
+                    ? stateFlow.get(stateFlow.size() - 1)
+                    : stateFlow.get(stateFlow.size() - 2);
+
+            // :: Add the extra-state
+            stateToModify.setExtraState(key, _matsSerializer.serializeObject(object));
+        }
+        else if (getMessageType() == MessageType.NEXT) {
+            // :: Get StackState for the NEXT call
+            /*
+             * Note: Check the implementation for MatsTraceStringImpl.addNextCall(..). The StackState we need is
+             * the very last added.
+             */
+            // :: Get the StackState to modify
+            // Fetch the StateFlow
+            List<StackState<Z>> stateFlow = _matsTrace.getStateFlow();
+            // Get the very last.
+            StackState<Z> stateToModify = stateFlow.get(stateFlow.size() - 1);
+
+            // :: Add the extra-state
+            stateToModify.setExtraState(key, _matsSerializer.serializeObject(object));
+        }
+        else {
             throw new IllegalStateException("setExtraStateForReply(..) is only applicable for MessageType.REQUEST"
                     + " messages, this is [" + getMessageType() + "].");
         }
-
-        // :: Get StackState for the REPLY to this REQUEST.
-        /*
-         * Note: Check the implementation for MatsTraceStringImpl.addRequestCall(..). The StackState we need is /either/
-         * the very last added, /or/ it is the next to last. The reason for this, is how the contract is: You may add
-         * two distinct states: The state for the REPLY is mandatory (may be null, though, but a StackState is added
-         * nevertheless). This is added to the "state flow" first. The "initial incoming state" is optional - this is
-         * the state which the called service "starts with". This is added to the "state flow" after the first. This is
-         * usually null, and thus not added, meaning that an invoked multi-stage service starts out with a
-         * "blank state".
-         *
-         * Therefore, the state we need to modify is either the very last (no initial incoming state), or the
-         * next-to-last (if initial incoming state was added).
-         */
-        // :: First, find the stack height for the REPLY stack frame
-        // This stack height is for the REQUEST frame (+1)..
-        int currentStackHeight = _matsTrace.getCurrentCall().getReplyStackHeight();
-        // .. we need the StackState for the stack frame below.
-        int stackHeightForReply = currentStackHeight - 1;
-
-        // Fetch the StateFlow (really need the StateStack, but for our use, there is no difference, and the state
-        // flow is the pure representation, while the StateStack might need modification.)
-        List<StackState<Z>> stateStack = _matsTrace.getStateFlow();
-        // So, either very last, or the next-to-last
-        StackState<Z> stateToModify = stateStack.get(stateStack.size() - 1).getHeight() == stackHeightForReply
-                ? stateStack.get(stateStack.size() - 1)
-                : stateStack.get(stateStack.size() - 2);
-
-        // Add the extra-state
-        stateToModify.setExtraState(key, _matsSerializer.serializeObject(object));
     }
 
     @Override
