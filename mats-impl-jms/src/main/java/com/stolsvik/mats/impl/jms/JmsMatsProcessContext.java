@@ -340,8 +340,6 @@ public class JmsMatsProcessContext<R, S, Z> implements ProcessContext<R>, JmsMat
 
     private static final String REPLY_TO_VOID = "REPLY_TO_VOID_NO_MESSAGE_SENT";
 
-    private static final String ILLEGAL_CALL_FLOWS = "ILLEGAL CALL FLOWS! ";
-
     @Override
     public MessageReference reply(Object replyDto) {
         long nanosStart = System.nanoTime();

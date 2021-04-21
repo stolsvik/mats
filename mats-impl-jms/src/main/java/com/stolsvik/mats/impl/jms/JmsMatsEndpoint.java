@@ -137,19 +137,24 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
         _finishedSetup = true;
         _parentFactory.addNewEndpointToFactory(this);
         if (!_parentFactory.isHoldEndpointsUntilFactoryIsStarted()) {
-            log.info(LOG_PREFIX+"   \\- Finished setup of, and will immediately start, Endpoint ["+id(_endpointId, this)+"].");
+            log.info(LOG_PREFIX + "   \\- Finished setup of, and will immediately start, Endpoint [" + id(_endpointId,
+                    this) + "].");
             start();
         }
         else {
-            log.info(LOG_PREFIX+"   \\- Finished setup, but holding start of Endpoint ["+id(_endpointId, this)+"].");
+            log.info(LOG_PREFIX + "   \\- Finished setup, but holding start of Endpoint [" + id(_endpointId, this)
+                    + "].");
         }
     }
 
     @Override
     public void start() {
         if (!isFinishedSetup()) {
-            throw new IllegalStateException("Cannot start Stages for Endpoint [" + _endpointId + "], as Endpoint is"
+            // TODO: Throw in version >= 0.17.0
+            log.warn(LOG_PREFIX + ILLEGAL_CALL_FLOWS + "NOTICE!! WRONG API USE! WILL THROW IN A LATER VERSION!"
+                    + " Cannot start Stages for Endpoint [" + _endpointId + "], as Endpoint is"
                     + " not finishSetup() yet!");
+            return;
         }
         log.info(JmsMatsStatics.LOG_PREFIX + "Starting all Stages for Endpoint [" + _endpointId + "].");
         _stages.forEach(JmsMatsStage::start);
@@ -200,7 +205,7 @@ public class JmsMatsEndpoint<R, S, Z> implements MatsEndpoint<R, S>, JmsMatsStat
 
     @Override
     public String idThis() {
-        return id("JmsMatsEndpoint{"+_endpointId+"}", this) + "@" + _parentFactory;
+        return id("JmsMatsEndpoint{" + _endpointId + "}", this) + "@" + _parentFactory;
     }
 
     @Override
