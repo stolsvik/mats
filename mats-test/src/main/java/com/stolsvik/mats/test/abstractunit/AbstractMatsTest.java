@@ -15,6 +15,7 @@ import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.impl.jms.JmsMatsFactory;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler;
 import com.stolsvik.mats.impl.jms.JmsMatsJmsSessionHandler_Pooling;
+import com.stolsvik.mats.localinspect.LocalStatsMatsInterceptor;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.MatsTrace;
 import com.stolsvik.mats.test.MatsTestLatch;
@@ -251,6 +252,9 @@ public abstract class AbstractMatsTest<Z> {
 
         // Set name
         matsFactory.getFactoryConfig().setName(this.getClass().getSimpleName());
+
+        // TEMPORARY? Install the LocalStatsMatsInterceptor, to get it tested.
+        LocalStatsMatsInterceptor.install(matsFactory);
 
         /*
          * For most test scenarios, it really makes little meaning to have a concurrency of more than 1 - unless
