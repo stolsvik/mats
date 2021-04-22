@@ -1224,7 +1224,7 @@
      * @constructor
      */
     function MatsSocket(appName, appVersion, urls, config) {
-        let clientLibNameAndVersion = "MatsSocket.js,v0.16.1 (2021-02-26)";
+        let clientLibNameAndVersion = "MatsSocket.js,vRC-0.16.2 (2021-04-22)";
 
         // :: Validate primary arguments
         if (typeof appName !== "string") {
