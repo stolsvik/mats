@@ -431,12 +431,13 @@ public interface MatsFactory extends StartStoppable {
     interface FactoryConfig extends MatsConfig {
         /**
          * Sets the name of the MatsFactory, default is "" (empty string).
+         * <p />
+         * // TODO: Change return type to FactoryConfig, to allow for chaining.
          *
          * @param name
          *            the name that the MatsFactory should have.
-         * @return <code>this</code> for chaining.
          */
-        FactoryConfig setName(String name);
+        void setName(String name);
 
         /**
          * @return the name of the MatsFactory, as set by {@link #setName(String)}, shall return "" (empty string) if

@@ -783,14 +783,13 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
 
     private class JmsMatsFactoryConfig implements FactoryConfig {
         @Override
-        public FactoryConfig setName(String name) {
+        public void setName(String name) {
             if (name == null) {
                 throw new NullPointerException("name");
             }
             String idBefore = idThis();
             _name = name;
             log.info(LOG_PREFIX + "Set name to [" + name + "] for [" + idBefore + "], new id: [" + idThis() + "].");
-            return this;
         }
 
         @Override
