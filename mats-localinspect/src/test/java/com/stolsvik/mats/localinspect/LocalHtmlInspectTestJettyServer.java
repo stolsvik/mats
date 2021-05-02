@@ -4,7 +4,10 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.URL;
 import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ThreadLocalRandom;
 
 import javax.jms.ConnectionFactory;
 import javax.servlet.ServletContextEvent;
@@ -38,6 +41,8 @@ import com.stolsvik.mats.localinspect.SetupTestMatsEndpoints.DataTO;
 import com.stolsvik.mats.localinspect.SetupTestMatsEndpoints.StateTO;
 import com.stolsvik.mats.serial.MatsSerializer;
 import com.stolsvik.mats.serial.json.MatsSerializerJson;
+import com.stolsvik.mats.util.MatsFuturizer;
+import com.stolsvik.mats.util.MatsFuturizer.Reply;
 import com.stolsvik.mats.util_activemq.MatsLocalVmActiveMq;
 
 import ch.qos.logback.core.CoreConstants;
@@ -88,6 +93,17 @@ public class LocalHtmlInspectTestJettyServer {
             // Hold start
             _matsFactory.holdEndpointsUntilFactoryIsStarted();
 
+            // Configure the MatsFactory for testing
+            _matsFactory.getFactoryConfig().setConcurrency(SetupTestMatsEndpoints.BASE_CONCURRENCY);
+            // .. Use port number of current server as postfix for name of MatsFactory, and of nodename
+            Integer portNumber = (Integer) sce.getServletContext().getAttribute(CONTEXT_ATTRIBUTE_PORTNUMBER);
+            _matsFactory.getFactoryConfig().setName(LocalHtmlInspectTestJettyServer.class.getSimpleName()
+                    + "_" + portNumber);
+            _matsFactory.getFactoryConfig().setNodename("EndreBox_" + portNumber);
+
+            // Put it in ServletContext, for servlet to get
+            sce.getServletContext().setAttribute(JmsMatsFactory.class.getName(), _matsFactory);
+
             // Install the stats keeper interceptor
             LocalStatsMatsInterceptor.install(_matsFactory);
 
@@ -97,17 +113,13 @@ public class LocalHtmlInspectTestJettyServer {
             sce.getServletContext().setAttribute("interface1", interface1);
             sce.getServletContext().setAttribute("interface2", interface2);
 
-            // Configure the MatsFactory for testing
-            _matsFactory.getFactoryConfig().setConcurrency(SetupTestMatsEndpoints.BASE_CONCURRENCY);
-            // .. Use port number of current server as postfix for name of MatsFactory, and of nodename
-            Integer portNumber = (Integer) sce.getServletContext().getAttribute(CONTEXT_ATTRIBUTE_PORTNUMBER);
-            _matsFactory.getFactoryConfig().setName(LocalHtmlInspectTestJettyServer.class.getSimpleName()
-                    + "_" + portNumber);
-            _matsFactory.getFactoryConfig().setNodename("EndreBox_" + portNumber);
-            // Put it in ServletContext, for servlet to get
-            sce.getServletContext().setAttribute(JmsMatsFactory.class.getName(), _matsFactory);
+            // Create MatsFuturizer, and store then in the ServletContext attributes, for sending in testServlet
+            MatsFuturizer matsFuturizer = MatsFuturizer.createMatsFuturizer(_matsFactory,
+                    SetupTestMatsEndpoints.SERVICE_PREFIX);
+            sce.getServletContext().setAttribute(MatsFuturizer.class.getName(), matsFuturizer);
 
-            SetupTestMatsEndpoints.setupMatsAndMatsSocketEndpoints(_matsFactory);
+            // :: Set up Mats Test Endpoints.
+            SetupTestMatsEndpoints.setupMatsTestEndpoints(_matsFactory);
 
             _matsFactory.start();
         }
@@ -133,31 +145,78 @@ public class LocalHtmlInspectTestJettyServer {
             LocalHtmlInspectForMatsFactory interface2 = (LocalHtmlInspectForMatsFactory) req.getServletContext()
                     .getAttribute("interface2");
 
+            boolean includeBootstrap3 = req.getParameter("includeBootstrap3") != null;
+            boolean includeBootstrap4 = req.getParameter("includeBootstrap4") != null;
+            boolean includeBootstrap5 = req.getParameter("includeBootstrap5") != null;
+
             PrintWriter out = resp.getWriter();
             out.println("<html>");
             out.println("  <head>");
+            if (includeBootstrap3) {
+                out.println("    <script src=\"https://code.jquery.com/jquery-1.10.1.min.js\"></script>\n");
+                out.println("    <link rel=\"stylesheet\" href=\"https://netdna.bootstrapcdn.com/"
+                        + "bootstrap/3.0.2/css/bootstrap.min.css\" />\n");
+                out.println("    <script src=\"https://netdna.bootstrapcdn.com/"
+                        + "bootstrap/3.0.2/js/bootstrap.min.js\"></script>\n");
+            }
+            if (includeBootstrap4) {
+                out.println("    <link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/"
+                        + "npm/bootstrap@4.6.0/dist/css/bootstrap.min.css\""
+                        + " integrity=\"sha384-B0vP5xmATw1+K9KRQjQERJvTumQW0nPEzvF6L/Z6nronJ3oUOFUFpCjEUQouq2+l\""
+                        + " crossorigin=\"anonymous\">\n");
+                out.println("<script src=\"https://code.jquery.com/jquery-3.5.1.slim.min.js\""
+                        + " integrity=\"sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj\""
+                        + " crossorigin=\"anonymous\"></script>\n");
+                out.println("<script src=\"https://cdn.jsdelivr.net/"
+                        + "npm/bootstrap@4.6.0/dist/js/bootstrap.bundle.min.js\""
+                        + " integrity=\"sha384-Piv4xVNRyMGpqkS2by6br4gNJ7DXjqk09RmUpJ8jgGtD7zP9yug3goQfGII0yAns\""
+                        + " crossorigin=\"anonymous\"></script>\n");
+            }
+            if (includeBootstrap5) {
+                out.println("<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/"
+                        + "npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css\""
+                        + " integrity=\"sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6\""
+                        + " crossorigin=\"anonymous\">\n");
+                out.println("<script src=\"https://cdn.jsdelivr.net/"
+                        + "npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js\""
+                        + " integrity=\"sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf\""
+                        + " crossorigin=\"anonymous\"></script>\n");
+            }
             out.println("  </head>");
-            out.println("  <body>");
+            // NOTE: Setting "margin: 0" just to be able to compare against the Bootstrap-versions without too
+            // much "accidental difference" due to the Bootstrap's setting of margin=0.
+            out.println("  <body style=\"margin: 0;\">");
             out.println("    <style>");
             interface1.getStyleSheet(out); // Include just once, use the first.
             out.println("    </style>");
             out.println("    <script>");
             interface1.getJavaScript(out); // Include just once, use the first.
             out.println("    </script>");
-            out.println("    <h1>Test h1</h1>");
-            out.println("    Endre tester h1");
+//            out.println("    <h1>Test h1</h1>");
+//            out.println("    Endre tester h1");
+//
+//            out.println("    <h2>Test h2</h2>");
+//            out.println("    Endre tester h2");
+//
+//            out.println("    <h3>Test h3</h3>");
+//            out.println("    Endre tester h3");
+//
+//            out.println("    <h4>Test h4</h4>");
+//            out.println("    Endre tester h4<br /><br />");
+//
+//            out.println("    <a href=\"sendRequest\">Send request</a> - to initialize Initiator"
+//                    + " and get some traffic.<br /><br />");
 
-            out.println("    <h2>Test h2</h2>");
-            out.println("    Endre tester h2");
-
-            out.println("    <h3>Test h3</h3>");
-            out.println("    Endre tester h3<br /><br />");
-
-            out.println("    <a href=\"sendRequest\">Send request</a> - to initialize Initiator"
-                    + " and get some traffic.<br /><br />");
-
+            // :: Bootstrap3 sets the body's font size to 14px.
+            // We scale all the affected rem-using elements back up to check consistency.
+            if (includeBootstrap3) {
+                out.write("<div style=\"font-size: 114.29%\">\n");
+            }
             interface1.createFactoryReport(out, true, true, true);
             interface2.createFactoryReport(out, true, true, true);
+            if (includeBootstrap3) {
+                out.write("</div>\n");
+            }
 
             out.println("  </body>");
             out.println("</html>");
@@ -172,16 +231,17 @@ public class LocalHtmlInspectTestJettyServer {
         @Override
         protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
             log.info("Sending request ..");
-            resp.getWriter().println("Sending request ..");
+            PrintWriter out = resp.getWriter();
+            out.println("Sending request ..");
             MatsFactory matsFactory = (MatsFactory) req.getServletContext().getAttribute(JmsMatsFactory.class
                     .getName());
 
             StateTO sto = new StateTO(420, 420.024);
             DataTO dto = new DataTO(42, "TheAnswer");
             matsFactory.getDefaultInitiator().initiateUnchecked(
-                    (msg) -> {
+                    (init) -> {
                         for (int i = 0; i < 1000; i++) {
-                            msg.traceId("traceId" + i)
+                            init.traceId("traceId" + i)
                                     .keepTrace(KeepTrace.MINIMAL)
                                     .nonPersistent()
                                     .from("LocalInterfaceTest.initiator")
@@ -190,7 +250,81 @@ public class LocalHtmlInspectTestJettyServer {
                                     .request(dto);
                         }
                     });
-            resp.getWriter().println(".. Request sent.");
+            out.println(".. Request sent.");
+
+            out.println("\nPerforming MatsFuturizers..");
+
+            MatsFuturizer matsFuturizer = (MatsFuturizer) req.getServletContext()
+                    .getAttribute(MatsFuturizer.class.getName());
+
+            out.println("\nTo " + SetupTestMatsEndpoints.SERVICE);
+            CompletableFuture<Reply<DataTO>> future1 = matsFuturizer.futurizeNonessential(
+                    "TestTraceId" + Long.toHexString(Math.abs(ThreadLocalRandom.current().nextLong())),
+                    SetupTestMatsEndpoints.SERVICE_PREFIX + ".FuturizerTest_Main",
+                    SetupTestMatsEndpoints.SERVICE, DataTO.class, new DataTO(1, "To_SERVICE"));
+            try {
+                Reply<DataTO> reply = future1.get();
+                out.println("-> got reply: " + reply.getReply());
+            }
+            catch (InterruptedException | ExecutionException e) {
+                out.println("Failed! " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            }
+
+            out.println("\nTo " + SetupTestMatsEndpoints.SERVICE_MID);
+            CompletableFuture<Reply<DataTO>> future2 = matsFuturizer.futurizeNonessential(
+                    "TestTraceId" + Long.toHexString(Math.abs(ThreadLocalRandom.current().nextLong())),
+                    SetupTestMatsEndpoints.SERVICE_PREFIX + ".FuturizerTest_Mid",
+                    SetupTestMatsEndpoints.SERVICE_MID, DataTO.class, new DataTO(2, "TO_MID"));
+            try {
+                Reply<DataTO> reply = future2.get();
+                out.println("-> got reply: " + reply.getReply());
+            }
+            catch (InterruptedException | ExecutionException e) {
+                out.println("Failed! " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            }
+
+            out.println("\nTo " + SetupTestMatsEndpoints.SERVICE_LEAF);
+            CompletableFuture<Reply<DataTO>> future3 = matsFuturizer.futurizeNonessential(
+                    "TestTraceId" + Long.toHexString(Math.abs(ThreadLocalRandom.current().nextLong())),
+                    SetupTestMatsEndpoints.SERVICE_PREFIX + ".FuturizerTest_Leaf",
+                    SetupTestMatsEndpoints.SERVICE_LEAF, DataTO.class, new DataTO(3, "TO_LEAF"));
+            try {
+                Reply<DataTO> reply = future3.get();
+                out.println("-> got reply: " + reply.getReply());
+            }
+            catch (InterruptedException | ExecutionException e) {
+                out.println("Failed! " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            }
+            out.println("\n.. Futurizations done.\n");
+
+            out.println("\n.. Send directly to Terminator.\n");
+            // Perform a send directly to the Terminator
+            matsFactory.getDefaultInitiator().initiateUnchecked(init -> init.traceId("traceId_directToTerminator")
+                    .keepTrace(KeepTrace.MINIMAL)
+                    .nonPersistent()
+                    .from("LocalInterfaceTest.initiator_direct_to_terminator")
+                    .to(SetupTestMatsEndpoints.TERMINATOR)
+                    .send(dto));
+
+            out.println("\n.. Send 'null' directly to Terminator.\n");
+            matsFactory.getDefaultInitiator().initiateUnchecked(init -> init.traceId("traceId_directToTerminator")
+                    .keepTrace(KeepTrace.MINIMAL)
+                    .nonPersistent()
+                    .from("LocalInterfaceTest.initiator_direct_to_terminator")
+                    .to(SetupTestMatsEndpoints.TERMINATOR)
+                    .send(null));
+
+            out.println("\n.. Publish directly to SubscriptionTerminator.\n");
+            // Perform a publish directly to the SubscriptionTerminator
+            matsFactory.getDefaultInitiator().initiateUnchecked(init -> init.traceId("traceId_directToTerminator")
+                    .keepTrace(KeepTrace.MINIMAL)
+                    .nonPersistent()
+                    .from("LocalInterfaceTest.initiator_direct_to_subscriptionTerminator")
+                    .to(SetupTestMatsEndpoints.SUBSCRIPTION_TERMINATOR)
+                    .publish(dto));
+
+
+            out.println("\nAll done.\n");
         }
     }
 

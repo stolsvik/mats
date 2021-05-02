@@ -7,13 +7,18 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.stolsvik.mats.MatsEndpoint;
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
@@ -50,11 +55,22 @@ import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContex
 public class LocalStatsMatsInterceptor
         implements MatsStageInterceptOutgoingMessages, MatsInitiateInterceptOutgoingMessages {
 
+    private static final Logger log = LoggerFactory.getLogger(LocalStatsMatsInterceptor.class);
+
     public static final int DEFAULT_NUM_SAMPLES = 1100;
 
     /**
+     * This is a Out Of Memory avoidance in case of wrongly used initiatorIds. These are not supposed to be dynamic, but
+     * there is nothing hindering a user from creating a new initiatorId per initiation. Thus, if we go above a certain
+     * number of such entries, we stop adding.
+     * <p />
+     * Value is 100.
+     */
+    public static final int MAX_NUMBER_OF_DYNAMIC_ENTRIES = 100;
+
+    /**
      * Creates an instance of this interceptor and installs it on the provided {@link MatsInterceptable} (which most
-     * probably is a <code>MatsFactory</code>. Note that this interceptor is stateful wrt. the MatsFactory, thus a new
+     * probably is a <code>MatsFactory</code>). Note that this interceptor is stateful wrt. the MatsFactory, thus a new
      * instance is needed per MatsFactory - which is fulfilled using this method. It should only be invoked once per
      * MatsFactory. You get the created interceptor in return, but that is not needed when employed with
      * {@link LocalHtmlInspectForMatsFactory}, as that will fetch the instance from the MatsFactory using
@@ -76,16 +92,9 @@ public class LocalStatsMatsInterceptor
         _numSamples = numSamples;
     }
 
-    private static final ConcurrentHashMap<MatsInitiator, InitiatorStatsImpl> _initiators = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<MatsEndpoint<?, ?>, EndpointStatsImpl> _endpoints = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<MatsStage<?, ?, ?>, StageStatsImpl> _stages = new ConcurrentHashMap<>();
-
-    public static final String EXTRA_STATE_INITIATOR_NAME = "mats.ls.in";
-    // public static final String EXTRA_STATE_REQUEST_TO = "mats.ls.rto";
-    public static final String EXTRA_STATE_REQUEST_NANOS = "mats.ls.rts";
-    public static final String EXTRA_STATE_REQUEST_NODENAME = "mats.ls.rnn";
-    public static final String EXTRA_STATE_ENDPOINT_ENTER_NANOS = "mats.ls.eets";
-    public static final String EXTRA_STATE_ENDPOINT_ENTER_NODENAME = "mats.ls.eenn";
+    private final ConcurrentHashMap<MatsInitiator, InitiatorStatsImpl> _initiators = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<MatsEndpoint<?, ?>, EndpointStatsImpl> _endpoints = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<MatsStage<?, ?, ?>, StageStatsImpl> _stages = new ConcurrentHashMap<>();
 
     // ======================================================================================================
     // ===== Exposed API for LocalStatsMatsInterceptor
@@ -105,7 +114,7 @@ public class LocalStatsMatsInterceptor
     public interface InitiatorStats {
         StatsSnapshot getTotalExecutionTimeNanos();
 
-        SortedMap<String, SortedMap<OutgoingMessageRepresentation, Long>> getOutgoingMessageCounts();
+        NavigableMap<OutgoingMessageRepresentation, Long> getOutgoingMessageCounts();
     }
 
     public interface EndpointStats {
@@ -113,7 +122,24 @@ public class LocalStatsMatsInterceptor
 
         StageStats getStageStats(MatsStage<?, ?, ?> stage);
 
-        StatsSnapshot getTotalEndpointProcessingNanos();
+        StatsSnapshot getTotalEndpointProcessingTimeNanos();
+
+        /**
+         * @return whether the reply DTO is <code>void</code>, in which case it is regarded as a Terminator endpoint.
+         */
+        boolean isTerminatorEndpoint();
+
+        /**
+         * <b>Only relevant for Endpoints that {@link #isTerminatorEndpoint()}.</b> Terminator endpoints have a special
+         * set of timings: Time taken from the start of initiation to the terminator receives it. Note: Most initiations
+         * specify a terminator in the same codebase as the initiation, but this is not a requirement. This timing is
+         * special in that it uses the differences in initiation timestamp (System.currentTimeMillis()) vs. reception at
+         * terminator (with millisecond precision) <i>until</i> it sees a reception that is on the same nodename as the
+         * initiation. At that point it switches over to using only timings that go between initiation and reception on
+         * the same node - this both removes the problem of time skews, and provide for more precise timings (since it
+         * uses System.nanoTime()), at the expense of only sampling a subset of the available observations.
+         */
+        NavigableMap<IncomingMessageRepresentation, StatsSnapshot> getInitiatorToTerminatorTimeNanos();
     }
 
     public interface StageStats {
@@ -121,15 +147,31 @@ public class LocalStatsMatsInterceptor
 
         boolean isInitial();
 
+        /**
+         * Note: Only has millisecond resolution, AND is susceptible to time skews between nodes (uses
+         * <code>System.currentTimeMillis()</code> on the sending and receiving node).
+         */
+        StatsSnapshot getSpentQueueTimeNanos();
+
+        /**
+         * Note: Not present for the {@link #isInitial()} stage, as there is no "between" for the initial stage.
+         * <p />
+         * Note: Only recorded for messages that happens to have the two "between" stages executed on the same node, to
+         * both eliminate time skews between nodes, and to get higher precision (nanoTime()).
+         */
+        Optional<StatsSnapshot> getBetweenStagesTimeNanos();
+
+        /**
+         * @return the stage's total execution time (from right after received, to right before going back to receive
+         *         loop).
+         */
         StatsSnapshot getTotalExecutionTimeNanos();
 
-        StatsSnapshot getBetweenStagesTimeNanos();
+        NavigableMap<IncomingMessageRepresentation, Long> getIncomingMessageCounts();
 
-        SortedMap<IncomingMessageRepresentation, Long> getIncomingMessageCounts();
+        NavigableMap<ProcessResult, Long> getProcessResultCounts();
 
-        SortedMap<ProcessResult, Long> getProcessResultCounts();
-
-        SortedMap<OutgoingMessageRepresentation, Long> getOutgoingMessageCounts();
+        NavigableMap<OutgoingMessageRepresentation, Long> getOutgoingMessageCounts();
     }
 
     interface StatsSnapshot {
@@ -151,6 +193,8 @@ public class LocalStatsMatsInterceptor
          * @return the number of executions so far, which can be > max-samples.
          */
         long getNumObservations();
+
+        // ===== Timings:
 
         default long getMin() {
             return getValueAtPercentile(0);
@@ -189,43 +233,68 @@ public class LocalStatsMatsInterceptor
         }
     }
 
-    public interface IncomingMessageRepresentation extends Comparable<IncomingMessageRepresentation> {
+    public interface MessageRepresentation {
         MessageType getMessageType();
-
-        String getFromAppName();
-
-        String getFromStageId();
 
         String getInitiatingAppName();
 
         String getInitiatorId();
     }
 
-    public interface OutgoingMessageRepresentation extends Comparable<OutgoingMessageRepresentation> {
-        MessageType getMessageType();
+    public interface IncomingMessageRepresentation extends MessageRepresentation,
+            Comparable<IncomingMessageRepresentation> {
+        String getFromAppName();
 
+        String getFromStageId();
+    }
+
+    public interface OutgoingMessageRepresentation extends MessageRepresentation,
+            Comparable<OutgoingMessageRepresentation> {
         String getTo();
+
+        Class<?> getMessageClass();
     }
 
     // ======================================================================================================
     // ===== INITIATION interceptor implementation
+
+    public static final String EXTRA_STATE_REQUEST_NANOS = "mats.rts";
+    public static final String EXTRA_STATE_REQUEST_NODENAME = "mats.rnn";
+
+    public static final String EXTRA_STATE_ENDPOINT_ENTER_NANOS = "mats.eets";
+    public static final String EXTRA_STATE_ENDPOINT_ENTER_NODENAME = "mats.eenn";
+
+    public static final String EXTRA_STATE_OR_SIDELOAD_INITIATOR_NANOS = "mats.its";
+    public static final String EXTRA_STATE_OR_SIDELOAD_INITIATOR_NODENAME = "mats.inn";
+
+    public static final String SIDELOAD_MESSAGE_SENT_MILLIS = "mats.sts";
 
     @Override
     public void initiateInterceptOutgoingMessages(InitiateInterceptOutgoingMessagesContext context) {
         List<MatsEditableOutgoingMessage> outgoingMessages = context.getOutgoingMessages();
 
         // Decorate outgoing REQUESTs with extra-state (for the subsequent REPLY)
-        outgoingMessages.stream()
-                .filter(msg -> msg.getMessageType() == MessageType.REQUEST)
-                .forEach(request -> {
-                    // NOTE: *Initiation time* is already present in the MatsTrace and Mats API:
-                    // DetachedProcessContext.getInitiatingTimestamp()
-                    // The initiator name is not present in MatsTrace (not for the REPLY-receiver), adding it
-                    request.setExtraStateForReplyOrNext(EXTRA_STATE_INITIATOR_NAME, context.getInitiator().getName());
-                    // The initiation request to is not present in the MatsTrace (not for the REPLY-receiver), adding
-                    // it.
-                    // request.setExtraStateForReply(EXTRA_STATE_REQUEST_TO, request.getTo());
-                });
+        for (MatsEditableOutgoingMessage msg : outgoingMessages) {
+            // Add "outgoing timestamp", so as to be able to measure queue time.
+            msg.addString(SIDELOAD_MESSAGE_SENT_MILLIS, Long.toString(System.currentTimeMillis()));
+
+            // :: INITIATOR TO TERMINATOR TIMING:
+            // ?: Is this a REQUEST (in which case there will be a REPLY)
+            if (msg.getMessageType() == MessageType.REQUEST) {
+                // -> Yes, REQUEST.
+                // Set nanoTime and nodename in extra-state
+                msg.setExtraStateForReplyOrNext(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NANOS, System.nanoTime());
+                msg.setExtraStateForReplyOrNext(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NODENAME,
+                        context.getInitiator().getParentFactory().getFactoryConfig().getNodename());
+            }
+            else {
+                // -> No, so SEND or PUBLISH
+                // Set nanoTime and nodename in sideload
+                msg.addString(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NANOS, Long.toString(System.nanoTime()));
+                msg.addString(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NODENAME,
+                        context.getInitiator().getParentFactory().getFactoryConfig().getNodename());
+            }
+        }
 
         // TODO: Decorate outgoing SEND/PUBLISH too? Would use addString(..) for this.
     }
@@ -238,15 +307,14 @@ public class LocalStatsMatsInterceptor
 
         // :: TIMING
         long totalExecutionNanos = context.getTotalExecutionNanos();
-        initiatorStats.addTimingSample(totalExecutionNanos);
+        initiatorStats.recordTotalExecutionTimeNanos(totalExecutionNanos);
 
         // :: OUTGOING MESSAGES
         List<MatsSentOutgoingMessage> outgoingMessages = context.getOutgoingMessages();
         for (MatsSentOutgoingMessage msg : outgoingMessages) {
-            String initiatorId = msg.getInitiatorId();
-            MessageType messageType = msg.getMessageType();
-            String to = msg.getTo();
-            initiatorStats.recordOutgoingMessage(initiatorId, messageType, to);
+            initiatorStats.recordOutgoingMessage(msg.getMessageType(), msg.getTo(),
+                    msg.getMessage() == null ? null : msg.getMessage().getClass(),
+                    msg.getInitiatingAppName(), msg.getInitiatorId());
         }
     }
 
@@ -257,31 +325,98 @@ public class LocalStatsMatsInterceptor
     public void stageReceived(StageReceivedContext i_context) {
         MatsStage<?, ?, ?> stage = i_context.getStage();
         // Must get-or-create this first, since this is what creates the StageStats.
-        getOrCreateEndpointStatsImpl(stage.getParentEndpoint());
+        EndpointStatsImpl endpointStats = getOrCreateEndpointStatsImpl(stage.getParentEndpoint());
         // Get the StageStats
         StageStatsImpl stageStats = _stages.get(stage);
 
-        // Get the ProcesContext
+        // Get the ProcessContext
         ProcessContext<Object> p_context = i_context.getProcessContext();
 
-        // :: INCOMING MESSAGES:
         MessageType incomingMessageType = i_context.getIncomingMessageType();
-        String fromAppName = p_context.getFromAppName();
-        String fromStageId = p_context.getFromStageId();
-        String initiatingAppName = p_context.getInitiatingAppName();
-        String initiatorId = p_context.getInitiatorId();
-        stageStats.recordIncomingMessage(incomingMessageType, fromAppName, fromStageId, initiatingAppName, initiatorId);
 
-        // :: BETWEEN STAGES TIMING:
-        // ?: Is this a reply?
-        if ((incomingMessageType == MessageType.REPLY) || (incomingMessageType == MessageType.NEXT)) {
-            // -> Yes, so then we should have extra-state for the time the request happened
+        IncomingMessageRepresentationImpl incomingMessageRepresentation = new IncomingMessageRepresentationImpl(
+                incomingMessageType, p_context.getFromAppName(),
+                p_context.getFromStageId(), p_context.getInitiatingAppName(), p_context.getInitiatorId());
+
+        // :: COUNT INCOMING MESSAGES:
+        stageStats.recordIncomingMessage(incomingMessageRepresentation);
+
+        // :: TIME SPENT IN QUEUE
+        String messageSentMillisString = p_context.getString(SIDELOAD_MESSAGE_SENT_MILLIS);
+        // ?: Do we have the time spent in queue? (This can be from another codebase that hasn't enabled LocalStats).
+        if (messageSentMillisString != null) {
+            long messageSentMillis = Long.parseLong(messageSentMillisString);
+            long spentQueueTimeMillis = System.currentTimeMillis() - messageSentMillis;
+            stageStats.recordSpentQueueTimeNanos(spentQueueTimeMillis * 1_000_000L);
+        }
+
+        // :: TIME BETWEEN STAGES:
+        // ?: Is this NOT the Initial stage, AND it is a REPLY or NEXT?
+        if ((!stageStats.isInitial()) &&
+                ((incomingMessageType == MessageType.REPLY) || (incomingMessageType == MessageType.NEXT))) {
+            // -> Yes, so then we should have extra-state for the time the previous stage's request/send happened
             String requestNodename = i_context.getIncomingExtraState(EXTRA_STATE_REQUEST_NODENAME, String.class)
                     .orElse(null);
             if (stage.getParentEndpoint().getParentFactory().getFactoryConfig().getNodename().equals(requestNodename)) {
                 long requestNanoTime = i_context.getIncomingExtraState(EXTRA_STATE_REQUEST_NANOS, Long.class)
                         .orElse(0L);
-                stageStats.addBetweenStagesTimeMillis(System.nanoTime() - requestNanoTime);
+                stageStats.recordBetweenStagesTimeNanos(System.nanoTime() - requestNanoTime);
+            }
+        }
+
+        // :: TIME INITIATOR TO TERMINATOR:
+        // ?: Is this the initial stage, AND is it a Terminator
+        if (stageStats.isInitial() && endpointStats.isTerminatorEndpoint()) {
+            // -> Yes, initial and Terminator.
+            // ?: Is this a REPLY?
+            if (i_context.getIncomingMessageType() == MessageType.REPLY) {
+                // -> Yes, this is a reply - thus extra-state is employed
+                String initiatorNodename = i_context.getIncomingExtraState(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NODENAME,
+                        String.class)
+                        .orElse(null);
+                boolean sameNode = stage.getParentEndpoint().getParentFactory().getFactoryConfig()
+                        .getNodename().equals(initiatorNodename);
+
+                // ?: Is this the same node?
+                if (sameNode) {
+                    // -> Yes, same node, and should thus also have extra-state present
+                    Long initiatedNanoTime = i_context.getIncomingExtraState(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NANOS,
+                            Long.class)
+                            .orElse(0L);
+                    long nanosSinceInit = System.nanoTime() - initiatedNanoTime;
+                    endpointStats.recordInitiatorToTerminatorTimeNanos(
+                            incomingMessageRepresentation, nanosSinceInit, true);
+                }
+                else {
+                    // -> No, not same node, so use Mats' initiatedTimestamp (which is millis-since-epoch).
+                    long millisSinceInit = System.currentTimeMillis() - p_context.getInitiatingTimestamp()
+                            .toEpochMilli();
+                    endpointStats.recordInitiatorToTerminatorTimeNanos(incomingMessageRepresentation,
+                            millisSinceInit * 1_000_000L, false);
+                }
+            }
+            else {
+                // -> No, this is not a REPLY, thus it is SEND or PUBLISH - thus sideloads is employed
+                String initiatorNodename = p_context.getString(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NODENAME);
+                boolean sameNode = stage.getParentEndpoint().getParentFactory().getFactoryConfig()
+                        .getNodename().equals(initiatorNodename);
+
+                // ?: Is this the same node?
+                if (sameNode) {
+                    // -> Yes, same node, and thus we should also have nano timing in sideload
+                    long initiatedNanoTime = Long.parseLong(p_context.getString(
+                            EXTRA_STATE_OR_SIDELOAD_INITIATOR_NANOS));
+                    long nanosSinceInit = System.nanoTime() - initiatedNanoTime;
+                    endpointStats.recordInitiatorToTerminatorTimeNanos(
+                            incomingMessageRepresentation, nanosSinceInit, true);
+                }
+                else {
+                    // -> No, not same node, so use Mats' initiatedTimestamp (which is millis-since-epoch).
+                    long millisSinceInit = System.currentTimeMillis() - p_context.getInitiatingTimestamp()
+                            .toEpochMilli();
+                    endpointStats.recordInitiatorToTerminatorTimeNanos(incomingMessageRepresentation,
+                            millisSinceInit * 1_000_000L, false);
+                }
             }
         }
     }
@@ -297,28 +432,30 @@ public class LocalStatsMatsInterceptor
 
         // :: Add extra-state on outgoing messages for BETWEEN STAGES + ENDPOINT TOTAL PROCESSING TIME
         List<MatsEditableOutgoingMessage> outgoingMessages = context.getOutgoingMessages();
-        outgoingMessages.stream()
-                .filter(msg -> (msg.getMessageType() == MessageType.REQUEST)
-                        || (msg.getMessageType() == MessageType.NEXT))
-                .forEach(request -> {
-                    // :: BETWEEN STAGES TIMING:
-                    // The request timestamp is not present in the MatsTrace (not for the REPLY-receiver), adding it.
-                    request.setExtraStateForReplyOrNext(EXTRA_STATE_REQUEST_NANOS, System.nanoTime());
-                    request.setExtraStateForReplyOrNext(EXTRA_STATE_REQUEST_NODENAME, stage.getParentEndpoint()
-                            .getParentFactory().getFactoryConfig().getNodename());
+        for (MatsEditableOutgoingMessage msg : outgoingMessages) {
+            // Add "outgoing timestamp", so as to be able to measure queue time.
+            msg.addString(SIDELOAD_MESSAGE_SENT_MILLIS, Long.toString(System.currentTimeMillis()));
+            // ?: Is this a REQUEST or a NEXT call?
+            if ((msg.getMessageType() == MessageType.REQUEST)
+                    || (msg.getMessageType() == MessageType.NEXT)) {
+                // :: TIME BETWEEN STAGES:
+                // The request timestamp is not present in the MatsTrace (not for the REPLY-receiver), adding it.
+                // NOTE: This is /overwriting/ the state between each stage!
+                msg.setExtraStateForReplyOrNext(EXTRA_STATE_REQUEST_NANOS, System.nanoTime());
+                msg.setExtraStateForReplyOrNext(EXTRA_STATE_REQUEST_NODENAME,
+                        stage.getParentEndpoint().getParentFactory().getFactoryConfig().getNodename());
 
-                    // The request /to/ is not present in the MatsTrace (not for the REPLY-receiver), adding it.
-                    // request.setExtraStateForReply(EXTRA_STATE_REQUEST_TO, request.getTo());
-
-                    // :: ENDPOINT TOTAL PROCESSING TIME
-                    // NOTICE: Storing nanos - but also the node name, so that we'll only use the timing if it is
-                    // same node exiting (or stopping, in case of terminator).
-                    if (stageStats.isInitial()) {
-                        request.setExtraStateForReplyOrNext(EXTRA_STATE_ENDPOINT_ENTER_NANOS, context.getStartedNanoTime());
-                        request.setExtraStateForReplyOrNext(EXTRA_STATE_ENDPOINT_ENTER_NODENAME, stage.getParentEndpoint()
-                                .getParentFactory().getFactoryConfig().getNodename());
-                    }
-                });
+                // :: TIME ENDPOINT TOTAL PROCESSING:
+                // NOTICE: Storing nanos - but also the node name, so that we'll only use the timing if it is
+                // same node exiting (or stopping, in case of terminator).
+                // NOTE: This is only set on initial, and stays with the endpoint's stages - until finished.
+                if (stageStats.isInitial()) {
+                    msg.setExtraStateForReplyOrNext(EXTRA_STATE_ENDPOINT_ENTER_NANOS, context.getStartedNanoTime());
+                    msg.setExtraStateForReplyOrNext(EXTRA_STATE_ENDPOINT_ENTER_NODENAME,
+                            stage.getParentEndpoint().getParentFactory().getFactoryConfig().getNodename());
+                }
+            }
+        }
     }
 
     @Override
@@ -330,21 +467,21 @@ public class LocalStatsMatsInterceptor
         // Get the StageStats
         StageStatsImpl stageStats = _stages.get(stage);
 
-        // :: TOTAL EXECUTIION TIMING
-        stageStats.addTotalExecutionTimeNanos(context.getTotalExecutionNanos());
+        // :: TIME TOTAL EXECUTION:
+        stageStats.recordTotalExecutionTimeNanos(context.getTotalExecutionNanos());
 
-        // :: PROCESS RESULTS
+        // :: COUNT PROCESS RESULTS:
         ProcessResult processResult = context.getProcessResult();
         stageStats.recordProcessResult(processResult);
 
-        // :: ENDPOINT TOTAL PROCESSING TIME
-        // ?: Is this an "exiting process result", i.e. either REPLY (service) or NONE (terminator)?
+        // :: TIME ENDPOINT TOTAL PROCESSING:
+        // ?: Is this an "exiting process result", i.e. either REPLY (service) or NONE (terminator/terminating flow)?
         if (processResult == ProcessResult.REPLY || (processResult == ProcessResult.NONE)) {
             // -> Yes, "exiting process result" - record endpoint total processing time
             // ?: Is this the initial stage?
             if (stageStats.isInitial()) {
                 // -> Yes, initial - thus this is the only stage processed
-                endpointStats.addEndpointTotalProcessingTime(System.nanoTime() - context.getStartedNanoTime());
+                endpointStats.recordTotalEndpointProcessingTimeNanos(System.nanoTime() - context.getStartedNanoTime());
             }
             else {
                 // -> No, not initial stage, been through one or more request/reply calls
@@ -356,21 +493,17 @@ public class LocalStatsMatsInterceptor
                     // -> Yes, same node - so then the System.nanoTime() is relevant to compare
                     Long enterNanoTime = context.getIncomingExtraState(EXTRA_STATE_ENDPOINT_ENTER_NANOS, Long.class)
                             .orElse(0L);
-                    endpointStats.addEndpointTotalProcessingTime(System.nanoTime() - enterNanoTime);
+                    endpointStats.recordTotalEndpointProcessingTimeNanos(System.nanoTime() - enterNanoTime);
                 }
             }
         }
 
-        // - FOR TERMINATORS: time since mats flow was initiated:
-        long timeSinceInit = System.currentTimeMillis() - context.getProcessContext().getInitiatingTimestamp()
-                .toEpochMilli();
-
-        // :: OUTGOING MESSAGES
+        // :: COUNT OUTGOING MESSAGES:
         List<MatsSentOutgoingMessage> outgoingMessages = context.getOutgoingMessages();
         for (MatsSentOutgoingMessage msg : outgoingMessages) {
-            MessageType messageType = msg.getMessageType();
-            String to = msg.getTo();
-            stageStats.recordOutgoingMessage(messageType, to);
+            stageStats.recordOutgoingMessage(msg.getMessageType(), msg.getTo(),
+                    msg.getMessage() == null ? null : msg.getMessage().getClass(),
+                    msg.getInitiatingAppName(), msg.getInitiatorId());
         }
     }
 
@@ -384,59 +517,81 @@ public class LocalStatsMatsInterceptor
     }
 
     // ======================================================================================================
-    // ===== ..internals..
+    // ===== Impl: InitiatorStats, EndpointStats, StageStats
 
     static class InitiatorStatsImpl implements InitiatorStats {
-        private final RingBuffer_Long _totalExecutionTimesNanos;
+        private final RingBuffer_Long _totalExecutionTimeNanos;
 
+        private final AtomicInteger _numberOfAddedOutgoingMessageCounts = new AtomicInteger(0);
         private final ConcurrentHashMap<OutgoingMessageRepresentationImpl, AtomicLong> _outgoingMessageCounts = new ConcurrentHashMap<>();
 
         public InitiatorStatsImpl(int numSamples) {
-            _totalExecutionTimesNanos = new RingBuffer_Long(numSamples);
+            _totalExecutionTimeNanos = new RingBuffer_Long(numSamples);
         }
 
-        public void addTimingSample(long totalExecutionTime) {
-            _totalExecutionTimesNanos.addEntry(totalExecutionTime);
+        public void recordTotalExecutionTimeNanos(long totalExecutionTimeNanos) {
+            _totalExecutionTimeNanos.addEntry(totalExecutionTimeNanos);
         }
 
-        private void recordOutgoingMessage(String initiatorId, MessageType messageType, String to) {
-            OutgoingMessageRepresentationImpl msg =
-                    new OutgoingMessageRepresentationImpl(initiatorId, messageType, to);
-            AtomicLong count = _outgoingMessageCounts.computeIfAbsent(msg, x -> new AtomicLong());
+        private void recordOutgoingMessage(MessageType messageType, String to, Class<?> messageClass,
+                String initiatingAppName, String initiatorId) {
+            // ?: If we've added more than some Max of such entries, we stop adding.
+            // NOTE: Known race condition: This is purely a "best effort" way to try to avoid adding unlimited number
+            // of such measures, and if we overshoot, that is not a problem.
+            if (_numberOfAddedOutgoingMessageCounts.get() >= MAX_NUMBER_OF_DYNAMIC_ENTRIES) {
+                log.warn(createWarnMessageString("counts on outgoing messages from initiators",
+                        "count per initiatorId/msgType/to per MatsInitiator",
+                        _numberOfAddedOutgoingMessageCounts.get(),
+                        initiatorId + "@" + initiatingAppName));
+                return;
+            }
+            OutgoingMessageRepresentationImpl msg = new OutgoingMessageRepresentationImpl(messageType, to,
+                    messageClass, initiatingAppName, initiatorId);
+            AtomicLong count = _outgoingMessageCounts.computeIfAbsent(msg, x -> {
+                // Increment the OOM-avoidance gadget.
+                _numberOfAddedOutgoingMessageCounts.incrementAndGet();
+                // Create the actual counter
+                return new AtomicLong();
+            });
             count.incrementAndGet();
         }
 
         @Override
         public StatsSnapshot getTotalExecutionTimeNanos() {
-            return new StatsSnapshotImpl(_totalExecutionTimesNanos.getValuesCopy(),
-                    _totalExecutionTimesNanos.getNumExecutions());
+            return new StatsSnapshotImpl(_totalExecutionTimeNanos.getValuesCopy(),
+                    _totalExecutionTimeNanos.getNumObservations());
         }
 
         @Override
-        public SortedMap<String, SortedMap<OutgoingMessageRepresentation, Long>> getOutgoingMessageCounts() {
-            SortedMap<String, SortedMap<OutgoingMessageRepresentation, Long>> ret = new TreeMap<>();
-            _outgoingMessageCounts.forEach((msg, v) -> {
-                Map<OutgoingMessageRepresentation, Long> inner =
-                        ret.computeIfAbsent(msg.getInitiatorId(), s -> new TreeMap<>());
-                inner.put(msg, v.get());
-            });
+        public NavigableMap<OutgoingMessageRepresentation, Long> getOutgoingMessageCounts() {
+            NavigableMap<OutgoingMessageRepresentation, Long> ret = new TreeMap<>();
+            _outgoingMessageCounts.forEach((k, v) -> ret.put(k, v.get()));
             return ret;
         }
     }
 
     public static class EndpointStatsImpl implements EndpointStats {
+        private final boolean _isTerminator;
         private final Map<MatsStage<?, ?, ?>, StageStatsImpl> _stagesMap;
         private final List<StageStats> _stageStats;
         private final List<StageStats> _stageStats_unmodifiable;
 
-        private final RingBuffer_Long _totalEndpointProcessingNanos;
+        private final RingBuffer_Long _totalEndpointProcessingTimeNanos;
+
+        private final int _sampleReservoirSize;
+        private final AtomicInteger _numberOfAddedInitiatorToTerminatorEntries = new AtomicInteger(0);
+        private final ConcurrentHashMap<IncomingMessageRepresentation, InitiatorToTerminatorStatsHolder> _initiatorToTerminatorTimeNanos = new ConcurrentHashMap<>();
 
         private EndpointStatsImpl(MatsEndpoint<?, ?> endpoint, int sampleReservoirSize) {
+            Class<?> replyClass = endpoint.getEndpointConfig().getReplyClass();
+            // ?: Is the replyClass Void.TYPE/void.class (or Void.class for legacy reasons).
+            _isTerminator = (replyClass == Void.TYPE) || (replyClass == Void.class);
             List<? extends MatsStage<?, ?, ?>> stages = endpoint.getStages();
             _stagesMap = new HashMap<>(stages.size());
             _stageStats = new ArrayList<>(stages.size());
             // :: Create StateStatsImpl for each Stage of the Endpoint.
             // Note: No use in adding "between stages time millis" sample reservoir for the first stage..
+            // This is handled in the StageStatsImpl constructor
             for (int i = 0; i < stages.size(); i++) {
                 MatsStage<?, ?, ?> stage = stages.get(i);
                 StageStatsImpl stageStats = new StageStatsImpl(sampleReservoirSize, i);
@@ -445,7 +600,8 @@ public class LocalStatsMatsInterceptor
             }
             _stageStats_unmodifiable = Collections.unmodifiableList(_stageStats);
 
-            _totalEndpointProcessingNanos = new RingBuffer_Long(sampleReservoirSize);
+            _sampleReservoirSize = sampleReservoirSize;
+            _totalEndpointProcessingTimeNanos = new RingBuffer_Long(sampleReservoirSize);
         }
 
         private StageStatsImpl getStageStatsImpl(MatsStage<?, ?, ?> stage) {
@@ -456,8 +612,69 @@ public class LocalStatsMatsInterceptor
             return _stagesMap;
         }
 
-        private void addEndpointTotalProcessingTime(long nanosEndpointTotalProcessingTime) {
-            _totalEndpointProcessingNanos.addEntry(nanosEndpointTotalProcessingTime);
+        private static class InitiatorToTerminatorStatsHolder {
+            private final RingBuffer_Long _ringBuffer;
+            private final AtomicBoolean _sameNode = new AtomicBoolean(false);
+
+            public InitiatorToTerminatorStatsHolder(RingBuffer_Long ringBuffer) {
+                _ringBuffer = ringBuffer;
+            }
+        }
+
+        private void recordInitiatorToTerminatorTimeNanos(IncomingMessageRepresentation incomingMessageRepresentation,
+                long initiatorToTerminatorTimeNanos, boolean sameNode) {
+            // ?: If we've added more than some Max of such entries, we stop adding.
+            // NOTE: Known race condition: This is purely a "best effort" way to try to avoid adding unlimited number
+            // of such measures, and if we overshoot, that is not a problem.
+            if (_numberOfAddedInitiatorToTerminatorEntries.get() >= MAX_NUMBER_OF_DYNAMIC_ENTRIES) {
+                log.warn(createWarnMessageString("statistics on timing between initiations and terminators",
+                        "statistics-gatherer per initiatorId/terminatorId",
+                        _numberOfAddedInitiatorToTerminatorEntries.get(),
+                        incomingMessageRepresentation.getInitiatorId() + "@"
+                                + incomingMessageRepresentation.getInitiatingAppName()));
+                return;
+            }
+
+            InitiatorToTerminatorStatsHolder ringBufferHolder = _initiatorToTerminatorTimeNanos
+                    .computeIfAbsent(incomingMessageRepresentation, s -> {
+                        // Increment the OOM-avoidance gadget.
+                        _numberOfAddedInitiatorToTerminatorEntries.incrementAndGet();
+                        // Create the actual RingBuffer.
+                        return new InitiatorToTerminatorStatsHolder(new RingBuffer_Long(_sampleReservoirSize));
+                    });
+            boolean alreadySeenSameNode = ringBufferHolder._sameNode.get();
+            // ?: Have we already seen sameNodes?
+            if (alreadySeenSameNode) {
+                // -> Yes, already seen sameNode
+                // ?: Is this a sameNode measurement?
+                if (sameNode) {
+                    // -> Yes, this is a sameNode measurement, so store it.
+                    ringBufferHolder._ringBuffer.addEntry(initiatorToTerminatorTimeNanos);
+                }
+                else {
+                    // -> No, this is NOT a sameNode measurement, so DROP it - we only want the good stuff!
+                    return;
+                }
+            }
+            else {
+                // -> No, we haven't seen sameNode measurements before
+                // We want to store the measurement at any rate (both non-sameNode, and good-stuff sameNode)
+                ringBufferHolder._ringBuffer.addEntry(initiatorToTerminatorTimeNanos);
+                // ?: Is this a sameNode measurement?
+                if (sameNode) {
+                    // Since we've now seen a sameNode measurement, we only want such good-stuff going forward
+                    ringBufferHolder._sameNode.set(true);
+                }
+            }
+        }
+
+        private void recordTotalEndpointProcessingTimeNanos(long totalEndpointProcessingTimeNanos) {
+            _totalEndpointProcessingTimeNanos.addEntry(totalEndpointProcessingTimeNanos);
+        }
+
+        @Override
+        public boolean isTerminatorEndpoint() {
+            return _isTerminator;
         }
 
         @Override
@@ -471,45 +688,78 @@ public class LocalStatsMatsInterceptor
         }
 
         @Override
-        public StatsSnapshot getTotalEndpointProcessingNanos() {
-            return new StatsSnapshotImpl(_totalEndpointProcessingNanos.getValuesCopy(),
-                    _totalEndpointProcessingNanos.getNumExecutions());
+        public StatsSnapshot getTotalEndpointProcessingTimeNanos() {
+            return new StatsSnapshotImpl(_totalEndpointProcessingTimeNanos.getValuesCopy(),
+                    _totalEndpointProcessingTimeNanos.getNumObservations());
+        }
+
+        @Override
+        public NavigableMap<IncomingMessageRepresentation, StatsSnapshot> getInitiatorToTerminatorTimeNanos() {
+            NavigableMap<IncomingMessageRepresentation, StatsSnapshot> ret = new TreeMap<>();
+            _initiatorToTerminatorTimeNanos.forEach((k, v) -> ret.put(k, new StatsSnapshotImpl(v._ringBuffer
+                    .getValuesCopy(),
+                    v._ringBuffer.getNumObservations())));
+            return ret;
         }
     }
 
     static class StageStatsImpl implements StageStats {
+        private final RingBuffer_Long _spentQueueTimeNanos;
+        private final RingBuffer_Long _betweenStagesTimeNanos;
         private final RingBuffer_Long _totalExecutionTimeNanos;
-        private final RingBuffer_Long _betweenStagesTimeMillis;
         private final int _index;
         private final boolean _initial;
 
-        private final ConcurrentHashMap<IncomingMessageRepresentationImpl, AtomicLong> _incomingMessageCounts = new ConcurrentHashMap<>();
-        private final ConcurrentHashMap<OutgoingMessageRepresentationImpl, AtomicLong> _outgoingMessageCounts = new ConcurrentHashMap<>();
+        private final AtomicInteger _numberOfIncomingMessageCounts = new AtomicInteger(0);
+        private final ConcurrentHashMap<IncomingMessageRepresentation, AtomicLong> _incomingMessageCounts = new ConcurrentHashMap<>();
+
+        private final AtomicInteger _numberOfOutgoingMessageCounts = new AtomicInteger(0);
+        private final ConcurrentHashMap<OutgoingMessageRepresentation, AtomicLong> _outgoingMessageCounts = new ConcurrentHashMap<>();
+
         private final ConcurrentHashMap<ProcessResult, AtomicLong> _processResultCounts = new ConcurrentHashMap<>();
 
         public StageStatsImpl(int sampleReservoirSize, int index) {
+            _spentQueueTimeNanos = new RingBuffer_Long(sampleReservoirSize);
+            // Note: No use in adding "between stages time millis" sample reservoir for the first stage..
+            _betweenStagesTimeNanos = (index == 0)
+                    ? null
+                    : new RingBuffer_Long(sampleReservoirSize);
             _totalExecutionTimeNanos = new RingBuffer_Long(sampleReservoirSize);
             _index = index;
             _initial = index == 0;
-            _betweenStagesTimeMillis = (index == 0)
-                    ? null
-                    : new RingBuffer_Long(sampleReservoirSize);
         }
 
-        private void addTotalExecutionTimeNanos(long totalExecutionTimeNanos) {
+        private void recordSpentQueueTimeNanos(long betweenStagesTimeNanos) {
+            _spentQueueTimeNanos.addEntry(betweenStagesTimeNanos);
+        }
+
+        private void recordBetweenStagesTimeNanos(long betweenStagesTimeNanos) {
+            _betweenStagesTimeNanos.addEntry(betweenStagesTimeNanos);
+        }
+
+        private void recordTotalExecutionTimeNanos(long totalExecutionTimeNanos) {
             _totalExecutionTimeNanos.addEntry(totalExecutionTimeNanos);
         }
 
-        private void addBetweenStagesTimeMillis(long betweenStagesTimeMillis) {
-            _betweenStagesTimeMillis.addEntry(betweenStagesTimeMillis);
-        }
-
-        private void recordIncomingMessage(MessageType incomingMessageType, String fromAppName, String fromStageId,
-                String initiatingAppName, String initiatorId) {
-            IncomingMessageRepresentationImpl incomingMessageRepresentation = new IncomingMessageRepresentationImpl(
-                    incomingMessageType, fromAppName, fromStageId, initiatingAppName, initiatorId);
+        private void recordIncomingMessage(IncomingMessageRepresentation incomingMessageRepresentation) {
+            // ?: If we've added more than some Max of such entries, we stop adding.
+            // NOTE: Known race condition: This is purely a "best effort" way to try to avoid adding unlimited number
+            // of such measures, and if we overshoot, that is not a problem.
+            if (_numberOfIncomingMessageCounts.get() >= MAX_NUMBER_OF_DYNAMIC_ENTRIES) {
+                log.warn(createWarnMessageString("counts on incoming messages",
+                        "count per initiatorId/msgType/from per MatsStage",
+                        _numberOfIncomingMessageCounts.get(),
+                        incomingMessageRepresentation.getInitiatorId() + "@"
+                                + incomingMessageRepresentation.getInitiatingAppName()));
+                return;
+            }
             AtomicLong count = _incomingMessageCounts.computeIfAbsent(incomingMessageRepresentation,
-                    x -> new AtomicLong());
+                    x -> {
+                        // Increment the OOM-avoidance gadget.
+                        _numberOfIncomingMessageCounts.incrementAndGet();
+                        // Create the counter
+                        return new AtomicLong();
+                    });
             count.incrementAndGet();
         }
 
@@ -518,9 +768,27 @@ public class LocalStatsMatsInterceptor
             count.incrementAndGet();
         }
 
-        private void recordOutgoingMessage(MessageType messageType, String to) {
-            OutgoingMessageRepresentationImpl msg = new OutgoingMessageRepresentationImpl(messageType, to);
-            AtomicLong count = _outgoingMessageCounts.computeIfAbsent(msg, x -> new AtomicLong());
+        private void recordOutgoingMessage(MessageType messageType, String to, Class<?> messageClass,
+                String initiatingAppName,
+                String initiatorId) {
+            // ?: If we've added more than some Max of such entries, we stop adding.
+            // NOTE: Known race condition: This is purely a "best effort" way to try to avoid adding unlimited number
+            // of such measures, and if we overshoot, that is not a problem.
+            if (_numberOfOutgoingMessageCounts.get() >= MAX_NUMBER_OF_DYNAMIC_ENTRIES) {
+                log.warn(createWarnMessageString("counts on outgoing messages",
+                        "count per initiatorId/msgType/to per MatsStage",
+                        _numberOfOutgoingMessageCounts.get(),
+                        initiatorId + "@" + initiatingAppName));
+                return;
+            }
+            OutgoingMessageRepresentationImpl msg = new OutgoingMessageRepresentationImpl(messageType, to,
+                    messageClass, initiatingAppName, initiatorId);
+            AtomicLong count = _outgoingMessageCounts.computeIfAbsent(msg, x -> {
+                // Increment the OOM-avoidance gadget.
+                _numberOfOutgoingMessageCounts.incrementAndGet();
+                // Create the counter
+                return new AtomicLong();
+            });
             count.incrementAndGet();
         }
 
@@ -535,102 +803,60 @@ public class LocalStatsMatsInterceptor
         }
 
         @Override
+        public StatsSnapshot getSpentQueueTimeNanos() {
+            return new StatsSnapshotImpl(_spentQueueTimeNanos.getValuesCopy(),
+                    _spentQueueTimeNanos.getNumObservations());
+        }
+
+        @Override
+        public Optional<StatsSnapshot> getBetweenStagesTimeNanos() {
+            if (_betweenStagesTimeNanos == null) {
+                return Optional.empty();
+            }
+            return Optional.of(new StatsSnapshotImpl(_betweenStagesTimeNanos.getValuesCopy(),
+                    _betweenStagesTimeNanos.getNumObservations()));
+        }
+
+        @Override
         public StatsSnapshot getTotalExecutionTimeNanos() {
             return new StatsSnapshotImpl(_totalExecutionTimeNanos.getValuesCopy(),
-                    _totalExecutionTimeNanos.getNumExecutions());
+                    _totalExecutionTimeNanos.getNumObservations());
         }
 
         @Override
-        public StatsSnapshot getBetweenStagesTimeNanos() {
-            if (_betweenStagesTimeMillis == null) {
-                return null;
-            }
-            return new StatsSnapshotImpl(_betweenStagesTimeMillis.getValuesCopy(),
-                    _betweenStagesTimeMillis.getNumExecutions());
-        }
-
-        @Override
-        public SortedMap<IncomingMessageRepresentation, Long> getIncomingMessageCounts() {
-            SortedMap<IncomingMessageRepresentation, Long> ret = new TreeMap<>();
+        public NavigableMap<IncomingMessageRepresentation, Long> getIncomingMessageCounts() {
+            NavigableMap<IncomingMessageRepresentation, Long> ret = new TreeMap<>();
             _incomingMessageCounts.forEach((k, v) -> ret.put(k, v.get()));
             return ret;
         }
 
         @Override
-        public SortedMap<ProcessResult, Long> getProcessResultCounts() {
-            SortedMap<ProcessResult, Long> ret = new TreeMap<>();
+        public NavigableMap<ProcessResult, Long> getProcessResultCounts() {
+            NavigableMap<ProcessResult, Long> ret = new TreeMap<>();
             _processResultCounts.forEach((k, v) -> ret.put(k, v.get()));
             return ret;
         }
 
         @Override
-        public SortedMap<OutgoingMessageRepresentation, Long> getOutgoingMessageCounts() {
-            SortedMap<OutgoingMessageRepresentation, Long> ret = new TreeMap<>();
+        public NavigableMap<OutgoingMessageRepresentation, Long> getOutgoingMessageCounts() {
+            NavigableMap<OutgoingMessageRepresentation, Long> ret = new TreeMap<>();
             _outgoingMessageCounts.forEach((k, v) -> ret.put(k, v.get()));
             return ret;
         }
     }
 
-    // ======================================================================================================
-    // ===== Impl: OutgoingMessageRepresentation & IncomingMessageRepresentation
-
-
-    public static class OutgoingMessageRepresentationImpl implements OutgoingMessageRepresentation {
-        private final MessageType _messageType;
-        private final String _to;
-
-        private final String _initiatorId;
-
-        public OutgoingMessageRepresentationImpl(MessageType messageType, String to) {
-            _messageType = messageType;
-            _to = to;
-            _initiatorId = null;
-        }
-
-        public OutgoingMessageRepresentationImpl(String initiatorId, MessageType messageType, String to) {
-            _messageType = messageType;
-            _to = to;
-            _initiatorId = initiatorId;
-        }
-
-        private String getInitiatorId() {
-            return _initiatorId;
-        }
-
-        @Override
-        public MessageType getMessageType() {
-            return _messageType;
-        }
-
-        @Override
-        public String getTo() {
-            return _to;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            OutgoingMessageRepresentationImpl that = (OutgoingMessageRepresentationImpl) o;
-            return _messageType == that._messageType
-                    && Objects.equals(_initiatorId, that._initiatorId)
-                    && Objects.equals(_to, that._to);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(_messageType, _to, _initiatorId);
-        }
-
-        private static final Comparator<OutgoingMessageRepresentation> COMPARATOR = Comparator
-                .comparing(OutgoingMessageRepresentation::getMessageType)
-                .thenComparing(OutgoingMessageRepresentation::getTo);
-
-        @Override
-        public int compareTo(OutgoingMessageRepresentation o) {
-            return COMPARATOR.compare(this, o);
-        }
+    private static String createWarnMessageString(String what, String countDescription, int count, String initiatorId) {
+        return "Too many measures: We try to do " + what + ". However, this requires us to keep a " + countDescription
+                + ". Currently, we've added [" + count + "], and this is above the threshold of ["
+                + MAX_NUMBER_OF_DYNAMIC_ENTRIES + "], so we've stopped adding more. InitiatorId of this dropped one: ["
+                + initiatorId + "] - notice that the processing goes through just fine, we'll just not gather"
+                + " statistics for it. NOTE: This typically means that you are wrongly creating a dynamic initiatorId,"
+                + " e.g. adding some Id to the String on the init.from(<initiatorId>) call. Don't do that, such an id"
+                + " should go into the traceId";
     }
+
+    // ======================================================================================================
+    // ===== Impl: IncomingMessageRepresentation & OutgoingMessageRepresentation
 
     public static class IncomingMessageRepresentationImpl implements IncomingMessageRepresentation {
         private final MessageType _messageType;
@@ -686,11 +912,11 @@ public class LocalStatsMatsInterceptor
         }
 
         private static final Comparator<IncomingMessageRepresentation> COMPARATOR = Comparator
-                .comparing(IncomingMessageRepresentation::getMessageType)
+                .comparing(IncomingMessageRepresentation::getInitiatorId)
+                .thenComparing(IncomingMessageRepresentation::getInitiatingAppName)
+                .thenComparing(IncomingMessageRepresentation::getMessageType)
                 .thenComparing(IncomingMessageRepresentation::getFromStageId)
-                .thenComparing(IncomingMessageRepresentation::getFromAppName)
-                .thenComparing(IncomingMessageRepresentation::getInitiatorId)
-                .thenComparing(IncomingMessageRepresentation::getInitiatingAppName);
+                .thenComparing(IncomingMessageRepresentation::getFromAppName);
 
         @Override
         public int compareTo(IncomingMessageRepresentation o) {
@@ -698,21 +924,91 @@ public class LocalStatsMatsInterceptor
         }
     }
 
+    public static class OutgoingMessageRepresentationImpl implements OutgoingMessageRepresentation {
+        private final MessageType _messageType;
+        private final String _to;
+        private final Class<?> _messageClass;
+        private final String _initiatingAppName;
+        private final String _initiatorId;
 
+        public OutgoingMessageRepresentationImpl(MessageType messageType, String to, Class<?> messageClass,
+                String initiatingAppName, String initiatorId) {
+            _messageType = messageType;
+            _to = to;
+            _messageClass = messageClass;
+            _initiatingAppName = initiatingAppName;
+            _initiatorId = initiatorId;
+        }
 
-    // ===== Stats and RingBuffer
+        @Override
+        public MessageType getMessageType() {
+            return _messageType;
+        }
+
+        @Override
+        public String getTo() {
+            return _to;
+        }
+
+        @Override
+        public Class<?> getMessageClass() {
+            return _messageClass;
+        }
+
+        @Override
+        public String getInitiatingAppName() {
+            return _initiatingAppName;
+        }
+
+        @Override
+        public String getInitiatorId() {
+            return _initiatorId;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            OutgoingMessageRepresentationImpl that = (OutgoingMessageRepresentationImpl) o;
+            return _messageType == that._messageType
+                    && Objects.equals(_to, that._to)
+                    && Objects.equals(_messageClass, that._messageClass)
+                    && Objects.equals(_initiatingAppName, that._initiatingAppName)
+                    && Objects.equals(_initiatorId, that._initiatorId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(_messageType, _to, _messageClass, _initiatingAppName, _initiatorId);
+        }
+
+        private static final Comparator<OutgoingMessageRepresentation> COMPARATOR = Comparator
+                .comparing(OutgoingMessageRepresentation::getInitiatorId)
+                .thenComparing(OutgoingMessageRepresentation::getInitiatingAppName)
+                .thenComparing(OutgoingMessageRepresentation::getMessageType)
+                .thenComparing(o -> o.getMessageClass() == null ? "null" : o.getMessageClass().getName())
+                .thenComparing(OutgoingMessageRepresentation::getTo);
+
+        @Override
+        public int compareTo(OutgoingMessageRepresentation o) {
+            return COMPARATOR.compare(this, o);
+        }
+    }
+
+    // ======================================================================================================
+    // ===== Impl: StatsSnapshot, and RingBuffer_Long
 
     static class StatsSnapshotImpl implements StatsSnapshot {
         private final long[] _values;
-        private final long _numExecutions;
+        private final long _numObservations;
 
         /**
          * NOTE!! The values array shall be "owned" by this instance (i.e. copied out), and WILL be sorted here.
          */
-        public StatsSnapshotImpl(long[] values, long numExecutions) {
+        public StatsSnapshotImpl(long[] values, long numObservations) {
             _values = values;
             Arrays.sort(_values);
-            _numExecutions = numExecutions;
+            _numObservations = numObservations;
         }
 
         @Override
@@ -748,7 +1044,7 @@ public class LocalStatsMatsInterceptor
 
         @Override
         public long getNumObservations() {
-            return _numExecutions;
+            return _numObservations;
         }
 
         @Override
@@ -842,21 +1138,8 @@ public class LocalStatsMatsInterceptor
          * @return the total number of executions run - of which only the last {@link #getSampleReservoirSize()} is kept
          *         in the circular buffer.
          */
-        public long getNumExecutions() {
+        public long getNumObservations() {
             return _numAdded.longValue();
-        }
-    }
-
-    public static void main(String[] args) {
-        RingBuffer_Long list = new RingBuffer_Long(11);
-        long total = 0;
-        int added = 0;
-        for (int i = 0; i < 40; i++) {
-            list.addEntry(i);
-            total += i;
-            added++;
-
-            // System.out.println("[" + i + "] local: " + (total / (double) added) + ", list:" + list.getAverage());
         }
     }
 }

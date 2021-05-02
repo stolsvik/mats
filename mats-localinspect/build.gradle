@@ -16,6 +16,9 @@ dependencies {
     testImplementation project(':mats-impl-jms')
     // We need an implementation of the MatsSerializer, the MatsSerializerJson
     testImplementation project(':mats-serial-json')
+    // We use the MatsFuturizer
+    testImplementation project(':mats-util')
+
     // H2 Database, since we pull up a DB
     testImplementation "com.h2database:h2:$h2Version"
 
