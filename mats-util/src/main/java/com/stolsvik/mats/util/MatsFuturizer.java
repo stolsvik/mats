@@ -32,7 +32,7 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
  * asynchronous world of Mats. In a given project, you typically create a single instance of this class upon startup,
  * and employ it for all such scenarios. In short, in a HTTP service handler, you initialize a Mats flow using
  * {@link #futurizeNonessential(String, String, String, Class, Object) singletonFuturizer.futurizeNonessential(...)} (or
- * {@link #futurize(String, String, String, int, TimeUnit, Class, Object, InitiateLambda) futurize()} for full
+ * {@link #futurize(String, String, String, int, TimeUnit, Class, Object, InitiateLambda) futurize(...)} for full
  * configurability), specifying which Mats Endpoint to invoke and the request DTO instance, and then you get a
  * {@link CompletableFuture} in return. This future will complete once the invoked Mats Endpoint replies.
  * <p />
@@ -54,14 +54,15 @@ import com.stolsvik.mats.MatsInitiator.MatsInitiate;
  * which futurizeNonessential(..) does!)</i>, nothing can be guaranteed wrt. the completion of the future: This is
  * stateful processing. The node where the MatsFuturizer initiation is performed can crash right after the message has
  * been put on the Mats fabric, and hence the CompletableFuture vanishes along with everything else on that node. The
- * mats flow is however already in motion, and will be executed - but when the Reply comes in on the Topic, there is no
- * longer any corresponding CompletableFuture to complete. This is also why you should not compose Mats endpoints using
- * this familiar feeling that a CompletableFuture probably gives you: While a multi-stage MatsEndpoint is asynchronous,
- * resilient and highly available and each stage is transactionally performed, with retries and all the goodness that
- * comes with a message oriented architecture, once you rely on a CompletableFuture, you are in a synchronous world
- * where a power outage or a reboot can stop the processing midway. Thus, the MatsFuturizer should always just be
- * employed out the very outer edge facing the actual client - any other processing should be performed using
- * MatsEndpoints, and composition of MatsEndpoints should be done using multi-stage MatsEndpoints.
+ * mats flow is however already in motion, and will be executed - but when the Reply comes in on the node-specific
+ * Topic, there is no longer any corresponding CompletableFuture to complete. This is also why you should not compose
+ * Mats endpoints using this familiar feeling that a CompletableFuture probably gives you: While a multi-stage
+ * MatsEndpoint is asynchronous, resilient and highly available and each stage is transactionally performed, with
+ * retries and all the goodness that comes with a message oriented architecture, once you rely on a CompletableFuture,
+ * you are in a synchronous world where a power outage or a reboot can stop the processing midway. Thus, the
+ * MatsFuturizer should always just be employed out the very outer edge facing the actual client - any other processing
+ * should be performed using MatsEndpoints, and composition of MatsEndpoints should be done using multi-stage
+ * MatsEndpoints.
  * <p />
  * Note that in the case of pure "GET-style" requests where information is only retrieved and no state in the total
  * system is changed, everything is a bit more relaxed: If a processing fails, the worst thing that happens is a
@@ -78,6 +79,31 @@ public class MatsFuturizer implements AutoCloseable {
 
     /**
      * Creates a MatsFuturizer, <b>and you should only need one per MatsFactory</b> (which again mostly means one per
+     * application or micro-service or JVM). The defaults for the parameters from the fully fledged factory method are
+     * identical to the {@link #createMatsFuturizer(MatsFactory, String)}, but with this variant also the
+     * 'endpointIdPrefix' is set to what is returned by <code>matsFactory.getFactoryConfig().getAppName()</code>.
+     * <b>Note that if you - against the above suggestion - create more than one MatsFuturizer for a MatsFactory, then
+     * you MUST give them different endpointIdPrefixes, thus you cannot use this method!</b>
+     *
+     * @param matsFactory
+     *            the underlying {@link MatsFactory} on which outgoing messages will be sent, and on which the receiving
+     *            {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
+     *            SubscriptionTerminator} will be created.
+     * @return the {@link MatsFuturizer}, which is tied to a newly created
+     *         {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
+     *         SubscriptionTerminator}.
+     */
+    public static MatsFuturizer createMatsFuturizer(MatsFactory matsFactory) {
+        String endpointIdPrefix = matsFactory.getFactoryConfig().getAppName();
+        if ((endpointIdPrefix == null) || endpointIdPrefix.trim().isEmpty()) {
+            throw new IllegalArgumentException("The matsFactory.getFactoryConfig().getAppName() returns ["
+                    + endpointIdPrefix + "], which is not allowed to use as endpointIdPrefix (null or blank).");
+        }
+        return createMatsFuturizer(matsFactory, endpointIdPrefix);
+    }
+
+    /**
+     * Creates a MatsFuturizer, <b>and you should only need one per MatsFactory</b> (which again mostly means one per
      * application or micro-service or JVM). The number of threads in the future-completer-pool is what
      * {@link FactoryConfig#getConcurrency() matsFactory.getFactoryConfig().getConcurrency()} returns at creation time x
      * 4 for "corePoolSize", but at least 5, (i.e. "min"); and concurrency * 20, but at least 100, for "maximumPoolSize"
@@ -90,7 +116,9 @@ public class MatsFuturizer implements AutoCloseable {
      *            SubscriptionTerminator} will be created.
      * @param endpointIdPrefix
      *            the first part of the endpointId, which typically should be some "class-like" construct denoting the
-     *            service name, like "OrderService" or "InventoryService".
+     *            service name, like "OrderService" or "InventoryService", preferably the same prefix you use for all
+     *            your other endpoints running on this same service. <b>Note: If you create multiple MatsFuturizers for
+     *            a MatsFactory, this parameter must be different for each instance!</b>
      * @return the {@link MatsFuturizer}, which is tied to a newly created
      *         {@link MatsFactory#subscriptionTerminator(String, Class, Class, ProcessTerminatorLambda)
      *         SubscriptionTerminator}.
@@ -103,7 +131,7 @@ public class MatsFuturizer implements AutoCloseable {
 
     /**
      * Creates a MatsFuturizer, <b>and you should only need one per MatsFactory</b> (which again mostly means one per
-     * application or micro-service or JVM). With this constructor you can specify the number of threads in the
+     * application or micro-service or JVM). With this factory method you can specify the number of threads in the
      * future-completer-pool with the parameters "corePoolSize" and "maxPoolSize" threads, which effectively means min
      * and max. The pool is set up to let non-core threads expire after 5 minutes. You must also specify the max number
      * of outstanding promises, if you want no effective limit, use {@link Integer#MAX_VALUE}.
@@ -114,7 +142,9 @@ public class MatsFuturizer implements AutoCloseable {
      *            SubscriptionTerminator} will be created.
      * @param endpointIdPrefix
      *            the first part of the endpointId, which typically should be some "class-like" construct denoting the
-     *            service name, like "OrderService" or "InventoryService".
+     *            service name, like "OrderService" or "InventoryService", preferably the same prefix you use for all
+     *            your other endpoints running on this same service. <b>Note: If you create multiple MatsFuturizers for
+     *            a MatsFactory, this parameter must be different for each instance!</b>
      * @param corePoolSize
      *            the minimum number of threads in the future-completer-pool of threads.
      * @param maxPoolSize
@@ -141,8 +171,13 @@ public class MatsFuturizer implements AutoCloseable {
     protected MatsFuturizer(MatsFactory matsFactory, String endpointIdPrefix, int corePoolSize, int maxPoolSize,
             int maxOutstandingPromises) {
         _matsFactory = matsFactory;
-        _matsInitiator = matsFactory.getOrCreateInitiator("Futurizer." + endpointIdPrefix);
-        _terminatorEndpointId = endpointIdPrefix + ".private.Futurizer."
+        String endpointIdPrefix_sanitized = SanitizeMqNames.sanitizeName(endpointIdPrefix);
+        if ((endpointIdPrefix_sanitized == null) || endpointIdPrefix_sanitized.trim().isEmpty()) {
+            throw new IllegalArgumentException("The sanitized endpointIdPrefix (orig:["
+                    + endpointIdPrefix + "]) is not allowed to use as endpointIdPrefix (null or blank).");
+        }
+        _matsInitiator = matsFactory.getOrCreateInitiator(endpointIdPrefix_sanitized + ".Futurizer.init");
+        _terminatorEndpointId = endpointIdPrefix_sanitized + ".Futurizer.private.repliesFor."
                 + _matsFactory.getFactoryConfig().getNodename();
         _futureCompleterThreadPool = _newThreadPool(corePoolSize, maxPoolSize);
         _maxOutstandingPromises = maxOutstandingPromises;
@@ -151,7 +186,7 @@ public class MatsFuturizer implements AutoCloseable {
                 this::_handleRepliesForPromises);
         _startTimeouterThread();
         log.info(LOG_PREFIX + "MatsFuturizer created."
-                + " EndpointIdPrefix:[" + endpointIdPrefix
+                + " EndpointIdPrefix:[" + endpointIdPrefix_sanitized
                 + "], corePoolSize:[" + corePoolSize
                 + "], maxPoolSize:[" + maxPoolSize
                 + "], maxOutstandingPromises:[" + maxOutstandingPromises + "]");
@@ -252,8 +287,8 @@ public class MatsFuturizer implements AutoCloseable {
      * {@link CompletableFuture#completeExceptionally(Throwable) completed exceptionally} with a
      * {@link MatsFuturizerTimeoutException MatsFuturizerTimeoutException}, and the Promise deleted from the futurizer.
      * 2 minutes is probably too long to wait for any normal interaction with a system, so if you use the
-     * {@link CompletableFuture#get(long, TimeUnit) CompletableFuture.get(timeout)} method of the returned future, you
-     * might want to put a lower timeout there - if the answer hasn't come within that time, you'll get a
+     * {@link CompletableFuture#get(long, TimeUnit) CompletableFuture.get(timeout, TimeUnit)} method of the returned
+     * future, you might want to put a lower timeout there - if the answer hasn't come within that time, you'll get a
      * {@link TimeoutException}. If you instead use the non-param variant {@link CompletableFuture#get() get()}, you
      * will get an {@link ExecutionException} when the 2 minutes have passed (that exception's
      * {@link ExecutionException#getCause() cause} will be the {@link MatsFuturizerTimeoutException
@@ -281,6 +316,8 @@ public class MatsFuturizer implements AutoCloseable {
     }
 
     /**
+     * TODO: Delete once all are >= 0.16.0.
+     * 
      * @deprecated use {@link #futurizeNonessential(String, String, String, Class, Object)} instead.
      */
     @Deprecated
