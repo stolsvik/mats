@@ -61,8 +61,6 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
         @SuppressWarnings("unchecked")
         HashMap<String, String> stringsCopied = (HashMap<String, String>) strings.clone();
 
-        long nanosTaken_ProduceOutgoingMessage = System.nanoTime() - nanosAtStart_ProducingOutgoingMessage;
-
         // ?: Do we have a "stack overflow" situation - i.e. the stack height of the outgoing message is too high?
         if (outgoingMatsTrace.getCurrentCall().getReplyStackHeight() > JmsMatsStatics.MAX_STACK_HEIGHT) {
             throw new JmsMatsOverflowRuntimeException("\"Stack Overflow\": Outgoing message with"
@@ -85,12 +83,12 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
         // Produce and return the JmsMatsMessage
         return new JmsMatsMessage<>(dispatchType, matsSerializer, outgoingMatsTrace,
                 outgoingMessage, initialTargetState, replyToState,
-                bytesCopied, stringsCopied, nanosTaken_ProduceOutgoingMessage);
+                bytesCopied, stringsCopied, nanosAtStart_ProducingOutgoingMessage);
     }
 
     public JmsMatsMessage(DispatchType dispatchType, MatsSerializer<Z> matsSerializer, MatsTrace<Z> matsTrace,
             Object outgoingMessage, Object initialTargetState, Object replyToState,
-            Map<String, byte[]> bytes, Map<String, String> strings, long nanosTakenProduceOutgoingMessage) {
+            Map<String, byte[]> bytes, Map<String, String> strings, long nanosAtStart_ProducingOutgoingMessage) {
         _dispatchType = dispatchType;
         _matsSerializer = matsSerializer;
         _matsTrace = matsTrace;
@@ -99,7 +97,7 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
         _replyToState = replyToState;
         _bytes = bytes;
         _strings = strings;
-        _nanosTakenProduceOutgoingMessage = nanosTakenProduceOutgoingMessage;
+        _nanosTakenProduceOutgoingMessage = System.nanoTime() - nanosAtStart_ProducingOutgoingMessage;
     }
 
     public String getWhat() {

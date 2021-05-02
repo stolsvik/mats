@@ -121,14 +121,13 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     .getCurrentMatsFactoryThreadLocal_WithinStageContext();
 
             JmsMatsInternalExecutionContext internalExecutionContext = withinStageContext
-                    .map(within -> JmsMatsInternalExecutionContext.forStage(jmsSessionHolder, within
-                            .getMessageConsumer()))
+                    .map(within -> JmsMatsInternalExecutionContext.forStage(jmsSessionHolder,
+                            within.getMessageConsumer()))
                     .orElseGet(() -> JmsMatsInternalExecutionContext.forInitiation(jmsSessionHolder));
 
             JmsMatsInitiate<Z> init = withinStageContext
                     .map(within -> JmsMatsInitiate.createForChildFlow(_parentFactory, messagesToSend,
-                            internalExecutionContext, doAfterCommitRunnableHolder,
-                            withinStageContext.get().getMatsTrace()))
+                            internalExecutionContext, doAfterCommitRunnableHolder, within.getMatsTrace()))
                     .orElseGet(() -> JmsMatsInitiate.createForTrueInitiation(_parentFactory, messagesToSend,
                             internalExecutionContext, doAfterCommitRunnableHolder));
             try {
@@ -458,7 +457,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
 
     @Override
     public String idThis() {
-        return id("JmsMatsInitiator{"+_name+"}", this) + "@" + _parentFactory;
+        return id("JmsMatsInitiator{" + _name + "}", this) + "@" + _parentFactory;
     }
 
     @Override
