@@ -137,8 +137,19 @@ public class JmsMatsStage<R, S, I, Z> implements MatsStage<R, S, I>, JmsMatsStat
             numberOfProcessors = 1;
         }
 
+        // :: Add all the ordinary stage processors
         for (int i = 0; i < numberOfProcessors; i++) {
-            _stageProcessors.add(new JmsMatsStageProcessor<>(this, i));
+            _stageProcessors.add(new JmsMatsStageProcessor<>(this, i, false));
+        }
+        // :: Add interactive stage processors
+        // ?: Is this a Queue? (Cannot add multiple processors for topic endpoints - read comment above).
+        if (_queue) {
+            // -> Yes, this is a queue, so then we can add the interactive processors
+            // Add floor'ed half of the normal numberOfProcessors, but at least 1.
+            int numberOfInteractiveProcessors = Math.max(1, (int) (numberOfProcessors / 2d));
+            for (int i = 0; i < numberOfInteractiveProcessors; i++) {
+                _stageProcessors.add(new JmsMatsStageProcessor<>(this, i, true));
+            }
         }
     }
 

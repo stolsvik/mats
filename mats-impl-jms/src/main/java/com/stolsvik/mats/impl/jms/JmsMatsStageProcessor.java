@@ -79,13 +79,15 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     private final String _randomInstanceId;
     private final JmsMatsStage<R, S, I, Z> _jmsMatsStage;
     private final int _processorNumber;
+    private final boolean _interactive;
     private final Thread _processorThread;
     private final TransactionContext _transactionContext;
 
-    JmsMatsStageProcessor(JmsMatsStage<R, S, I, Z> jmsMatsStage, int processorNumber) {
+    JmsMatsStageProcessor(JmsMatsStage<R, S, I, Z> jmsMatsStage, int processorNumber, boolean interactive) {
         _randomInstanceId = randomString(5) + "@" + jmsMatsStage.getParentFactory();
         _jmsMatsStage = jmsMatsStage;
         _processorNumber = processorNumber;
+        _interactive = interactive;
         _processorThread = new Thread(this::runner, THREAD_PREFIX + ident());
         _processorThread.start();
         _transactionContext = jmsMatsStage.getParentFactory()
@@ -97,7 +99,10 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     private volatile JmsSessionHolder _jmsSessionHolder;
 
     private String ident() {
-        return _jmsMatsStage.getStageId() + '#' + _processorNumber + " {" + _randomInstanceId + '}';
+        return _jmsMatsStage.getStageId() + '#'
+                + _processorNumber
+                + (_interactive ? "_pri" : "")
+                + " {" + _randomInstanceId + '}';
     }
 
     @Override
@@ -283,7 +288,9 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
             try { // catch-all-Throwable, as we do not ever want the thread to die - and handles jmsSession.crashed()
                 Session jmsSession = _jmsSessionHolder.getSession();
                 Destination destination = createJmsDestination(jmsSession, getFactory().getFactoryConfig());
-                MessageConsumer jmsConsumer = jmsSession.createConsumer(destination);
+                MessageConsumer jmsConsumer = _interactive
+                        ? jmsSession.createConsumer(destination, "JMSPriority = 9")
+                        : jmsSession.createConsumer(destination);
 
                 // We've established the consumer, and hence will start to receive messages and process them.
                 // (Important for topics, where if we haven't established consumer, we won't get messages).

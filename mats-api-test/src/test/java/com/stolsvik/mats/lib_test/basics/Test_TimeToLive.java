@@ -18,8 +18,8 @@ import com.stolsvik.mats.test.MatsTestHelp;
 import com.stolsvik.mats.test.MatsTestLatch.Result;
 
 /**
- * Tests the Time-To-Live feature, by sending 4 messages with TTL = 75, and then a "flushing" FINAL message without
- * setting the TTL. The service sleeps for 100 ms. The MatsBasicTest has a MatsFactory with concurrency = 1. Therefore,
+ * Tests the Time-To-Live feature, by sending 4 messages with TTL = 150, and then a "flushing" FINAL message without
+ * setting the TTL. The service sleeps for 400 ms. The MatsBasicTest has a MatsFactory with concurrency = 1. Therefore,
  * only the first of the TTLed messages should come through, as the rest should have timed out when the service is ready
  * to accept them again. The FINAL message should come through anyway, since it does not have timeout. Therefore, the
  * expected number of delivered messages is 2. Also, a test of the "test infrastructure" is performed, by setting the
@@ -101,7 +101,6 @@ public class Test_TimeToLive {
                                 .from(MatsTestHelp.from("first_run_" + i))
                                 .to(SERVICE)
                                 .nonPersistent(timeToLive)
-                                .interactive()
                                 .replyTo(TERMINATOR, sto)
                                 .request(dto);
                     }
