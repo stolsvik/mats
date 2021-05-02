@@ -131,8 +131,8 @@ public class MatsMetricsLoggingInterceptor
      *            the {@link MatsInterceptable} MatsFactory to add it to.
      */
     public static void install(MatsInterceptable matsInterceptableMatsFactory) {
-        matsInterceptableMatsFactory.addInitiationInterceptorSingleton(INSTANCE);
-        matsInterceptableMatsFactory.addStageInterceptorSingleton(INSTANCE);
+        matsInterceptableMatsFactory.addInitiationInterceptor(INSTANCE);
+        matsInterceptableMatsFactory.addStageInterceptor(INSTANCE);
     }
 
     /**
@@ -142,8 +142,8 @@ public class MatsMetricsLoggingInterceptor
      *            the {@link MatsInterceptable} to remove it from.
      */
     public static void remove(MatsInterceptable matsInterceptableMatsFactory) {
-        matsInterceptableMatsFactory.removeInitiationInterceptorSingleton(INSTANCE);
-        matsInterceptableMatsFactory.removeStageInterceptorSingleton(INSTANCE);
+        matsInterceptableMatsFactory.removeInitiationInterceptor(INSTANCE);
+        matsInterceptableMatsFactory.removeStageInterceptor(INSTANCE);
     }
 
     @Override

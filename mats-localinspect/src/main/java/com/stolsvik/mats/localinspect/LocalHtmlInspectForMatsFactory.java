@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.Writer;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -19,7 +20,9 @@ import com.stolsvik.mats.MatsFactory.FactoryConfig;
 import com.stolsvik.mats.MatsInitiator;
 import com.stolsvik.mats.MatsStage;
 import com.stolsvik.mats.MatsStage.StageConfig;
+import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor;
 import com.stolsvik.mats.api.intercept.MatsInterceptable;
+import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
 import com.stolsvik.mats.api.intercept.MatsStageInterceptor.StageCompletedContext.ProcessResult;
 import com.stolsvik.mats.localinspect.LocalStatsMatsInterceptor.EndpointStats;
 import com.stolsvik.mats.localinspect.LocalStatsMatsInterceptor.IncomingMessageRepresentation;
@@ -50,10 +53,26 @@ public class LocalHtmlInspectForMatsFactory {
         return new LocalHtmlInspectForMatsFactory(matsFactory);
     }
 
-    final MatsFactory matsFactory;
+    final MatsFactory _matsFactory;
+    final MatsInterceptable _matsInterceptable;
 
     LocalHtmlInspectForMatsFactory(MatsFactory matsFactory) {
-        this.matsFactory = matsFactory;
+        _matsFactory = matsFactory;
+        MatsInterceptable matsInterceptable = null;
+
+        // ?: Is the provided MatsFactory a MatsInterceptable?
+        if (matsFactory instanceof MatsInterceptable) {
+            // -> Yes, so hold on to it.
+            matsInterceptable = (MatsInterceptable) matsFactory;
+        }
+        // ?: Okay, is the fully unwrapped MatsFactory a MatsInterceptable then?
+        else if (matsFactory.unwrapFully() instanceof MatsInterceptable) {
+            // -> Yes, when we unwrapFully'ed, the resulting MatsFactory was MatsInterceptable
+            // Hold on to it
+            matsInterceptable = (MatsInterceptable) matsFactory.unwrapFully();
+        }
+
+        _matsInterceptable = matsInterceptable;
     }
 
     /**
@@ -163,7 +182,7 @@ public class LocalHtmlInspectForMatsFactory {
                 + "  border-radius: 3px;\n"
                 + "}\n");
         out.write(".mats_appname {\n"
-                //+ "  color: #d63384;\n"
+                // + " color: #d63384;\n"
                 + "  background-color: rgba(0, 255, 255, 0.07);\n"
                 + "  padding: 2px 4px 1px 4px;\n"
                 + "  border-radius: 3px;\n"
@@ -223,15 +242,14 @@ public class LocalHtmlInspectForMatsFactory {
 
     public void createFactoryReport(Writer out, boolean includeInitiators,
             boolean includeEndpoints, boolean includeStages) throws IOException {
-
+        // We do this dynamically, so as to handle late registration of the LocalStatsMatsInterceptor.
         LocalStatsMatsInterceptor localStats = null;
-        // TODO: If the MatsFactory in question is not a MatsInterceptable, try to unwrapFully.
-        if (matsFactory instanceof MatsInterceptable) {
-            localStats = ((MatsInterceptable) matsFactory).getInitiationInterceptorSingleton(
-                    LocalStatsMatsInterceptor.class).orElse(null);
+        if (_matsInterceptable != null) {
+            localStats = _matsInterceptable
+                    .getInitiationInterceptor(LocalStatsMatsInterceptor.class).orElse(null);
         }
 
-        FactoryConfig config = matsFactory.getFactoryConfig();
+        FactoryConfig config = _matsFactory.getFactoryConfig();
         out.write("<div class=\"mats_report mats_factory\">\n");
         out.write("<div class=\"mats_heading\">MatsFactory <h2>" + config.getName() + "</h2>\n");
         out.write(" - <b>Known number of CPUs:</b> " + config.getNumberOfCpus());
@@ -251,15 +269,31 @@ public class LocalHtmlInspectForMatsFactory {
                 : "<b>Missing Local Statistics collector in MatsFactory - <code>"
                         + LocalStatsMatsInterceptor.class.getSimpleName()
                         + "</code> is not installed!</b>") + "</b><br />");
+
+        if (_matsInterceptable != null) {
+            out.write("<b>Installed InitiationInterceptors:</b><br />\n");
+            List<MatsInitiateInterceptor> initiationInterceptors = _matsInterceptable.getInitiationInterceptors();
+            for (MatsInitiateInterceptor initiationInterceptor : initiationInterceptors) {
+                out.write("&nbsp;&nbsp;<code>" + initiationInterceptor.getClass().getName() + "</code>: "
+                        + initiationInterceptor + "<br />\n");
+            }
+            out.write("<b>Installed StageInterceptors:</b><br />\n");
+            List<MatsStageInterceptor> stageInterceptors = _matsInterceptable.getStageInterceptors();
+            for (MatsStageInterceptor stageInterceptor : stageInterceptors) {
+                out.write("&nbsp;&nbsp;<code>" + stageInterceptor.getClass().getName() + "</code>: "
+                        + stageInterceptor + "<br />\n");
+            }
+        }
+
         out.write("</div>");
         if (includeInitiators) {
-            for (MatsInitiator initiator : matsFactory.getInitiators()) {
+            for (MatsInitiator initiator : _matsFactory.getInitiators()) {
                 createInitiatorReport(out, initiator);
             }
         }
 
         if (includeEndpoints) {
-            for (MatsEndpoint<?, ?> endpoint : matsFactory.getEndpoints()) {
+            for (MatsEndpoint<?, ?> endpoint : _matsFactory.getEndpoints()) {
                 createEndpointReport(out, endpoint, includeStages);
             }
         }
@@ -268,11 +302,11 @@ public class LocalHtmlInspectForMatsFactory {
 
     public void createInitiatorReport(Writer out, MatsInitiator matsInitiator)
             throws IOException {
+        // We do this dynamically, so as to handle late registration of the LocalStatsMatsInterceptor.
         LocalStatsMatsInterceptor localStats = null;
-        MatsFactory parentFactory = matsInitiator.getParentFactory();
-        if (parentFactory instanceof MatsInterceptable) {
-            localStats = ((MatsInterceptable) parentFactory).getInitiationInterceptorSingleton(
-                    LocalStatsMatsInterceptor.class).orElse(null);
+        if (_matsInterceptable != null) {
+            localStats = _matsInterceptable
+                    .getInitiationInterceptor(LocalStatsMatsInterceptor.class).orElse(null);
         }
 
         out.write("<div class=\"mats_report mats_initiator\">\n");
@@ -315,11 +349,11 @@ public class LocalHtmlInspectForMatsFactory {
 
     public void createEndpointReport(Writer out, MatsEndpoint<?, ?> matsEndpoint, boolean includeStages)
             throws IOException {
+        // We do this dynamically, so as to handle late registration of the LocalStatsMatsInterceptor.
         LocalStatsMatsInterceptor localStats = null;
-        MatsFactory parentFactory = matsEndpoint.getParentFactory();
-        if (parentFactory instanceof MatsInterceptable) {
-            localStats = ((MatsInterceptable) parentFactory).getStageInterceptorSingleton(
-                    LocalStatsMatsInterceptor.class).orElse(null);
+        if (_matsInterceptable != null) {
+            localStats = _matsInterceptable
+                    .getInitiationInterceptor(LocalStatsMatsInterceptor.class).orElse(null);
         }
 
         EndpointConfig<?, ?> config = matsEndpoint.getEndpointConfig();
@@ -420,11 +454,11 @@ public class LocalHtmlInspectForMatsFactory {
     }
 
     public void createStageReport(Writer out, MatsStage<?, ?, ?> matsStage) throws IOException {
+        // We do this dynamically, so as to handle late registration of the LocalStatsMatsInterceptor.
         LocalStatsMatsInterceptor localStats = null;
-        MatsFactory parentFactory = matsStage.getParentEndpoint().getParentFactory();
-        if (parentFactory instanceof MatsInterceptable) {
-            localStats = ((MatsInterceptable) parentFactory).getStageInterceptorSingleton(
-                    LocalStatsMatsInterceptor.class).orElse(null);
+        if (_matsInterceptable != null) {
+            localStats = _matsInterceptable
+                    .getInitiationInterceptor(LocalStatsMatsInterceptor.class).orElse(null);
         }
 
         StatsSnapshot totExecSnapshot = null;

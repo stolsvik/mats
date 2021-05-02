@@ -74,15 +74,15 @@ public class LocalStatsMatsInterceptor
      * instance is needed per MatsFactory - which is fulfilled using this method. It should only be invoked once per
      * MatsFactory. You get the created interceptor in return, but that is not needed when employed with
      * {@link LocalHtmlInspectForMatsFactory}, as that will fetch the instance from the MatsFactory using
-     * {@link MatsInterceptable#getInitiationInterceptorSingleton(Class)}.
+     * {@link MatsInterceptable#getInitiationInterceptor(Class)}.
      *
      * @param matsInterceptableMatsFactory
      *            the {@link MatsInterceptable} MatsFactory to add it to.
      */
     public static LocalStatsMatsInterceptor install(MatsInterceptable matsInterceptableMatsFactory) {
         LocalStatsMatsInterceptor interceptor = new LocalStatsMatsInterceptor(DEFAULT_NUM_SAMPLES);
-        matsInterceptableMatsFactory.addInitiationInterceptorSingleton(interceptor);
-        matsInterceptableMatsFactory.addStageInterceptorSingleton(interceptor);
+        matsInterceptableMatsFactory.addInitiationInterceptor(interceptor);
+        matsInterceptableMatsFactory.addStageInterceptor(interceptor);
         return interceptor;
     }
 

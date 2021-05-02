@@ -31,8 +31,8 @@ public class Test_InitiationIntercept_JavaDoc {
         final MatsInitiateInterceptor initiationInterceptor_1 = new MyMatsInitiateInterceptor(1);
         final MatsInitiateInterceptor initiationInterceptor_2 = new MyMatsInitiateInterceptor(2);
 
-        MATS.getJmsMatsFactory().addInitiationInterceptorSingleton(initiationInterceptor_1);
-        MATS.getJmsMatsFactory().addInitiationInterceptorSingleton(initiationInterceptor_2);
+        MATS.getJmsMatsFactory().addInitiationInterceptor(initiationInterceptor_1);
+        MATS.getJmsMatsFactory().addInitiationInterceptor(initiationInterceptor_2);
 
         MATS.getMatsFactory().getDefaultInitiator().initiateUnchecked(init -> {
             init.traceId(MatsTestHelp.traceId() + "_First")

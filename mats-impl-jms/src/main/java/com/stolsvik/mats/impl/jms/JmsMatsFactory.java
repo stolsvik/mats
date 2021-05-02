@@ -7,13 +7,11 @@ import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -215,81 +213,61 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
 
     // :: Interceptors
 
-    private final CopyOnWriteArrayList<MatsInitiateInterceptorProvider> _initiationInterceptorProviders = new CopyOnWriteArrayList<>();
-    private final IdentityHashMap<MatsInitiateInterceptor, MatsInitiateInterceptorProvider> _initiateInterceptorSingletonToProvider = new IdentityHashMap<>();
+    private final CopyOnWriteArrayList<MatsInitiateInterceptor> _initiationInterceptors = new CopyOnWriteArrayList<>();
 
-    private final CopyOnWriteArrayList<MatsStageInterceptorProvider> _stageInterceptorProviders = new CopyOnWriteArrayList<>();
-    private final IdentityHashMap<MatsStageInterceptor, MatsStageInterceptorProvider> _stageInterceptorSingletonToProvider = new IdentityHashMap<>();
+    private final CopyOnWriteArrayList<MatsStageInterceptor> _stageInterceptors = new CopyOnWriteArrayList<>();
 
     @Override
-    public void addInitiationInterceptorProvider(MatsInitiateInterceptorProvider initiationInterceptorProvider) {
-        log.info(LOG_PREFIX + "Adding Provider " + MatsInitiateInterceptor.class.getSimpleName()
-                + ": [" + initiationInterceptorProvider + "].");
-        _initiationInterceptorProviders.add(initiationInterceptorProvider);
+    public void addInitiationInterceptor(MatsInitiateInterceptor initiateInterceptor) {
+        addInterceptor(MatsInitiateInterceptor.class, initiateInterceptor, _initiationInterceptors);
     }
 
     @Override
-    public void removeInitiationInterceptorProvider(MatsInitiateInterceptorProvider initiationInterceptorProvider) {
-        log.info(LOG_PREFIX + "Removing Provider " + MatsInitiateInterceptor.class.getSimpleName()
-                + ": [" + initiationInterceptorProvider + "].");
-        _initiationInterceptorProviders.remove(initiationInterceptorProvider);
+    public List<MatsInitiateInterceptor> getInitiationInterceptors() {
+        return new ArrayList<>(_initiationInterceptors);
     }
 
     @Override
-    public void addInitiationInterceptorSingleton(MatsInitiateInterceptor initiateInterceptorSingleton) {
-        MatsInitiateInterceptorProvider provider = na -> initiateInterceptorSingleton;
-        addSingletonInterceptor(MatsInitiateInterceptor.class, initiateInterceptorSingleton, provider,
-                _initiationInterceptorProviders, _initiateInterceptorSingletonToProvider);
+    public <T extends MatsInitiateInterceptor> Optional<T> getInitiationInterceptor(Class<T> interceptorClass) {
+        return getInterceptorSingleton(_initiationInterceptors, interceptorClass);
     }
 
     @Override
-    public <T extends MatsInitiateInterceptor> Optional<T> getInitiationInterceptorSingleton(
-            Class<T> interceptorClass) {
-        return getInterceptorSingleton(_initiateInterceptorSingletonToProvider.keySet(), interceptorClass);
-    }
-
-    @Override
-    public void removeInitiationInterceptorSingleton(MatsInitiateInterceptor initiateInterceptorSingleton) {
-        log.info(LOG_PREFIX + "Removing Singleton " + MatsInitiateInterceptor.class.getSimpleName()
-                + ": [" + initiateInterceptorSingleton + "].");
-        MatsInitiateInterceptorProvider provider;
-        synchronized (_initiateInterceptorSingletonToProvider) {
-            provider = _initiateInterceptorSingletonToProvider.remove(initiateInterceptorSingleton);
-            if (provider == null) {
-                throw new IllegalStateException("Cannot remove because not added: ["
-                        + initiateInterceptorSingleton + "]");
-            }
+    public void removeInitiationInterceptor(MatsInitiateInterceptor initiateInterceptor) {
+        log.info(LOG_PREFIX + "Removing " + MatsInitiateInterceptor.class.getSimpleName()
+                + ": [" + initiateInterceptor + "].");
+        boolean removed = _initiationInterceptors.remove(initiateInterceptor);
+        if (!removed) {
+            throw new IllegalStateException("Cannot remove because not added: [" + initiateInterceptor + "]");
         }
-        removeInitiationInterceptorProvider(provider);
     }
 
     @Override
-    public void addStageInterceptorProvider(MatsStageInterceptorProvider stageInterceptorProvider) {
-        log.info(LOG_PREFIX + "Adding Provider " + MatsStageInterceptorProvider.class.getSimpleName()
-                + ": [" + stageInterceptorProvider + "].");
-        _stageInterceptorProviders.add(stageInterceptorProvider);
+    public void addStageInterceptor(MatsStageInterceptor stageInterceptor) {
+        addInterceptor(MatsStageInterceptor.class, stageInterceptor, _stageInterceptors);
     }
 
     @Override
-    public void removeStageInterceptorProvider(MatsStageInterceptorProvider stageInterceptorProvider) {
-        log.info(LOG_PREFIX + "Removing Provider " + MatsStageInterceptorProvider.class.getSimpleName()
-                + ": [" + stageInterceptorProvider + "].");
-        _stageInterceptorProviders.remove(stageInterceptorProvider);
+    public List<MatsStageInterceptor> getStageInterceptors() {
+        return new ArrayList<>(_stageInterceptors);
     }
 
     @Override
-    public void addStageInterceptorSingleton(MatsStageInterceptor stageInterceptor) {
-        MatsStageInterceptorProvider provider = na -> stageInterceptor;
-        addSingletonInterceptor(MatsStageInterceptor.class, stageInterceptor, provider,
-                _stageInterceptorProviders, _stageInterceptorSingletonToProvider);
+    public <T extends MatsStageInterceptor> Optional<T> getStageInterceptor(Class<T> interceptorClass) {
+        return getInterceptorSingleton(_stageInterceptors, interceptorClass);
     }
 
     @Override
-    public <T extends MatsStageInterceptor> Optional<T> getStageInterceptorSingleton(Class<T> interceptorClass) {
-        return getInterceptorSingleton(_stageInterceptorSingletonToProvider.keySet(), interceptorClass);
+    public void removeStageInterceptor(MatsStageInterceptor stageInterceptor) {
+        log.info(LOG_PREFIX + "Removing " + MatsStageInterceptor.class.getSimpleName()
+                + ": [" + stageInterceptor + "].");
+        boolean removed = _stageInterceptors.remove(stageInterceptor);
+        if (!removed) {
+            throw new IllegalStateException("Cannot remove because not added: [" + stageInterceptor + "]");
+        }
     }
 
-    private <I, T extends I> Optional<T> getInterceptorSingleton(Set<I> singletons, Class<T> typeToFind) {
+    private <I, T extends I> Optional<T> getInterceptorSingleton(Collection<I> singletons, Class<T> typeToFind) {
         for (I singleton : singletons) {
             if (typeToFind.isInstance(singleton)) {
                 @SuppressWarnings("unchecked")
@@ -300,86 +278,56 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
         return Optional.empty();
     }
 
-    private <I, IP> void addSingletonInterceptor(Class<I> interceptorType,
-            I initiateInterceptorSingleton, IP provider, CopyOnWriteArrayList<IP> providersList,
-            IdentityHashMap<I, IP> singletonToProviderMap) {
-        log.info(LOG_PREFIX + "Adding Singleton " + interceptorType.getSimpleName()
-                + ": [" + initiateInterceptorSingleton + "].");
-        synchronized (singletonToProviderMap) {
-            // :: Special handling for our special interceptors
-            // ?: Is this a MatsLoggingInterceptor?
-            if (initiateInterceptorSingleton instanceof MatsLoggingInterceptor) {
-                // -> Yes, MatsLoggingInterceptor - so clear out any existing to add this new.
-                removeInterceptorSingletonType(providersList, singletonToProviderMap,
-                        MatsLoggingInterceptor.class);
-            }
-            if (initiateInterceptorSingleton instanceof MatsMetricsInterceptor) {
-                // -> Yes, MatsMetricsInterceptor - so clear out any existing to add this new.
-                removeInterceptorSingletonType(providersList, singletonToProviderMap,
-                        MatsMetricsInterceptor.class);
-            }
-
-            // ----- Not our special handling interceptors
-
-            // :: Handle double-adding of same instance (not allowed)
-            if (!((initiateInterceptorSingleton instanceof MatsLoggingInterceptor))
-                    || (initiateInterceptorSingleton instanceof MatsMetricsInterceptor)) {
-                // ?: Have we already added this same instance?
-                if (singletonToProviderMap.containsKey(initiateInterceptorSingleton)) {
-                    // -> Yes, already added, cannot add twice.
-                    throw new IllegalStateException(interceptorType.getSimpleName()
-                            + ": Interceptor Singleton already added: " + initiateInterceptorSingleton + ".");
-                }
-            }
-
-            // Add the new
-            providersList.add(provider);
-            singletonToProviderMap.put(initiateInterceptorSingleton, provider);
+    private <I> void addInterceptor(Class<I> interceptorType, I interceptor, CopyOnWriteArrayList<I> interceptors) {
+        log.info(LOG_PREFIX + "Adding " + interceptorType.getSimpleName() + ": [" + interceptor + "].");
+        // :: Special handling for our special interceptors
+        // ?: Is this a MatsLoggingInterceptor?
+        if (interceptor instanceof MatsLoggingInterceptor) {
+            // -> Yes, MatsLoggingInterceptor - so clear out any existing to add this new.
+            removeInterceptorType(interceptors, MatsLoggingInterceptor.class);
         }
+        if (interceptor instanceof MatsMetricsInterceptor) {
+            // -> Yes, MatsMetricsInterceptor - so clear out any existing to add this new.
+            removeInterceptorType(interceptors, MatsMetricsInterceptor.class);
+        }
+
+        // ----- Not our special handling interceptors
+
+        // :: Handle double-adding of same instance (not allowed)
+        if (!((interceptor instanceof MatsLoggingInterceptor))
+                || (interceptor instanceof MatsMetricsInterceptor)) {
+            // ?: Have we already added this same instance?
+            if (interceptors.contains(interceptor)) {
+                // -> Yes, already added, cannot add twice.
+                throw new IllegalStateException(interceptorType.getSimpleName()
+                        + ": Interceptor Singleton already added: " + interceptor + ".");
+            }
+        }
+
+        // Add the new
+        interceptors.add(interceptor);
     }
 
-    private <I, IP> void removeInterceptorSingletonType(CopyOnWriteArrayList<IP> providersList,
-            IdentityHashMap<I, IP> singletonToProviderMap, Class<?> typeToRemove) {
-        Iterator<Entry<I, IP>> it = singletonToProviderMap.entrySet().iterator();
+    private <I> void removeInterceptorType(CopyOnWriteArrayList<I> interceptors, Class<?> typeToRemove) {
+        Iterator<I> it = interceptors.iterator();
         while (it.hasNext()) {
-            Entry<I, IP> next = it.next();
+            I next = it.next();
             // ?: Is this existing interceptor of a type to remove?
-            if (typeToRemove.isInstance(next.getKey())) {
+            if (typeToRemove.isInstance(next)) {
                 // -> Yes, so remove it, and from the providers.
-                log.info(LOG_PREFIX + ".. removing existing: [" + next.getKey() + "], since adding new "
+                log.info(LOG_PREFIX + ".. removing existing: [" + next + "], since adding new "
                         + typeToRemove.getSimpleName());
-                providersList.remove(next.getValue());
                 it.remove();
             }
         }
     }
 
-    @Override
-    public void removeStageInterceptorSingleton(MatsStageInterceptor stageInterceptorSingleton) {
-        log.info(LOG_PREFIX + "Removing Singleton " + MatsStageInterceptor.class.getSimpleName()
-                + ": [" + stageInterceptorSingleton + "].");
-        MatsStageInterceptorProvider provider;
-        synchronized (_stageInterceptorSingletonToProvider) {
-            provider = _stageInterceptorSingletonToProvider.remove(stageInterceptorSingleton);
-            if (provider == null) {
-                throw new IllegalStateException("Cannot remove because not added: [" + stageInterceptorSingleton + "]");
-            }
-        }
-        removeStageInterceptorProvider(provider);
-    }
-
     List<MatsInitiateInterceptor> getInterceptorsForInitiation(InitiateInterceptContext context) {
-        return _initiationInterceptorProviders.stream()
-                .map(provider -> provider.provide(context))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        return _initiationInterceptors;
     }
 
     List<MatsStageInterceptor> getInterceptorsForStage(StageInterceptContext context) {
-        return _stageInterceptorProviders.stream()
-                .map(provider -> provider.provide(context))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        return _stageInterceptors;
     }
 
     @Override
@@ -773,7 +721,7 @@ public class JmsMatsFactory<Z> implements MatsInterceptableMatsFactory, JmsMatsS
 
     @Override
     public String idThis() {
-        return id("JmsMatsFactory{"+_name+"}", this);
+        return id("JmsMatsFactory{" + _name + "}", this);
     }
 
     @Override

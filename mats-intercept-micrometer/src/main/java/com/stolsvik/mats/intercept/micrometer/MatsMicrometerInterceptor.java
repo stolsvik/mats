@@ -1,15 +1,10 @@
 package com.stolsvik.mats.intercept.micrometer;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.stolsvik.mats.MatsEndpoint.ProcessContext;
 import com.stolsvik.mats.MatsFactory;
-import com.stolsvik.mats.api.intercept.CommonCompletedContext;
 import com.stolsvik.mats.api.intercept.MatsInitiateInterceptor;
 import com.stolsvik.mats.api.intercept.MatsInterceptable;
 import com.stolsvik.mats.api.intercept.MatsMetricsInterceptor;
@@ -60,8 +55,8 @@ public class MatsMicrometerInterceptor
             MatsInterceptable matsInterceptableMatsFactory,
             MeterRegistry meterRegistry) {
         MatsMicrometerInterceptor metrics = new MatsMicrometerInterceptor(meterRegistry);
-        matsInterceptableMatsFactory.addInitiationInterceptorSingleton(metrics);
-        matsInterceptableMatsFactory.addStageInterceptorSingleton(metrics);
+        matsInterceptableMatsFactory.addInitiationInterceptor(metrics);
+        matsInterceptableMatsFactory.addStageInterceptor(metrics);
         return metrics;
     }
 
@@ -78,8 +73,8 @@ public class MatsMicrometerInterceptor
      * @return the {@link MatsMicrometerInterceptor} instance which was installed as singleton.
      */
     public static MatsMicrometerInterceptor install(MatsInterceptable matsInterceptable) {
-        matsInterceptable.addInitiationInterceptorSingleton(GLOBAL_REGISTRY_INSTANCE);
-        matsInterceptable.addStageInterceptorSingleton(GLOBAL_REGISTRY_INSTANCE);
+        matsInterceptable.addInitiationInterceptor(GLOBAL_REGISTRY_INSTANCE);
+        matsInterceptable.addStageInterceptor(GLOBAL_REGISTRY_INSTANCE);
         return GLOBAL_REGISTRY_INSTANCE;
     }
 
