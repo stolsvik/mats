@@ -199,7 +199,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
         if (_processorThread.isAlive()) {
             // -> No, thread did not exit within graceful wait period.
             log.warn(LOG_PREFIX + ident() + " DID NOT exit after grace period, so interrupt it and wait some more.");
-            // -> No, so interrupt it from whatever it is doing.
+            // Interrupt the processor thread from whatever it is doing.
             _processorThread.interrupt();
         }
     }
@@ -245,6 +245,7 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
     }
 
     private void runner() {
+        boolean closeJmsSessionHolder = true;
         // :: OUTER RUN-LOOP, where we'll get a fresh JMS Session, Destination and MessageConsumer.
         OUTER: while (_runFlag) {
             // :: Clean MDC and set the "static" MDC values, since we just MDC.clear()'ed
@@ -325,6 +326,9 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
                             // -> Yes, down
                             log.info(LOG_PREFIX + "Got null from JMS consumer.receive(), and run-flag is false."
                                     + " Breaking out of run-loop to exit.");
+                            // Since this means that the session was closed "from the outside", we'll NOT close it
+                            // from our side (here in the processor thread)
+                            closeJmsSessionHolder = false;
                             break OUTER;
                         }
                         else {
@@ -906,9 +910,20 @@ class JmsMatsStageProcessor<R, S, I, Z> implements JmsMatsStatics, JmsMatsTxCont
 
         // If we exited out while processing, just clean up so that the exit line does not look like it came from msg.
         clearAndSetStaticMdcValues();
-        // log "exit line".
-        log.info(LOG_PREFIX + ident() + " asked to exit, and that we do! Closing current JmsSessionHolder.");
-        closeCurrentSessionHolder();
+        // :: log "exit line".
+        // ?: Should we close the current JMS SessionHolder?
+        if (closeJmsSessionHolder) {
+            // -> Yes, evidently NOT closed from the outside, so DO it here (if double-close, the holder will catch it)
+            log.info(LOG_PREFIX + ident() + " asked to exit, and that we do! Closing current JmsSessionHolder.");
+            // Close current JMS SessionHolder.
+            closeCurrentSessionHolder();
+        }
+        else {
+            // -> No, the JMS SessionHolder has been closed from the outside (since we got 'null' from the receive),
+            // so DO NOT do it here, thus avoiding loglines about double closes.
+            log.info(LOG_PREFIX + ident() + " asked to exit, and that we do! NOT closing current JmsSessionHolder,"
+                    + " as that was done from the outside.");
+        }
         _jmsMatsStage.removeStageProcessorFromList(this);
     }
 

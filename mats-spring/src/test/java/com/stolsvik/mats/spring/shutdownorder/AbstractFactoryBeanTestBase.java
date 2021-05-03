@@ -121,7 +121,7 @@ public class AbstractFactoryBeanTestBase {
         }
 
         @Override
-        protected MatsFactoryVerifiableStopWrapper createInstance() throws Exception {
+        protected MatsFactoryVerifiableStopWrapper createInstance() {
             return new MatsFactoryVerifiableStopWrapper(JmsMatsFactory.createMatsFactory_JmsOnlyTransactions("##TEST##",
                     "##VERSION##",
                     JmsMatsJmsSessionHandler_Pooling.create(_connectionFactory),
@@ -155,7 +155,7 @@ public class AbstractFactoryBeanTestBase {
     /**
      * Wrapper replicating the behavior of {@link JmsMatsFactory} by passing all calls through to the internal
      * {@link JmsMatsFactory} given to the constructor. The key method is
-     * {@link MatsFactoryVerifiableStopWrapper#stop(int)} which's stops the underlying factory and utilizes a finally
+     * {@link MatsFactoryVerifiableStopWrapper#stop(int)} which stops the underlying factory and utilizes a finally
      * clause to register itself with the {@link StoppedRegistry} that this instance was indeed stopped.
      */
     public static class MatsFactoryVerifiableStopWrapper extends MatsFactoryWrapper {

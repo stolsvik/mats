@@ -77,8 +77,8 @@ public class VerifyShutdownOrderUsingFactoryBeanTest extends AbstractFactoryBean
         // :: Verify - Post shutdown
         // ---- At this point everything should be stopped, lets verify this.
 
-        // Shutting down the MatsFactory as happend when we stopped the springContext should have removed the stage
-        // processors from the endpoint. This means that the "isRunning()" call to the endpoint should now return
+        // Shutting down the MatsFactory has happened when we stopped the springContext and should have removed the
+        // StageProcessors from the endpoint. This means that the "isRunning()" call to the endpoint should now return
         // "false".
         Assert.assertFalse(anEndpoint.getEndpointConfig().isRunning());
 
