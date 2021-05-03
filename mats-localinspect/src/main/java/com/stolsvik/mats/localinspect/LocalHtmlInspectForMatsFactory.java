@@ -320,7 +320,7 @@ public class LocalHtmlInspectForMatsFactory {
                 InitiatorStats initiatorStats = initiatorStats_.get();
                 StatsSnapshot stats = initiatorStats.getTotalExecutionTimeNanos();
 
-                out.write("<b>Total initiation time:</b> " + statsNs(stats) + "<br />\n");
+                out.write("<b>Total initiation time:</b> " + formatStats(stats) + "<br />\n");
                 SortedMap<OutgoingMessageRepresentation, Long> outgoingMessageCounts = initiatorStats
                         .getOutgoingMessageCounts();
                 long sumOutMsgs = outgoingMessageCounts.values().stream().mapToLong(Long::longValue).sum();
@@ -332,12 +332,12 @@ public class LocalHtmlInspectForMatsFactory {
 
                 }
                 else {
-                    out.write("<b>Outgoing messages (" + sumOutMsgs + "):</b><br />\n");
+                    out.write("<b>Outgoing messages (" + formatInt(sumOutMsgs) + "):</b><br />\n");
                 }
 
                 for (Entry<OutgoingMessageRepresentation, Long> entry : outgoingMessageCounts.entrySet()) {
                     OutgoingMessageRepresentation msg = entry.getKey();
-                    out.write("&nbsp;&nbsp;" + entry.getValue() + " x " + formatClass(msg.getMessageClass())
+                    out.write("&nbsp;&nbsp;" + formatInt(entry.getValue()) + " x " + formatClass(msg.getMessageClass())
                             + " " + msg.getMessageType() + " from initiatorId " + formatIid(msg.getInitiatorId())
                             + " to " + formatEpid(msg.getTo()) + "<br />");
                 }
@@ -398,7 +398,7 @@ public class LocalHtmlInspectForMatsFactory {
         // out.write("Creation debug info: ### <br />\n");
         // out.write("Worst stage duty cycle: ### <br />\n");
         if (totExecSnapshot != null) {
-            out.write("<b>Total endpoint time:</b> " + statsNs(totExecSnapshot) + "<br /><br />\n");
+            out.write("<b>Total endpoint time:</b> " + formatStats(totExecSnapshot) + "<br /><br />\n");
         }
 
         if (endpointStats != null) {
@@ -423,7 +423,7 @@ public class LocalHtmlInspectForMatsFactory {
                             + " @ " + formatAppName(msg.getInitiatingAppName())
                             + " &mdash; (" + msg.getMessageType() + "s from: " + formatEpid(msg.getFromStageId())
                             + " @ " + formatAppName(msg.getFromAppName()) + ")<br />\n");
-                    out.write("&nbsp;&nbsp;&nbsp;&nbsp;" + statsNs(stats));
+                    out.write("&nbsp;&nbsp;&nbsp;&nbsp;" + formatStats(stats));
                     out.write("<br />\n");
                 }
             }
@@ -442,7 +442,7 @@ public class LocalHtmlInspectForMatsFactory {
                         // ?: Do we have Between-stats? (Do not have for initial stage).
                         if (stats.isPresent()) {
                             out.write("<div class=\"mats_info\"><b>Time between:</b> "
-                                    + statsNs(stats.get()) + "</div>\n");
+                                    + formatStats(stats.get()) + "</div>\n");
                         }
                     }
                 }
@@ -494,7 +494,7 @@ public class LocalHtmlInspectForMatsFactory {
         // + " (use extra-state), should make things better for MatsFuturizer</b><br />\n");
         if ((stageStats != null) && (totExecSnapshot != null)) {
 
-            out.write("<b>Queue time</b>: " + statsNs(stageStats.getSpentQueueTimeNanos())
+            out.write("<b>Queue time</b>: " + formatStats(stageStats.getSpentQueueTimeNanos())
                     + " (susceptible to time skews between nodes)<br/>\n");
 
             Map<IncomingMessageRepresentation, Long> incomingMessageCounts = stageStats.getIncomingMessageCounts();
@@ -505,18 +505,19 @@ public class LocalHtmlInspectForMatsFactory {
                 out.write("<b>Incoming messages:</b> ");
             }
             else {
-                out.write("<b>Incoming messages (" + totExecSnapshot.getNumObservations() + "):</b><br />\n");
+                out.write("<b>Incoming messages (" + formatInt(totExecSnapshot.getNumObservations())
+                        + "):</b><br />\n");
             }
             for (Entry<IncomingMessageRepresentation, Long> entry : incomingMessageCounts.entrySet()) {
                 IncomingMessageRepresentation msg = entry.getKey();
-                out.write("&nbsp;&nbsp;" + entry.getValue() + " x " + msg.getMessageType()
+                out.write("&nbsp;&nbsp;" + formatInt(entry.getValue()) + " x " + msg.getMessageType()
                         + " from " + formatEpid(msg.getFromStageId()) + " <b>@</b> "
                         + formatAppName(msg.getFromAppName())
                         + formatInit(msg)
                         + "<br />");
             }
 
-            out.write("<b>Total stage time:</b> " + statsNs(totExecSnapshot) + "<br />\n");
+            out.write("<b>Total stage time:</b> " + formatStats(totExecSnapshot) + "<br />\n");
 
             // :: ProcessingResults
             SortedMap<ProcessResult, Long> processResultCounts = stageStats.getProcessResultCounts();
@@ -533,7 +534,7 @@ public class LocalHtmlInspectForMatsFactory {
             }
             for (Entry<ProcessResult, Long> entry : processResultCounts.entrySet()) {
                 ProcessResult processResult = entry.getKey();
-                out.write(entry.getValue() + " x " + processResult + "<br />\n");
+                out.write(formatInt(entry.getValue()) + " x " + processResult + "<br />\n");
             }
 
             // :: Outgoing messages
@@ -548,12 +549,13 @@ public class LocalHtmlInspectForMatsFactory {
 
             }
             else {
-                out.write("<b>Outgoing messages (" + sumOutMsgs + "):</b><br />\n");
+                out.write("<b>Outgoing messages (" + formatInt(sumOutMsgs) + "):</b><br />\n");
             }
 
             for (Entry<OutgoingMessageRepresentation, Long> entry : outgoingMessageCounts.entrySet()) {
                 OutgoingMessageRepresentation msg = entry.getKey();
-                out.write("&nbsp;&nbsp;" + entry.getValue() + " x " + formatClass(msg.getMessageClass())
+                out.write("&nbsp;&nbsp;" + formatInt(entry.getValue())
+                        + " x " + formatClass(msg.getMessageClass())
                         + " " + msg.getMessageType() + " to " + formatEpid(msg.getTo())
                         + formatInit(msg)
                         + "<br />");
@@ -602,25 +604,27 @@ public class LocalHtmlInspectForMatsFactory {
                 : " <i><b>(explicitly set)</b></i>");
     }
 
-    String statsNs(StatsSnapshot snapshot) {
+    String formatStats(StatsSnapshot snapshot) {
         double sd = snapshot.getStdDev();
         double avg = snapshot.getAverage();
-        return "<b>x\u0304:</b>" + nano_to_ms3(avg)
-                + " <b><i>s</i>:</b>" + nano_to_ms3(sd)
-                + " <b><i>2s</i>:</b>[" + nano_to_ms3(avg - 2 * sd) + ", " + nano_to_ms3(avg + 2 * sd) + "]"
-                + " - <b><span class=\"mats_min\">min:</span></b>" + nano_to_ms3(snapshot.getMin())
-                + " <b><span class=\"mats_max\">max:</sup></b>" + nano_to_ms3(snapshot.getMax())
-                + " &mdash; percentiles <b>50%:</b>" + nano_to_ms3(snapshot.getMedian())
-                + ", <b>75%:</b>" + nano_to_ms3(snapshot.get75thPercentile())
-                + ", <b>95%:</b>" + nano_to_ms3(snapshot.get95thPercentile())
-                + ", <b>98%:</b>" + nano_to_ms3(snapshot.get98thPercentile())
-                + ", <b>99%:</b>" + nano_to_ms3(snapshot.get99thPercentile())
-                + ", <b>99.5%:</b>" + nano_to_ms3(snapshot.get995thPercentile())
-                + " &mdash; <i>number of samples: " + snapshot.getSamples().length
-                + ", out of observations:" + snapshot.getNumObservations() + "</i>";
+        return "<b>x\u0304:</b>" + formatNanos(avg)
+                + " <b><i>s</i>:</b>" + formatNanos(sd)
+                + " <b><i>2s</i>:</b>[" + formatNanos(avg - 2 * sd) + ", " + formatNanos(avg + 2 * sd) + "]"
+                + " - <b><span class=\"mats_min\">min:</span></b>" + formatNanos(snapshot.getMin())
+                + " <b><span class=\"mats_max\">max:</sup></b>" + formatNanos(snapshot.getMax())
+                + " &mdash; percentiles <b>50%:</b>" + formatNanos(snapshot.getMedian())
+                + ", <b>75%:</b>" + formatNanos(snapshot.get75thPercentile())
+                + ", <b>95%:</b>" + formatNanos(snapshot.get95thPercentile())
+                + ", <b>98%:</b>" + formatNanos(snapshot.get98thPercentile())
+                + ", <b>99%:</b>" + formatNanos(snapshot.get99thPercentile())
+                + ", <b>99.5%:</b>" + formatNanos(snapshot.get995thPercentile())
+                + " &mdash; <i>number of samples: " + formatInt(snapshot.getSamples().length)
+                + ", out of observations:" + formatInt(snapshot.getNumObservations()) + "</i>";
     }
 
     static final DecimalFormatSymbols NF_SYMBOLS;
+    static final DecimalFormat NF_INTEGER;
+
     static final DecimalFormat NF_0_DECIMALS;
     static final DecimalFormat NF_1_DECIMALS;
     static final DecimalFormat NF_2_DECIMALS;
@@ -629,6 +633,10 @@ public class LocalHtmlInspectForMatsFactory {
         NF_SYMBOLS = new DecimalFormatSymbols(Locale.US);
         NF_SYMBOLS.setDecimalSeparator('.');
         NF_SYMBOLS.setGroupingSeparator('\u202f');
+
+        NF_INTEGER = new DecimalFormat("#,##0");
+        NF_INTEGER.setMaximumFractionDigits(0);
+        NF_INTEGER.setDecimalFormatSymbols(NF_SYMBOLS);
 
         // NOTE! The point of this class is NOT denote "high timings", but to denote that there are no
         // decimals, to visually make it easier to compare a number '1 235' with '1.235'.
@@ -649,7 +657,11 @@ public class LocalHtmlInspectForMatsFactory {
         NF_3_DECIMALS.setDecimalFormatSymbols(NF_SYMBOLS);
     }
 
-    String nano_to_ms3(double nanos) {
+    String formatInt(long number) {
+        return NF_INTEGER.format(number);
+    }
+
+    String formatNanos(double nanos) {
         if (Double.isNaN(nanos)) {
             return "NaN";
         }

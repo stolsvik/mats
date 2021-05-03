@@ -192,20 +192,20 @@ public class LocalHtmlInspectTestJettyServer {
             out.println("    <script>");
             interface1.getJavaScript(out); // Include just once, use the first.
             out.println("    </script>");
-//            out.println("    <h1>Test h1</h1>");
-//            out.println("    Endre tester h1");
-//
-//            out.println("    <h2>Test h2</h2>");
-//            out.println("    Endre tester h2");
-//
-//            out.println("    <h3>Test h3</h3>");
-//            out.println("    Endre tester h3");
-//
-//            out.println("    <h4>Test h4</h4>");
-//            out.println("    Endre tester h4<br /><br />");
-//
-//            out.println("    <a href=\"sendRequest\">Send request</a> - to initialize Initiator"
-//                    + " and get some traffic.<br /><br />");
+            // out.println(" <h1>Test h1</h1>");
+            // out.println(" Endre tester h1");
+            //
+            // out.println(" <h2>Test h2</h2>");
+            // out.println(" Endre tester h2");
+            //
+            // out.println(" <h3>Test h3</h3>");
+            // out.println(" Endre tester h3");
+            //
+            // out.println(" <h4>Test h4</h4>");
+            // out.println(" Endre tester h4<br /><br />");
+            //
+            // out.println(" <a href=\"sendRequest\">Send request</a> - to initialize Initiator"
+            // + " and get some traffic.<br /><br />");
 
             // :: Bootstrap3 sets the body's font size to 14px.
             // We scale all the affected rem-using elements back up to check consistency.
@@ -230,6 +230,7 @@ public class LocalHtmlInspectTestJettyServer {
     public static class SendRequestServlet extends HttpServlet {
         @Override
         protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            long nanosAsStart_entireProcedure = System.nanoTime();
             log.info("Sending request ..");
             PrintWriter out = resp.getWriter();
             out.println("Sending request ..");
@@ -240,7 +241,7 @@ public class LocalHtmlInspectTestJettyServer {
             DataTO dto = new DataTO(42, "TheAnswer");
             matsFactory.getDefaultInitiator().initiateUnchecked(
                     (init) -> {
-                        for (int i = 0; i < 1000; i++) {
+                        for (int i = 0; i < 200; i++) {
                             init.traceId("traceId" + i)
                                     .keepTrace(KeepTrace.MINIMAL)
                                     .nonPersistent()
@@ -323,8 +324,8 @@ public class LocalHtmlInspectTestJettyServer {
                     .to(SetupTestMatsEndpoints.SUBSCRIPTION_TERMINATOR)
                     .publish(dto));
 
-
-            out.println("\nAll done.\n");
+            long nanosTaken_TotalProcess = System.nanoTime() - nanosAsStart_entireProcedure;
+            out.println("\nAll done - time taken: " + (nanosTaken_TotalProcess / 1_000_000d) + " ms.\n");
         }
     }
 
