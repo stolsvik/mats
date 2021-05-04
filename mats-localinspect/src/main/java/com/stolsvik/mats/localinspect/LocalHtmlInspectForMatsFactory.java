@@ -254,13 +254,14 @@ public class LocalHtmlInspectForMatsFactory {
         out.write("<div class=\"mats_heading\">MatsFactory <h2>" + config.getName() + "</h2>\n");
         out.write(" - <b>Known number of CPUs:</b> " + config.getNumberOfCpus());
         out.write(" - <b>Concurrency:</b> " + formatConcurrency(config));
+        out.write(" - <b>Running:</b> " + config.isRunning());
         out.write("</div>\n");
         out.write("<hr />\n");
 
         out.write("<div class=\"mats_info\">");
-        out.write("<b>App:</b> " + config.getAppName() + " v." + config.getAppVersion());
+        out.write("config: <b>Name:</b> " + config.getName());
+        out.write(" - <b>App:</b> " + config.getAppName() + " v." + config.getAppVersion());
         out.write(" - <b>Nodename:</b> " + config.getNodename());
-        out.write(" - <b>Running:</b> " + config.isRunning());
         out.write(" - <b>Destination prefix:</b> \"" + config.getMatsDestinationPrefix() + "\"");
         out.write(" - <b>Trace key:</b> \"" + config.getMatsTraceKey() + "\"<br />\n");
         out.write((localStats != null
@@ -390,6 +391,7 @@ public class LocalHtmlInspectForMatsFactory {
         out.write(" - " + formatIoClass("Incoming", config.getIncomingClass()));
         out.write(" - " + formatIoClass("Reply", config.getReplyClass()));
         out.write(" - " + formatIoClass("State", config.getStateClass()));
+        out.write(" - <b>Running:</b> " + config.isRunning());
         out.write(" - <b>Concurrency:</b> " + formatConcurrency(config) + "\n");
         out.write("</div>\n");
         out.write("<hr />\n");
@@ -480,6 +482,7 @@ public class LocalHtmlInspectForMatsFactory {
         out.write("<div class=\"mats_report mats_stage" + hot + "\">\n");
         out.write("<div class=\"mats_heading\">Stage <h4>" + config.getStageId() + "</h4>\n");
         out.write(" - <b>Incoming:</b> <code>" + config.getIncomingClass().getSimpleName() + "</code>\n");
+        out.write(" - <b>Running:</b> " + config.isRunning());
         out.write(" - <b>Concurrency:</b> " + formatConcurrency(config) + "\n");
         out.write(" - <b>Running stage processors:</b> " + config.getRunningStageProcessors() + "\n");
         out.write("</div>\n");
