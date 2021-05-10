@@ -24,6 +24,8 @@ import com.stolsvik.mats.util.MatsFuturizer.Reply;
  * synchronously timeout on the {@link CompletableFuture#get(long, TimeUnit) get(...)}, which really should be your
  * preferred way, IMHO, <b>or</b> you let the MatsFuturizer do the timeout by its timeout thread.
  *
+ * TODO: Unstable on Travis
+ *
  * @author Endre Stølsvik 2019-08-30 21:57 - http://stolsvik.com/, endre@stolsvik.com
  */
 public class Test_MatsFuturizer_Timeouts {
@@ -103,6 +105,7 @@ public class Test_MatsFuturizer_Timeouts {
         return future;
     }
 
+    // TODO: Unstable on Travis (this is the test that failed)
     @Test
     public void severalTimeoutsByMatsFuturizer() throws InterruptedException, TimeoutException {
         MatsFuturizer futurizer = MATS.getMatsFuturizer();
