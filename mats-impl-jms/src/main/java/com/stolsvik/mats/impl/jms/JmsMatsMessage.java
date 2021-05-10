@@ -110,7 +110,10 @@ public class JmsMatsMessage<Z> implements MatsEditableOutgoingMessage, MatsSentO
 
     private SerializedMatsTrace _serialized;
 
-    void serializeAndCacheMatsTrace() {
+    void serializeAndCacheMatsTrace(long nowMillis) {
+        // Update the timestamp we sent this message to closest to actual serialization and sending.
+        getMatsTrace().getCurrentCall().setCalledTimestamp(nowMillis);
+        // Actually serialize the message
         _serialized = _matsSerializer.serializeMatsTrace(getMatsTrace());
     }
 

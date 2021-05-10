@@ -1,5 +1,7 @@
 package com.stolsvik.mats.localinspect;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -267,17 +269,12 @@ public class LocalStatsMatsInterceptor
     public static final String EXTRA_STATE_OR_SIDELOAD_INITIATOR_NANOS = "mats.its";
     public static final String EXTRA_STATE_OR_SIDELOAD_INITIATOR_NODENAME = "mats.inn";
 
-    public static final String SIDELOAD_MESSAGE_SENT_MILLIS = "mats.sts";
-
     @Override
     public void initiateInterceptOutgoingMessages(InitiateInterceptOutgoingMessagesContext context) {
         List<MatsEditableOutgoingMessage> outgoingMessages = context.getOutgoingMessages();
 
         // Decorate outgoing REQUESTs with extra-state (for the subsequent REPLY)
         for (MatsEditableOutgoingMessage msg : outgoingMessages) {
-            // Add "outgoing timestamp", so as to be able to measure queue time.
-            msg.addString(SIDELOAD_MESSAGE_SENT_MILLIS, Long.toString(System.currentTimeMillis()));
-
             // :: INITIATOR TO TERMINATOR TIMING:
             // ?: Is this a REQUEST (in which case there will be a REPLY)
             if (msg.getMessageType() == MessageType.REQUEST) {
@@ -295,8 +292,6 @@ public class LocalStatsMatsInterceptor
                         context.getInitiator().getParentFactory().getFactoryConfig().getNodename());
             }
         }
-
-        // TODO: Decorate outgoing SEND/PUBLISH too? Would use addString(..) for this.
     }
 
     @Override
@@ -342,13 +337,10 @@ public class LocalStatsMatsInterceptor
         stageStats.recordIncomingMessage(incomingMessageRepresentation);
 
         // :: TIME SPENT IN QUEUE
-        String messageSentMillisString = p_context.getString(SIDELOAD_MESSAGE_SENT_MILLIS);
-        // ?: Do we have the time spent in queue? (This can be from another codebase that hasn't enabled LocalStats).
-        if (messageSentMillisString != null) {
-            long messageSentMillis = Long.parseLong(messageSentMillisString);
-            long spentQueueTimeMillis = System.currentTimeMillis() - messageSentMillis;
-            stageStats.recordSpentQueueTimeNanos(spentQueueTimeMillis * 1_000_000L);
-        }
+        Instant instantSent = p_context.getFromTimestamp();
+        Instant instantReceived = Instant.now();
+        Duration durationBetweenSentReceived = Duration.between(instantSent, instantReceived);
+        stageStats.recordSpentQueueTimeNanos(durationBetweenSentReceived.toNanos());
 
         // :: TIME BETWEEN STAGES:
         // ?: Is this NOT the Initial stage, AND it is a REPLY or NEXT?
@@ -433,8 +425,6 @@ public class LocalStatsMatsInterceptor
         // :: Add extra-state on outgoing messages for BETWEEN STAGES + ENDPOINT TOTAL PROCESSING TIME
         List<MatsEditableOutgoingMessage> outgoingMessages = context.getOutgoingMessages();
         for (MatsEditableOutgoingMessage msg : outgoingMessages) {
-            // Add "outgoing timestamp", so as to be able to measure queue time.
-            msg.addString(SIDELOAD_MESSAGE_SENT_MILLIS, Long.toString(System.currentTimeMillis()));
             // ?: Is this a REQUEST or a NEXT call?
             if ((msg.getMessageType() == MessageType.REQUEST)
                     || (msg.getMessageType() == MessageType.NEXT)) {

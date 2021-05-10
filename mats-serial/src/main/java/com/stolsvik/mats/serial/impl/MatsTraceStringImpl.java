@@ -673,6 +673,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
         }
 
         /**
+         * TODO: Remove once all >= 0.16.0
          * Deprecated. Sets MatsMessageId to a random String.
          */
         @Deprecated
@@ -693,6 +694,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             return this;
         }
 
+        @Override
         public CallImpl setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
                 long calledTimestamp, String matsMessageId, String debugInfo) {
             an = callingAppName;
@@ -701,6 +703,12 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
             ts = calledTimestamp;
             id = matsMessageId;
             x = debugInfo;
+            return this;
+        }
+
+        @Override
+        public CallImpl setCalledTimestamp(long calledTimestamp) {
+            ts = calledTimestamp;
             return this;
         }
 
@@ -1061,7 +1069,7 @@ public final class MatsTraceStringImpl implements MatsTrace<String>, Cloneable {
 
         buf.append(" Current Call: ").append(currentCall.getCallType().toString()).append('\n')
                 .append("    Timestamp _________ : ").append(Instant.ofEpochMilli(
-                        getCurrentCall().getCalledTimestamp()).atZone(ZoneId.systemDefault()).toString()).append('\n')
+                        getCurrentCall().getCalledTimestamp()).atZone(ZoneId.systemDefault())).append('\n')
                 .append("    MatsMessageId _____ : ").append(getCurrentCall().getMatsMessageId()).append('\n')
                 .append("    From App __________ : ").append(getCurrentCall().getCallingAppName()).append(",v.").append(
                         getCurrentCall().getCallingAppVersion()).append('\n')

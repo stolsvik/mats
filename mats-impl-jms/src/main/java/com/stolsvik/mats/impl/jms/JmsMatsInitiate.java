@@ -345,11 +345,11 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
             }
         }
 
-        // Produce the new PUBLISH JmsMatsMessage to send
-        JmsMatsMessage<Z> publish = JmsMatsMessage.produceMessage(getProcessType(), nanosStartProducingOutgoingMessage,
-                _parentFactory.getMatsSerializer(), outgoingMatsTrace,
+        // Produce the new JmsMatsMessage to send
+        JmsMatsMessage<Z> jmsMatsMessage = JmsMatsMessage.produceMessage(getProcessType(),
+                nanosStartProducingOutgoingMessage, _parentFactory.getMatsSerializer(), outgoingMatsTrace,
                 messageDto, initialTargetSto, _replySto, _props, _binaries, _strings);
-        _messagesToSend.add(publish);
+        _messagesToSend.add(jmsMatsMessage);
 
         // Reset, in preparation for more messages
         // Note: Props, Binaries and Strings are cleared (but copied off by the produceMessage(..) call)

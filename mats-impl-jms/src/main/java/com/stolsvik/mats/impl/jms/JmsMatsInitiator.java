@@ -205,13 +205,14 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                         // (commit is performed when it exits the transaction lambda)
                         // :: Serialize
                         long nanosAtStart_totalEnvelopeSerialization = System.nanoTime();
+                        long nowMillis = System.currentTimeMillis();
                         for (JmsMatsMessage<Z> matsMessage : messagesToSend) {
-                            matsMessage.serializeAndCacheMatsTrace();
+                            matsMessage.serializeAndCacheMatsTrace(nowMillis);
                         }
-                        long now = System.nanoTime();
-                        nanosTaken_totalEnvelopeSerialization[0] = now - nanosAtStart_totalEnvelopeSerialization;
+                        long nowNanos = System.nanoTime();
+                        nanosTaken_totalEnvelopeSerialization[0] = nowNanos - nanosAtStart_totalEnvelopeSerialization;
 
-                        long nanosAtStart_totalProduceAndSendMsgSysMessages = now;
+                        long nanosAtStart_totalProduceAndSendMsgSysMessages = nowNanos;
                         produceAndSendMsgSysMessages(log, jmsSessionHolder, _parentFactory, messagesToSend);
                         nanosTaken_totalProduceAndSendMsgSysMessages[0] = System.nanoTime() -
                                 nanosAtStart_totalProduceAndSendMsgSysMessages;

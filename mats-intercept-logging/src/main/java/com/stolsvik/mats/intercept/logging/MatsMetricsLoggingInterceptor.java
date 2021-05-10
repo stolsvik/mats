@@ -20,6 +20,9 @@ import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
  * (timing and endpointIds/stageIds), so as to be able to use the logging system (e.g. Kibana over ElasticSearch) to
  * create statistics.
  * <p />
+ * Two loggers are used, which are {@link #log_init "com.stolsvik.mats.log.init"} and {@link #log_stage
+ * "com.stolsvik.mats.log.stage"}.
+ * <p />
  * <b>Note: This interceptor (SLF4J Logger with Metrics on MDC) has special support in <code>JmsMatsFactory</code>: If
  * present on the classpath, it is automatically installed using the {@link #install(MatsInterceptable)} install
  * method.</b> This interceptor implements the special marker-interface {@link MatsLoggingInterceptor} of which there
@@ -122,6 +125,7 @@ public class MatsMetricsLoggingInterceptor
     public String MDC_MATS_INIT_APP = "mats.init.App";
     public String MDC_MATS_INIT_ID = "mats.init.Id"; // matsInitiate.from(initiatorId).
     public String MDC_MATS_AUDIT = "mats.Audit";
+    public String MDC_MATS_INTERACTIVE = "mats.Interactive";
     public String MDC_MATS_PERSISTENT = "mats.Persistent";
 
     /**
@@ -176,6 +180,7 @@ public class MatsMetricsLoggingInterceptor
             MDC.put(MDC_MATS_INIT_ID, processContext.getInitiatorId());
             MDC.put(MDC_MATS_AUDIT, Boolean.toString(!processContext.isNoAudit()));
             MDC.put(MDC_MATS_PERSISTENT, Boolean.toString(!processContext.isNonPersistent()));
+            MDC.put(MDC_MATS_INTERACTIVE, Boolean.toString(processContext.isInteractive()));
 
             MDC.put(MDC_MATS_IN_FROM_APP_NAME, processContext.getFromAppName());
             MDC.put(MDC_MATS_IN_FROM_ID, processContext.getFromStageId());
@@ -214,6 +219,7 @@ public class MatsMetricsLoggingInterceptor
             MDC.remove(MDC_MATS_INIT_ID);
             MDC.remove(MDC_MATS_AUDIT);
             MDC.remove(MDC_MATS_PERSISTENT);
+            MDC.remove(MDC_MATS_INTERACTIVE);
 
             MDC.remove(MDC_MATS_IN_FROM_APP_NAME);
             MDC.remove(MDC_MATS_IN_FROM_ID);
@@ -402,6 +408,7 @@ public class MatsMetricsLoggingInterceptor
             MDC.put(MDC_MATS_OUT_TO_ID, msg.getTo());
             MDC.put(MDC_MATS_AUDIT, Boolean.toString(!msg.isNoAudit()));
             MDC.put(MDC_MATS_PERSISTENT, Boolean.toString(!msg.isNonPersistent()));
+            MDC.put(MDC_MATS_INTERACTIVE, Boolean.toString(msg.isInteractive()));
 
             // Metrics:
             MDC.put(MDC_MATS_OUT_TIME_ENVELOPE_PRODUCE, msS(msg.getEnvelopeProduceNanos()));
@@ -441,6 +448,7 @@ public class MatsMetricsLoggingInterceptor
             MDC.remove(MDC_MATS_OUT_TO_ID);
             MDC.remove(MDC_MATS_AUDIT);
             MDC.remove(MDC_MATS_PERSISTENT);
+            MDC.remove(MDC_MATS_INTERACTIVE);
 
             MDC.remove(MDC_MATS_OUT_TIME_ENVELOPE_PRODUCE);
             MDC.remove(MDC_MATS_OUT_TIME_ENVELOPE_SERIAL);

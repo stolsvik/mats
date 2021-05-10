@@ -6,6 +6,7 @@ import java.util.Set;
 
 import com.stolsvik.mats.serial.MatsTrace.Call.MessagingModel;
 import com.stolsvik.mats.serial.impl.MatsTraceStringImpl;
+import com.stolsvik.mats.serial.impl.MatsTraceStringImpl.CallImpl;
 
 /**
  * Together with the {@link MatsSerializer}, this interface describes one way to implement a wire-protocol for how Mats
@@ -390,6 +391,16 @@ public interface MatsTrace<Z> {
          */
         Call<Z> setDebugInfo(String callingAppName, String callingAppVersion, String callingHost,
                 long calledTimestamp, String matsMessageId, String debugInfo);
+
+        /**
+         * Resets the calledTimestamp set with {@link #setDebugInfo(String, String, String, long, String, String)}, to
+         * be more closely timed to the exact sending time. I.e. the message may have been constructed, then a massive
+         * SQL query was performed, and then a new message is constructed, and then the messages are actually turned
+         * into JMS messages and committed on the wire. This means that the first message will have a much earlier
+         * timestamp than the second. Using this method, all outgoing messages can have the Called Timestamp set
+         * <i>right</i> before it is serialized and JMS-constructed and committed.
+         */
+        CallImpl setCalledTimestamp(long calledTimestamp);
 
         String getCallingAppName();
 
