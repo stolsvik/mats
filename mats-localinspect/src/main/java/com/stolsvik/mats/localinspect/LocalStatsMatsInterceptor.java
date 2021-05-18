@@ -167,7 +167,7 @@ public class LocalStatsMatsInterceptor
          * @return the stage's total execution time (from right after received, to right before going back to receive
          *         loop).
          */
-        StatsSnapshot getTotalExecutionTimeNanos();
+        StatsSnapshot getStageTotalExecutionTimeNanos();
 
         NavigableMap<IncomingMessageRepresentation, Long> getIncomingMessageCounts();
 
@@ -230,8 +230,8 @@ public class LocalStatsMatsInterceptor
             return getValueAtPercentile(0.99);
         }
 
-        default double get995thPercentile() {
-            return getValueAtPercentile(0.995);
+        default double get999thPercentile() {
+            return getValueAtPercentile(0.999);
         }
     }
 
@@ -273,20 +273,20 @@ public class LocalStatsMatsInterceptor
     public void initiateInterceptOutgoingMessages(InitiateInterceptOutgoingMessagesContext context) {
         List<MatsEditableOutgoingMessage> outgoingMessages = context.getOutgoingMessages();
 
-        // Decorate outgoing REQUESTs with extra-state (for the subsequent REPLY)
+        // :: INITIATOR TO TERMINATOR TIMING:
+        // Decorate outgoing messages with extra-state or sideloads, to get initiator to terminator timings
         for (MatsEditableOutgoingMessage msg : outgoingMessages) {
-            // :: INITIATOR TO TERMINATOR TIMING:
-            // ?: Is this a REQUEST (in which case there will be a REPLY)
+            // ?: Is this a REQUEST?
             if (msg.getMessageType() == MessageType.REQUEST) {
                 // -> Yes, REQUEST.
-                // Set nanoTime and nodename in extra-state
+                // Set nanoTime and nodename in extra-state, for the final REPLY to terminator.
                 msg.setExtraStateForReplyOrNext(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NANOS, System.nanoTime());
                 msg.setExtraStateForReplyOrNext(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NODENAME,
                         context.getInitiator().getParentFactory().getFactoryConfig().getNodename());
             }
             else {
                 // -> No, so SEND or PUBLISH
-                // Set nanoTime and nodename in sideload
+                // Set nanoTime and nodename in sideload, for the receiving endpoint
                 msg.addString(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NANOS, Long.toString(System.nanoTime()));
                 msg.addString(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NODENAME,
                         context.getInitiator().getParentFactory().getFactoryConfig().getNodename());
@@ -349,7 +349,10 @@ public class LocalStatsMatsInterceptor
             // -> Yes, so then we should have extra-state for the time the previous stage's request/send happened
             String requestNodename = i_context.getIncomingExtraState(EXTRA_STATE_REQUEST_NODENAME, String.class)
                     .orElse(null);
-            if (stage.getParentEndpoint().getParentFactory().getFactoryConfig().getNodename().equals(requestNodename)) {
+            boolean sameNode = stage.getParentEndpoint().getParentFactory().getFactoryConfig().getNodename()
+                    .equals(requestNodename);
+            // ?: Is this the same node? (Only record if so, since we know that there must be such timings)
+            if (sameNode) {
                 long requestNanoTime = i_context.getIncomingExtraState(EXTRA_STATE_REQUEST_NANOS, Long.class)
                         .orElse(0L);
                 stageStats.recordBetweenStagesTimeNanos(System.nanoTime() - requestNanoTime);
@@ -364,8 +367,7 @@ public class LocalStatsMatsInterceptor
             if (i_context.getIncomingMessageType() == MessageType.REPLY) {
                 // -> Yes, this is a reply - thus extra-state is employed
                 String initiatorNodename = i_context.getIncomingExtraState(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NODENAME,
-                        String.class)
-                        .orElse(null);
+                        String.class).orElse(null);
                 boolean sameNode = stage.getParentEndpoint().getParentFactory().getFactoryConfig()
                         .getNodename().equals(initiatorNodename);
 
@@ -373,11 +375,10 @@ public class LocalStatsMatsInterceptor
                 if (sameNode) {
                     // -> Yes, same node, and should thus also have extra-state present
                     Long initiatedNanoTime = i_context.getIncomingExtraState(EXTRA_STATE_OR_SIDELOAD_INITIATOR_NANOS,
-                            Long.class)
-                            .orElse(0L);
+                            Long.class).orElse(0L);
                     long nanosSinceInit = System.nanoTime() - initiatedNanoTime;
-                    endpointStats.recordInitiatorToTerminatorTimeNanos(
-                            incomingMessageRepresentation, nanosSinceInit, true);
+                    endpointStats.recordInitiatorToTerminatorTimeNanos(incomingMessageRepresentation,
+                            nanosSinceInit, true);
                 }
                 else {
                     // -> No, not same node, so use Mats' initiatedTimestamp (which is millis-since-epoch).
@@ -399,8 +400,8 @@ public class LocalStatsMatsInterceptor
                     long initiatedNanoTime = Long.parseLong(p_context.getString(
                             EXTRA_STATE_OR_SIDELOAD_INITIATOR_NANOS));
                     long nanosSinceInit = System.nanoTime() - initiatedNanoTime;
-                    endpointStats.recordInitiatorToTerminatorTimeNanos(
-                            incomingMessageRepresentation, nanosSinceInit, true);
+                    endpointStats.recordInitiatorToTerminatorTimeNanos(incomingMessageRepresentation,
+                            nanosSinceInit, true);
                 }
                 else {
                     // -> No, not same node, so use Mats' initiatedTimestamp (which is millis-since-epoch).
@@ -425,17 +426,17 @@ public class LocalStatsMatsInterceptor
         // :: Add extra-state on outgoing messages for BETWEEN STAGES + ENDPOINT TOTAL PROCESSING TIME
         List<MatsEditableOutgoingMessage> outgoingMessages = context.getOutgoingMessages();
         for (MatsEditableOutgoingMessage msg : outgoingMessages) {
-            // ?: Is this a REQUEST or a NEXT call?
-            if ((msg.getMessageType() == MessageType.REQUEST)
-                    || (msg.getMessageType() == MessageType.NEXT)) {
+            // ?: Is this a REQUEST or a NEXT call? (those have a subsequent N+1 stage)
+            if ((msg.getMessageType() == MessageType.REQUEST) || (msg.getMessageType() == MessageType.NEXT)) {
                 // :: TIME BETWEEN STAGES:
-                // The request timestamp is not present in the MatsTrace (not for the REPLY-receiver), adding it.
-                // NOTE: This is /overwriting/ the state between each stage!
+                // Need to record the REQUEST timestamp for the subsequent stage which gets the REPLY
+                // NOTE: This is /overwriting/ the state between each stage, as it is only needed between each
+                // stageN and stageN+1.
                 msg.setExtraStateForReplyOrNext(EXTRA_STATE_REQUEST_NANOS, System.nanoTime());
                 msg.setExtraStateForReplyOrNext(EXTRA_STATE_REQUEST_NODENAME,
                         stage.getParentEndpoint().getParentFactory().getFactoryConfig().getNodename());
 
-                // :: TIME ENDPOINT TOTAL PROCESSING:
+                // :: TIME ENDPOINT TOTAL PROCESSING (Only for initial stage - to the finishing stage):
                 // NOTICE: Storing nanos - but also the node name, so that we'll only use the timing if it is
                 // same node exiting (or stopping, in case of terminator).
                 // NOTE: This is only set on initial, and stays with the endpoint's stages - until finished.
@@ -457,15 +458,15 @@ public class LocalStatsMatsInterceptor
         // Get the StageStats
         StageStatsImpl stageStats = _stages.get(stage);
 
-        // :: TIME TOTAL EXECUTION:
-        stageStats.recordTotalExecutionTimeNanos(context.getTotalExecutionNanos());
+        // :: TIME STAGE TOTAL EXECUTION:
+        stageStats.recordStageTotalExecutionTimeNanos(context.getTotalExecutionNanos());
 
         // :: COUNT PROCESS RESULTS:
         ProcessResult processResult = context.getProcessResult();
         stageStats.recordProcessResult(processResult);
 
         // :: TIME ENDPOINT TOTAL PROCESSING:
-        // ?: Is this an "exiting process result", i.e. either REPLY (service) or NONE (terminator/terminating flow)?
+        // ?: Is this an "finishing process result", i.e. either REPLY (service) or NONE (terminator/terminating flow)?
         if (processResult == ProcessResult.REPLY || (processResult == ProcessResult.NONE)) {
             // -> Yes, "exiting process result" - record endpoint total processing time
             // ?: Is this the initial stage?
@@ -727,7 +728,7 @@ public class LocalStatsMatsInterceptor
             _betweenStagesTimeNanos.addEntry(betweenStagesTimeNanos);
         }
 
-        private void recordTotalExecutionTimeNanos(long totalExecutionTimeNanos) {
+        private void recordStageTotalExecutionTimeNanos(long totalExecutionTimeNanos) {
             _totalExecutionTimeNanos.addEntry(totalExecutionTimeNanos);
         }
 
@@ -808,7 +809,7 @@ public class LocalStatsMatsInterceptor
         }
 
         @Override
-        public StatsSnapshot getTotalExecutionTimeNanos() {
+        public StatsSnapshot getStageTotalExecutionTimeNanos() {
             return new StatsSnapshotImpl(_totalExecutionTimeNanos.getValuesCopy(),
                     _totalExecutionTimeNanos.getNumObservations());
         }

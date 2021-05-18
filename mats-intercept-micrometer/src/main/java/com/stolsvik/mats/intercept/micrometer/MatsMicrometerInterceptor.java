@@ -82,40 +82,47 @@ public class MatsMicrometerInterceptor
     public void initiateCompleted(InitiateCompletedContext ctx) {
         List<MatsSentOutgoingMessage> outgoingMessages = ctx.getOutgoingMessages();
 
+        // :: INITIATION TIMINGS AND SIZES
         if (!outgoingMessages.isEmpty()) {
+            // :: In case of multiple messages in one initiation, each "initiatorId" (i.e. "from") might be different.
+            // This should really not be a common situation, as I envision the system.
+            // Therefore, we just pick the first message's "from" (i.e. "initiatorId") to tag the timings with.
             MatsSentOutgoingMessage firstMessage = outgoingMessages.get(0);
-            String fromId = firstMessage.getFrom();
-            Timer timer_TotalTime = Timer.builder("mats.init.total")
-                    .tag("initiator", ctx.getInitiator().getName())
-                    .tag("from", fromId)
+            String initiatorId = firstMessage.getFrom();
+            Timer timer_TotalTime = Timer.builder("mats.total")
+                    .tag("initiatorName", ctx.getInitiator().getName())
+                    .tag("initiatorId", initiatorId)
                     .description("Total time taken to execute initialization")
                     .register(_meterRegistry);
             timer_TotalTime.record(ctx.getTotalExecutionNanos(), TimeUnit.NANOSECONDS);
 
-            Timer timer_DbCommit = Timer.builder("mats.init.dbcommit")
-                    .tag("initiator", ctx.getInitiator().getName())
-                    .tag("from", fromId)
-                    .description("Time taken to commit database")
+            Timer timer_DbCommit = Timer.builder("mats.dbcommit")
+                    .tag("initiatorName", ctx.getInitiator().getName())
+                    .tag("initiatorId", initiatorId)
+                    .description("Part of total time taken to commit database")
                     .register(_meterRegistry);
             timer_DbCommit.record(ctx.getDbCommitNanos(), TimeUnit.NANOSECONDS);
 
-            Timer timer_MsgSend = Timer.builder("mats.init.msgsend")
-                    .tag("initiator", ctx.getInitiator().getName())
-                    .tag("from", fromId)
-                    .description("Time taken (sum) to produce and send messages to message system")
+            Timer timer_MsgSend = Timer.builder("mats.msgsend")
+                    .tag("initiatorName", ctx.getInitiator().getName())
+                    .tag("initiatorId", initiatorId)
+                    .description("Part of total time taken (sum) to produce and send messages to message system")
                     .register(_meterRegistry);
             timer_MsgSend.record(ctx.getSumMessageSystemProductionAndSendNanos(), TimeUnit.NANOSECONDS);
 
-            Timer timer_MsgCommit = Timer.builder("mats.init.msgcommit")
-                    .tag("initiator", ctx.getInitiator().getName())
-                    .tag("from", fromId)
-                    .description("Time taken to commit message system")
+            Timer timer_MsgCommit = Timer.builder("mats.msgcommit")
+                    .tag("initiatorName", ctx.getInitiator().getName())
+                    .tag("initiatorId", initiatorId)
+                    .description("Part of total time taken to commit message system")
                     .register(_meterRegistry);
             timer_MsgCommit.record(ctx.getMessageSystemCommitNanos(), TimeUnit.NANOSECONDS);
 
+            // :: FOR-EACH-MESSAGE: RECORD SIZES
+            // Note: here we use each message's "from" (i.e. "initiatorId").
             for (MatsSentOutgoingMessage msg : outgoingMessages) {
                 DistributionSummary size = DistributionSummary.builder("mats.msg.out")
-                        .tag("from", msg.getFrom())
+                        .tag("initiatorName", ctx.getInitiator().getName())
+                        .tag("initiatorId", msg.getFrom())
                         .tag("to", msg.getTo())
                         .baseUnit("bytes")
                         .description("Outgoing mats message wire size")
@@ -142,11 +149,32 @@ public class MatsMicrometerInterceptor
 
         List<MatsSentOutgoingMessage> outgoingMessages = ctx.getOutgoingMessages();
 
-        Timer timer_TotalTime = Timer.builder("mats.stage")
-                .tag("stageId", ctx.getProcessContext().getStageId())
+        String stageId = ctx.getProcessContext().getStageId();
+
+        Timer timer_TotalTime = Timer.builder("mats.total")
+                .tag("stageId", stageId)
                 .description("Total time taken to execute stage")
                 .register(_meterRegistry);
         timer_TotalTime.record(ctx.getTotalExecutionNanos(), TimeUnit.NANOSECONDS);
+
+        Timer timer_DbCommit = Timer.builder("mats.dbcommit")
+                .tag("stageId", stageId)
+                .description("Part of total time taken to commit database")
+                .register(_meterRegistry);
+        timer_DbCommit.record(ctx.getDbCommitNanos(), TimeUnit.NANOSECONDS);
+
+        Timer timer_MsgSend = Timer.builder("mats.msgsend")
+                .tag("stageId", stageId)
+                .description("Part of total time taken (sum) to produce and send messages to message system")
+                .register(_meterRegistry);
+        timer_MsgSend.record(ctx.getSumMessageSystemProductionAndSendNanos(), TimeUnit.NANOSECONDS);
+
+        Timer timer_MsgCommit = Timer.builder("mats.msgcommit")
+                .tag("stageId", stageId)
+                .description("Part of total time taken to commit message system")
+                .register(_meterRegistry);
+        timer_MsgCommit.record(ctx.getMessageSystemCommitNanos(), TimeUnit.NANOSECONDS);
+
 
         for (MatsSentOutgoingMessage msg : outgoingMessages) {
             DistributionSummary distSum_size = DistributionSummary.builder("mats.msg.size")

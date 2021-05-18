@@ -382,7 +382,7 @@ public class LocalHtmlInspectForMatsFactory {
         }
 
         // If we have snapshot, and the 99.5% percentile is too high, add the "mats hot" class.
-        String hot = (totExecSnapshot != null) && (totExecSnapshot.get995thPercentile() > 1000_000_000d)
+        String hot = (totExecSnapshot != null) && (totExecSnapshot.get999thPercentile() > 1000_000_000d)
                 ? " mats_hot"
                 : "";
 
@@ -469,14 +469,14 @@ public class LocalHtmlInspectForMatsFactory {
             Optional<StageStats> stageStats_ = localStats.getStageStats(matsStage);
             if (stageStats_.isPresent()) {
                 stageStats = stageStats_.get();
-                totExecSnapshot = stageStats.getTotalExecutionTimeNanos();
+                totExecSnapshot = stageStats.getStageTotalExecutionTimeNanos();
             }
         }
 
         StageConfig<?, ?, ?> config = matsStage.getStageConfig();
 
         // If we have snapshot, and the 99.5% percentile is too high, add the "mats hot" class.
-        String hot = (totExecSnapshot != null) && (totExecSnapshot.get995thPercentile() > 500_000_000d)
+        String hot = (totExecSnapshot != null) && (totExecSnapshot.get999thPercentile() > 500_000_000d)
                 ? " mats_hot"
                 : "";
         out.write("<div class=\"mats_report mats_stage" + hot + "\">\n");
@@ -620,7 +620,7 @@ public class LocalHtmlInspectForMatsFactory {
                 + ", <b>95%:</b>" + formatNanos(snapshot.get95thPercentile())
                 + ", <b>98%:</b>" + formatNanos(snapshot.get98thPercentile())
                 + ", <b>99%:</b>" + formatNanos(snapshot.get99thPercentile())
-                + ", <b>99.5%:</b>" + formatNanos(snapshot.get995thPercentile())
+                + ", <b>99.9%:</b>" + formatNanos(snapshot.get999thPercentile())
                 + " &mdash; <i>number of samples: " + formatInt(snapshot.getSamples().length)
                 + ", out of observations:" + formatInt(snapshot.getNumObservations()) + "</i>";
     }
