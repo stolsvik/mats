@@ -73,7 +73,7 @@ public class MatsTestMqInterface {
     }
 
     /**
-     * Convenience variant of {@link #create(ConnectionFactory, MatsSerializer, String, String)} if you jave the
+     * Convenience variant of {@link #create(ConnectionFactory, MatsSerializer, String, String)} if you have the
      * JmsMatsFactory available.
      */
     public static MatsTestMqInterface create(ConnectionFactory connectionFactory, JmsMatsFactory<?> matsFactory) {

@@ -31,6 +31,7 @@ import com.stolsvik.mats.util.MatsFuturizer;
  * <ol>
  * <li>{@link MatsFactory}.</li>
  * <li>{@link MatsInitiator} from the MatsFactory.</li>
+ * <li>{@link MatsTestMqInterface} that "hooks in" to the underlying MQ instance, providing (for now) DLQ access.</li>
  * <li>{@link MatsTestLatch} for convenience (if you need to signal from e.g. a Terminator to the @Test method.</li>
  * <li>{@link MatsFuturizer} (lazily created if needed), backed by the MatsFactory.</li>
  * </ol>

@@ -17,118 +17,193 @@ import com.stolsvik.mats.api.intercept.MatsStageInterceptor;
 
 /**
  * A logging interceptor that writes loglines to two SLF4J loggers, including multiple pieces of information on the MDC
- * (timing and endpointIds/stageIds), so as to be able to use the logging system (e.g. Kibana over ElasticSearch) to
- * create statistics.
+ * (initiatorId, endpointId and stageIds, and timings and sizes), so that it hopefully is easy to reason about and debug
+ * all Mats flows, and to be able to use the logging system (e.g. Kibana over ElasticSearch) to create statistics.
  * <p />
  * Two loggers are used, which are {@link #log_init "com.stolsvik.mats.log.init"} and {@link #log_stage
  * "com.stolsvik.mats.log.stage"}. All loglines' message-part is prepended with <code>"#MATSLOG#"</code>.
- * <p />
- * <h2>Log lines and their metadata</h2>
+ *
+ * <h2>Log lines and their metadata</h2> There are 4 different type of log lines emitted by this logging interceptor -
+ * but note that the "Per Message" log line can be combined with the "Initiate Complete" or "Stage Complete" loglines if
+ * the initiation or stage only produce a single message - read more at end.
  * <ol>
  * <li>Initiate Complete</li>
- * <li>Stage Received</li>
+ * <li>Message Received (on Stage)</li>
  * <li>Stage Complete</li>
- * <li>Per message (for Initiate Complete and Stage Complete)</li>
+ * <li>Per message (both for initiations and stage produced messages)</li>
  * </ol>
+ * Note that some MDC properties are set by the JMS implementation, and not by this interceptor. These are the ones that
+ * do not have a JavaDoc-link in the below listings.
+ * <p />
  * Note that ALL loglines that are emitted by any code, user or system, which are within Mats init or processing, will
- * have the follow two properties set:
+ * have the follow properties set:
  * <ul>
- * <li>MDC_MATS_APP_NAME = "mats.AppName": The app-name which the MatsFactory was created with</li>
- * <li>MDC_MATS_APP_VERSION = "mats.AppVersion": The app-version which the MatsFactory was created with</li>
- * <li>Either, or both, of MDC_MATS_INIT = "mats.Init" (set to 'true' on initiation enter, and cleared on exit) and
- * MDC_MATS_STAGE = "mats.Stage" (set to constant 'true' for all Mats Stage processors).</li>
+ * <li><code><b>"mats.AppName"</b></code>: The app-name which the MatsFactory was created with</li>
+ * <li><code><b>"mats.AppVersion"</b></code>: The app-version which the MatsFactory was created with</li>
+ * <li>Either, or both, of <code><b>"mats.Init"</b></code> (set to 'true' on initiation enter, and cleared on exit) and
+ * <code><b>"mats.Stage"</b></code> (set to constant 'true' for all Mats Stage processors). If initiation within a
+ * stage, both are set.</li>
  * </ul>
- *
- * <h1>WORK IN PROGRESS: JAVADOC</h1>
  *
  * <h3>MDC Properties for Initiate Complete:</h3>
  * <ul>
- * <li>MDC_MATS_INITIATE_COMPLETED = "mats.InitiateCompleted": 'true' <i>on a single</i> logline per completed
- * initiation - <i>can be used to count initiations</i>.</li>
- * <li>MDC_TRACE_ID = "traceId": Set for an initiation from when it is set in the user code performing the initiation
- * (reset to whatever it was upon exit of initiation lambda)</li>
+ * <li><b>{@link #MDC_MATS_INITIATE_COMPLETED "mats.InitiateCompleted"}</b>: 'true' <i>on a single</i> logline per
+ * completed initiation - <i>can be used to count initiations</i>.</li>
+ * <li><b>{@link #MDC_TRACE_ID "traceId"}</b>: Set for an initiation from when it is set in the user code performing the
+ * initiation (reset to whatever it was upon exit of initiation lambda)</li>
  * </ul>
- * Metrics:
+ * Metrics for the execution of the initiation (very similar to the metrics for a stage processing):
  * <ul>
- * <li>MDC_MATS_COMPLETE_TOTAL_EXECUTION = "mats.done.ms.TotalExecution": Total time taken for the initiation to
- * complete - including both user code and all system code including commits.</li>
- * <li>MDC_MATS_COMPLETE_USER_LAMBDA = "mats.done.ms.UserLambda": Part of the total time taken for the actual user
- * lambda, including e.g. any external IO like DB, but excluding all system code, in particular message creation and
- * commits.</li>
- * <li>MDC_MATS_COMPLETE_SUM_MSG_OUT_HANDLING = "mats.done.ms.SumMsgOutHandling": Part of total time taken for the
- * creation and serialization of Mats messages, and "system messages" (e.g. JMS Message for the JMS implementation)</li>
- * <li>MDC_MATS_COMPLETE_SUM_DB_COMMIT = "mats.done.ms.DbCommit": Part of total time taken for committing DB.</li>
- * <li>MDC_MATS_COMPLETE_SUM_MSG_SYS_COMMIT = "mats.done.ms.MsgSysCommit": Part of total time taken for committing the
- * message system (e.g. JMS commit for the JMS implementation)</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_TOTAL_EXECUTION "mats.done.ms.TotalExecution"}</b>: Total time taken for the
+ * initiation to complete - including both user code and all system code including commits.</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_USER_LAMBDA "mats.done.ms.UserLambda"}</b>: Part of the total time taken for the
+ * actual user lambda, including e.g. any external IO like DB, but excluding all system code, in particular message
+ * creation and commits.</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_SUM_MSG_OUT_HANDLING "mats.done.ms.SumMsgOutHandling"}</b>: Part of total time taken
+ * for the creation and serialization of Mats messages, and "system messages" (e.g. JMS Message for the JMS
+ * implementation)</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_SUM_DB_COMMIT "mats.done.ms.DbCommit"}</b>: Part of total time taken for committing
+ * DB.</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_SUM_MSG_SYS_COMMIT "mats.done.ms.MsgSysCommit"}</b>: Part of total time taken for
+ * committing the message system (e.g. JMS commit for the JMS implementation)</li>
  * </ul>
  *
- * <h3>MDC Properties for Stage Received:</h3>
+ * <h3>MDC Properties for Message Received:</h3>
  * <ul>
- * <li>MDC_MATS_MESSAGE_RECEIVED = "mats.MessageReceived": 'true' on a single logline per received message - <i>can be
- * used to count received messages</i>.</li>
- * <li>MDC_MATS_STAGE_ID = "mats.StageId": Always set on the Processor threads for a stage, so any logline output inside
+ * <li><b>{@link #MDC_MATS_MESSAGE_RECEIVED "mats.MessageReceived"}</b>: 'true' on a single logline per received message
+ * - <i>can be used to count received messages</i>.</li>
+ * <li><code><b>"mats.StageId"</b></code>: Always set on the Processor threads for a stage, so any logline output inside
  * a Mats stage will have this set.</li>
- * <li>MDC_TRACE_ID = "traceId": The Mats flow's traceId, set from the initiation.</li>
- * <li>MDC_MATS_IN_MESSAGE_SYSTEM_ID = "mats.in.MsgSysId": The Id the messaging system has assigned the incoming message
- * upon production on the sender side (e.g JMSMessageID for the JMS implementation)</li>
- * <li>MDC_MATS_IN_FROM_APP_NAME = "mats.in.from.App"</li>
- * <li>MDC_MATS_IN_FROM_ID = "mats.in.from.Id"</li>
- * <li><i>NOTICE: NOT using MDC_MATS_IN_TO_APP, as that is identical to MDC_MATS_APP_NAME</i></li>
- * <li><i>NOTICE: NOT using MDC_MATS_IN_TO_ID, as that is identical to MDC_MATS_STAGE_ID</i></li>
- * <li>MDC_MATS_IN_MATS_MESSAGE_ID = "mats.in.MatsMsgId"</li>
+ * <li><b>{@link #MDC_TRACE_ID "traceId"}</b>: The Mats flow's traceId, set from the initiation.</li>
+ * <li><code><b>"mats.in.MsgSysId"</b></code>: The messageId the messaging system assigned the incoming message upon
+ * production on the sender side (e.g JMSMessageID for the JMS implementation)</li>
+ * <li><b>{@link #MDC_MATS_IN_MATS_MESSAGE_ID "mats.in.MatsMsgId"}</b>: The messageId the Mats system assigned the
+ * incoming message upon production on the sender side. Note that it consists of the Mats flow id + an individual part
+ * per message in the flow.</li>
+ * <li><b>{@link #MDC_MATS_IN_FROM_APP_NAME "mats.in.from.App"}</b>: Which app this incoming message is from.</li>
+ * <li><b>{@link #MDC_MATS_IN_FROM_ID "mats.in.from.Id"}</b>: Which initiatorId, endpointId or stageId this message is
+ * from.</li>
+ * <li><i>NOTICE: NOT using <code>"mats.in.to.app"</code>, as that is "this" App, and thus identical to
+ * <code>"mats.AppName"</code>.</i></li>
+ * <li><i>NOTICE: NOT using <code>"mats.in.to.id"</code>, as that is "this" StageId, and thus identical to
+ * <code>"mats.StageId"</code>.</i></li>
  * </ul>
- * Metrics:
+ * Common for all received and sent messages in a Mats flow (initiated, received on stage and sent from stage):
  * <ul>
- * <li>MDC_MATS_IN_TIME_TOTAL_PREPROC_AND_DESERIAL = "mats.in.ms.TotalPreprocDeserial"</li>
- * <li>MDC_MATS_IN_TIME_MSGSYS_DECONSTRUCT = "mats.in.ms.MsgSysDeconstruct"</li>
- * <li>MDC_MATS_IN_SIZE_ENVELOPE_WIRE = "mats.in.bytes.EnvelopeWire"</li>
- * <li>MDC_MATS_IN_TIME_ENVELOPE_DECOMPRESS = "mats.in.ms.EnvelopeDecompress"</li>
- * <li>MDC_MATS_IN_SIZE_ENVELOPE_SERIAL = "mats.in.bytes.EnvelopeSerial"</li>
- * <li>MDC_MATS_IN_TIME_ENVELOPE_DESERIAL = "mats.in.ms.EnvelopeDeserial"</li>
- * <li>MDC_MATS_IN_TIME_MSG_AND_STATE_DESERIAL = "mats.in.ms.MsgAndStateDeserial"</li>
+ * <li><b>{@link #MDC_MATS_INIT_APP "mats.init.App"}</b>: Which App initiated this Mats flow.</li>
+ * <li><b>{@link #MDC_MATS_INIT_ID "mats.init.Id"}</b>: The initiatorId of this MatsFlow;
+ * <code>matsInitiate.from(initiatorId)</code>.</li>
+ * <li><b>{@link #MDC_MATS_AUDIT "mats.Audit"}</b>: Whether this Mats flow should be audited.</li>
+ * <li><b>{@link #MDC_MATS_INTERACTIVE "mats.Interactive"}</b>: Whether this Mats flow should be treated as
+ * "interactive", meaning that a human is actively waiting for its execution.</li>
+ * <li><b>{@link #MDC_MATS_PERSISTENT "mats.Persistent"}</b>: Whether the messaging system should use persistent (as
+ * opposed to non-persistent) message passing, i.e. store to disk to survive a crash.</li>
+ * </ul>
+ * Metrics for message reception (note how these compare to the production of a message, on the "Per Message" loglines):
+ * <ul>
+ * <li><b>{@link #MDC_MATS_IN_TIME_TOTAL_PREPROC_AND_DESERIAL "mats.in.ms.TotalPreprocDeserial"}</b>: Total time taken
+ * to preprocess and deserialize the incoming message.</li>
+ * <li><b>{@link #MDC_MATS_IN_TIME_MSGSYS_DECONSTRUCT "mats.in.ms.MsgSysDeconstruct"}</b>: Part of total time taken to
+ * pick out the Mats pieces from the incoming message system message.</li>
+ * <li><b>{@link #MDC_MATS_IN_SIZE_ENVELOPE_WIRE "mats.in.bytes.EnvelopeWire"}</b>: How big the incoming Mats envelope
+ * ("MatsTrace") was in the incoming message system message, i.e. "on the wire".</li>
+ * <li><b>{@link #MDC_MATS_IN_TIME_ENVELOPE_DECOMPRESS "mats.in.ms.EnvelopeDecompress"}</b>: Part of total time taken to
+ * decompress the Mats envelope (will be 0 if it was sent plain, and >0 if it was compressed).</li>
+ * <li><b>{@link #MDC_MATS_IN_SIZE_ENVELOPE_SERIAL "mats.in.bytes.EnvelopeSerial"}</b>: How big the incoming Mats
+ * envelope ("MatsTrace") is in its serialized form, after decompression.</li>
+ * <li><b>{@link #MDC_MATS_IN_TIME_ENVELOPE_DESERIAL "mats.in.ms.EnvelopeDeserial"}</b>: Part of total time taken to
+ * deserialize the incoming serialized Mats envelope.</li>
+ * <li><b>{@link #MDC_MATS_IN_TIME_MSG_AND_STATE_DESERIAL "mats.in.ms.MsgAndStateDeserial"}</b>: Part of total time
+ * taken to deserialize the actual message and state objects from the Mats envelope.</li>
  * </ul>
  *
  * <h3>MDC Properties for Stage Complete:</h3>
  * <ul>
- * <li>MDC_MATS_STAGE_COMPLETED = "mats.StageCompleted": 'true' on a single logline per completed stage - <i>can be used
- * to count stage processings</i>.</li>
- * <li>MDC_MATS_STAGE_ID = "mats.StageId": Always set on the Processor threads for a stage, so any logline output inside
+ * <li><b>{@link #MDC_MATS_STAGE_COMPLETED "mats.StageCompleted"}</b>: 'true' on a single logline per completed stage -
+ * <i>can be used to count stage processings</i>.</li>
+ * <li><code><b>"mats.StageId"</b></code>: Always set on the Processor threads for a stage, so any logline output inside
  * a Mats stage will have this set.</li>
- * <li>MDC_TRACE_ID = "traceId": The Mats flow's traceId, set from the initiation.</li>
- * <li>MDC_MATS_COMPLETE_PROCESS_RESULT = "mats.done.ProcessResult": the ProcessResult enum</li>
+ * <li><b>{@link #MDC_TRACE_ID "traceId"}</b>: The Mats flow's traceId, set from the initiation.</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_PROCESS_RESULT "mats.done.ProcessResult"}</b>: the ProcessResult enum</li>
  * </ul>
- * Metrics:
+ * Metrics for the processing of the stage (very similar to the metrics for a initiation execution):
  * <ul>
- * <li>MDC_MATS_COMPLETE_TOTAL_EXECUTION = "mats.done.ms.TotalExecution": Total time taken for the stage to complete -
- * including both user code and all system code including commits.</li>
- * <li>String MDC_MATS_COMPLETE_TOTAL_PREPROC_AND_DESERIAL = "mats.done.ms.TotalPreprocDeserial": Part of the total time
- * taken for the preprocessing and deserialization of the incoming message.</li>
- * <li>MDC_MATS_COMPLETE_USER_LAMBDA = "mats.done.ms.UserLambda": Part of the total time taken for the actual user
- * lambda, including e.g. any external IO like DB, but excluding all system code, in particular message creation and
- * commits.</li>
- * <li>MDC_MATS_COMPLETE_SUM_MSG_OUT_HANDLING = "mats.done.ms.SumMsgOutHandling": Part of total time taken for the
- * creation and serialization of Mats messages, and "system messages" (e.g. JMS Message for the JMS implementation)</li>
- * <li>MDC_MATS_COMPLETE_SUM_DB_COMMIT = "mats.done.ms.DbCommit": Part of total time taken for committing DB.</li>
- * <li>MDC_MATS_COMPLETE_SUM_MSG_SYS_COMMIT = "mats.done.ms.MsgSysCommit": Part of total time taken for committing the
- * message system (e.g. JMS commit for the JMS implementation)</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_TOTAL_EXECUTION "mats.done.ms.TotalExecution"}</b>: Total time taken for the stage
+ * to complete - including both user code and all system code including commits.</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_TOTAL_PREPROC_AND_DESERIAL "mats.done.ms.TotalPreprocDeserial"}</b>: Part of the
+ * total time taken for the preprocessing and deserialization of the incoming message, same as the message received
+ * logline's {@link #MDC_MATS_IN_TIME_TOTAL_PREPROC_AND_DESERIAL "mats.in.ms.TotalPreprocDeserial"}, as that piece is
+ * also part of the stage processing.</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_USER_LAMBDA "mats.done.ms.UserLambda"}</b>: Part of the total time taken for the
+ * actual user lambda, including e.g. any external IO like DB, but excluding all system code, in particular message
+ * creation and commits.</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_SUM_MSG_OUT_HANDLING "mats.done.ms.SumMsgOutHandling"}</b>: Part of total time taken
+ * for the creation and serialization of Mats messages, and "system messages" (e.g. JMS Message for the JMS
+ * implementation)</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_SUM_DB_COMMIT "mats.done.ms.DbCommit"}</b>: Part of total time taken for committing
+ * DB.</li>
+ * <li><b>{@link #MDC_MATS_COMPLETE_SUM_MSG_SYS_COMMIT "mats.done.ms.MsgSysCommit"}</b>: Part of total time taken for
+ * committing the message system (e.g. JMS commit for the JMS implementation)</li>
  * </ul>
  *
- * <h3>MDC Properties for Per Message:</h3>
+ * <h3>MDC Properties for Per Message (both initiations and stage produced messages):</h3>
  * <ul>
- * <li>String MDC_MATS_MESSAGE_SENT = "mats.MessageSent": 'true' on single logline per sent message.</li>
- * <li></li>
- * <li></li>
- * <li></li>
+ * <li><b>{@link #MDC_MATS_MESSAGE_SENT "mats.MessageSent"}</b>: 'true' on single logline per sent message - <i>can be
+ * used to count sent messages.</i></li>
+ * <li><b>{@link #MDC_MATS_DISPATCH_TYPE "mats.DispatchType"}</b>: The DispatchType enum; INIT, STAGE, STAGE_INIT</li>
+ * <li><b>{@link #MDC_MATS_OUT_MATS_MESSAGE_ID "mats.out.MatsMsgId"}</b>: The messageId the Mats system gave the
+ * message. Note that it consists of the Mats flow id + an individual part per message in the flow.</li>
+ * <li><b>{@link #MDC_MATS_OUT_MESSAGE_SYSTEM_ID "mats.out.MsgSysId"}</b>: The messageId that the messaging system gave
+ * the message - for the JMS Implementation, it is the JMSMessageId.</li>
+ * <li><i>NOTICE: NOT using "mats.out.from.app", as that is 'this' App, and thus identical to:
+ * <code>"mats.AppName"</code>.</i></li>
+ * <li><b>{@link #MDC_MATS_OUT_FROM_ID "mats.out.from.Id"}</b>: "this" EndpointId/StageId/InitiatorId - <i>NOTICE:
+ * <code>"mats.out.from.Id"</code> == <code>"mats.StageId"</code> for Stages - but there is no corresponding for
+ * InitiatorId.</i></li>
+ * <li><b>{@link #MDC_MATS_OUT_TO_ID "mats.out.to.Id"}</b>: target EndpointId/StageId</li>
+ * <li><i>NOTICE: NOT using "mats.out.to.app", since we do not know which app will consume it.</i></li>
  * </ul>
- * Both Initiation and Stage completed can produce messages. For the very common case where this is just a single
- * message (a single initiated message starting a Mats flow, or a REQUEST or REPLY message from a Stage (in a flow)),
- * the "Per message" log line is combined with the Initiation or Stage Complete log line - on the message part, the two
- * lines are separated by a "/n", while each of the properties that come with the respective log line either are common
- * - i.e. they have the same name, and would have the same value - or they are differently named, so that the
+ * Common for all sent and received messages in a Mats flow (initiated, received on stage and sent from stage):
+ * <ul>
+ * <li><b>{@link #MDC_MATS_INIT_APP "mats.init.App"}</b>: Which App initiated this Mats flow.</li>
+ * <li><b>{@link #MDC_MATS_INIT_ID "mats.init.Id"}</b>: The initiatorId of this MatsFlow;
+ * <code>matsInitiate.from(initiatorId)</code>.</li>
+ * <li><b>{@link #MDC_MATS_AUDIT "mats.Audit"}</b>: Whether this Mats flow should be audited.</li>
+ * <li><b>{@link #MDC_MATS_INTERACTIVE "mats.Interactive"}</b>: Whether this Mats flow should be treated as
+ * "interactive", meaning that a human is actively waiting for its execution.</li>
+ * <li><b>{@link #MDC_MATS_PERSISTENT "mats.Persistent"}</b>: Whether the messaging system should use persistent (as
+ * opposed to non-persistent) message passing, i.e. store to disk to survive a crash.</li>
+ * </ul>
+ * Metrics for message production (note how these compare to the reception of a message, on the "Message Received"
+ * loglines):
+ * <ul>
+ * <li><b>{@link #MDC_MATS_OUT_TIME_TOTAL "mats.out.ms.Total"}</b>: Total time taken to produce the message, all of the
+ * Mats envelope ("MatsTrace"), serializing, compressing and producing the message system message.</li>
+ * <li><b>{@link #MDC_MATS_OUT_TIME_ENVELOPE_PRODUCE "mats.out.ms.EnvelopeProduce"}</b>: Part of the total time taken to
+ * produce the Mats envelope ("MatsTrace"), including serialization of all constituents: DTO, STO and any Trace
+ * Properties.</li>
+ * <li><b>{@link #MDC_MATS_OUT_TIME_ENVELOPE_SERIAL "mats.out.ms.EnvelopeSerial"}</b>: Part of the total time taken to
+ * serialize the Mats envelope.</li>
+ * <li><b>{@link #MDC_MATS_OUT_SIZE_ENVELOPE_SERIAL "mats.out.bytes.EnvelopeSerial"}</b>: Size of the serialized Mats
+ * envelope.</li>
+ * <li><b>{@link #MDC_MATS_OUT_TIME_ENVELOPE_COMPRESS "mats.out.ms.EnvelopeCompress"}</b>: Part of the total time taken
+ * to compress the serialized Mats envelope</li>
+ * <li><b>{@link #MDC_MATS_OUT_SIZE_ENVELOPE_WIRE "mats.out.bytes.EnvelopeWire"}</b>: Size of the compressed serialized
+ * Mats envelope.</li>
+ * <li><b>{@link #MDC_MATS_OUT_TIME_MSGSYS_CONSTRUCT_AND_SEND "mats.out.ms.MsgSysConstructAndSend"}</b>: Part of the
+ * total time taken to produce the message system message.</li>
+ * </ul>
+ *
+ * <b>Note:</b> Both Initiation and Stage completed can produce messages. For the very common case where this is just a
+ * single message (a single initiated message starting a Mats flow, or a REQUEST or REPLY message from a Stage (in a
+ * flow)), the "Per message" log line is combined with the Initiation or Stage Complete log line - on the message part,
+ * the two lines are separated by a "/n", while each of the properties that come with the respective log line either are
+ * common - i.e. they have the same name, and would have the same value - or they are differently named, so that the
  * combination does not imply any "overwrite" of a property name. If you search for a property that only occurs on "Per
- * message" log lines (you e.g. want to graph the sizes), you will get hits for log lines that are in the "combined"
- * form (e.g. initiation producing a single message), and for log lines for individual messages (i.e. where an
- * initiation produced two messages, which results in three log lines: 1 for the initiation, and 2 for the messages).
+ * message" log lines (you e.g. want to count, or select, all outgoing message), you will get hits for log lines that
+ * are in the "combined" form (e.g. initiation producing a single message), and for log lines for individual messages
+ * (i.e. where an initiation produced two messages, which results in three log lines: 1 for the initiation, and 2 for
+ * the messages).
  * <p />
  * <b>Note: This interceptor (SLF4J Logger with Metrics on MDC) has special support in <code>JmsMatsFactory</code>: If
  * present on the classpath, it is automatically installed using the {@link #install(MatsInterceptable)} install
@@ -213,8 +288,9 @@ public class MatsMetricsLoggingInterceptor
     // ===== For Sending a single message (from init, or stage) - one line per message
     // 'true' on single logline per msg:
     public String MDC_MATS_MESSAGE_SENT = "mats.MessageSent";
-    public String MDC_MATS_DISPATCH_TYPE = "mats.DispatchType"; // Set on single logline per msg: INIT, STAGE,
-                                                                // STAGE_INIT
+    // Set on single logline per msg: INIT, STAGE, STAGE_INIT
+    public String MDC_MATS_DISPATCH_TYPE = "mats.DispatchType";
+
     public String MDC_MATS_OUT_MATS_MESSAGE_ID = "mats.out.MatsMsgId";
     public String MDC_MATS_OUT_MESSAGE_SYSTEM_ID = "mats.out.MsgSysId";
 
