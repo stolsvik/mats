@@ -40,16 +40,17 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
     private final List<JmsMatsMessage<Z>> _messagesToSend;
     private final JmsMatsInternalExecutionContext _jmsMatsInternalExecutionContext;
     private final DoAfterCommitRunnableHolder _doAfterCommitRunnableHolder;
+    private final String _existingMdcTraceId;
 
     // :: Only for "within Stage"
     private final MatsTrace<Z> _existingMatsTrace;
 
     static <Z> JmsMatsInitiate<Z> createForTrueInitiation(JmsMatsFactory<Z> parentFactory,
             List<JmsMatsMessage<Z>> messagesToSend, JmsMatsInternalExecutionContext jmsMatsInternalExecutionContext,
-            DoAfterCommitRunnableHolder doAfterCommitRunnableHolder) {
+            DoAfterCommitRunnableHolder doAfterCommitRunnableHolder, String existingMdcTraceId) {
         return new JmsMatsInitiate<>(parentFactory, messagesToSend, jmsMatsInternalExecutionContext,
                 doAfterCommitRunnableHolder,
-                null);
+                null, existingMdcTraceId);
     }
 
     static <Z> JmsMatsInitiate<Z> createForChildFlow(JmsMatsFactory<Z> parentFactory,
@@ -58,19 +59,20 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
             MatsTrace<Z> existingMatsTrace) {
         return new JmsMatsInitiate<>(parentFactory, messagesToSend, jmsMatsInternalExecutionContext,
                 doAfterCommitRunnableHolder,
-                existingMatsTrace);
+                existingMatsTrace, null);
     }
 
     private JmsMatsInitiate(JmsMatsFactory<Z> parentFactory, List<JmsMatsMessage<Z>> messagesToSend,
             JmsMatsInternalExecutionContext jmsMatsInternalExecutionContext,
             DoAfterCommitRunnableHolder doAfterCommitRunnableHolder,
-            MatsTrace<Z> existingMatsTrace) {
+            MatsTrace<Z> existingMatsTrace, String existingMdcTraceId) {
         _parentFactory = parentFactory;
         _messagesToSend = messagesToSend;
         _jmsMatsInternalExecutionContext = jmsMatsInternalExecutionContext;
         _doAfterCommitRunnableHolder = doAfterCommitRunnableHolder;
 
         _existingMatsTrace = existingMatsTrace;
+        _existingMdcTraceId = existingMdcTraceId;
 
         reset();
     }
@@ -106,6 +108,18 @@ class JmsMatsInitiate<Z> implements MatsInitiate, JmsMatsStatics {
             // -> No, this is an initiation from MatsInitiator, i.e. "from the outside".
             _traceId = null;
             _from = null;
+        }
+
+        // :: Since the '_parentFactory.getInitiateTraceIdModifier()' might use the MDC to modify (prefix) the TraceId
+        // with, after each sent message, we need to reset it to whatever it was at start.
+        // ?: Did we have an existing MDC traceId? (only for "true initiations")
+        if (_existingMdcTraceId != null) {
+            // -> Yes, so restore it.
+            MDC.put(MDC_TRACE_ID, _existingMdcTraceId);
+        }
+        else {
+            // -> No, so clear it.
+            MDC.remove(MDC_TRACE_ID);
         }
 
         // :: Set defaults

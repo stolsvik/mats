@@ -129,7 +129,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                     .map(within -> JmsMatsInitiate.createForChildFlow(_parentFactory, messagesToSend,
                             internalExecutionContext, doAfterCommitRunnableHolder, within.getMatsTrace()))
                     .orElseGet(() -> JmsMatsInitiate.createForTrueInitiation(_parentFactory, messagesToSend,
-                            internalExecutionContext, doAfterCommitRunnableHolder));
+                            internalExecutionContext, doAfterCommitRunnableHolder, existingTraceId));
             try {
                 // ===== Going into Transactional Demarcation
                 _transactionContext.doTransaction(internalExecutionContext, () -> {
