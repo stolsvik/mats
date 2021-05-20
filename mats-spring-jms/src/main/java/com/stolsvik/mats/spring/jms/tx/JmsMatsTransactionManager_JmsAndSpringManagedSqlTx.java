@@ -676,7 +676,7 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                          * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                          */
                         commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, false,
-                                transactionStatus);
+                                transactionStatus, e);
 
                         // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
@@ -695,7 +695,7 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                          * IFF the SQL Connection was fetched, we will now rollback (and close) it.
                          */
                         commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, false,
-                                transactionStatus);
+                                transactionStatus, t);
 
                         // ----- We're *outside* the SQL Transaction demarcation (rolled back).
 
@@ -719,7 +719,7 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                      * IFF the SQL Connection was fetched, we will now commit (and close) it.
                      */
                     commitOrRollbackSqlTransaction(internalExecutionContext, connectionEmployedState, true,
-                            transactionStatus);
+                            transactionStatus, null);
 
                     // ----- We're now *outside* the SQL Transaction demarcation (committed).
 
@@ -750,7 +750,8 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
          * eventually calls connection.close().
          */
         private void commitOrRollbackSqlTransaction(JmsMatsInternalExecutionContext internalExecutionContext,
-                Supplier<Boolean> sqlConnectionEmployedSupplier, boolean commit, TransactionStatus transactionStatus) {
+                Supplier<Boolean> sqlConnectionEmployedSupplier, boolean commit, TransactionStatus transactionStatus,
+                Throwable exceptionThatHappened) {
             // NOTICE: THE FOLLOWING if-STATEMENT IS JUST FOR LOGGING!
             // ?: Was connection gotten by code in ProcessingLambda (user code)
             // NOTICE: We must commit or rollback the Spring TransactionManager nevertheless, to clean up
@@ -783,6 +784,7 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                         // Do rollback.
                         _platformTransactionManager.rollback(transactionStatus);
                         // Throw out.
+                        // (NOTE: There won't be an exceptionThatHappened in the "good case" of commit.)
                         throw new MatsSqlCommitWasRollbackOnlyException(msg);
                     }
                     // E-> No, we were NOT in "RollbackOnly" - so commit this stuff, and get out.
@@ -798,8 +800,14 @@ public class JmsMatsTransactionManager_JmsAndSpringManagedSqlTx extends JmsMatsT
                 }
             }
             catch (TransactionException e) {
-                throw new MatsSqlCommitOrRollbackFailedException("Could not " + (commit ? "commit" : "rollback")
-                        + " SQL Transaction [" + transactionStatus + "] - for [" + _txContextKey + "].", e);
+                MatsSqlCommitOrRollbackFailedException failedException =
+                        new MatsSqlCommitOrRollbackFailedException("Could not " + (commit ? "commit" : "rollback")
+                                + " SQL Transaction [" + transactionStatus + "] - for [" + _txContextKey + "].", e);
+                // ?: If we had an Exception "on its way out", then we'll have to add this as suppressed.
+                if (exceptionThatHappened != null) {
+                    failedException.addSuppressed(exceptionThatHappened);
+                }
+                throw failedException;
             }
             finally {
                 internalExecutionContext.setDbCommitNanos(System.nanoTime() - nanosAsStart_DbCommit);
