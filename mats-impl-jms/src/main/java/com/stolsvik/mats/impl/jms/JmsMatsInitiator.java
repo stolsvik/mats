@@ -365,7 +365,7 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
         else {
             // -> Yes, too many - creating a "traceId" reflecting cropping.
             collectedTraceIds = "<cropped,numTraceIds:" + collected.size() + ">;"
-                    + String.join(";", collected.subList(0, 20))
+                    + String.join(";", collected.subList(0, 15))
                     + ";...";
         }
         MDC.put(MDC_TRACE_ID, collectedTraceIds);
