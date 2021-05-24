@@ -357,15 +357,16 @@ class JmsMatsInitiator<Z> implements MatsInitiator, JmsMatsTxContextKey, JmsMats
                 .distinct()
                 .collect(Collectors.toList());
         String collectedTraceIds;
+        int tooMany = 15;
         // ?: Are there many?
-        if (collected.size() <= 15) {
+        if (collected.size() <= tooMany) {
             // -> No, not too many
             collectedTraceIds = String.join(";", collected);
         }
         else {
             // -> Yes, too many - creating a "traceId" reflecting cropping.
             collectedTraceIds = "<cropped,numTraceIds:" + collected.size() + ">;"
-                    + String.join(";", collected.subList(0, 20))
+                    + String.join(";", collected.subList(0, tooMany))
                     + ";...";
         }
         MDC.put(MDC_TRACE_ID, collectedTraceIds);
