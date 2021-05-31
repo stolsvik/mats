@@ -32,7 +32,7 @@ annotate your configuration class as such:
 @RunWith(SpringJUnit4ClassRunner.class)
 @TestExecutionListeners(value = SpringInjectRulesTestExecutionListener.class, mergeMode = MergeMode.MERGE_WITH_DEFAULTS);
 ```
-For an example check out the test classes inside the test package: com.stolsvik.mats.junit.spring
+For an example check out the test classes inside the test package: io.mats3.junit.spring
 
 #### Post test clean up
 All tests in a particular class will share a MatsFactory when using the Rule_Mats, as it is a @ClassRule (which again

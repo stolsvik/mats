@@ -62,7 +62,7 @@ task startMatsTestWebsocketServer(dependsOn: [configurations.testRuntimeClasspat
 
     doLast {
         int numberOfServers = 3
-        String serverClassname = "com.stolsvik.mats.websocket.MatsTestWebsocketServer"
+        String serverClassname = "io.mats3.websocket.MatsTestWebsocketServer"
         logger.info("Starting MatsTestWebsocketServer");
         List<String> cmd = [
                 "${System.getenv("JAVA_HOME")}/bin/java",

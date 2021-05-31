@@ -203,6 +203,6 @@ annotate your configuration class as such:
 @ExtendWith(SpringExtension.class)
 @TestExecutionListeners(value = SpringInjectExtensionsTestExecutionListener.class, mergeMode = MergeMode.MERGE_WITH_DEFAULTS)
 ```
-For an example check out the test classes inside the test package: com.stolsvik.mats.jupiter.spring
+For an example check out the test classes inside the test package: io.mats3.jupiter.spring
 
 Note: **Spring only supports Jupiter as of version 5.0.0!**
