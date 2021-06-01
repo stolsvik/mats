@@ -35,6 +35,8 @@ public class Test_SimplestSendReceive  {
 
     @BeforeClass
     public static void setupTerminator() {
+        // A "Terminator" is a service which does not reply, i.e. it "consumes" any incoming messages.
+        // However, in this test, it countdowns the test-latch, so that the main test thread can assert.
         MATS.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
                 (context, sto, dto) -> {
                     log.debug("TERMINATOR MatsTrace:\n" + context.toString());
@@ -44,6 +46,7 @@ public class Test_SimplestSendReceive  {
 
     @Test
     public void doTest() {
+        // Send message directly to the "Terminator" endpoint.
         DataTO dto = new DataTO(42, "TheAnswer");
         MATS.getMatsInitiator().initiateUnchecked(
                 (msg) -> msg.traceId(MatsTestHelp.traceId())
@@ -51,7 +54,7 @@ public class Test_SimplestSendReceive  {
                         .to(TERMINATOR)
                         .send(dto));
 
-        // Wait synchronously for terminator to finish.
+        // Wait synchronously for terminator to finish. NOTE: Such synchronous wait is not a typical Mats flow!
         Result<StateTO, DataTO> result = MATS.getMatsTestLatch().waitForResult();
         Assert.assertEquals(dto, result.getData());
     }

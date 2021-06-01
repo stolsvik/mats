@@ -6,7 +6,7 @@
 
 *Mats* is a library that facilitates the development of asynchronous, stateless (or stateful, depending on your point of view), multi-stage, message-based services.
 
-A *Mats Endpoint* is a service that contains one or multiple *Stages*. Each stage is a small independent "server" that listens to incoming messages on a queue, and performs some processing on the incoming DTO. For *Request* messages it will then typically either send a *Reply* message to the queue specified below it on the incoming message's call stack (i.e. to the caller's next stage), or perform a Request by sending a message to a different Mats endpoint, who's Reply will then be received on the next stage of the present endpoint. 
+A *Mats Endpoint* is a service that contains one or multiple *Stages*. Each stage is a small independent "server" that listens to incoming messages on a queue, and performs some processing on the incoming DTO. For *Request* messages it will then typically either send a *Reply* message to the queue specified below it on the incoming message's call stack (i.e. to the caller's next stage), or perform a Request by sending a message to a different Mats endpoint, who's Reply will then be received on the next stage of the present endpoint.
 
 In a Mats endpoint consisting of multiple stages, the stages of the endpoint are connected with an endpoint specified *state object* ("STO") which is transparently passed along with the message flow, which gives the effect of having "request scoped variables" that are present through the different stages of the endpoint.
 
@@ -38,7 +38,7 @@ In a multi-service architecture (e.g. <i>Micro Services</i>) one needs to commun
 
 However, the big pain point with message-based communications is that to reap all these benefits, one need to fully embrace asynchronous, multi-staged distributed processing, where each stage is totally stateless, but where one still needs to maintain a state throughout the flow.
 
-## Standard Multi Service Architecture employing REST RPC 
+## Standard Multi Service Architecture employing REST RPC
 
 When coding service-mesh internal REST endpoints, one often code locally within a single service, typically in a straight down, linear, often "transaction script" style - where you reason about the incoming Request, and need to provide a Response. It is not uncommon to do this in a synchronous fashion. This is very easy on the brain: It is a linear flow of logic. It is probably just a standard Java method. All the code for this particular service method resides in the same project. You can structure your code, invoke service beans or similar. When you need information from external sources, you go get it: Either from a database, or from other services by invoking them using some HttpClient. *(Of course, there are things that can be optimized here, e.g. asynchronous processing instead of old-school blocking Servlet-style calls, invoking the external resources asynchronously by using e.g. Futures or other asynchronous mechanisms - but that is not really the point here!)*. For a given service, all logic can be mostly be reasoned about locally, within a single codebase.
 
@@ -82,30 +82,37 @@ ASCII-artsy, it looks like this:
 </pre>
 
 ```java
-public class Test_SimplestSendReceive extends AMatsTest {
-    @Before
-    public void setupTerminator() {
+public class Test_SimplestSendReceive  {
+    private static final Logger log = MatsTestHelp.getClassLogger();
+
+    @ClassRule
+    public static final Rule_Mats MATS = Rule_Mats.create();
+
+    private static final String TERMINATOR = MatsTestHelp.terminator();
+
+    @BeforeClass
+    public static void setupTerminator() {
         // A "Terminator" is a service which does not reply, i.e. it "consumes" any incoming messages.
         // However, in this test, it countdowns the test-latch, so that the main test thread can assert.
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
-                    log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
-                    matsTestLatch.resolve(dto, sto);
+        MATS.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
+                    log.debug("TERMINATOR MatsTrace:\n" + context.toString());
+                    MATS.getMatsTestLatch().resolve(sto, dto);
                 });
     }
 
     @Test
-    public void doTest() throws InterruptedException {
+    public void doTest() {
         // Send message directly to the "Terminator" endpoint.
         DataTO dto = new DataTO(42, "TheAnswer");
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
-                (msg) -> msg.traceId(randomId())
-                        .from(INITIATOR)
+        MATS.getMatsInitiator().initiateUnchecked(
+                (msg) -> msg.traceId(MatsTestHelp.traceId())
+                        .from(MatsTestHelp.from("test"))
                         .to(TERMINATOR)
                         .send(dto));
 
-        // Wait synchronously for terminator to finish.
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        // Wait synchronously for terminator to finish. NOTE: Such synchronicity is not a typical Mats flow!
+        Result<StateTO, DataTO> result = MATS.getMatsTestLatch().waitForResult();
         Assert.assertEquals(dto, result.getData());
     }
 }
@@ -123,42 +130,50 @@ ASCII-artsy, it looks like this, the line (pipe-char) representing the state tha
 </pre>
 
 ```java
-public class Test_SimplestServiceRequest extends AMatsTest {
-    @Before
-    public void setupService() {
+public class Test_SimplestServiceRequest {
+    private static final Logger log = MatsTestHelp.getClassLogger();
+
+    @ClassRule
+    public static final Rule_Mats MATS = Rule_Mats.create();
+
+    private static final String SERVICE = MatsTestHelp.service();
+    private static final String TERMINATOR = MatsTestHelp.terminator();
+
+    @BeforeClass
+    public static void setupService() {
         // This service is very simple, where it simply returns with an alteration of what it gets input.
-        matsRule.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
+        MATS.getMatsFactory().single(SERVICE, DataTO.class, DataTO.class,
                 (context, dto) -> {
                     return new DataTO(dto.number * 2, dto.string + ":FromService");
                 });
     }
 
-    @Before
-    public void setupTerminator() {
+    @BeforeClass
+    public static void setupTerminator() {
         // A "Terminator" is a service which does not reply, i.e. it "consumes" any incoming messages.
-        // However, in this test, it countdowns the test-latch, so that the main test thread can assert.
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
-                    log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
-                    matsTestLatch.resolve(dto, sto);
+        // However, in this test, it resolves the test-latch, so that the main test thread can assert.
+        MATS.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
+                    log.debug("TERMINATOR MatsTrace:\n" + context.toString());
+                    MATS.getMatsTestLatch().resolve(sto, dto);
                 });
 
     }
 
     @Test
-    public void doTest() throws InterruptedException {
+    public void doTest() {
         // Send request to "Service", specifying reply to "Terminator".
         DataTO dto = new DataTO(42, "TheAnswer");
         StateTO sto = new StateTO(420, 420.024);
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
-                (msg) -> msg.traceId(randomId())
-                        .from(INITIATOR)
+        MATS.getMatsInitiator().initiateUnchecked(
+                (msg) -> msg.traceId(MatsTestHelp.traceId())
+                        .from(MatsTestHelp.from("test"))
                         .to(SERVICE)
-                        .replyTo(TERMINATOR)
-                        .request(dto, sto));
+                        .replyTo(TERMINATOR, sto)
+                        .request(dto));
 
-        // Wait synchronously for terminator to finish.
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
+        // Wait synchronously for terminator to finish. NOTE: Such synchronicity is not a typical Mats flow!
+        Result<StateTO, DataTO> result = MATS.getMatsTestLatch().waitForResult();
         Assert.assertEquals(sto, result.getState());
         Assert.assertEquals(new DataTO(dto.number * 2, dto.string + ":FromService"), result.getData());
     }
@@ -167,139 +182,165 @@ public class Test_SimplestServiceRequest extends AMatsTest {
 
 ## Multi-stage service and multi-level requests
 
-Sets up a somewhat complex test scenario, testing request/reply message passing and state keeping between stages in several multi-stage endpoints, at different levels in the stack.
+Sets up a somewhat complex test scenario, testing request/reply message passing and state keeping between stages in several multi-stage endpoints, at different levels in the stack. The code is a tad long, but it should be simple to read through.
 
-The main aspects of Mats are demonstrated here, notice in particular how the code of <code>setupMasterMultiStagedService()</code> *looks like* - if you squint a little - a linear "straight down" method with two "blocking requests" out to other services, where the last stage ends with a return statement, sending off the reply to whoever invoked it.
+The main aspects of Mats are demonstrated here, notice in particular how the code of <code>setupMainMultiStagedService()</code> *looks like* - if you squint a little - a linear "straight down" method with two "blocking requests" out to other services, where the last stage ends with a return statement, sending off the Reply to whoever invoked it.
 <p>
 Sets up these services:
 <ul>
 <li>Leaf service: Single stage: Replies directly.
 <li>Mid service: Two stages: Requests "Leaf" service, then replies.
-<li>Master service: Three stages: First requests "Mid" service, then requests "Leaf" service, then replies.
+<li>Main service: Three stages: First requests "Mid" service, then requests "Leaf" service, then replies.
 </ul>
-A Terminator is also set up, and then the initiator sends a request to "Master", setting replyTo(Terminator).
+A Terminator is also set up, and then the initiator sends a request to "Main", setting replyTo(Terminator).
 <p>
 ASCII-artsy, it looks like this, the lines representing the state that goes between the Initiator and Terminator and the stages of the endpoints, but which is kept "on the wire" along with the message flow through the different requests and replies:
 <pre>
 [Initiator]              {request}
- |  [Master S0 (init)]   {request}
+ |  [Main S0 (init)]   {request}
  |   |  [Mid S0 (init)]  {request}
  |   |   |  [Leaf]       {reply}
  |   |  [Mid S1 (last)]  {reply}
- |  [Master S1]          {request}
+ |  [Main S1]          {request}
  |   |  [Leaf]           {reply}
- |  [Master S2 (last)]   {reply}
+ |  [Main S2 (last)]   {reply}
 [Terminator]
 </pre>
 
-**Again, it is important to realize that the three stages of the Master service (and the two of the Mid service) are actually fully independent messaging endpoints (with their own JMS queue when run on a JMS backend), and if you've deployed the service to multiple nodes, each stage in a particular invocation flow might run on a different node.**
+**Again, it is important to realize that the three stages of the Main service (and the two of the Mid service) are actually fully independent messaging endpoints (with their own JMS queue when run on a JMS backend), and if you've deployed the service to multiple nodes, each stage in a particular invocation flow might run on a different node.**
 
 The Mats API and implementation sets up a call stack that can be of arbitrary depth, along with "stack frames" whose state flows along with the message passing, so that you can code *as if* you were coding a normal service method that invokes remote services synchronously.
 
 
 ```java
-public class Test_ComplexMultiStage extends AMatsTest {
-    @Before
-    public void setupLeafService() {
-        // This service is very simple, where it simply returns with an alteration of what it gets input.
-        matsRule.getMatsFactory().single(SERVICE + ".Leaf", DataTO.class, DataTO.class,
+public class Test_MultiLevelMultiStage {
+    private static final Logger log = MatsTestHelp.getClassLogger();
+
+    @ClassRule
+    public static final Rule_Mats MATS = Rule_Mats.create();
+
+    private static final String SERVICE_MAIN = MatsTestHelp.endpointId("MAIN");
+    private static final String SERVICE_MID = MatsTestHelp.endpointId("MID");
+    private static final String SERVICE_LEAF = MatsTestHelp.endpointId("LEAF");
+    private static final String TERMINATOR = MatsTestHelp.terminator();
+
+    @BeforeClass
+    public static void setupLeafService() {
+        // Create single-stage "Leaf" endpoint. Single stage, thus the processor is defined directly.
+        MATS.getMatsFactory().single(SERVICE_LEAF, DataTO.class, DataTO.class,
                 (context, dto) -> {
+                    // Returns a Reply to the calling service with a alteration of incoming message
                     return new DataTO(dto.number * 2, dto.string + ":FromLeafService");
                 });
     }
 
-    @Before
-    public void setupMidMultiStagedService() {
-        MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE + ".Mid",
-                                                                            StateTO.class, DataTO.class);
-        ep.stage(DataTO.class, (context, dto, sto) -> {
+    @BeforeClass
+    public static void setupMidMultiStagedService() {
+        // Create two-stage "Mid" endpoint
+        MatsEndpoint<DataTO, StateTO> ep = MATS.getMatsFactory()
+                .staged(SERVICE_MID, DataTO.class, StateTO.class);
+
+        // Initial stage, receives incoming message to this "Mid" service
+        ep.stage(DataTO.class, (context, sto, dto) -> {
             // State object is "empty" at initial stage.
             Assert.assertEquals(0, sto.number1);
-            Assert.assertEquals(0, sto.number2);
+            Assert.assertEquals(0, sto.number2, 0);
             // Setting state some variables.
             sto.number1 = 10;
             sto.number2 = Math.PI;
-            // Perform request to "Leaf Service".
-            context.request(SERVICE + ".Leaf", dto);                //  These three lines constitute the ..
-        });                                                         //  .. "service call" from "Mid Service" ..
-        ep.lastStage(DataTO.class, (context, dto, sto) -> {         //  .. out to the "Leaf Service" ..
-            // .. "continuing" after the "Leaf Service" has replied.
+            // Perform request to "Leaf" Service...
+            context.request(SERVICE_LEAF, dto);
+        });
+
+        // Next, and last, stage, receives replies from the "Leaf" service, and returns a Reply
+        ep.lastStage(DataTO.class, (context, sto, dto) -> {
+            // .. "continuing" after the "Leaf" Service has replied.
             // Assert that state variables set in previous stage are still with us.
-            Assert.assertEquals(10,      sto.number1);
-            Assert.assertEquals(Math.PI, sto.number2);
-            // Replying to calling service.
+            Assert.assertEquals(new StateTO(10, Math.PI), sto);
+            // Returning Reply to calling service.
             return new DataTO(dto.number * 3, dto.string + ":FromMidService");
         });
     }
 
-    @Before
-    public void setupMasterMultiStagedService() {
-        MatsEndpoint<StateTO, DataTO> ep = matsRule.getMatsFactory().staged(SERVICE,
-                                                                            StateTO.class, DataTO.class);
-        ep.stage(DataTO.class, (context, dto, sto) -> {
+    @BeforeClass
+    public static void setupMainMultiStagedService() {
+        // Create three-stage "Main" endpoint
+        MatsEndpoint<DataTO, StateTO> ep = MATS.getMatsFactory()
+                .staged(SERVICE_MAIN, DataTO.class, StateTO.class);
+
+        // Initial stage, receives incoming message to this "Main" service
+        ep.stage(DataTO.class, (context, sto, dto) -> {
             // State object is "empty" at initial stage.
             Assert.assertEquals(0, sto.number1);
-            Assert.assertEquals(0, sto.number2);
-            // Setting some state variables.
+            Assert.assertEquals(0, sto.number2, 0);
+            // Setting state some variables.
             sto.number1 = Integer.MAX_VALUE;
             sto.number2 = Math.E;
-            // Perform request to "Mid Service".
-            context.request(SERVICE + ".Mid", dto);                 //  These three lines constitute the ..
-        });                                                         //  .. "service call" from "Master Service" ..
-        ep.stage(DataTO.class, (context, dto, sto) -> {             //  .. out to the "Mid Service" ..
-            // .. "continuing" after the "Mid Service" has replied.
+            // Perform request to "Mid" Service...
+            context.request(SERVICE_MID, dto);
+        });
+        ep.stage(DataTO.class, (context, sto, dto) -> {
+            // .. "continuing" after the "Mid" Service has replied.
             // Assert that state variables set in previous stage are still with us.
             Assert.assertEquals(Integer.MAX_VALUE, sto.number1);
-            Assert.assertEquals(Math.E,            sto.number2);
+            Assert.assertEquals(Math.E, sto.number2, 0);
             // Changing the state variables.
             sto.number1 = Integer.MIN_VALUE;
             sto.number2 = Math.E * 2;
-            // Perform request to "Leaf Service".
-            context.request(SERVICE + ".Leaf", dto);                //  These three lines constitute the ..
-        });                                                         //  .. "service call" from "Master Service" ..
-        ep.lastStage(DataTO.class, (context, dto, sto) -> {         //  .. out to the "Leaf Service" ..
-            // .. "continuing" after the "Leaf Service" has replied.
+            // Perform request to "Leaf" Service...
+            context.request(SERVICE_LEAF, dto);
+        });
+        ep.lastStage(DataTO.class, (context, sto, dto) -> {
+            // .. "continuing" after the "Leaf" Service has replied.
             // Assert that state variables changed in previous stage are still with us.
             Assert.assertEquals(Integer.MIN_VALUE, sto.number1);
-            Assert.assertEquals(Math.E * 2,        sto.number2);
-            // Replying to calling service.
-            return new DataTO(dto.number * 5, dto.string + ":FromMasterService");
+            Assert.assertEquals(Math.E * 2, sto.number2, 0);
+            // Returning Reply to "caller"
+            // (in this test it will be what the initiation specified as replyTo; "Terminator")
+            return new DataTO(dto.number * 5, dto.string + ":FromMainService");
         });
     }
 
-    @Before
-    public void setupTerminator() {
+    @BeforeClass
+    public static void setupTerminator() {
         // A "Terminator" is a service which does not reply, i.e. it "consumes" any incoming messages.
-        // However, in this test, it countdowns the test-latch, so that the main test thread can assert.
-        matsRule.getMatsFactory().terminator(TERMINATOR, DataTO.class, StateTO.class,
-                (context, dto, sto) -> {
-                    // .. "continuing" after the request to "Master Service" from Initiator.
-                    log.debug("TERMINATOR MatsTrace:\n" + context.getTrace());
-                    matsTestLatch.resolve(dto, sto);
+        // However, in this test, it resolves the test-latch, so that the main test thread can assert.
+        MATS.getMatsFactory().terminator(TERMINATOR, StateTO.class, DataTO.class,
+                (context, sto, dto) -> {
+                    log.debug("TERMINATOR MatsTrace:\n" + context.toString());
+                    MATS.getMatsTestLatch().resolve(sto, dto);
                 });
     }
 
     @Test
-    public void doTest() throws InterruptedException {
-        // Send request to "Master Service", specifying reply to "Terminator".
-        StateTO sto = new StateTO(420, 420.024);  // State object for "Terminator".
-        DataTO dto = new DataTO(42, "TheAnswer"); // Request object to "Master Service".
-        matsRule.getMatsFactory().getInitiator(INITIATOR).initiate(
-                (msg) -> msg.traceId(randomId())
-                        .from(INITIATOR)
-                        .to(SERVICE)
-                        .replyTo(TERMINATOR)
-                        .request(dto, sto));
+    public void doTest() {
+        // :: Arrange
+        // State object for "Terminator".
+        StateTO sto = new StateTO((int) Math.round(123 * Math.random()), 321 * Math.random());
+        // Request object to "Main" Service.
+        DataTO dto = new DataTO(42 + Math.random(), "TheRequest:" + Math.random());
+
+        // :: Act
+        // Perform the Request to "Main", setting the replyTo to "Terminator".
+        MATS.getMatsInitiator().initiateUnchecked(
+                (msg) -> msg.traceId(MatsTestHelp.traceId())
+                        .from(MatsTestHelp.from("test"))
+                        .to(SERVICE_MAIN)
+                        .replyTo(TERMINATOR, sto)
+                        .request(dto));
 
         // Wait synchronously for terminator to finish.
-        Result<StateTO, DataTO> result = matsTestLatch.waitForResult();
-        // Asserting that the state object which the Terminator got is equal to the one we sent.
+        // NOTE: Such synchronous wait is not a typical Mats flow!
+        Result<StateTO, DataTO> result = MATS.getMatsTestLatch().waitForResult();
+
+        // :: Assert
+        // Assert that the State to the "Terminator" was what we wanted him to get
         Assert.assertEquals(sto, result.getState());
-        // Asserting that the final result has passed through all the services' stages.
+        // Assert that the Mats flow has gone through the stages, being modified as it went along
         Assert.assertEquals(new DataTO(dto.number * 2 * 3 * 2 * 5,
-                                       dto.string + ":FromLeafService" + ":FromMidService"
-                                                  + ":FromLeafService" + ":FromMasterService"),
-                            result.getData());
+                        dto.string + ":FromLeafService" + ":FromMidService"
+                                + ":FromLeafService" + ":FromMainService"),
+                result.getData());
     }
 }
 ```
