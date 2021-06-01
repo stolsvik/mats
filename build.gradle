@@ -7,7 +7,7 @@ wrapper {
 
 // NOTE: MATS VERSION is set in gradle.properties
 
-// Spring, ActiveMQ and Jackson JSON versions: Used in several sub projects
+// Versions for all libraries used throughout the subprojects
 ext {
     activeMqVersion = '5.15.+'
     springVersion = '4.+' // Still using Spring 4 as "baseline", but also fully compatible with Spring 5. 2020-11-14.
@@ -47,7 +47,7 @@ subprojects {
     }
 
     javadoc {
-        // without the -quiet option, the build fails
+        // without the -quiet option, the build fails due to errors&warns
         options.addStringOption('Xdoclint:none', '-quiet')
     }
 
@@ -65,7 +65,7 @@ subprojects {
         }
     }
 
-    // Define a task that all subprojects gets. Invoke with "./gradle allDeps | less"
+    // Define dependency report task that all subprojects gets. Invoke with "./gradlew allDeps | less"
     task allDeps(type: DependencyReportTask) {}
 
     publishing {
@@ -77,8 +77,8 @@ subprojects {
                     url = 'https://github.com/stolsvik/mats'
                     licenses {
                         license {
-                            name = 'The Apache License, Version 2.0'
-                            url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                            name = 'PolyForm Perimeter License 1.0.0 with examples'
+                            url = ''
                         }
                     }
                     developers {
@@ -107,7 +107,7 @@ subprojects {
     }
 
     // ------------------------------------------------
-    // -- Boring stuff, should be a plugin.
+    // -- Simple sys-env tool
 
     task systemInformation {
         doLast {

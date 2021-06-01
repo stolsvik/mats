@@ -11,8 +11,8 @@ exemplified by Cloud providers, you or your company may not:
  * Use the software (e.g. Mats' Interceptor API), or in any other way, to offer any kind of
    Mats metrics, introspection, tracing, logging, visualization or debugging tools or solutions.
    
-This does not preclude a company-internal service provider to provide such services
-to their own systems and developers.
+These examples do not preclude a company-internal service provider to provide such services
+to their own systems and developers as long as the license is adhered to.
 
 # PolyForm Perimeter License 1.0.0
 
